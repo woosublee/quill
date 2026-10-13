@@ -505,17 +505,17 @@ struct BuildMetadataTests {
         // iCloud note sync: both the app build and the DMG build get the
         // profile, or make dmg rebuilds the notarized app without it.
         assertContains(releaseWorkflow, "PROVISIONING_PROFILE_BASE64: ${{ secrets.DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}")
-        assertContains(releaseWorkflow, #"echo "PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV""#)
+        assertContains(releaseWorkflow, #"echo "QUILL_RELEASE_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV""#)
+        assertDoesNotContain(releaseWorkflow, #"echo "PROVISIONING_PROFILE="#)
+        assertContains(releaseWorkflow, "isn't a signed provisioning profile")
         assertContains(releaseWorkflow, "DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 is not set")
         for check in [
             "expect com.apple.developer.icloud-container-environment Production",
             "expect com.apple.developer.aps-environment production",
             "expect com.apple.developer.icloud-container-identifiers iCloud.com.woosublee.quill",
             "expect com.apple.developer.icloud-services CloudKit",
-            "expect com.apple.application-identifier",
-            "expect com.apple.developer.team-identifier",
-            #"cmp -s "$PROVISIONING_PROFILE" build/Quill.app/Contents/embedded.provisionprofile"#,
-            #""$RUNNER_TEMP/developer_id.provisionprofile""#,
+            #"cmp -s "$QUILL_RELEASE_PROFILE" build/Quill.app/Contents/embedded.provisionprofile"#,
+            #"rm -f "$RUNNER_TEMP/developer_id.p12" "$RUNNER_TEMP/notary_api_key.p8" "$RUNNER_TEMP/Quill-notarize.zip" "$RUNNER_TEMP/developer_id.provisionprofile" "$RUNNER_TEMP/quill-entitlements.plist""#,
         ] {
             assertContains(releaseWorkflow, check)
         }
@@ -525,7 +525,7 @@ struct BuildMetadataTests {
         }
         precondition(profileMakeLines.count == 2, "Expected the app and DMG make calls")
         for line in profileMakeLines {
-            assertContains(String(line), #"PROVISIONING_PROFILE="$PROVISIONING_PROFILE""#)
+            assertContains(String(line), #"PROVISIONING_PROFILE="$QUILL_RELEASE_PROFILE""#)
         }
         assertContains(releaseWorkflow, "ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}")
         assertContains(releaseWorkflow, "ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}")

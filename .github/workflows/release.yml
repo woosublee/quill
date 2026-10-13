@@ -117,7 +117,8 @@ jobs:
       #   ASC_ISSUER_ID — App Store Connect API issuer ID
       #   ASC_KEY_P8_BASE64 — base64-encoded App Store Connect API private key (.p8)
       #   SPARKLE_PRIVATE_KEY — Sparkle EdDSA private key for appcast signing
-      #   DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 — base64-encoded Developer ID provisioning profile for com.woosublee.quill (iCloud note sync and push, Production)
+      #   DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 — base64-encoded Developer ID provisioning profile for com.woosublee.quill (iCloud note sync and push, Production).
+      #     It lists the certificate in DEVELOPER_ID_CERTIFICATE_BASE64: renewing that certificate means regenerating the profile too.
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
@@ -185,7 +186,13 @@ jobs:
           fi
           PROFILE_PATH="$RUNNER_TEMP/developer_id.provisionprofile"
           echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
-          echo "PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
+          if ! security cms -D -i "$PROFILE_PATH" > /dev/null 2>&1; then
+            echo "DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 isn't a signed provisioning profile." >&2
+            exit 1
+          fi
+          # Not PROVISIONING_PROFILE: make would read that from the environment
+          # in every later call. Each build passes it explicitly instead.
+          echo "QUILL_RELEASE_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
 
       - name: Store notarization credentials
         env:
@@ -206,22 +213,20 @@ jobs:
         env:
           GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
           GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
-        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$QUILL_RELEASE_PROFILE"
 
       - name: Verify iCloud entitlements
         run: |
           ENTITLEMENTS="$RUNNER_TEMP/quill-entitlements.plist"
           codesign -d --entitlements - --xml build/Quill.app > "$ENTITLEMENTS"
-          PROFILE_PLIST="$RUNNER_TEMP/quill-profile.plist"
-          security cms -D -i "$PROVISIONING_PROFILE" > "$PROFILE_PLIST"
-          # A value, or an array's items one per line.
+          # A value, or an array's items one per line; empty when missing.
           value() {
-            /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null \
-              | sed -e 's/^ *//' -e 's/ *$//' | grep -vxF -e 'Array {' -e '}'
+            /usr/libexec/PlistBuddy -c "Print :$1" "$ENTITLEMENTS" 2>/dev/null \
+              | sed -e 's/^ *//' -e 's/ *$//' | grep -vxF -e 'Array {' -e '}' || true
           }
           expect() {
             local actual
-            actual="$(value "$ENTITLEMENTS" "$1")"
+            actual="$(value "$1")"
             if [ "$actual" != "$2" ]; then
               echo "Entitlement $1 should be exactly $2; it is: $(printf '%s' "$actual" | tr '\n' ' ')" >&2
               exit 1
@@ -231,10 +236,7 @@ jobs:
           expect com.apple.developer.aps-environment production
           expect com.apple.developer.icloud-container-identifiers iCloud.com.woosublee.quill
           expect com.apple.developer.icloud-services CloudKit
-          # macOS checks these against the embedded profile at launch.
-          expect com.apple.application-identifier "$(value "$PROFILE_PLIST" Entitlements:com.apple.application-identifier)"
-          expect com.apple.developer.team-identifier "$(value "$PROFILE_PLIST" Entitlements:com.apple.developer.team-identifier)"
-          if ! cmp -s "$PROVISIONING_PROFILE" build/Quill.app/Contents/embedded.provisionprofile; then
+          if ! cmp -s "$QUILL_RELEASE_PROFILE" build/Quill.app/Contents/embedded.provisionprofile; then
             echo "The app doesn't embed the installed provisioning profile." >&2
             exit 1
           fi
@@ -255,7 +257,7 @@ jobs:
           GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
           GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
         run: |
-          make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+          make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$QUILL_RELEASE_PROFILE"
           if ! xcrun stapler validate build/Quill.app; then
             echo "make dmg rebuilt the notarized app; pass it the same settings as Build universal." >&2
             exit 1
@@ -330,7 +332,7 @@ jobs:
       - name: Cleanup signing artifacts
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/developer_id.p12" "$RUNNER_TEMP/notary_api_key.p8" "$RUNNER_TEMP/Quill-notarize.zip" "$RUNNER_TEMP/developer_id.provisionprofile" "$RUNNER_TEMP/quill-entitlements.plist" "$RUNNER_TEMP/quill-profile.plist"
+          rm -f "$RUNNER_TEMP/developer_id.p12" "$RUNNER_TEMP/notary_api_key.p8" "$RUNNER_TEMP/Quill-notarize.zip" "$RUNNER_TEMP/developer_id.provisionprofile" "$RUNNER_TEMP/quill-entitlements.plist"
           KPATH="${KEYCHAIN_PATH:-$RUNNER_TEMP/signing.keychain-db}"
           if [ -f "$KPATH" ]; then
             security delete-keychain "$KPATH"
