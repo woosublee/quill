@@ -30,6 +30,10 @@ final class MCPServer {
     private let openConnectionsLock = NSLock()
 
     private weak var appState: AppState?
+    /// Keeps decoded summary text between list_notes calls, as the Note
+    /// Browser's search does (the summaries are in memory anyway); main
+    /// thread only.
+    private let noteSearchMatcher = NoteSearchMatcher()
     private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
@@ -312,7 +316,7 @@ final class MCPServer {
                     "properties": [
                         "query": [
                             "type": "string",
-                            "description": "Text to find in the note title, transcript, summary, or calendar event title"
+                            "description": "Text to find, searched like Quill's note search: a title you set, the calendar event title, the transcript, and the summary"
                         ],
                         "since": [
                             "type": "string",
@@ -422,16 +426,16 @@ final class MCPServer {
             } catch {
                 return textContent("Error: invalid arguments.", isError: true)
             }
-            // A fresh matcher per call: summary text isn't kept between calls.
-            let matcher = NoteSearchMatcher()
+            let matcher = noteSearchMatcher
             let payload = NotePayload.list(
                 appState.pipelineHistory,
                 filter: filter,
                 matches: { matcher.matches($0, query: $1) },
                 title: { NoteTitleResolver.displayTitle(for: $0) },
-                hasSummary: { $0.meetingSummaryJSON != nil },
+                hasSummary: { $0.meetingSummary != nil },
                 formatter: Self.localISOFormatter()
             )
+            matcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
             return jsonContent(payload)
 
         case "get_note":
@@ -448,7 +452,7 @@ final class MCPServer {
                 summary: item.meetingSummary.map { envelope in
                     NotePayload.Summary(
                         markdown: MeetingSummaryMarkdownRenderer.render(envelope),
-                        isStale: envelope.sourceFingerprint != appState.meetingSummarySource(for: item).fingerprint
+                        isStale: appState.isMeetingSummaryStale(envelope, for: item)
                     )
                 },
                 audio: Self.audio(of: item, appState: appState),
@@ -469,17 +473,19 @@ final class MCPServer {
     }
 
     /// The note's audio as the Note Browser sees it: an empty file isn't
-    /// usable, and audio kept only in iCloud can be downloaded.
+    /// usable, and audio kept only in iCloud can be downloaded. A file name
+    /// the asset store won't resolve (one leading outside the audio
+    /// folder) gives no path at all.
     @MainActor
     private static func audio(of item: PipelineHistoryItem, appState: AppState) -> NotePayload.Audio? {
-        guard let name = item.audioFileName, !name.isEmpty else { return nil }
-        let url = appState.storedAudioURL(for: item)
-            ?? appState.storageLayout.audioDirectory.appendingPathComponent(name)
+        guard let name = item.audioFileName, !name.isEmpty,
+              let url = appState.storedAudioURL(for: item) else { return nil }
+        let state = appState.noteAudioState(for: item)
         return NotePayload.Audio(
             filename: name,
             path: url.path,
-            existsHere: appState.storedAudioFile(for: item).usableURL != nil,
-            inICloud: appState.noteAudioState(for: item).isInICloud
+            existsHere: state == .local,
+            inICloud: state.isInICloud
         )
     }
 

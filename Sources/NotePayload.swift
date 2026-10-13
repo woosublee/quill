@@ -123,20 +123,29 @@ enum NotePayload {
                 return calendar.startOfDay(for: next).addingTimeInterval(-0.001)
             }
 
-            // A date-time without an offset is local time.
-            let localFormatter = DateFormatter()
-            localFormatter.calendar = Calendar(identifier: .gregorian)
-            localFormatter.locale = Locale(identifier: "en_US_POSIX")
-            localFormatter.timeZone = timeZone
-            localFormatter.isLenient = false
-            for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm"] {
-                localFormatter.dateFormat = format
-                if let date = localFormatter.date(from: text) { return date }
+            // A date-time without an offset is local time, also built through
+            // Calendar so a time a clock change skips moves forward.
+            if let local = Self.groups(in: text, matching: #"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,9}))?)?$"#) {
+                let number = { (index: Int) in local[index].flatMap { Int($0) } }
+                let fraction = local[6].flatMap { Double("0." + $0) } ?? 0
+                let components = DateComponents(
+                    year: number(0), month: number(1), day: number(2),
+                    hour: number(3), minute: number(4), second: number(5) ?? 0
+                )
+                guard let hour = components.hour, hour < 24,
+                      let minute = components.minute, minute < 60,
+                      let second = components.second, second < 60,
+                      let date = calendar.date(from: components),
+                      calendar.dateComponents([.year, .month, .day], from: date)
+                          == DateComponents(year: components.year, month: components.month, day: components.day) else {
+                    throw ListFilterError.invalidDate(name)
+                }
+                return date.addingTimeInterval(fraction)
             }
 
             // ISO8601DateFormatter wants seconds; add them when left out.
             let withSeconds = text.range(
-                of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?=Z$|[+-]\d{2}:?\d{2}$)"#,
+                of: #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?=Z$|[+-][0-9]{2}:?[0-9]{2}$)"#,
                 options: .regularExpression
             ).map { text.replacingCharacters(in: $0, with: text[$0] + ":00") } ?? text
             let dateTimeFormatter = ISO8601DateFormatter()
@@ -149,11 +158,24 @@ enum NotePayload {
 
         /// The year, month and day of a plain YYYY-MM-DD.
         private static func day(_ text: String) -> DateComponents? {
-            guard text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else {
+            guard let parts = groups(in: text, matching: #"^([0-9]{4})-([0-9]{2})-([0-9]{2})$"#) else {
                 return nil
             }
-            let parts = text.split(separator: "-").compactMap { Int($0) }
-            return DateComponents(year: parts[0], month: parts[1], day: parts[2])
+            let numbers = parts.map { $0.flatMap { Int($0) } }
+            return DateComponents(year: numbers[0], month: numbers[1], day: numbers[2])
+        }
+
+        /// The capture groups of a pattern (nil for a group that didn't take
+        /// part), or nil when the text doesn't match. Patterns use [0-9],
+        /// not \d, so only ASCII digits that Int() reads can match.
+        private static func groups(in text: String, matching pattern: String) -> [String?]? {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
+                return nil
+            }
+            return (1..<match.numberOfRanges).map { index in
+                Range(match.range(at: index), in: text).map { String(text[$0]) }
+            }
         }
     }
 
@@ -171,8 +193,8 @@ enum NotePayload {
         }
     }
 
-    /// The notes that pass the filter, newest first, skipping `offset`
-    /// matches. `matches` is the Note Browser's search for a non-empty
+    /// The notes that pass the filter, in the given order (the Note
+    /// Browser's, newest first), skipping `offset` matches. `matches` is the Note Browser's search for a non-empty
     /// query; `title` and `hasSummary` are only asked for returned notes.
     static func list(
         _ items: [PipelineHistoryItem],
@@ -185,19 +207,10 @@ enum NotePayload {
         var notes: [[String: Any]] = []
         var skipped = 0
         var hasMore = false
-        // Filter before sorting so a narrow filter sorts only its matches.
-        let inRange = items.filter { item in
+        for item in items {
             let date = noteDate(item)
-            if let since = filter.since, date < since { return false }
-            if let until = filter.until, date > until { return false }
-            return true
-        }
-        // Ties break on id so pages stay in the same order between calls.
-        let sorted = inRange.sorted {
-            let (left, right) = (noteDate($0), noteDate($1))
-            return left != right ? left > right : $0.id.uuidString < $1.id.uuidString
-        }
-        for item in sorted {
+            if let since = filter.since, date < since { continue }
+            if let until = filter.until, date > until { continue }
             if let query = filter.query, !matches(item, query) { continue }
             if skipped < filter.offset {
                 skipped += 1

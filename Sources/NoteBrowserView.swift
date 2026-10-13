@@ -2587,8 +2587,7 @@ private struct NoteDetailView: View {
     }
     private var isSummaryStale: Bool {
         guard let summaryEnvelope else { return false }
-        return summaryEnvelope.sourceFingerprint
-            != appState.meetingSummarySource(for: item).fingerprint
+        return appState.isMeetingSummaryStale(summaryEnvelope, for: item)
     }
     private var summaryToolbarAction: SummaryToolbarAction {
         if summaryEnvelope != nil {

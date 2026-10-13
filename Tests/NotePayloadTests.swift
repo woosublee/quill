@@ -14,11 +14,13 @@ struct NotePayloadTests {
         try testListIsNewestFirstWithTitleAndPreview()
         try testListLimitReportsMore()
         try testListOffsetPagesThroughMatches()
-        try testListBreaksDateTiesByID()
+        try testListKeepsGivenOrder()
         try testListQueryUsesNoteSearch()
         try testListDateRangeUsesWholeLocalDays()
         try testListAcceptsDateTimes()
         try testListDayWithSkippedMidnight()
+        try testListLocalTimeInClockChangeGap()
+        testListRejectsNonASCIIDigits()
         testListRejectsBadArguments()
         try testListAcceptsNullAndWholeDoubles()
         print("NotePayloadTests passed")
@@ -172,6 +174,11 @@ struct NotePayloadTests {
 
     /// Three notes a day apart: 2023-11-13, -14 and -15 at 07:13 in Seoul.
     private static func threeNotes() -> [PipelineHistoryItem] {
+        let notes = unorderedNotes()
+        return [notes[1], notes[2], notes[0]]
+    }
+
+    private static func unorderedNotes() -> [PipelineHistoryItem] {
         let day: TimeInterval = 86_400
         return [
             makeItem(
@@ -258,14 +265,9 @@ struct NotePayloadTests {
         try expectIDs(["query": "budget", "offset": 1], [])
     }
 
-    private static func testListBreaksDateTiesByID() throws {
-        let same = Date(timeIntervalSince1970: 1_700_000_000)
-        let tied = [
-            makeItem(id: "00000000-0000-0000-0000-000000000009", timestamp: same),
-            makeItem(id: "00000000-0000-0000-0000-000000000004", timestamp: same),
-        ]
-        try expectIDs([:], ["4", "9"], items: tied)
-        try expectIDs([:], ["4", "9"], items: tied.reversed())
+    /// The list keeps the Note Browser's order rather than re-sorting.
+    private static func testListKeepsGivenOrder() throws {
+        try expectIDs([:], ["1", "3", "2"], items: unorderedNotes())
     }
 
     /// The query uses the Note Browser's search: the shown transcript and
@@ -312,9 +314,30 @@ struct NotePayloadTests {
         try expectIDs(["limit": NSNumber(value: 1.0)], ["3"])  // JSON numbers arrive as NSNumber
     }
 
+    /// 02:30 doesn't exist on a US spring-forward day; it still parses.
+    private static func testListLocalTimeInClockChangeGap() throws {
+        let newYork = TimeZone(identifier: "America/New_York")!
+        let filter = try NotePayload.ListFilter(arguments: ["since": "2026-03-08T02:30:00"], timeZone: newYork)
+        let iso = ISO8601DateFormatter()
+        iso.timeZone = newYork
+        precondition(iso.string(from: filter.since!).hasPrefix("2026-03-08T03:"))
+        let withFraction = try NotePayload.ListFilter(arguments: ["since": "2026-03-09T09:00:00.250"], timeZone: newYork)
+        precondition(abs(withFraction.since!.timeIntervalSince1970.truncatingRemainder(dividingBy: 1) - 0.25) < 0.001)
+    }
+
+    /// Full-width digits are rejected, not read (they used to crash).
+    private static func testListRejectsNonASCIIDigits() {
+        for value in ["２０２６-１０-１３", "２０２６-１０-１３T09:00", "٢٠٢٦-١٠-١٣"] {
+            do {
+                _ = try NotePayload.ListFilter(arguments: ["since": value], timeZone: seoul)
+                preconditionFailure("Expected \(value) to be rejected")
+            } catch {}
+        }
+    }
+
     private static func testListRejectsBadArguments() {
         let bad: [[String: Any]] = [
-            ["since": "yesterday"], ["until": "2023-13-40"], ["since": "2023-02-30"], ["since": 5],
+            ["since": "yesterday"], ["until": "2023-13-40"], ["since": "2023-02-30"], ["since": "2023-11-14T24:00"], ["since": 5],
             ["limit": "20"], ["offset": "20"], ["offset": NSNumber(value: 1.5)], ["limit": true],
         ]
         for arguments in bad {
