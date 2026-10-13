@@ -14,6 +14,7 @@ struct ModelsSettingsUIContractTests {
         let currentSpec = try source("docs/superpowers/specs/2026-07-17-model-first-settings-redesign.md")
         let aiTools = try source("Sources/AIToolsSettingsView.swift")
         let connections = try source("Sources/ConnectionsChoicesView.swift")
+        let catalog = try source("Resources/Localization/Localizable.xcstrings")
 
         testUIOnlyBoundary(appState: appState)
         testExistingProviderRoutingRemains(postProcessing: postProcessing, context: context)
@@ -32,7 +33,7 @@ struct ModelsSettingsUIContractTests {
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
         testAIToolsUsesSwitch(aiTools)
-        testConsentTextStatesPurposeAndCalendarFields(connections)
+        testConsentTextStatesPurposeAndCalendarFields(connections, catalog: catalog)
         testMeetingSummaryUsesIndependentCardAndSharedModelUX(settings)
         testAIProcessingBackendPickersAndLocalRows(
             settings: settings,
@@ -610,16 +611,24 @@ struct ModelsSettingsUIContractTests {
         precondition(!context.contains("Text(contextEnabled.wrappedValue ? \"On\" : \"Off\")"))
     }
 
-    /// The consent text matches the privacy policy: data goes to the AI tool
-    /// only for the person's own use, never for training (Google's Limited
-    /// Use), and names every calendar field that leaves the Mac.
-    private static func testConsentTextStatesPurposeAndCalendarFields(_ connections: String) {
+    /// The consent texts, English and Korean, say why data goes to an AI
+    /// tool (the person's own use, not training; the tool's terms apply
+    /// after) and name the calendar fields that leave the Mac.
+    private static func testConsentTextStatesPurposeAndCalendarFields(_ connections: String, catalog: String) {
         let mcp = block(in: connections, from: "static let mcpDisclosure", to: "\n")
-        precondition(mcp.contains("Quill passes this only so the tool you connect can work with your notes, never for AI training."))
-        precondition(!mcp.contains("uses it for AI training"), "MCP consent must not read as allowing training")
-        precondition(mcp.contains("attendee names, emails, and responses"))
+        precondition(mcp.contains("Quill passes this so the tool you connect can work with your notes, not to train AI."))
+        precondition(mcp.contains("its provider's terms apply, including whether it trains on it"))
+        precondition(mcp.contains("whether they're optional, a room, or you"))
         let sync = block(in: connections, from: "static let iCloudCalendarDisclosure", to: "\n")
-        precondition(sync.contains("attendee names, emails, and responses, and the account they came from"))
+        precondition(sync.contains("calendar and event IDs, your calendar account's email"))
+        for korean in [
+            "AI 학습을 위해 전달하지 않아요. 전달된 뒤에는 학습 여부를 포함해 그 도구 회사의 약관이 적용되니",
+            "선택 참석·회의실·본인 여부)이 전달되고",
+            "캘린더·일정 ID, 캘린더 계정 이메일",
+        ] {
+            precondition(catalog.contains(korean), "Korean consent text is missing: \(korean)")
+        }
+        precondition(!catalog.contains("보관과 AI 학습 여부는 그 도구의 정책을 따르고"))
     }
 
     private static func testAIToolsUsesSwitch(_ aiTools: String) {
