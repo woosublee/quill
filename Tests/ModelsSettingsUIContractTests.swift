@@ -13,6 +13,7 @@ struct ModelsSettingsUIContractTests {
         let localAIModelRow = (try? source("Sources/LocalAIModelRowView.swift")) ?? ""
         let currentSpec = try source("docs/superpowers/specs/2026-07-17-model-first-settings-redesign.md")
         let aiTools = try source("Sources/AIToolsSettingsView.swift")
+        let connections = try source("Sources/ConnectionsChoicesView.swift")
 
         testUIOnlyBoundary(appState: appState)
         testExistingProviderRoutingRemains(postProcessing: postProcessing, context: context)
@@ -31,6 +32,7 @@ struct ModelsSettingsUIContractTests {
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
         testAIToolsUsesSwitch(aiTools)
+        testConsentTextStatesPurposeAndCalendarFields(connections)
         testMeetingSummaryUsesIndependentCardAndSharedModelUX(settings)
         testAIProcessingBackendPickersAndLocalRows(
             settings: settings,
@@ -606,6 +608,18 @@ struct ModelsSettingsUIContractTests {
             context.contains("if contextEnabledDraft && contextUsesCloud")
         )
         precondition(!context.contains("Text(contextEnabled.wrappedValue ? \"On\" : \"Off\")"))
+    }
+
+    /// The consent text matches the privacy policy: data goes to the AI tool
+    /// only for the person's own use, never for training (Google's Limited
+    /// Use), and names every calendar field that leaves the Mac.
+    private static func testConsentTextStatesPurposeAndCalendarFields(_ connections: String) {
+        let mcp = block(in: connections, from: "static let mcpDisclosure", to: "\n")
+        precondition(mcp.contains("Quill passes this only so the tool you connect can work with your notes, never for AI training."))
+        precondition(!mcp.contains("uses it for AI training"), "MCP consent must not read as allowing training")
+        precondition(mcp.contains("attendee names, emails, and responses"))
+        let sync = block(in: connections, from: "static let iCloudCalendarDisclosure", to: "\n")
+        precondition(sync.contains("attendee names, emails, and responses, and the account they came from"))
     }
 
     private static func testAIToolsUsesSwitch(_ aiTools: String) {

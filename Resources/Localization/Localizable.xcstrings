@@ -145,18 +145,18 @@
         }
       }
     },
-    "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too.": {
+    "Calendar events matched to notes (title, times, attendee names, emails, and responses, and the account they came from) are stored in your private iCloud too.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too."
+            "value": "Calendar events matched to notes (title, times, attendee names, emails, and responses, and the account they came from) are stored in your private iCloud too."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트에 연결된 캘린더 일정(제목, 시간, 참석자 이름·이메일)도 본인의 비공개 iCloud에 함께 저장돼요."
+            "value": "노트에 연결된 캘린더 일정(제목, 시간, 참석자 이름·이메일·응답, 일정이 속한 계정)도 본인의 비공개 iCloud에 함께 저장돼요."
           }
         }
       }
@@ -257,18 +257,18 @@
         }
       }
     },
-    "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it.": {
+    "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names, emails, and responses), and gets each new transcript as soon as it's ready. Quill passes this only so the tool you connect can work with your notes, never for AI training. Check your AI tool's data settings, such as whether its provider trains on your data.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it."
+            "value": "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names, emails, and responses), and gets each new transcript as soon as it's ready. Quill passes this only so the tool you connect can work with your notes, never for AI training. Check your AI tool's data settings, such as whether its provider trains on your data."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결한 AI 도구가 녹음을 시작·정지하고, 녹음에 메모를 더하고, 노트를 읽을 수 있어요. 노트의 제목, 전사문(원문 포함), 요약, 녹음 시각, 녹음할 때 Quill이 기록한 앱 문맥, 오디오 파일 위치, 연결된 캘린더 일정(제목, 시간, 참석자 이름·이메일)이 전달되고, 새 전사문은 완성되는 대로 바로 전달돼요. 전달된 정보의 보관과 AI 학습 여부는 그 도구의 정책을 따르고, Quill은 학습에 쓰지 않아요."
+            "value": "연결한 AI 도구가 녹음을 시작·정지하고, 녹음에 메모를 더하고, 노트를 읽을 수 있어요. 노트의 제목, 전사문(원문 포함), 요약, 녹음 시각, 녹음할 때 Quill이 기록한 앱 문맥, 오디오 파일 위치, 연결된 캘린더 일정(제목, 시간, 참석자 이름·이메일·응답)이 전달되고, 새 전사문은 완성되는 대로 바로 전달돼요. Quill은 연결한 도구가 노트를 다룰 수 있도록만 전달하고, AI 학습을 위해 전달하지 않아요. 그 도구의 회사가 데이터를 학습에 쓰는지 등은 AI 도구의 데이터 설정에서 확인해 주세요."
           }
         }
       }

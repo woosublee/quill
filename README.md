@@ -67,7 +67,7 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 
 Quill can expose a local MCP server while the app is running, so Claude Code can start recordings, add context, stop recordings, and find and read notes (titles, transcripts, summaries, and calendar events) from your local Quill history.
 
-The server is off until you turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**. A connected tool can start and stop recordings, add notes to a recording, receive each new transcript as soon as it is ready, and read your notes: titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails); that tool's own policy decides whether it keeps the data or uses it for training. Turning the switch off closes the port and disconnects connected tools.
+The server is off until you turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**. A connected tool can start and stop recordings, add notes to a recording, receive each new transcript as soon as it is ready, and read your notes: titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names, emails, and responses). Quill passes this only so the tool you connect can work with your notes, never for AI training; check your AI tool's data settings, such as whether its provider trains on your data. Turning the switch off closes the port and disconnects connected tools.
 
 The local MCP endpoint is:
 
