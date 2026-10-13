@@ -24,6 +24,9 @@ final class MCPServer {
     private let queue = DispatchQueue(label: "com.quill.mcp", qos: .utility)
     private var sseClients: [SSEClient] = []
     private let sseClientsLock = NSLock()
+    /// Every accepted connection until it ends, so stop() can close them all.
+    private var openConnections: [ObjectIdentifier: NWConnection] = [:]
+    private let openConnectionsLock = NSLock()
 
     private weak var appState: AppState?
     private var cancellables = Set<AnyCancellable>()
@@ -48,6 +51,9 @@ final class MCPServer {
             case .failed(let error):
                 print("[MCP] Server failed: \(error)")
                 self?.onStatusChange?(.failed)
+            case .waiting(let error):
+                print("[MCP] Server waiting: \(error)")
+                self?.onStatusChange?(.failed)
             default:
                 break
             }
@@ -57,10 +63,30 @@ final class MCPServer {
 
     func stop() {
         listener?.cancel()
+        listener = nil
         sseClientsLock.lock()
         sseClients.forEach { $0.connection.cancel() }
         sseClients.removeAll()
         sseClientsLock.unlock()
+        // Requests still being read or answered close too, so a connected
+        // tool sees the server go away instead of waiting.
+        openConnectionsLock.lock()
+        let connections = Array(openConnections.values)
+        openConnections.removeAll()
+        openConnectionsLock.unlock()
+        connections.forEach { $0.cancel() }
+    }
+
+    private func track(_ connection: NWConnection) {
+        openConnectionsLock.lock()
+        openConnections[ObjectIdentifier(connection)] = connection
+        openConnectionsLock.unlock()
+    }
+
+    private func forget(_ connection: NWConnection) {
+        openConnectionsLock.lock()
+        openConnections.removeValue(forKey: ObjectIdentifier(connection))
+        openConnectionsLock.unlock()
     }
 
     // Called by AppState when transcription completes
@@ -81,6 +107,15 @@ final class MCPServer {
             return
         }
 
+        track(connection)
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            switch state {
+            case .cancelled, .failed:
+                if let connection { self?.forget(connection) }
+            default:
+                break
+            }
+        }
         connection.start(queue: queue)
         receiveRequest(connection: connection, buffer: Data())
     }
@@ -421,11 +456,15 @@ final class MCPServer {
         sseClients.append(client)
         sseClientsLock.unlock()
 
-        connection.stateUpdateHandler = { [weak self] state in
-            if case .cancelled = state {
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            switch state {
+            case .cancelled, .failed:
                 self?.sseClientsLock.lock()
                 self?.sseClients.removeAll { $0.id == client.id }
                 self?.sseClientsLock.unlock()
+                if let connection { self?.forget(connection) }
+            default:
+                break
             }
         }
 

@@ -91,7 +91,7 @@ struct AIToolsSettingsView: View {
         case .listening:
             return Text("Waiting for connections at \(MCPServer.address), from this Mac only.")
         case .failed:
-            return Text("Couldn't start. Another app may be using port 3457.")
+            return Text("Couldn't start. Another app may be using port \(String(MCPServer.port)). Turn the switch off and on to try again.")
         }
     }
 }

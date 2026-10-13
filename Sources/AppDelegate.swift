@@ -381,6 +381,11 @@ private func showNoteBrowserWindow() {
             DispatchQueue.main.async {
                 // A server already stopped doesn't report any more.
                 guard let self, let server, self.mcpServer === server else { return }
+                if status == .failed {
+                    // Let go of the dead listener, so turning the switch off
+                    // and on starts a fresh one.
+                    self.stopMCPServer()
+                }
                 self.appState.mcpServerStatus = status
             }
         }

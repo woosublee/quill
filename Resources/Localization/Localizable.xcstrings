@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Couldn't start. Another app may be using port %@. Turn the switch off and on to try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start. Another app may be using port %@. Turn the switch off and on to try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작하지 못했어요. 다른 앱이 포트 %@을 쓰고 있을 수 있어요. 스위치를 껐다 켜면 다시 시도해요."
+          }
+        }
+      }
+    },
     "AI Tools": {
       "localizations": {
         "en": {
@@ -157,22 +173,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@에서 연결을 기다리는 중이에요(이 Mac에서만 접속 가능)."
-          }
-        }
-      }
-    },
-    "Couldn't start. Another app may be using port 3457.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't start. Another app may be using port 3457."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시작하지 못했어요. 다른 앱이 포트 3457을 쓰고 있을 수 있어요."
           }
         }
       }
