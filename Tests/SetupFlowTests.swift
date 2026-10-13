@@ -507,7 +507,8 @@ struct SetupFlowTests {
             step: 2,
             processingLocation: .recordOnly,
             localModel: .localAIModel(id: "synthetic-model"),
-            recordOnlyAudioSourceID: AudioRecordingSource.systemAudio.id
+            recordOnlyAudioSourceID: AudioRecordingSource.systemAudio.id,
+            savedAt: Date(timeIntervalSince1970: 1_000_000)
         )
         SetupFlow.saveProgress(progress, to: defaults)
         let loaded = SetupFlow.loadSavedProgress(from: defaults)
@@ -524,9 +525,17 @@ struct SetupFlowTests {
             step: 1,
             processingLocation: .onThisMac,
             localModel: .appleSpeech,
-            recordOnlyAudioSourceID: "unknown"
+            recordOnlyAudioSourceID: "unknown",
+            savedAt: Date(timeIntervalSince1970: 1_000_000)
         )
         assert(unknownSource.recordOnlyAudioSource == nil)
+
+        // Only a relaunch soon after the grant resumes.
+        let savedAt = progress.savedAt
+        assert(progress.isRecent(now: savedAt.addingTimeInterval(60)))
+        assert(progress.isRecent(now: savedAt.addingTimeInterval(SetupFlow.SavedProgress.maxAge)))
+        assert(!progress.isRecent(now: savedAt.addingTimeInterval(SetupFlow.SavedProgress.maxAge + 1)))
+        assert(!progress.isRecent(now: savedAt.addingTimeInterval(-60)))
     }
 
     private static func testResumeStopsAtTheFirstBlockedStep() {
@@ -551,8 +560,9 @@ struct SetupFlowTests {
         assert(finish.contains("SetupFlow.clearSavedProgress(in: .standard)"))
         let restore = sourceBlock(in: view, from: "private func restoreSavedProgress()", to: "private func previousStep(")
         assert(restore.contains("guard currentStep == .welcome else { return }"))
-        // Restored once: cleared right after it is read.
-        assert(restore.contains("SetupFlow.clearSavedProgress(in: .standard)"))
+        // Restored once, and only soon after the grant: cleared right
+        // after it is read, even when it is old or unreadable.
+        assert(restore.contains("SetupFlow.clearSavedProgress(in: .standard)\n        guard let saved, saved.isRecent(now: Date()) else { return }"))
         assert(restore.contains("return canResume(past: step)"))
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
         let setupClose = sourceBlock(in: delegate, from: "private func handleSetupWindowDidClose(", to: "@objc private func handleShowSettings()")

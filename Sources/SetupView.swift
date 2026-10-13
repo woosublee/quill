@@ -988,7 +988,8 @@ struct SetupView: View {
                 step: currentStep.rawValue,
                 processingLocation: processingLocation,
                 localModel: localModel,
-                recordOnlyAudioSourceID: recordOnlyAudioSource?.id
+                recordOnlyAudioSourceID: recordOnlyAudioSource?.id,
+                savedAt: Date()
             ),
             to: .standard
         )
@@ -999,8 +1000,9 @@ struct SetupView: View {
     /// permission taken back. The step is chosen on the next turn, once the
     /// restored choices are in place, and only if the user hasn't moved on.
     private func restoreSavedProgress() {
-        guard let saved = SetupFlow.loadSavedProgress(from: .standard) else { return }
+        let saved = SetupFlow.loadSavedProgress(from: .standard)
         SetupFlow.clearSavedProgress(in: .standard)
+        guard let saved, saved.isRecent(now: Date()) else { return }
         processingLocation = saved.processingLocation
         localModel = saved.localModel
         recordOnlyAudioSource = saved.recordOnlyAudioSource

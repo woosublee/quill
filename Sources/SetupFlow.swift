@@ -104,6 +104,17 @@ enum SetupFlow {
         var processingLocation: ProcessingLocation?
         var localModel: LocalModel
         var recordOnlyAudioSourceID: String?
+        var savedAt: Date
+
+        /// The relaunch follows the grant within minutes. Older progress
+        /// means the user chose Later or never granted it, and their
+        /// choices may have changed since.
+        static let maxAge: TimeInterval = 30 * 60
+
+        func isRecent(now: Date) -> Bool {
+            let age = now.timeIntervalSince(savedAt)
+            return age >= 0 && age <= Self.maxAge
+        }
 
         var recordOnlyAudioSource: AudioRecordingSource? {
             AudioRecordingSource.allCases.first { $0.id == recordOnlyAudioSourceID }
