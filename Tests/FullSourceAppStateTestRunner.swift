@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @main
@@ -11,6 +12,14 @@ struct FullSourceAppStateTestRunner {
             return
         }
 
+        // The suite must never touch the user's clipboard.
+        let generalPasteboardChangeCount = NSPasteboard.general.changeCount
+        defer {
+            precondition(
+                NSPasteboard.general.changeCount == generalPasteboardChangeCount,
+                "App state tests changed the user's clipboard"
+            )
+        }
         try await AppStateTestStorage.withIsolatedStorage { _ in
             try AppStateDependenciesTests.main()
             try await NoteAssetStoreTests.main()

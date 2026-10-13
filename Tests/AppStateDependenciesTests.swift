@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 #if !QUILL_GROUPED_TEST_RUNNER
@@ -9,7 +10,17 @@ struct AppStateDependenciesTests {
         try verifiesLiveDependenciesReturnFreshValues()
         try verifiesLocalAIDependenciesAreIndependentValues()
         try verifiesNativeWhisperDependenciesAreIndependentValues()
+        verifiesTestsCopyToTheirOwnPasteboard()
         print("AppStateDependenciesTests passed")
+    }
+
+    /// Dictation and retry results are copied for pasting. Test builds must
+    /// copy to their own pasteboard, or `make check` replaces what the user
+    /// copied with synthetic transcripts.
+    private static func verifiesTestsCopyToTheirOwnPasteboard() {
+        let pasteboard = AppStateDependencies.live.pasteboard
+        precondition(pasteboard.name != NSPasteboard.general.name)
+        precondition(pasteboard.name == NSPasteboard.Name("com.woosublee.quill.tests"))
     }
 
     private static func verifiesStorageLayoutPreservesCanonicalPaths() throws {

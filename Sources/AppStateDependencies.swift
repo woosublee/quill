@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct AppStateStorageLayout: Sendable {
@@ -133,6 +134,18 @@ struct AppStateDependencies {
         @Sendable () -> CloudTranscriptionDependencies
     var makeNoteSyncController:
         @MainActor (AppStateStorageLayout) -> NoteSyncController
+    /// Where dictation and retry results are copied for pasting.
+    var pasteboard: NSPasteboard
+
+    /// Test builds copy to a pasteboard of their own, so running the tests
+    /// never replaces what the user copied.
+    static var livePasteboard: NSPasteboard {
+        #if QUILL_GROUPED_TEST_RUNNER
+        NSPasteboard(name: NSPasteboard.Name("com.woosublee.quill.tests"))
+        #else
+        .general
+        #endif
+    }
 
     static var live: AppStateDependencies {
         AppStateDependencies(
@@ -205,7 +218,8 @@ struct AppStateDependencies {
                         events: events
                     )
                 })
-            }
+            },
+            pasteboard: livePasteboard
         )
     }
 }

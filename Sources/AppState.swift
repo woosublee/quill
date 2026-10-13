@@ -14532,7 +14532,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ///
     /// See: https://github.com/nicke5012/TransientPasteboardType
     private func writeDictationStringToPasteboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = dependencies.pasteboard
 
         if keepDictationInClipboardHistory {
             // Plain write so clipboard managers record the dictation in history.
@@ -14566,7 +14566,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func writeTranscriptToPasteboard(_ transcript: String) -> PendingClipboardRestore? {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = dependencies.pasteboard
         let snapshot = preserveClipboard ? PreservedPasteboardSnapshot(pasteboard: pasteboard) : nil
 
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14594,8 +14594,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         // Some apps consume Cmd-V asynchronously, so restoring too quickly can paste
         // the pre-dictation clipboard instead of the transcript.
+        let pasteboard = dependencies.pasteboard
         DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
-            let pasteboard = NSPasteboard.general
             // A bare changeCount check is too strict: browsers, iCloud Universal
             // Clipboard sync, and other background apps bump the change count
             // without the user copying anything, which left the transcript
