@@ -8,6 +8,35 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.1.0] - 2026-10-14
+
+### Added
+
+- **iCloud note sync (off by default).** Turn it on in setup or Settings › iCloud Sync to keep notes, summaries, and recording audio the same on your Macs signed in to the same iCloud account. Notes are stored in your own private iCloud database; Quill has no server. **Turn Off and Delete from iCloud** removes everything Quill stored there.
+- **Connections and Sync step in setup.** New installs choose iCloud sync and AI tools during setup; existing users see a one-time **New settings** window after updating.
+- **AI Tools settings tab.** The local MCP server for Claude Code and other AI tools now has its own switch and connection instructions.
+- **Apple Calendar** can be connected alongside Google Calendar.
+- **Recently Deleted:** deleted notes stay in Settings › Recovery for 30 days.
+- Choose a calendar event when importing audio.
+
+### Changed
+
+- **The MCP server is off until you allow it.** Earlier versions always ran it. If you use Claude Code with Quill, turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**; a Claude Code session that was already open may need `/mcp` to reconnect.
+- **MCP tools renamed.** `list_transcripts`, `get_transcript`, and `get_meeting_source` are replaced by `list_notes` (titles as Quill shows them, search, date range, paging) and `get_note` (one note with its summary, matched calendar event, and audio location). Update any prompts or scripts that call the old names.
+- Meeting summaries made by a cloud AI provider no longer include the matched calendar event; summaries made on your Mac with a local model still do.
+- The Note Browser is always on; its Settings switch is gone.
+- Setup resumes where it stopped after macOS restarts Quill for Screen Recording permission.
+
+### Fixed
+
+- Shortcut pickers show the selected shortcut, including Tap to Toggle's Fn + Command default.
+- Clearing an edited transcript also clears the original.
+- An open note follows title changes made elsewhere, and the transcript editor stays when its text is cleared.
+- Note Browser headers sit below the title bar on macOS versions with a taller title bar.
+- The Settings window has a minimum size.
+- Google Calendar shows offline calmly and no longer flashes errors for cancelled refreshes.
+- Local AI requests already waiting finish before switching models.
+
 ## [1.0.0] - 2026-10-07
 
 ### Changed
