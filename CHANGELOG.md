@@ -12,10 +12,10 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Added
 
-- **iCloud note sync (off by default, macOS 14 or later).** Turn it on in setup or Settings › iCloud Sync to keep notes, summaries, recording audio, and each note's matched calendar event (including attendee names and emails) the same on your Macs signed in to the same iCloud account. Notes are stored in your own private iCloud database; Quill has no server. **Turn Off and Delete from iCloud** removes what Quill stored there (audio it can't delete right away is retried at the next launch) and turns sync off on every Mac. Notes already on each Mac stay, but a recording a Mac never downloaded can't be downloaded afterward.
+- **iCloud note sync (off by default, macOS 14 or later).** Turn it on in setup or Settings › iCloud Sync on each Mac to keep notes, summaries, recording audio, and each note's matched calendar event (including attendee names and emails) the same on your Macs signed in to the same iCloud account. A recording downloads to another Mac when you play, retranscribe, or save it there. Notes are stored in your own private iCloud database; Quill has no server. **Turn Off and Delete from iCloud** removes what Quill stored there (audio it can't delete right away is retried at the next launch, or, for another iCloud account, when you sign in to it again) and turns sync off on every Mac. Notes already on each Mac stay, but a recording a Mac never downloaded can't be downloaded afterward.
 - **Connections and Sync step in setup.** New installs choose iCloud sync and AI tools during setup; existing users see a one-time **New settings** window after updating.
 - **AI Tools settings tab.** The local MCP server for Claude Code and other AI tools now has its own switch and connection instructions.
-- **Apple Calendar** can be connected alongside Google Calendar. macOS asks for calendar access when you connect it; if you choose Don't Allow, use **Ask Again** next to Apple Calendar in Settings to be asked once more.
+- **Apple Calendar** can be connected alongside Google Calendar. macOS asks for calendar access when you connect it; if you choose Don't Allow, use **Ask Again** next to Apple Calendar in Settings to be asked once more, or to open System Settings if macOS can't ask again.
 - **Recently Deleted:** deleted notes stay in Settings › Recovery for 30 days.
 - Choose a calendar event when importing audio.
 
@@ -30,7 +30,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 ### Fixed
 
 - Shortcut pickers show the selected shortcut, including Tap to Toggle's Fn + Command default.
-- Deleting all of an edited transcript's text now clears the original too, on this Mac and on synced Macs, instead of bringing the original back on reopen.
+- Deleting all of an edited transcript's text now clears the original too, instead of bringing the original back on reopen.
 - An open note follows title changes made elsewhere, and the transcript editor stays when its text is cleared.
 - Note Browser headers sit below the title bar on macOS versions with a taller title bar.
 - The Settings window has a minimum size.
