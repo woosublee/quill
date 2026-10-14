@@ -438,7 +438,8 @@ struct NoteBrowserView: View {
     @State private var highlightedArrivals: [UUID: Int] = [:]
     /// False until the list first appears, so the first load doesn't animate.
     @State private var hasLoadedHistory = false
-    /// Every note this list has shown, so a note that comes back isn't new.
+    /// Every note this list has had, search-hidden or not, plus Recently
+    /// Deleted when it opened, so a note that comes back isn't new.
     @State private var seenHistoryIDs: Set<UUID> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The note that was open when the current search began, to return to
@@ -527,7 +528,7 @@ struct NoteBrowserView: View {
             highlightedArrivals[id] = arrival
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            withAnimation(.easeOut(duration: 0.6)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.6)) {
                 for id in arrivedIDs where highlightedArrivals[id] == arrival {
                     highlightedArrivals[id] = nil
                 }
@@ -621,6 +622,10 @@ struct NoteBrowserView: View {
     }
 
     private func handleRowClick(_ id: UUID) {
+        // A note the person clicked is no longer "new".
+        if highlightedArrivals[id] != nil {
+            highlightedArrivals[id] = nil
+        }
         let flags = NSEvent.modifierFlags
         let modifier: NoteSelectionModifier = flags.contains(.command)
             ? .toggle
@@ -897,7 +902,7 @@ struct NoteBrowserView: View {
         .onAppear {
             let ids = Set(appState.pipelineHistory.map(\.id))
             knownHistoryIDs = ids
-            seenHistoryIDs = ids
+            seenHistoryIDs = ids.union(appState.recentlyDeletedNotes.map(\.id))
             hasLoadedHistory = true
             if selectedItemID == nil {
                 selection.focus(appState.pipelineHistory.first?.id)
@@ -977,10 +982,6 @@ struct NoteBrowserView: View {
             }
         }
         .onChange(of: selectedItemID) { newID in
-            // A note the person opened is no longer "new".
-            if let newID {
-                highlightedArrivals[newID] = nil
-            }
             // Once the person opens a note, even one the search had opened,
             // it counts as their choice when the search is cleared.
             if newID != noteOpenedBySearch {
@@ -1006,7 +1007,7 @@ struct NoteBrowserView: View {
             if selection.showsSelectionUI {
                 // Keep a multi-selection; new notes don't take over while selecting.
                 // This fires before the change lands, so filter the new value.
-                selection.retainVisible(newHistory.filter(matchesSearch).map(\.id))
+                selection.retainVisible(visibleIDs)
                 selection.retainSelectable { isBulkSelectable($0, in: newHistory) }
                 knownHistoryIDs = Set(ids)
                 return
@@ -2134,7 +2135,7 @@ private struct NoteListRow: View {
                 )
                 .overlay {
                     // Only on a plain row, so it never reads as a selection state.
-                    if isJustArrived && !isSelected && !isKeyboardHighlighted && selectionMark == nil {
+                    if isJustArrived && !isSelected && selectionMark == nil {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color.accentColor.opacity(0.14))
                             .transition(.opacity)
