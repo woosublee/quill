@@ -954,6 +954,7 @@ struct NoteBrowserView: View {
                 historyIDs: ids,
                 visibleIDs: visibleIDs,
                 knownIDs: knownHistoryIDs,
+                opensOnArrival: appState.noteIDsToOpenOnArrival,
                 isRecoveryImport: isRecoveryImport
             ) {
             case .keep(let restoreScroll):
@@ -966,6 +967,7 @@ struct NoteBrowserView: View {
                     scheduleRecoveryScrollRestore(for: id)
                 }
             }
+            appState.noteBrowserSawArrivals(ids.filter { !knownHistoryIDs.contains($0) })
             knownHistoryIDs = Set(ids)
                 }
             }
@@ -1319,7 +1321,7 @@ struct NoteBrowserView: View {
 
     private var floatingRecordButton: some View {
         Button {
-            appState.toggleRecording()
+            appState.toggleRecordingFromNoteBrowser()
         } label: {
             ZStack {
                 Circle()

@@ -211,22 +211,28 @@ enum NoteHistoryChangeFocus: Equatable {
 }
 
 extension NoteSelection {
-    /// An open note stays open: a note that arrives, whether recorded or
-    /// imported here or synced from another Mac, only joins the list (#541).
-    /// With nothing open, a note that just arrived opens (imported audio can
-    /// land below the top), else the first visible note.
+    /// An open note stays open: a note that arrives, recorded here or synced
+    /// from another Mac, only joins the list (#541). Only a note in
+    /// `opensOnArrival` (an import, or a recording started from the browser)
+    /// replaces it. With nothing open, a note that just arrived opens
+    /// (imported audio can land below the top), else the first visible note.
     static func focusAfterHistoryChange(
         current: UUID?,
         historyIDs: [UUID],
         visibleIDs: [UUID],
         knownIDs: Set<UUID>,
+        opensOnArrival: Set<UUID> = [],
         isRecoveryImport: Bool
     ) -> NoteHistoryChangeFocus {
+        let arrivedIDs = historyIDs.filter { !knownIDs.contains($0) && visibleIDs.contains($0) }
         if let current, historyIDs.contains(current) {
+            if !isRecoveryImport, let opened = arrivedIDs.first(where: opensOnArrival.contains) {
+                return .open(opened, restoreScroll: true)
+            }
             // Keep the note the user was viewing visible after a recovery import.
             return .keep(restoreScroll: isRecoveryImport)
         }
-        let insertedID = historyIDs.first { !knownIDs.contains($0) && visibleIDs.contains($0) }
+        let insertedID = arrivedIDs.first
         if !isRecoveryImport, let insertedID {
             return .open(insertedID, restoreScroll: true)
         }
