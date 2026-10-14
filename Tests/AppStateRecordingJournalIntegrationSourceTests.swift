@@ -823,6 +823,13 @@ struct AppStateRecordingJournalIntegrationSourceTests {
 
         assert(toggle.contains("if !startRecording(triggerMode: .toggle)"))
         assert(toggle.contains("shortcutSessionController.reset()"))
+        // The browser's record button opens its note only once the recording
+        // started and has a note; a refused start resets the session (#541).
+        let browserToggle = try functionBody(named: "toggleRecordingFromNoteBrowser", in: source)
+        assert(browserToggle.contains("guard !isRecording, recordingStartAdmissionLifecycle.activeID == nil else {\n            toggleRecording()"))
+        assert(browserToggle.contains("let started = startRecording(triggerMode: .toggle) { [weak self] in"))
+        assert(browserToggle.contains("guard let noteID = self?.currentRecordingLiveNoteID else { return }"))
+        assert(browserToggle.contains("if !started {\n            shortcutSessionController.reset()"))
         assert(calendar.contains("if !startRecording("))
         assert(calendar.contains("shortcutSessionController.reset()"))
         assert(calendar.contains("activeRecordingCalendarSnapshot = nil"))

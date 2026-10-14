@@ -116,11 +116,16 @@ struct AudioImportCalendarTests {
     }
 
     static func testBrowserFocusesInsertedNote() throws {
-        // Behavior is tested in NoteSelectionTests; this checks the wiring.
+        // An import opens its note once it is in the list, even while another
+        // note is open, through the browser's own selection- and search-aware path (#541).
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        precondition(appState.contains("self.noteIDsToOpenOnArrival.insert(noteID)\n            do {\n                let removedStoredFiles = try self.appendPipelineHistoryItem(placeholder)"), "an imported note is marked before it lands, so it opens even while another is open")
+        precondition(appState.contains("onNoteAdded: (@MainActor (UUID) -> Void)? = nil"))
+        precondition(appState.contains("onNoteAdded?(noteID)"))
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
-        precondition(browser.contains("opensOnArrival: appState.noteIDsToOpenOnArrival,"), "the browser opens marked notes on arrival")
+        precondition(browser.contains("onNoteAdded: { openChosenNote($0) }"))
+        precondition(browser.contains("private func openChosenNote(_ id: UUID)"))
+        precondition(browser.contains("guard !selection.showsSelectionUI, selectedItemID != id,"), "a multi-selection stays")
+        precondition(browser.contains("searchText.isEmpty || matchesSearch(item) else { return }"), "a search opens it only if it matches")
     }
 
     /// Without a recording time the date is the day the person chose, even

@@ -2602,13 +2602,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
     private var liveTranscriptionSession: LiveTranscriptionSession?
     private var currentRecordingLiveNoteID: UUID?
-    /// Notes the Note Browser opens when they arrive, even while another note
-    /// is open: an audio file the person imported, or a recording started from
-    /// the browser's record button. Every other note only joins the list (#541).
-    private(set) var noteIDsToOpenOnArrival: Set<UUID> = []
-    /// Set by the browser's record button until the recording it starts has a note ID.
-    private var opensNextRecordingNoteInBrowser = false
-    private var isTogglingFromNoteBrowser = false
     static let liveTranscriptUpdateInterval: TimeInterval = 0.25
     private var activeRecordingStartedAt: Date?
     private var activeRecordingCalendarSnapshot: RecordingCalendarSnapshot?
@@ -8259,12 +8252,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// the note sits at its real recording time. `calendarEvent` is the event
     /// chosen in the import sheet.
     @MainActor
+    /// `onNoteAdded` runs once the imported note is in the list.
     func importAudioFile(
         _ fileURL: URL,
         choice: TranscriptionBackendChoice,
         recordingTime: AudioFileRecordingTime?,
         calendarEvent: CalendarEvent?,
-        calendarDay: Date?
+        calendarDay: Date?,
+        onNoteAdded: (@MainActor (UUID) -> Void)? = nil
     ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
@@ -8354,8 +8349,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             )
 
-            // The person chose this file, so its note opens on arrival.
-            self.noteIDsToOpenOnArrival.insert(noteID)
             do {
                 let removedStoredFiles = try self.appendPipelineHistoryItem(placeholder)
                 for removedAssets in removedStoredFiles {
@@ -8368,6 +8361,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.errorMessage = issue.record.presentation().compactMessage
                 return
             }
+            onNoteAdded?(noteID)
 
             self.registerTranscriptionJob(
                 id: jobID,
@@ -9262,11 +9256,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
-    /// The Note Browser saw these notes arrive; they no longer open on arrival.
-    func noteBrowserSawArrivals(_ ids: some Sequence<UUID>) {
-        noteIDsToOpenOnArrival.subtract(ids)
-    }
-
     /// Opens the Note Browser on a note.
     @MainActor
     func openNoteInBrowser(id: UUID) {
@@ -9927,18 +9916,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commits.forEach { $0() }
     }
 
-    /// The Note Browser's record button: the note it starts opens on arrival.
+    /// The Note Browser's record button. Once the recording has started and
+    /// has its note, `openNote` gets that note's ID (#541).
     @MainActor
-    func toggleRecordingFromNoteBrowser() {
-        isTogglingFromNoteBrowser = true
-        defer { isTogglingFromNoteBrowser = false }
-        toggleRecording()
+    func toggleRecordingFromNoteBrowser(openNote: @escaping @MainActor (UUID) -> Void) {
+        guard !isRecording, recordingStartAdmissionLifecycle.activeID == nil else {
+            toggleRecording()
+            return
+        }
+        cancelPendingShortcutStart()
+        shortcutSessionController.beginManual(mode: .toggle)
+        let started = startRecording(triggerMode: .toggle) { [weak self] in
+            guard let noteID = self?.currentRecordingLiveNoteID else { return }
+            openNote(noteID)
+        }
+        if !started {
+            shortcutSessionController.reset()
+        }
     }
 
     @MainActor
     func toggleRecording() {
         os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
-        opensNextRecordingNoteInBrowser = isTogglingFromNoteBrowser && !isRecording
         cancelPendingShortcutStart()
         if isRecording {
             stopAndTranscribe()
@@ -10398,7 +10397,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         pendingRecordingStartTask?.cancel()
         pendingRecordingStartTask = nil
-        opensNextRecordingNoteInBrowser = false
         _ = recordingStartAdmissionLifecycle.finish(startRequestID)
         activeRecordingCalendarSnapshot = nil
         activeRecordingTriggerMode = nil
@@ -10988,11 +10986,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let audioInputID = audioSelection.inputID
         let recordingSessionID = UUID()
         activeRecordingID = recordingSessionID
-        if opensNextRecordingNoteInBrowser {
-            // The recording note uses the session ID, so it opens on arrival.
-            noteIDsToOpenOnArrival.insert(recordingSessionID)
-            opensNextRecordingNoteInBrowser = false
-        }
         let supportsLiveTranscription = AudioRecordingSource(
             inputID: audioInputID
         ).supportsLiveTranscription

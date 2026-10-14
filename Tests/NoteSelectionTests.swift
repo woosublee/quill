@@ -27,7 +27,6 @@ struct NoteSelectionTests {
         try testNewNoteDoesNotReplaceOpenNote()
         try testNewNoteOpensWhenNothingIsOpen()
         try testRecoveryImportKeepsOpenNoteInView()
-        try testChosenArrivalReplacesOpenNote()
         print("NoteSelectionTests passed")
     }
 
@@ -325,39 +324,6 @@ struct NoteSelectionTests {
                 knownIDs: [ids[2]], isRecoveryImport: true
             ) == .open(ids[0], restoreScroll: true),
             "a recovery import with nothing open opens the first note, not an imported one"
-        )
-    }
-
-    private static func testChosenArrivalReplacesOpenNote() throws {
-        let history = [ids[0], ids[1], ids[2], ids[3]]
-        let known: Set<UUID> = [ids[2], ids[3]]
-        try expect(
-            NoteSelection.focusAfterHistoryChange(
-                current: ids[3], historyIDs: history, visibleIDs: history,
-                knownIDs: known, opensOnArrival: [ids[1]], isRecoveryImport: false
-            ) == .open(ids[1], restoreScroll: true),
-            "an import or browser recording opens on arrival, even below the top"
-        )
-        try expect(
-            NoteSelection.focusAfterHistoryChange(
-                current: ids[3], historyIDs: history, visibleIDs: [ids[0], ids[3]],
-                knownIDs: known, opensOnArrival: [ids[1]], isRecoveryImport: false
-            ) == .keep(restoreScroll: false),
-            "a chosen arrival hidden by the search doesn't replace the open note"
-        )
-        try expect(
-            NoteSelection.focusAfterHistoryChange(
-                current: ids[3], historyIDs: history, visibleIDs: history,
-                knownIDs: Set(history), opensOnArrival: [ids[1]], isRecoveryImport: false
-            ) == .keep(restoreScroll: false),
-            "a note already in the list doesn't reopen when it changes"
-        )
-        try expect(
-            NoteSelection.focusAfterHistoryChange(
-                current: ids[3], historyIDs: history, visibleIDs: history,
-                knownIDs: known, opensOnArrival: [ids[1]], isRecoveryImport: true
-            ) == .keep(restoreScroll: true),
-            "a recovery import keeps the open note"
         )
     }
 

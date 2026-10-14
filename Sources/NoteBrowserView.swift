@@ -503,6 +503,17 @@ struct NoteBrowserView: View {
 
     /// Opens a note because of the search, keeping the typing in the search
     /// field: rebuilding the detail pane can take focus from it.
+    /// Opens a note the person asked for here, an import or a recording from
+    /// the record button, even while another note is open (#541). A
+    /// multi-selection stays, and an active search opens it only if it matches.
+    private func openChosenNote(_ id: UUID) {
+        guard !selection.showsSelectionUI, selectedItemID != id,
+              let item = appState.pipelineHistory.first(where: { $0.id == id }),
+              searchText.isEmpty || matchesSearch(item) else { return }
+        openNoteForSearch(id)
+        scheduleRecoveryScrollRestore(for: id)
+    }
+
     private func openNoteForSearch(_ id: UUID?) {
         let keepsSearchFocus = isSearchFieldFocused
         if keepsSearchFocus {
@@ -869,7 +880,8 @@ struct NoteBrowserView: View {
                     // A load that timed out proceeds with no event rather
                     // than an event from the previously shown day.
                     calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent,
-                    calendarDay: calendarModel.day
+                    calendarDay: calendarModel.day,
+                    onNoteAdded: { openChosenNote($0) }
                 )
             } onOpenProviderSettings: {
                 pendingAudioImport = nil
@@ -954,7 +966,6 @@ struct NoteBrowserView: View {
                 historyIDs: ids,
                 visibleIDs: visibleIDs,
                 knownIDs: knownHistoryIDs,
-                opensOnArrival: appState.noteIDsToOpenOnArrival,
                 isRecoveryImport: isRecoveryImport
             ) {
             case .keep(let restoreScroll):
@@ -967,7 +978,6 @@ struct NoteBrowserView: View {
                     scheduleRecoveryScrollRestore(for: id)
                 }
             }
-            appState.noteBrowserSawArrivals(ids.filter { !knownHistoryIDs.contains($0) })
             knownHistoryIDs = Set(ids)
                 }
             }
@@ -1321,7 +1331,7 @@ struct NoteBrowserView: View {
 
     private var floatingRecordButton: some View {
         Button {
-            appState.toggleRecordingFromNoteBrowser()
+            appState.toggleRecordingFromNoteBrowser { openChosenNote($0) }
         } label: {
             ZStack {
                 Circle()
