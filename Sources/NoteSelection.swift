@@ -241,16 +241,21 @@ enum NoteArrivalAnimation {
     /// without animation.
     static let maxAnimatedArrivals = 5
 
-    /// The notes new to this list, in list order. None on the first load
-    /// (nothing known yet), during a recovery import, or past the limit.
+    /// The visible notes new to this list, in list order. None before the
+    /// list first loads, during a recovery import, or past the limit. An
+    /// empty list that has loaded still animates its first note.
     static func animatedArrivals(
         historyIDs: [UUID],
+        visibleIDs: [UUID],
         knownIDs: Set<UUID>,
+        hasLoaded: Bool,
         isRecoveryImport: Bool
     ) -> [UUID] {
-        guard !knownIDs.isEmpty, !isRecoveryImport else { return [] }
+        guard hasLoaded, !isRecoveryImport else { return [] }
         let arrived = historyIDs.filter { !knownIDs.contains($0) }
-        return arrived.count <= maxAnimatedArrivals ? arrived : []
+        guard arrived.count <= maxAnimatedArrivals else { return [] }
+        let visible = Set(visibleIDs)
+        return arrived.filter(visible.contains)
     }
 }
 
