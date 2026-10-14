@@ -8359,6 +8359,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.errorMessage = issue.record.presentation().compactMessage
                 return
             }
+            // The person chose this file, so open its note even while another
+            // is open; recorded and synced notes only join the list (#541).
+            self.noteBrowserOpenRequest = noteID
 
             self.registerTranscriptionJob(
                 id: jobID,

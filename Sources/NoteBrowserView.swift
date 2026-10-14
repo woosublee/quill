@@ -947,34 +947,24 @@ struct NoteBrowserView: View {
             let visibleIDs = isSearchActive
                 ? newHistory.filter(matchesSearch).map(\.id)
                 : ids
-            // Keep the note the user was viewing visible after a recovery import.
             // Opening a note here goes through the search, so typing a query
             // keeps the search field focused and the search open (#436).
-            guard let current = selectedItemID, ids.contains(current) else {
-                // With nothing open, open a note that just arrived (imported
-                // audio can land below the top) and scroll to it.
-                let insertedID = ids.first(where: { !knownHistoryIDs.contains($0) && visibleIDs.contains($0) })
-                if !isRecoveryImport, let insertedID {
-                    openNoteForSearch(insertedID)
-                    scheduleRecoveryScrollRestore(for: insertedID)
-                } else {
-                    openNoteForSearch(visibleIDs.first)
-                    if isRecoveryImport, let fallback = visibleIDs.first {
-                        scheduleRecoveryScrollRestore(for: fallback)
-                    }
+            switch NoteSelection.focusAfterHistoryChange(
+                current: selectedItemID,
+                historyIDs: ids,
+                visibleIDs: visibleIDs,
+                knownIDs: knownHistoryIDs,
+                isRecoveryImport: isRecoveryImport
+            ) {
+            case .keep(let restoreScroll):
+                if restoreScroll, let current = selectedItemID {
+                    scheduleRecoveryScrollRestore(for: current)
                 }
-                knownHistoryIDs = Set(ids)
-                return
-            }
-            if isRecoveryImport {
-                scheduleRecoveryScrollRestore(for: current)
-            } else if let newID = ids.first(where: { !knownHistoryIDs.contains($0) }),
-                      newID != current, visibleIDs.contains(newID) {
-                // Auto-select only genuinely new items; ignore existing item
-                // edits. Imported audio can land below the top at its
-                // recording time, so scroll to it too.
-                openNoteForSearch(newID)
-                scheduleRecoveryScrollRestore(for: newID)
+            case .open(let id, let restoreScroll):
+                openNoteForSearch(id)
+                if restoreScroll, let id {
+                    scheduleRecoveryScrollRestore(for: id)
+                }
             }
             knownHistoryIDs = Set(ids)
                 }

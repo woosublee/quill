@@ -116,9 +116,10 @@ struct AudioImportCalendarTests {
     }
 
     static func testBrowserFocusesInsertedNote() throws {
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appState.contains("self.noteBrowserOpenRequest = noteID"), "an imported note opens even while another is open")
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
-        precondition(browser.contains("ids.first(where: { !knownHistoryIDs.contains($0) })"), "a new note anywhere in the list is opened")
-        precondition(browser.contains("scheduleRecoveryScrollRestore(for: newID)"), "and scrolled into view")
+        precondition(browser.contains("selection.focus(id)\n            scheduleRecoveryScrollRestore(for: id)"), "and is scrolled into view, anywhere in the list")
     }
 
     /// Without a recording time the date is the day the person chose, even
@@ -148,7 +149,7 @@ struct AudioImportCalendarTests {
         precondition(app.contains("reportsHealth: false"), "browsing days does not change Google health")
         precondition(app.contains("hasReadableSource:"), "empty sources show the connect hint")
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
-        precondition(browser.contains("let insertedID = ids.first(where: { !knownHistoryIDs.contains($0) && visibleIDs.contains($0) })"), "nothing open: open the inserted note")
+        precondition(browser.contains("NoteSelection.focusAfterHistoryChange("), "nothing open: open the inserted note (tested in NoteSelectionTests)")
         precondition(browser.contains("if let subtitleDetail {\n                    Text(verbatim: subtitleDetail)"), "recording time on its own line")
         let section = try String(contentsOfFile: "Sources/AudioImportCalendarSection.swift", encoding: .utf8)
         precondition(section.contains("func pickDay("), "user date changes go through one path")

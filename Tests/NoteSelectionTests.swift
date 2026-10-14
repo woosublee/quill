@@ -24,6 +24,9 @@ struct NoteSelectionTests {
         try testSearchKeepsOpenNoteInResults()
         try testClearingSearchReturnsToEarlierNote()
         try testKeyCommandsRequireExactModifiers()
+        try testNewNoteDoesNotReplaceOpenNote()
+        try testNewNoteOpensWhenNothingIsOpen()
+        try testRecoveryImportKeepsOpenNoteInView()
         print("NoteSelectionTests passed")
     }
 
@@ -267,6 +270,61 @@ struct NoteSelectionTests {
         try expect(command(51, "\u{7F}", []) == .delete, "delete asks to delete")
         try expect(command(117, "\u{F728}", .function) == .delete, "forward delete asks to delete")
         try expect(command(51, "\u{7F}", .command) == nil, "command-delete is ignored")
+    }
+
+    private static func testNewNoteDoesNotReplaceOpenNote() throws {
+        let known = Set(ids[1...3])
+        let history = [ids[0], ids[1], ids[2], ids[3]]
+        try expect(
+            NoteSelection.focusAfterHistoryChange(
+                current: ids[2], historyIDs: history, visibleIDs: history,
+                knownIDs: known, isRecoveryImport: false
+            ) == .keep(restoreScroll: false),
+            "a note that arrives while another is open only joins the list"
+        )
+    }
+
+    private static func testNewNoteOpensWhenNothingIsOpen() throws {
+        let history = [ids[0], ids[1], ids[2]]
+        try expect(
+            NoteSelection.focusAfterHistoryChange(
+                current: nil, historyIDs: history, visibleIDs: history,
+                knownIDs: [ids[0], ids[2]], isRecoveryImport: false
+            ) == .open(ids[1], restoreScroll: true),
+            "with nothing open, the note that arrived opens, even below the top"
+        )
+        try expect(
+            NoteSelection.focusAfterHistoryChange(
+                current: ids[5], historyIDs: history, visibleIDs: [ids[2]],
+                knownIDs: Set(history), isRecoveryImport: false
+            ) == .open(ids[2], restoreScroll: false),
+            "when the open note is gone, the first visible note opens"
+        )
+        try expect(
+            NoteSelection.focusAfterHistoryChange(
+                current: nil, historyIDs: [], visibleIDs: [],
+                knownIDs: [], isRecoveryImport: false
+            ) == .open(nil, restoreScroll: false),
+            "an empty list clears the selection"
+        )
+    }
+
+    private static func testRecoveryImportKeepsOpenNoteInView() throws {
+        let history = [ids[0], ids[1], ids[2]]
+        try expect(
+            NoteSelection.focusAfterHistoryChange(
+                current: ids[2], historyIDs: history, visibleIDs: history,
+                knownIDs: [ids[2]], isRecoveryImport: true
+            ) == .keep(restoreScroll: true),
+            "a recovery import keeps the open note and scrolls back to it"
+        )
+        try expect(
+            NoteSelection.focusAfterHistoryChange(
+                current: nil, historyIDs: history, visibleIDs: history,
+                knownIDs: [ids[2]], isRecoveryImport: true
+            ) == .open(ids[0], restoreScroll: true),
+            "a recovery import with nothing open opens the first note, not an imported one"
+        )
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {
