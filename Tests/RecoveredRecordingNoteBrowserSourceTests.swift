@@ -378,7 +378,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         )
         try expect(
             selectionUpdate.contains("let isRecoveryImport = appState.isHistoryRecoveryOperationInProgress")
-                && selectionUpdate.contains("if isRecoveryImport {")
+                && selectionUpdate.contains("isRecoveryImport: isRecoveryImport")
+                && selectionUpdate.contains("case .keep(let restoreScroll):")
                 && selectionUpdate.contains("scheduleRecoveryScrollRestore(for: current)"),
             "Recovery imports schedule the existing selection as the list restore anchor"
         )

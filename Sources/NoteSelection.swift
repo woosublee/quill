@@ -202,6 +202,39 @@ struct NoteSelection: Equatable {
     }
 }
 
+/// What the Note Browser opens after its list of notes changes.
+enum NoteHistoryChangeFocus: Equatable {
+    /// Leave the open note; scroll back to it when `restoreScroll`.
+    case keep(restoreScroll: Bool)
+    /// Open this note (nil clears the selection), scrolling to it when `restoreScroll`.
+    case open(UUID?, restoreScroll: Bool)
+}
+
+extension NoteSelection {
+    /// An open note stays open: a note that arrives, whether recorded or
+    /// imported here or synced from another Mac, only joins the list (#541).
+    /// With nothing open, a note that just arrived opens (imported audio can
+    /// land below the top), else the first visible note.
+    static func focusAfterHistoryChange(
+        current: UUID?,
+        historyIDs: [UUID],
+        visibleIDs: [UUID],
+        knownIDs: Set<UUID>,
+        isRecoveryImport: Bool
+    ) -> NoteHistoryChangeFocus {
+        if let current, historyIDs.contains(current) {
+            // Keep the note the user was viewing visible after a recovery import.
+            return .keep(restoreScroll: isRecoveryImport)
+        }
+        let insertedID = historyIDs.first { !knownIDs.contains($0) && visibleIDs.contains($0) }
+        if !isRecoveryImport, let insertedID {
+            return .open(insertedID, restoreScroll: true)
+        }
+        let first = visibleIDs.first
+        return .open(first, restoreScroll: isRecoveryImport && first != nil)
+    }
+}
+
 /// Note Browser list shortcuts.
 enum NoteBrowserKeyCommand {
     case selectAll, endSelection, delete

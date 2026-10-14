@@ -22,8 +22,11 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains(".onChange(of: selectedItemID) { newID in"))
         precondition(source.contains("if newID != noteOpenedBySearch {\n                noteOpenedBySearch = nil\n            }"))
         precondition(source.contains("} else if isSearchActive, filteredHistory.isEmpty {\n            emptyDetailNoSearchResults"))
-        precondition(source.contains("openNoteForSearch(visibleIDs.first)"))
-        precondition(source.contains("ids.first(where: { !knownHistoryIDs.contains($0) }),\n                      newID != current, visibleIDs.contains(newID) {"))
+        // Notes that arrive open through the search, and only among results;
+        // an open note is never replaced by one that arrives (#541).
+        precondition(source.contains("visibleIDs: visibleIDs,"))
+        precondition(source.contains("case .open(let id, let restoreScroll):\n                openNoteForSearch(id)"))
+        precondition(!source.contains("newID != current, visibleIDs.contains(newID)"))
 
         // The header overlays the list at its width, so the no-results view
         // must fill the sidebar or the search field is squeezed away.
@@ -37,8 +40,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         // #436: a history change while searching opens notes the same way,
         // instead of taking focus from the search field.
         let historyChange = try body(of: ".onReceive(appState.$pipelineHistory)", in: source)
-        precondition(historyChange.contains("openNoteForSearch(visibleIDs.first)"))
-        precondition(historyChange.contains("openNoteForSearch(newID)"))
+        precondition(historyChange.contains("openNoteForSearch(id)"))
         precondition(!historyChange.contains("selection.focus("), "history changes don't open notes around the search")
         precondition(source.contains("if !isFocused && searchText.isEmpty && !isMovingOpenNoteForSearch {"))
         precondition(source.contains("DispatchQueue.main.async {\n            isSearchFieldFocused = true"))

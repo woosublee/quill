@@ -8250,14 +8250,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// `recordingTime` comes from the file's embedded creation date; with it
     /// the note sits at its real recording time. `calendarEvent` is the event
-    /// chosen in the import sheet.
+    /// chosen in the import sheet. `onNoteAdded` runs once the imported note
+    /// is in the list and linked to its transcription job.
     @MainActor
     func importAudioFile(
         _ fileURL: URL,
         choice: TranscriptionBackendChoice,
         recordingTime: AudioFileRecordingTime?,
         calendarEvent: CalendarEvent?,
-        calendarDay: Date?
+        calendarDay: Date?,
+        onNoteAdded: (@MainActor (UUID) -> Void)? = nil
     ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
@@ -8375,6 +8377,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 $0.liveNoteID = noteID
                 $0.audioFileName = savedAudioFile.fileName
             }
+            onNoteAdded?(noteID)
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: noteID,
                 usesJobStore: configuration.usesJobStore,
@@ -9913,8 +9916,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commits.forEach { $0() }
     }
 
+    /// The Note Browser's record button. Once the recording has started and
+    /// has its note, `openNote` gets that note's ID (#541).
     @MainActor
-    func toggleRecording() {
+    func toggleRecordingFromNoteBrowser(openNote: @escaping @MainActor (UUID) -> Void) {
+        toggleRecording { [weak self] in
+            guard let noteID = self?.currentRecordingLiveNoteID else { return }
+            openNote(noteID)
+        }
+    }
+
+    /// `onStarted` runs only if this call starts a recording, once capture begins.
+    @MainActor
+    func toggleRecording(onStarted: (@MainActor () -> Void)? = nil) {
         os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
         cancelPendingShortcutStart()
         if isRecording {
@@ -9925,7 +9939,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
             shortcutSessionController.beginManual(mode: .toggle)
-            if !startRecording(triggerMode: .toggle) {
+            if !startRecording(triggerMode: .toggle, onStarted: onStarted) {
                 shortcutSessionController.reset()
             }
         }
