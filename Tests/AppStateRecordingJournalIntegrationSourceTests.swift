@@ -642,7 +642,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
     private static func testSecondToggleCancelsPendingRecordingStart() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let start = try body(startingWith: "private func startRecording(", in: source)
-        let toggle = try body(startingWith: "func toggleRecording()", in: source)
+        let toggle = try body(startingWith: "func toggleRecording(onStarted:", in: source)
         let cancel = try functionBody(
             named: "cancelPendingRecordingStart",
             in: source
@@ -814,22 +814,20 @@ struct AppStateRecordingJournalIntegrationSourceTests {
 
     private static func testRejectedRecordingEntryPointsResetShortcutSession() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        let toggle = try body(startingWith: "func toggleRecording()", in: source)
+        let toggle = try body(startingWith: "func toggleRecording(onStarted:", in: source)
         let calendar = try functionBody(
             named: "beginCalendarReminderRecording",
             in: source
         )
         let shortcut = try functionBody(named: "scheduleShortcutStart", in: source)
 
-        assert(toggle.contains("if !startRecording(triggerMode: .toggle)"))
+        assert(toggle.contains("if !startRecording(triggerMode: .toggle, onStarted: onStarted)"))
         assert(toggle.contains("shortcutSessionController.reset()"))
         // The browser's record button opens its note only once the recording
         // started and has a note; a refused start resets the session (#541).
         let browserToggle = try functionBody(named: "toggleRecordingFromNoteBrowser", in: source)
-        assert(browserToggle.contains("guard !isRecording, recordingStartAdmissionLifecycle.activeID == nil else {\n            toggleRecording()"))
-        assert(browserToggle.contains("let started = startRecording(triggerMode: .toggle) { [weak self] in"))
+        assert(browserToggle.contains("toggleRecording { [weak self] in"), "one toggle path for the menu bar and the browser")
         assert(browserToggle.contains("guard let noteID = self?.currentRecordingLiveNoteID else { return }"))
-        assert(browserToggle.contains("if !started {\n            shortcutSessionController.reset()"))
         assert(calendar.contains("if !startRecording("))
         assert(calendar.contains("shortcutSessionController.reset()"))
         assert(calendar.contains("activeRecordingCalendarSnapshot = nil"))

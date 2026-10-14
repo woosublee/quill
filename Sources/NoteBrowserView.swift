@@ -501,19 +501,21 @@ struct NoteBrowserView: View {
         }
     }
 
-    /// Opens a note because of the search, keeping the typing in the search
-    /// field: rebuilding the detail pane can take focus from it.
     /// Opens a note the person asked for here, an import or a recording from
-    /// the record button, even while another note is open (#541). A
-    /// multi-selection stays, and an active search opens it only if it matches.
-    private func openChosenNote(_ id: UUID) {
-        guard !selection.showsSelectionUI, selectedItemID != id,
+    /// the record button, even while another note is open (#541). It opens
+    /// only if `openWhenAsked` is still the open note, so a note picked while
+    /// the import or recording start took its time stays. A multi-selection
+    /// stays, and an active search opens it only if it matches.
+    private func openChosenNote(_ id: UUID, ifStillOpen openWhenAsked: UUID?) {
+        guard !selection.showsSelectionUI, selectedItemID == openWhenAsked, selectedItemID != id,
               let item = appState.pipelineHistory.first(where: { $0.id == id }),
-              searchText.isEmpty || matchesSearch(item) else { return }
+              !isSearchActive || matchesSearch(item) else { return }
         openNoteForSearch(id)
         scheduleRecoveryScrollRestore(for: id)
     }
 
+    /// Opens a note because of the search, keeping the typing in the search
+    /// field: rebuilding the detail pane can take focus from it.
     private func openNoteForSearch(_ id: UUID?) {
         let keepsSearchFocus = isSearchFieldFocused
         if keepsSearchFocus {
@@ -872,6 +874,7 @@ struct NoteBrowserView: View {
                 calendarModel: importRequest.calendarModel
             ) { choice in
                 let calendarModel = importRequest.calendarModel
+                let openWhenAsked = selectedItemID
                 pendingAudioImport = nil
                 appState.importAudioFile(
                     importRequest.fileURL,
@@ -881,7 +884,7 @@ struct NoteBrowserView: View {
                     // than an event from the previously shown day.
                     calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent,
                     calendarDay: calendarModel.day,
-                    onNoteAdded: { openChosenNote($0) }
+                    onNoteAdded: { openChosenNote($0, ifStillOpen: openWhenAsked) }
                 )
             } onOpenProviderSettings: {
                 pendingAudioImport = nil
@@ -1331,7 +1334,8 @@ struct NoteBrowserView: View {
 
     private var floatingRecordButton: some View {
         Button {
-            appState.toggleRecordingFromNoteBrowser { openChosenNote($0) }
+            let openWhenAsked = selectedItemID
+            appState.toggleRecordingFromNoteBrowser { openChosenNote($0, ifStillOpen: openWhenAsked) }
         } label: {
             ZStack {
                 Circle()
