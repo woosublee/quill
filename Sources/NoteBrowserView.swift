@@ -438,6 +438,8 @@ struct NoteBrowserView: View {
     @State private var highlightedArrivals: [UUID: Int] = [:]
     /// False until the list first appears, so the first load doesn't animate.
     @State private var hasLoadedHistory = false
+    /// Every note this list has shown, so a note that comes back isn't new.
+    @State private var seenHistoryIDs: Set<UUID> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The note that was open when the current search began, to return to
     /// if the search ends with no note open.
@@ -509,13 +511,10 @@ struct NoteBrowserView: View {
         }
     }
 
-    /// A row that arrives slides down from above as it fades in; with Reduce
-    /// Motion it only fades. Removal is never animated by this.
+    /// A row that arrives slides down from above as it fades in. Removal is
+    /// never animated by this.
     private var noteArrivalTransition: AnyTransition {
-        .asymmetric(
-            insertion: reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity),
-            removal: .identity
-        )
+        .asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .identity)
     }
 
     /// Animates the rows that just arrived into the list and highlights them
@@ -898,6 +897,7 @@ struct NoteBrowserView: View {
         .onAppear {
             let ids = Set(appState.pipelineHistory.map(\.id))
             knownHistoryIDs = ids
+            seenHistoryIDs = ids
             hasLoadedHistory = true
             if selectedItemID == nil {
                 selection.focus(appState.pipelineHistory.first?.id)
@@ -977,6 +977,10 @@ struct NoteBrowserView: View {
             }
         }
         .onChange(of: selectedItemID) { newID in
+            // A note the person opened is no longer "new".
+            if let newID {
+                highlightedArrivals[newID] = nil
+            }
             // Once the person opens a note, even one the search had opened,
             // it counts as their choice when the search is cleared.
             if newID != noteOpenedBySearch {
@@ -991,12 +995,14 @@ struct NoteBrowserView: View {
                 ? newHistory.filter(matchesSearch).map(\.id)
                 : ids
             showArrivals(NoteArrivalAnimation.animatedArrivals(
-                historyIDs: ids,
                 visibleIDs: visibleIDs,
-                knownIDs: knownHistoryIDs,
+                seenIDs: seenHistoryIDs,
                 hasLoaded: hasLoadedHistory,
                 isRecoveryImport: isRecoveryImport
             ))
+            if hasLoadedHistory {
+                seenHistoryIDs.formUnion(ids)
+            }
             if selection.showsSelectionUI {
                 // Keep a multi-selection; new notes don't take over while selecting.
                 // This fires before the change lands, so filter the new value.
@@ -1506,6 +1512,7 @@ struct NoteBrowserView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 2) {
                             ForEach(filteredHistory) { item in
+                                let isJustArrived = highlightedArrivals[item.id] != nil
                                 NoteListRow(
                                     displayData: NoteListRowDisplayData(
                                         item: item,
@@ -1520,12 +1527,9 @@ struct NoteBrowserView: View {
                                         && !selection.showsSelectionUI
                                         && selectedItemID == item.id,
                                     selectionMark: selectionMark(for: item.id),
-                                    isJustArrived: highlightedArrivals[item.id] != nil
+                                    isJustArrived: isJustArrived
                                 )
                                 .id(item.id)
-                                // Only a row that just arrived moves in, so
-                                // other list changes keep appearing as before.
-                                .transition(highlightedArrivals[item.id] != nil ? noteArrivalTransition : .identity)
                                 .onTapGesture { handleRowClick(item.id) }
                                 .accessibilityAction { handleRowClick(item.id) }
                                 .accessibilityAction(named: Text("Select")) {
@@ -1546,9 +1550,14 @@ struct NoteBrowserView: View {
                                             || appState.isRecordingInProgress(noteID: item.id)
                                     )
                                 }
+                                // Last, so it reaches the ForEach element. Only a
+                                // row that just arrived moves in; other list
+                                // changes keep appearing as before.
+                                .transition(isJustArrived ? noteArrivalTransition : .identity)
                             }
                         }
-                        .animation(.easeOut(duration: reduceMotion ? 0.15 : 0.28), value: arrivalAnimationToken)
+                        // With Reduce Motion nothing moves: the row appears with its tint.
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: arrivalAnimationToken)
                         .padding(.horizontal, 8)
                         // Tracks where the list's top sits relative to the
                         // header. Measured on the whole stack, which stays
