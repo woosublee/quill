@@ -27,6 +27,7 @@ struct NoteSelectionTests {
         try testNewNoteDoesNotReplaceOpenNote()
         try testNewNoteOpensWhenNothingIsOpen()
         try testRecoveryImportKeepsOpenNoteInView()
+        try testArrivalAnimationSkipsLoadsRecoveryAndBursts()
         print("NoteSelectionTests passed")
     }
 
@@ -324,6 +325,41 @@ struct NoteSelectionTests {
                 knownIDs: [ids[2]], isRecoveryImport: true
             ) == .open(ids[0], restoreScroll: true),
             "a recovery import with nothing open opens the first note, not an imported one"
+        )
+    }
+
+    private static func testArrivalAnimationSkipsLoadsRecoveryAndBursts() throws {
+        let history = [ids[0], ids[1], ids[2], ids[3]]
+        try expect(
+            NoteArrivalAnimation.animatedArrivals(
+                historyIDs: history, knownIDs: [ids[0], ids[2]], isRecoveryImport: false
+            ) == [ids[1], ids[3]],
+            "new notes animate in list order"
+        )
+        try expect(
+            NoteArrivalAnimation.animatedArrivals(
+                historyIDs: history, knownIDs: [], isRecoveryImport: false
+            ).isEmpty,
+            "the first load doesn't animate"
+        )
+        try expect(
+            NoteArrivalAnimation.animatedArrivals(
+                historyIDs: history, knownIDs: [ids[0]], isRecoveryImport: true
+            ).isEmpty,
+            "a recovery import doesn't animate"
+        )
+        let many = (0..<20).map { _ in UUID() }
+        try expect(
+            NoteArrivalAnimation.animatedArrivals(
+                historyIDs: many, knownIDs: [many[0]], isRecoveryImport: false
+            ).isEmpty,
+            "a burst, such as a first iCloud fetch, appears without animation"
+        )
+        try expect(
+            NoteArrivalAnimation.animatedArrivals(
+                historyIDs: history, knownIDs: Set(history), isRecoveryImport: false
+            ).isEmpty,
+            "edits to notes already listed don't animate"
         )
     }
 

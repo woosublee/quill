@@ -235,6 +235,25 @@ extension NoteSelection {
     }
 }
 
+/// Which arriving notes the Note Browser animates in and briefly highlights (#542).
+enum NoteArrivalAnimation {
+    /// More arrivals at once than this, such as a first iCloud fetch, appear
+    /// without animation.
+    static let maxAnimatedArrivals = 5
+
+    /// The notes new to this list, in list order. None on the first load
+    /// (nothing known yet), during a recovery import, or past the limit.
+    static func animatedArrivals(
+        historyIDs: [UUID],
+        knownIDs: Set<UUID>,
+        isRecoveryImport: Bool
+    ) -> [UUID] {
+        guard !knownIDs.isEmpty, !isRecoveryImport else { return [] }
+        let arrived = historyIDs.filter { !knownIDs.contains($0) }
+        return arrived.count <= maxAnimatedArrivals ? arrived : []
+    }
+}
+
 /// Note Browser list shortcuts.
 enum NoteBrowserKeyCommand {
     case selectAll, endSelection, delete

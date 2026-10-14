@@ -431,6 +431,11 @@ struct NoteBrowserView: View {
     @State private var searchText = ""
     @State private var searchMatcher = NoteSearchMatcher()
     @State private var knownHistoryIDs: Set<UUID> = []
+    /// Bumped when notes arrive, so only arrivals animate the list (#542).
+    @State private var arrivalAnimationToken = 0
+    /// Notes that just arrived, highlighted briefly.
+    @State private var highlightedArrivalIDs: Set<UUID> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The note that was open when the current search began, to return to
     /// if the search ends with no note open.
     @State private var noteOpenBeforeSearch: UUID?
@@ -497,6 +502,27 @@ struct NoteBrowserView: View {
             endSearchSession()
             if focused != selectedItemID {
                 openNoteForSearch(focused)
+            }
+        }
+    }
+
+    /// A row that arrives slides down from above as it fades in; with Reduce
+    /// Motion it only fades.
+    private var noteArrivalTransition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .identity)
+    }
+
+    /// Animates the rows that just arrived into the list and highlights them
+    /// for a moment, so it's clear which notes are new (#542).
+    private func showArrivals(_ arrivedIDs: [UUID]) {
+        guard !arrivedIDs.isEmpty else { return }
+        arrivalAnimationToken &+= 1
+        highlightedArrivalIDs.formUnion(arrivedIDs)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(.easeOut(duration: 0.6)) {
+                highlightedArrivalIDs.subtract(arrivedIDs)
             }
         }
     }
@@ -949,6 +975,11 @@ struct NoteBrowserView: View {
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
+            showArrivals(NoteArrivalAnimation.animatedArrivals(
+                historyIDs: ids,
+                knownIDs: knownHistoryIDs,
+                isRecoveryImport: appState.isHistoryRecoveryOperationInProgress
+            ))
             if selection.showsSelectionUI {
                 // Keep a multi-selection; new notes don't take over while selecting.
                 // This fires before the change lands, so filter the new value.
@@ -1476,9 +1507,11 @@ struct NoteBrowserView: View {
                                     isKeyboardHighlighted: isNoteListFocused
                                         && !selection.showsSelectionUI
                                         && selectedItemID == item.id,
-                                    selectionMark: selectionMark(for: item.id)
+                                    selectionMark: selectionMark(for: item.id),
+                                    isJustArrived: highlightedArrivalIDs.contains(item.id)
                                 )
                                 .id(item.id)
+                                .transition(noteArrivalTransition)
                                 .onTapGesture { handleRowClick(item.id) }
                                 .accessibilityAction { handleRowClick(item.id) }
                                 .accessibilityAction(named: Text("Select")) {
@@ -1501,6 +1534,7 @@ struct NoteBrowserView: View {
                                 }
                             }
                         }
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: arrivalAnimationToken)
                         .padding(.horizontal, 8)
                         // Tracks where the list's top sits relative to the
                         // header. Measured on the whole stack, which stays
@@ -1997,6 +2031,8 @@ private struct NoteListRow: View {
     /// The open row while the list has keyboard focus.
     var isKeyboardHighlighted: Bool = false
     var selectionMark: SelectionMark? = nil
+    /// Tinted for a moment after the note arrives (#542).
+    var isJustArrived: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -2073,6 +2109,10 @@ private struct NoteListRow: View {
                             ? (colorScheme == .dark ? Color.white.opacity(0.03) : Color.primary.opacity(0.05))
                             : Color.clear)
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(isJustArrived && !isKeyboardHighlighted ? 0.14 : 0))
+                }
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(
