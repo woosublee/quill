@@ -27,6 +27,7 @@ struct NoteSelectionTests {
         try testNewNoteDoesNotReplaceOpenNote()
         try testNewNoteOpensWhenNothingIsOpen()
         try testRecoveryImportKeepsOpenNoteInView()
+        try testArrivalAnimationSkipsLoadsRecoveryAndBursts()
         print("NoteSelectionTests passed")
     }
 
@@ -325,6 +326,32 @@ struct NoteSelectionTests {
             ) == .open(ids[0], restoreScroll: true),
             "a recovery import with nothing open opens the first note, not an imported one"
         )
+    }
+
+    private static func testArrivalAnimationSkipsLoadsRecoveryAndBursts() throws {
+        let history = [ids[0], ids[1], ids[2], ids[3]]
+        func arrivals(
+            _ visible: [UUID], seen: Set<UUID>, hasLoaded: Bool = true, recovery: Bool = false
+        ) -> [UUID] {
+            NoteArrivalAnimation.animatedArrivals(
+                visibleIDs: visible, seenIDs: seen, hasLoaded: hasLoaded, isRecoveryImport: recovery
+            )
+        }
+        try expect(arrivals(history, seen: [ids[0], ids[2]]) == [ids[1], ids[3]],
+                   "new notes animate in list order")
+        try expect(arrivals(history, seen: [], hasLoaded: false).isEmpty,
+                   "the first load doesn't animate")
+        try expect(arrivals([ids[0]], seen: []) == [ids[0]],
+                   "the first note in an empty list animates")
+        try expect(arrivals(history, seen: [ids[0]], recovery: true).isEmpty,
+                   "a recovery import doesn't animate")
+        let many = (0..<20).map { _ in UUID() }
+        try expect(arrivals(many, seen: [many[0]]).isEmpty,
+                   "a burst, such as a first iCloud fetch, appears without animation")
+        try expect(arrivals(history, seen: Set(history)).isEmpty,
+                   "a note seen before, saved again or brought back, doesn't animate")
+        try expect(arrivals([ids[0], ids[3]], seen: [ids[0], ids[2]]) == [ids[3]],
+                   "only visible notes count, so hidden ones neither animate nor use up the limit")
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

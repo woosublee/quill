@@ -431,6 +431,17 @@ struct NoteBrowserView: View {
     @State private var searchText = ""
     @State private var searchMatcher = NoteSearchMatcher()
     @State private var knownHistoryIDs: Set<UUID> = []
+    /// Bumped when notes arrive, so only arrivals animate the list (#542).
+    @State private var arrivalAnimationToken = 0
+    /// Notes that just arrived, highlighted briefly, each with the arrival
+    /// that highlighted it so an earlier timer can't clear a later arrival.
+    @State private var highlightedArrivals: [UUID: Int] = [:]
+    /// False until the list first appears, so the first load doesn't animate.
+    @State private var hasLoadedHistory = false
+    /// Every note this list has had, search-hidden or not, plus Recently
+    /// Deleted when it opened, so a note that comes back isn't new.
+    @State private var seenHistoryIDs: Set<UUID> = []
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The note that was open when the current search began, to return to
     /// if the search ends with no note open.
     @State private var noteOpenBeforeSearch: UUID?
@@ -497,6 +508,30 @@ struct NoteBrowserView: View {
             endSearchSession()
             if focused != selectedItemID {
                 openNoteForSearch(focused)
+            }
+        }
+    }
+
+    /// A row that arrives fades in where it lands, growing slightly, so it never
+    /// seems to slide out from under the header. Removal is never animated by this.
+    private var noteArrivalTransition: AnyTransition {
+        .asymmetric(insertion: .scale(scale: 0.96, anchor: .top).combined(with: .opacity), removal: .identity)
+    }
+
+    /// Animates the rows that just arrived into the list and highlights them
+    /// for a moment, so it's clear which notes are new (#542).
+    private func showArrivals(_ arrivedIDs: [UUID]) {
+        guard !arrivedIDs.isEmpty else { return }
+        arrivalAnimationToken &+= 1
+        let arrival = arrivalAnimationToken
+        for id in arrivedIDs {
+            highlightedArrivals[id] = arrival
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.6)) {
+                for id in arrivedIDs where highlightedArrivals[id] == arrival {
+                    highlightedArrivals[id] = nil
+                }
             }
         }
     }
@@ -587,6 +622,10 @@ struct NoteBrowserView: View {
     }
 
     private func handleRowClick(_ id: UUID) {
+        // A note the person clicked is no longer "new".
+        if highlightedArrivals[id] != nil {
+            highlightedArrivals[id] = nil
+        }
         let flags = NSEvent.modifierFlags
         let modifier: NoteSelectionModifier = flags.contains(.command)
             ? .toggle
@@ -863,6 +902,8 @@ struct NoteBrowserView: View {
         .onAppear {
             let ids = Set(appState.pipelineHistory.map(\.id))
             knownHistoryIDs = ids
+            seenHistoryIDs = ids.union(appState.recentlyDeletedNotes.map(\.id))
+            hasLoadedHistory = true
             if selectedItemID == nil {
                 selection.focus(appState.pipelineHistory.first?.id)
             }
@@ -949,19 +990,28 @@ struct NoteBrowserView: View {
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
-            if selection.showsSelectionUI {
-                // Keep a multi-selection; new notes don't take over while selecting.
-                // This fires before the change lands, so filter the new value.
-                selection.retainVisible(newHistory.filter(matchesSearch).map(\.id))
-                selection.retainSelectable { isBulkSelectable($0, in: newHistory) }
-                knownHistoryIDs = Set(ids)
-                return
-            }
             let isRecoveryImport = appState.isHistoryRecoveryOperationInProgress
             // During a search, fall back to and auto-select only results.
             let visibleIDs = isSearchActive
                 ? newHistory.filter(matchesSearch).map(\.id)
                 : ids
+            showArrivals(NoteArrivalAnimation.animatedArrivals(
+                visibleIDs: visibleIDs,
+                seenIDs: seenHistoryIDs,
+                hasLoaded: hasLoadedHistory,
+                isRecoveryImport: isRecoveryImport
+            ))
+            if hasLoadedHistory {
+                seenHistoryIDs.formUnion(ids)
+            }
+            if selection.showsSelectionUI {
+                // Keep a multi-selection; new notes don't take over while selecting.
+                // This fires before the change lands, so filter the new value.
+                selection.retainVisible(visibleIDs)
+                selection.retainSelectable { isBulkSelectable($0, in: newHistory) }
+                knownHistoryIDs = Set(ids)
+                return
+            }
             // Opening a note here goes through the search, so typing a query
             // keeps the search field focused and the search open (#436).
             switch NoteSelection.focusAfterHistoryChange(
@@ -1463,6 +1513,7 @@ struct NoteBrowserView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 2) {
                             ForEach(filteredHistory) { item in
+                                let isJustArrived = highlightedArrivals[item.id] != nil
                                 NoteListRow(
                                     displayData: NoteListRowDisplayData(
                                         item: item,
@@ -1476,7 +1527,8 @@ struct NoteBrowserView: View {
                                     isKeyboardHighlighted: isNoteListFocused
                                         && !selection.showsSelectionUI
                                         && selectedItemID == item.id,
-                                    selectionMark: selectionMark(for: item.id)
+                                    selectionMark: selectionMark(for: item.id),
+                                    isJustArrived: isJustArrived
                                 )
                                 .id(item.id)
                                 .onTapGesture { handleRowClick(item.id) }
@@ -1499,8 +1551,14 @@ struct NoteBrowserView: View {
                                             || appState.isRecordingInProgress(noteID: item.id)
                                     )
                                 }
+                                // Last, so it reaches the ForEach element. Only a
+                                // row that just arrived moves in; other list
+                                // changes keep appearing as before.
+                                .transition(isJustArrived ? noteArrivalTransition : .identity)
                             }
                         }
+                        // With Reduce Motion nothing moves: the row appears with its tint.
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.28), value: arrivalAnimationToken)
                         .padding(.horizontal, 8)
                         // Tracks where the list's top sits relative to the
                         // header. Measured on the whole stack, which stays
@@ -1997,6 +2055,8 @@ private struct NoteListRow: View {
     /// The open row while the list has keyboard focus.
     var isKeyboardHighlighted: Bool = false
     var selectionMark: SelectionMark? = nil
+    /// Tinted for a moment after the note arrives (#542).
+    var isJustArrived: Bool = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -2073,6 +2133,14 @@ private struct NoteListRow: View {
                             ? (colorScheme == .dark ? Color.white.opacity(0.03) : Color.primary.opacity(0.05))
                             : Color.clear)
                 )
+                .overlay {
+                    // Only on a plain row, so it never reads as a selection state.
+                    if isJustArrived && !isSelected && selectionMark == nil {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.accentColor.opacity(0.14))
+                            .transition(.opacity)
+                    }
+                }
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(
