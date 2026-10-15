@@ -3091,9 +3091,10 @@ private struct NoteDetailView: View {
 
     @ViewBuilder
     private var noteStateIndicator: some View {
-        if isLiveRecording {
-            LiveRecordingBadge(startedAt: item.recordingStartedAt)
-        } else if isRetrying || isCloudTranscribing || isRecoveringRecording {
+        // A live recording adds nothing here (#537): the menu bar, the
+        // overlay, the list row and the empty body's "Recording" title show
+        // it, and a badge with a timer would wrap the metadata line.
+        if isRetrying || isCloudTranscribing || isRecoveringRecording {
             ProgressView()
                 .controlSize(.mini)
                 .help(isCloudTranscribing ? cloudProgressText : retryingStatusText)
@@ -5342,46 +5343,6 @@ private struct YellowSpinner: View {
                     rotation = 360
                 }
             }
-    }
-}
-
-// MARK: - Live Recording Badge
-
-private struct LiveRecordingBadge: View {
-    var startedAt: Date?
-    @State private var pulsing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if reduceMotion {
-                // Reduce Motion: a steady dot; REC and the timer show the state.
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 5, height: 5)
-                    .onAppear { pulsing = false }
-            } else {
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 5, height: 5)
-                    .opacity(pulsing ? 0.3 : 1.0)
-                    .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
-                    .onAppear { pulsing = true }
-            }
-            Text("REC")
-            if let startedAt {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
-                        .monospacedDigit()
-                }
-            }
-        }
-        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        .foregroundStyle(.red.opacity(
-            QuillContrast.opacity(0.7, increased: colorSchemeContrast == .increased)
-        ))
-        .help("Recording in progress")
     }
 }
 
