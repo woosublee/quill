@@ -512,10 +512,10 @@ struct NoteBrowserView: View {
         }
     }
 
-    /// A row that arrives slides down from above as it fades in. Removal is
-    /// never animated by this.
+    /// A row that arrives fades in where it lands, growing slightly, so it never
+    /// seems to slide out from under the header. Removal is never animated by this.
     private var noteArrivalTransition: AnyTransition {
-        .asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .identity)
+        .asymmetric(insertion: .scale(scale: 0.96, anchor: .top).combined(with: .opacity), removal: .identity)
     }
 
     /// Animates the rows that just arrived into the list and highlights them
