@@ -793,9 +793,11 @@ struct NoteBrowserView: View {
     /// Selects and scrolls to the note another window asked for, then
     /// clears the request.
     private func openRequestedNote() {
-        guard let id = appState.noteBrowserOpenRequest,
-              appState.pipelineHistory.contains(where: { $0.id == id }) else { return }
+        guard let id = appState.noteBrowserOpenRequest else { return }
+        // Cleared even when the note is gone (#543), so a later request for
+        // the same note still changes the value and is handled.
         appState.noteBrowserOpenRequest = nil
+        guard appState.pipelineHistory.contains(where: { $0.id == id }) else { return }
         clearSearchForOpenRequest()
         // After the cleared search settles, so its own focus handling
         // doesn't move the selection afterwards.
