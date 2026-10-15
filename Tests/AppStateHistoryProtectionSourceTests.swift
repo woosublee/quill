@@ -266,6 +266,15 @@ struct AppStateHistoryProtectionSourceTests {
             browser[openRequest].contains("clearSearchForOpenRequest()"),
             "Open Note clears a search that would hide the note"
         )
+        let openRequestBody = String(browser[openRequest])
+        guard let clear = openRequestBody.range(of: "appState.noteBrowserOpenRequest = nil"),
+              let existence = openRequestBody.range(of: "appState.pipelineHistory.contains(where: { $0.id == id })") else {
+            throw TestFailure("Open Note clears the request and checks the note exists")
+        }
+        try expect(
+            clear.lowerBound < existence.lowerBound,
+            "a request for a note that is gone is cleared, so the same note can be asked for again (#543)"
+        )
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
         try expect(
             delegate.contains("appState.stopRecentlyDeletedPurgeSchedule()"),
