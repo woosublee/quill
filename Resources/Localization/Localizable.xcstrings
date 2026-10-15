@@ -9409,23 +9409,6 @@
         }
       }
     },
-    "REC": {
-      "shouldTranslate": false,
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "REC"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "REC"
-          }
-        }
-      }
-    },
     "Both dictation shortcuts are disabled.": {
       "localizations": {
         "en": {
@@ -17617,22 +17600,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "녹음 중 · %@"
-          }
-        }
-      }
-    },
-    "Recording in progress": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recording in progress"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음 중"
           }
         }
       }

@@ -417,16 +417,18 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // is turned off, so it can't stay frozen at 360.
         precondition(source.contains("rotation = 0\n                withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false))"))
 
-        // Reduce Motion: the list spinner and the REC dot stop looping.
-        let spinner = block(source, from: "private struct YellowSpinner: View {", to: "// MARK: - Live Recording Badge")
+        // Reduce Motion: the list spinner stops looping.
+        let spinner = block(source, from: "private struct YellowSpinner: View {", to: "private struct RecordingElapsedTitle")
         precondition(spinner.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
         precondition(spinner.contains("if reduceMotion {"))
         precondition(spinner.contains("Image(systemName: \"hourglass\")"))
         precondition(spinner.contains(".repeatForever(autoreverses: false)"))
-        let badge = block(source, from: "private struct LiveRecordingBadge: View {", to: "private struct RecordingElapsedTitle")
-        precondition(badge.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
-        precondition(badge.contains("if reduceMotion {"))
-        precondition(badge.contains(".repeatForever(autoreverses: true)"))
+
+        // #537: a live recording adds nothing to the detail header, so the
+        // metadata line keeps its layout when recording starts and stops.
+        let indicator = block(source, from: "private var noteStateIndicator: some View {", to: "private var statusBadges: some View {")
+        precondition(!indicator.contains("isLiveRecording"))
+        precondition(!source.contains("LiveRecordingBadge"))
 
         // Increase Contrast: row date, badges, and detail metadata strengthen.
         let row = block(source, from: "private struct NoteListRow: View {", to: "private struct SidebarCapsuleButtonStyle")

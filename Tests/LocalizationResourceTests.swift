@@ -730,7 +730,7 @@ struct LocalizationResourceTests {
 
         let extractedKeys = try extractManagedKeys(root: root, sourceFiles: managedSourceFiles)
         let exactNonCatalogSwiftUIKeys: Set<String> = [
-            "Open Run Log", "·", "API", "Legacy mlx-whisper", "REC"
+            "Open Run Log", "·", "API", "Legacy mlx-whisper"
         ]
         for extractedKey in extractedKeys where !extractedKey.isEmpty && !exactNonCatalogSwiftUIKeys.contains(extractedKey) {
             assertCatalogTranslations(
