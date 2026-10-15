@@ -11,6 +11,7 @@ struct MCPLocalAccessPolicyTests {
         testListenerIsRestrictedToLoopback()
         try testMCPServerUsesPolicyAndDoesNotEmitCORSHeaders()
         try testMCPStopRecordingCopySupportsRecordOnly()
+        try testMCPInitializeReportsAppVersion()
         print("MCPLocalAccessPolicyTests passed")
     }
 
@@ -89,6 +90,26 @@ struct MCPLocalAccessPolicyTests {
         assertContains(source, "MCPLocalAccessPolicy.allowsRequest(headers: request.headers, port: Self.port)")
         assertDoesNotContain(source, "Access-Control-Allow-Origin")
         assertDoesNotContain(source, "corsHeaders()")
+    }
+
+    private static func testMCPInitializeReportsAppVersion() throws {
+        let source = try String(contentsOfFile: "Sources/MCPServer.swift", encoding: .utf8)
+        guard let start = source.range(of: "case \"initialize\":"),
+              let end = source.range(
+                of: "case \"notifications/initialized\":",
+                range: start.upperBound..<source.endIndex
+              ) else {
+            fatalError("Unable to locate initialize handler")
+        }
+        let handler = String(source[start.lowerBound..<end.lowerBound])
+        assertTrue(
+            handler.contains("\"version\": AppBuild.shortVersion"),
+            "Expected initialize to report the app's bundle version"
+        )
+        assertFalse(
+            handler.contains("\"version\": \""),
+            "Expected initialize not to hardcode a server version"
+        )
     }
 
     private static func testMCPStopRecordingCopySupportsRecordOnly() throws {

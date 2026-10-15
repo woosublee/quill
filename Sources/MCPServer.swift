@@ -242,7 +242,7 @@ final class MCPServer {
             return ["result": [
                 "protocolVersion": "2024-11-05",
                 "capabilities": ["tools": [:], "notifications": [:]],
-                "serverInfo": ["name": "quill", "version": "1.0.0"]
+                "serverInfo": ["name": "quill", "version": AppBuild.shortVersion]
             ]]
 
         case "notifications/initialized":
