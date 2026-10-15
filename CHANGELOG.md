@@ -8,6 +8,19 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.1.1] - 2026-10-15
+
+### Changed
+
+- The Note Browser keeps the note you're reading when a new note arrives, such as a note synced from another Mac or a recording started by an AI tool. A recording you start yourself (with the shortcut, the menu bar, the Note Browser's record button, or a meeting reminder) still opens its note, and the note stays open after the recording stops. Imported audio opens its note too. If you dictate with the shortcut while editing a note in the Note Browser, that note stays open so the text lands in it.
+- New notes fade into the Note Browser list and are briefly highlighted.
+- The note header no longer shows a REC badge while recording, so it doesn't change layout when a recording starts or stops. The menu bar, the recording overlay, the note list, and the note itself still show that it's recording.
+- The MCP server reports Quill's version when an AI tool connects, instead of always 1.0.0.
+
+### Fixed
+
+- **Open Note** in Settings › Recovery › Recently Deleted always opens the note, even after an earlier request was for a note that had since been removed.
+
 ## [1.1.0] - 2026-10-14
 
 ### Added
