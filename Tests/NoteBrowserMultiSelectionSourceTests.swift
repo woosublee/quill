@@ -147,7 +147,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(monitor.contains("event.window === window"))
         precondition(monitor.contains("!(window.firstResponder is NSText)"))
         precondition(monitor.contains("NSEvent.removeMonitor(monitor)"))
-        precondition(source.contains(".background(NoteBrowserKeyCommandMonitor(handle: handleKeyCommand))"))
+        precondition(source.contains(".background(NoteBrowserKeyCommandMonitor(windowReference: browserWindow, handle: handleKeyCommand))"))
 
         // New notes don't replace a multi-selection, and search keeps it to visible notes.
         precondition(source.contains("// Keep a multi-selection; new notes don't take over while selecting."))

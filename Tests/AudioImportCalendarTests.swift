@@ -124,7 +124,8 @@ struct AudioImportCalendarTests {
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         precondition(browser.contains("onNoteAdded: { openChosenNote($0, ifStillOpen: openWhenAsked) }"))
         precondition(browser.contains("private func openChosenNote(_ id: UUID, ifStillOpen openWhenAsked: UUID?)"))
-        precondition(browser.contains("!selection.showsSelectionUI, selectedItemID == openWhenAsked"), "a multi-selection, or a note picked meanwhile, stays")
+        precondition(browser.contains("guard selectedItemID == openWhenAsked else { return }"), "a note picked meanwhile stays")
+        precondition(browser.contains("guard !selection.showsSelectionUI, selectedItemID != id,"), "a multi-selection stays")
         precondition(browser.contains("!isSearchActive || matchesSearch(item)"), "a search opens it only if it matches")
         let added = appState.range(of: "onNoteAdded?(noteID)")!.lowerBound
         let linked = appState.range(of: "$0.liveNoteID = noteID\n                $0.audioFileName = savedAudioFile.fileName")!.lowerBound

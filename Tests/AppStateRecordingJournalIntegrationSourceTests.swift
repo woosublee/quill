@@ -619,7 +619,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         let start = try body(startingWith: "private func startRecording(", in: source)
         let mcpStart = try body(startingWith: "func startRecordingFromMCP()", in: source)
 
-        assert(source.contains("private func startRecording(\n        triggerMode: RecordingTriggerMode,\n        onStarted: (@MainActor () -> Void)? = nil\n    ) -> Bool"))
+        assert(source.contains("private func startRecording(\n        triggerMode: RecordingTriggerMode,\n        opensNote: Bool,\n        onStarted: (@MainActor () -> Void)? = nil\n    ) -> Bool"))
         assert(start.contains("guard physicalAudioStartLifecycle.isIdle else { return false }"))
         let admissionBegin = try requiredRange(
             of: "recordingStartAdmissionLifecycle.begin(startRequestID)",
@@ -634,7 +634,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(taskStart.lowerBound < admissionCompletion.lowerBound)
         assert(start.contains("defer"))
         assert(start.contains("return true"))
-        assert(mcpStart.contains("guard startRecording(triggerMode: .toggle) else"))
+        assert(mcpStart.contains("guard startRecording(triggerMode: .toggle, opensNote: false) else"))
         assert(mcpStart.contains("shortcutSessionController.reset()"))
         assert(mcpStart.contains("return false"))
     }
@@ -642,7 +642,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
     private static func testSecondToggleCancelsPendingRecordingStart() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let start = try body(startingWith: "private func startRecording(", in: source)
-        let toggle = try body(startingWith: "func toggleRecording(onStarted:", in: source)
+        let toggle = try body(startingWith: "private func toggleRecording(opensNote: Bool, onStarted:", in: source)
         let cancel = try functionBody(
             named: "cancelPendingRecordingStart",
             in: source
@@ -814,20 +814,48 @@ struct AppStateRecordingJournalIntegrationSourceTests {
 
     private static func testRejectedRecordingEntryPointsResetShortcutSession() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        let toggle = try body(startingWith: "func toggleRecording(onStarted:", in: source)
+        let toggle = try body(startingWith: "private func toggleRecording(opensNote: Bool, onStarted:", in: source)
         let calendar = try functionBody(
             named: "beginCalendarReminderRecording",
             in: source
         )
         let shortcut = try functionBody(named: "scheduleShortcutStart", in: source)
 
-        assert(toggle.contains("if !startRecording(triggerMode: .toggle, onStarted: onStarted)"))
+        assert(toggle.contains("if !startRecording(triggerMode: .toggle, opensNote: opensNote, onStarted: onStarted)"))
         assert(toggle.contains("shortcutSessionController.reset()"))
-        // The browser's record button opens its note only once the recording
-        // started and has a note; a refused start resets the session (#541).
+        // A recording a person started opens its note once it has one; an
+        // MCP start doesn't (#549).
+        let start = try body(startingWith: "private func startRecording(", in: source)
+        assert(start.contains("if opensNote, let self, let noteID = self.currentRecordingLiveNoteID {"))
+        assert(start.contains("self.ownRecordingNoteToOpen = noteID"))
+        assert(ranges(of: "onStarted: onRecordingStarted", in: start).count == 2)
+        assert(!start.contains("onStarted: onStarted"), "every start path reports through onRecordingStarted")
+        let mcpStart = try body(startingWith: "func startRecordingFromMCP()", in: source)
+        assert(mcpStart.contains("startRecording(triggerMode: .toggle, opensNote: false)"))
+        // A saved recording's note moves to the top in one change, so the
+        // Note Browser never sees the open note missing (#549).
+        let moveToTop = try functionBody(named: "movePipelineHistoryItemToTop", in: source)
+        assert(moveToTop.contains("pipelineHistory = [item] + pipelineHistory.filter { $0.id != item.id }"))
+        assert(ranges(of: "pipelineHistory.removeAll", in: moveToTop).isEmpty)
+        let append = try functionBody(named: "appendPipelineHistoryItem", in: source)
+        assert(!append.contains("pipelineHistory.removeAll { $0.id == replacement.id }"))
+        assert(append.contains("movePipelineHistoryItemToTop(replacement)"))
+        assert(!source.contains("// Move it to the top, where a newly saved note would appear.\n                pipelineHistory.removeAll"))
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        assert(browser.contains(".onChange(of: appState.ownRecordingNoteToOpen) { id in"))
+        // The record button opens only the recording it started, keeping a
+        // note picked before capture begins; a start while a note is edited
+        // here keeps that note, unless the search field has focus.
         let browserToggle = try functionBody(named: "toggleRecordingFromNoteBrowser", in: source)
-        assert(browserToggle.contains("toggleRecording { [weak self] in"), "one toggle path for the menu bar and the browser")
+        assert(browserToggle.contains("toggleRecording(opensNote: false) { [weak self] in"))
         assert(browserToggle.contains("guard let noteID = self?.currentRecordingLiveNoteID else { return }"))
+        assert(browser.contains("appState.toggleRecordingFromNoteBrowser { openChosenNote($0, ifStillOpen: openWhenAsked) }"))
+        assert(browser.contains("guard let id, isSearchFieldFocused || !browserWindow.isEditingText else { return }"))
+        assert(browser.contains("return window.firstResponder is NSText"))
+        // Every start says whether it opens its note.
+        assert(!source.contains("opensNote: Bool = true"))
+        assert(ranges(of: "opensNote: true", in: source).count == 4)
+        assert(ranges(of: "opensNote: false", in: source).count == 2)
         assert(calendar.contains("if !startRecording("))
         assert(calendar.contains("shortcutSessionController.reset()"))
         assert(calendar.contains("activeRecordingCalendarSnapshot = nil"))
@@ -1014,9 +1042,10 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         // An empty recording note is not a reference that keeps failed audio.
         assert(persist.contains("$0.id == recordingID && !$0.isUnfinishedRecordingNote"))
 
-        // A replaced recording note moves to the top like a newly saved note.
-        assert(append.contains("pipelineHistory.removeAll { $0.id == replacement.id }"))
-        assert(placeholder.contains("if replacesRecordingNote"))
+        // A replaced recording note moves to the top like a newly saved note,
+        // in one change (#549).
+        assert(append.contains("movePipelineHistoryItemToTop(replacement)"))
+        assert(placeholder.contains("if replacesRecordingNote {\n                movePipelineHistoryItemToTop(item)"))
     }
 
     private static func testAudioOnlyCompletionOwnsForegroundUIAndTermination() throws {

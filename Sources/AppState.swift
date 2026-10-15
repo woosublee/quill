@@ -2463,6 +2463,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// A note the Note Browser should select and scroll to when it next
     /// shows. The browser clears it after use.
     @Published var noteBrowserOpenRequest: UUID?
+    /// The note of the latest recording a person started (shortcut, menu
+    /// bar, Note Browser, meeting reminder), set once it has a note. A Note
+    /// Browser that is showing opens it even while another note is open; one
+    /// opened later starts on the newest note anyway. An MCP start doesn't
+    /// set it (#549).
+    @Published private(set) var ownRecordingNoteToOpen: UUID?
     /// A note deleted from the Note Browser whose files are kept until the
     /// Cancel window ends. See `deleteHistoryEntryCancellably(id:)`.
     @Published private(set) var pendingNoteDeletion: PendingNoteDeletion?
@@ -9916,11 +9922,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commits.forEach { $0() }
     }
 
+    @MainActor
+    func toggleRecording() {
+        toggleRecording(opensNote: true, onStarted: nil)
+    }
+
     /// The Note Browser's record button. Once the recording has started and
-    /// has its note, `openNote` gets that note's ID (#541).
+    /// has its note, `openNote` gets that note's ID, so the button opens only
+    /// the recording it started (#541, #549).
     @MainActor
     func toggleRecordingFromNoteBrowser(openNote: @escaping @MainActor (UUID) -> Void) {
-        toggleRecording { [weak self] in
+        toggleRecording(opensNote: false) { [weak self] in
             guard let noteID = self?.currentRecordingLiveNoteID else { return }
             openNote(noteID)
         }
@@ -9928,7 +9940,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// `onStarted` runs only if this call starts a recording, once capture begins.
     @MainActor
-    func toggleRecording(onStarted: (@MainActor () -> Void)? = nil) {
+    private func toggleRecording(opensNote: Bool, onStarted: (@MainActor () -> Void)?) {
         os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
         cancelPendingShortcutStart()
         if isRecording {
@@ -9939,7 +9951,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
             shortcutSessionController.beginManual(mode: .toggle)
-            if !startRecording(triggerMode: .toggle, onStarted: onStarted) {
+            if !startRecording(triggerMode: .toggle, opensNote: opensNote, onStarted: onStarted) {
                 shortcutSessionController.reset()
             }
         }
@@ -9955,7 +9967,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         mcpLastRecordingFailed = false
         shortcutSessionController.beginManual(mode: .toggle)
-        guard startRecording(triggerMode: .toggle) else {
+        guard startRecording(triggerMode: .toggle, opensNote: false) else {
             shortcutSessionController.reset()
             return false
         }
@@ -9988,7 +10000,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             lastTranscript = ""
         }
         shortcutSessionController.beginManual(mode: .toggle)
-        if !startRecording(triggerMode: .toggle, onStarted: onStarted) {
+        if !startRecording(triggerMode: .toggle, opensNote: true, onStarted: onStarted) {
             activeRecordingCalendarSnapshot = nil
             shortcutSessionController.reset()
         }
@@ -10250,7 +10262,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         guard delay > 0 else {
             pendingShortcutStartMode = nil
-            if !startRecording(triggerMode: mode) {
+            if !startRecording(triggerMode: mode, opensNote: true) {
                 shortcutSessionController.reset()
             }
             return
@@ -10271,7 +10283,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 guard let self, let pendingMode = self.pendingShortcutStartMode else { return }
                 self.pendingShortcutStartTask = nil
                 self.pendingShortcutStartMode = nil
-                if !self.startRecording(triggerMode: pendingMode) {
+                if !self.startRecording(triggerMode: pendingMode, opensNote: true) {
                     self.shortcutSessionController.reset()
                 }
             }
@@ -10401,6 +10413,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @discardableResult
     private func startRecording(
         triggerMode: RecordingTriggerMode,
+        opensNote: Bool,
         onStarted: (@MainActor () -> Void)? = nil
     ) -> Bool {
         guard requireAvailableHistoryForMutation() else { return false }
@@ -10417,6 +10430,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commitSettingsDraftsBeforeRecordingStart()
         let t0 = CFAbsoluteTimeGetCurrent()
         os_log(.info, log: recordingLog, "startRecording() entered")
+        // Once capture begins and the recording has its note, a recording a
+        // person started opens that note in the Note Browser (#549).
+        let onRecordingStarted: @MainActor () -> Void = { [weak self] in
+            if opensNote, let self, let noteID = self.currentRecordingLiveNoteID {
+                self.ownRecordingNoteToOpen = noteID
+            }
+            onStarted?()
+        }
 
         // 전사 중이면 기존 transcribing overlay/indicator를 정리하고 소유권만 넘긴다.
         if isTranscribing {
@@ -10463,7 +10484,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             let accessibleAudioSelection = await accessibleCurrentRecordingAudioSelection(
                 startRequestID: startRequestID,
-                onStarted: onStarted
+                onStarted: onRecordingStarted
             )
             guard !Task.isCancelled else { return }
             guard recordingStartAdmissionLifecycle.activeID == startRequestID else {
@@ -10487,7 +10508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 startRequestID: startRequestID,
                 triggerMode: triggerMode,
                 audioSelection: audioSelection,
-                onStarted: onStarted
+                onStarted: onRecordingStarted
             )
             os_log(.info, log: recordingLog, "startRecording() finished: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         }
@@ -13068,9 +13089,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
-            // Move it to the top, where a newly saved note would appear.
-            pipelineHistory.removeAll { $0.id == replacement.id }
-            updatePipelineHistoryItem(replacement)
+            movePipelineHistoryItemToTop(replacement)
             return []
         }
         let removedStoredFiles = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
@@ -13395,6 +13414,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory.insert(item, at: index)
     }
 
+    /// Replaces a note and moves it to the top, where a newly saved note
+    /// would appear, in one change. Removing and inserting separately
+    /// publishes a list without the note, and the Note Browser then leaves
+    /// it for another note (#549).
+    @MainActor
+    private func movePipelineHistoryItemToTop(_ item: PipelineHistoryItem) {
+        pipelineHistory = [item] + pipelineHistory.filter { $0.id != item.id }
+    }
+
     @MainActor
     private func updatePipelineHistoryItem(_ item: PipelineHistoryItem) {
         if let index = pipelineHistory.firstIndex(where: { $0.id == item.id }) {
@@ -13517,10 +13545,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             if replacesRecordingNote {
-                // Move it to the top, where a newly saved note would appear.
-                pipelineHistory.removeAll { $0.id == noteID }
+                movePipelineHistoryItemToTop(item)
+            } else {
+                updatePipelineHistoryItem(item)
             }
-            updatePipelineHistoryItem(item)
             updateTranscriptionJob(jobID) {
                 $0.liveNoteID = noteID
                 $0.audioFileName = audioFileName

@@ -433,6 +433,7 @@ struct NoteBrowserView: View {
     @State private var knownHistoryIDs: Set<UUID> = []
     /// Bumped when notes arrive, so only arrivals animate the list (#542).
     @State private var arrivalAnimationToken = 0
+    @State private var browserWindow = NoteBrowserWindowReference()
     /// Notes that just arrived, highlighted briefly, each with the arrival
     /// that highlighted it so an earlier timer can't clear a later arrival.
     @State private var highlightedArrivals: [UUID: Int] = [:]
@@ -536,13 +537,20 @@ struct NoteBrowserView: View {
         }
     }
 
-    /// Opens a note the person asked for here, an import or a recording from
-    /// the record button, even while another note is open (#541). It opens
-    /// only if `openWhenAsked` is still the open note, so a note picked while
-    /// the import or recording start took its time stays. A multi-selection
-    /// stays, and an active search opens it only if it matches.
+    /// Opens a note the person asked for here, only if `openWhenAsked` is
+    /// still the open note, so a note picked while the import or recording
+    /// start took its time stays.
     private func openChosenNote(_ id: UUID, ifStillOpen openWhenAsked: UUID?) {
-        guard !selection.showsSelectionUI, selectedItemID == openWhenAsked, selectedItemID != id,
+        guard selectedItemID == openWhenAsked else { return }
+        openChosenNote(id)
+    }
+
+    /// Opens a note the person asked for, an import or a recording they
+    /// started, even while another note is open (#541, #549). A
+    /// multi-selection stays, and an active search opens it only if it
+    /// matches.
+    private func openChosenNote(_ id: UUID) {
+        guard !selection.showsSelectionUI, selectedItemID != id,
               let item = appState.pipelineHistory.first(where: { $0.id == id }),
               !isSearchActive || matchesSearch(item) else { return }
         openNoteForSearch(id)
@@ -956,7 +964,7 @@ struct NoteBrowserView: View {
                 Text("Deleted notes cannot be recovered.")
             }
         }
-        .background(NoteBrowserKeyCommandMonitor(handle: handleKeyCommand))
+        .background(NoteBrowserKeyCommandMonitor(windowReference: browserWindow, handle: handleKeyCommand))
         // Notes that start a summary or a retry while checked leave the selection.
         .onChange(of: appState.meetingSummaryGeneratingNoteIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
@@ -970,6 +978,15 @@ struct NoteBrowserView: View {
         // Open Note in Settings › Recovery asks for a restored note.
         .onChange(of: appState.noteBrowserOpenRequest) { _ in
             openRequestedNote()
+        }
+        // A recording the person started opens its note, even over the
+        // open note (#549).
+        .onChange(of: appState.ownRecordingNoteToOpen) { id in
+            // A start while a note is being edited here is a dictation into
+            // that note; switching would take its cursor. Dictation won't
+            // create a note after #551.
+            guard let id, isSearchFieldFocused || !browserWindow.isEditingText else { return }
+            openChosenNote(id)
         }
         .onChange(of: searchText) { _ in
             if selection.showsSelectionUI {
@@ -2415,13 +2432,27 @@ private struct NoteMultiSelectionPanel: View {
     }
 }
 
+/// The Note Browser's window, for checks that need AppKit focus.
+private final class NoteBrowserWindowReference {
+    weak var window: NSWindow?
+
+    /// Text is being edited here: the window is key and a text field or
+    /// editor has focus.
+    var isEditingText: Bool {
+        guard let window, window.isKeyWindow else { return false }
+        return window.firstResponder is NSText
+    }
+}
+
 /// Handles Note Browser list shortcuts (⌘A, esc, delete) for its own window only,
 /// and never while a text field or text view is editing.
 private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
+    let windowReference: NoteBrowserWindowReference
     let handle: (NoteBrowserKeyCommand) -> Bool
 
     func makeNSView(context: Context) -> MonitorView {
         let view = MonitorView()
+        view.windowReference = windowReference
         view.handle = handle
         return view
     }
@@ -2435,11 +2466,13 @@ private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
     }
 
     final class MonitorView: NSView {
+        var windowReference: NoteBrowserWindowReference?
         var handle: ((NoteBrowserKeyCommand) -> Bool)?
         private var monitor: Any?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            windowReference?.window = window
             if window == nil {
                 removeMonitor()
             } else if monitor == nil {
