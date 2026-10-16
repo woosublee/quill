@@ -256,7 +256,6 @@ struct RecordingOverlayGeometryTests {
 
         assert(message(.transcribing) == "Transcribing...")
         assert(message(.done) == "Done")
-        assert(message(.failed) == "Recording failed")
 
         // Errors are announced in full, even past the pill's truncation length.
         let longError = "Synthetic provider error " + String(repeating: "detail ", count: 40) + "end"
@@ -266,7 +265,6 @@ struct RecordingOverlayGeometryTests {
         assert(message(.meetingStarting(title: " Synthetic Weekly Sync ")) == "Meeting starting: Synthetic Weekly Sync")
 
         assert(OverlayAccessibilityAnnouncement.error("x").priority == .high)
-        assert(OverlayAccessibilityAnnouncement.failed.priority == .high)
         assert(OverlayAccessibilityAnnouncement.meetingStarting(title: "x").priority == .high)
         assert(OverlayAccessibilityAnnouncement.done.priority == .medium)
     }
@@ -285,7 +283,6 @@ struct RecordingOverlayGeometryTests {
         // Nothing is spoken when recording starts; it could be recorded.
         assert(!source.contains("case recordingStarted"))
         assert(source.contains("OverlayAccessibilityAnnouncer.announce(.transcribing)"))
-        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.failed)"))
         assert(source.contains("OverlayAccessibilityAnnouncer.announce(.error(message))"))
         assert(!source.contains("OverlayAccessibilityAnnouncer.announce(.error(truncated))"))
         assert(source.contains("OverlayAccessibilityAnnouncer.announce(.error(request.message))"))
@@ -298,15 +295,9 @@ struct RecordingOverlayGeometryTests {
         assert(source.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 6.0)"))
         assert(source.contains("let truncated = Self.truncatedToastMessage(message)"))
 
-        // Both Stop buttons are labeled; the failure mark is labeled.
+        // Both Stop buttons are labeled.
         let stopLabelCount = source.components(separatedBy: ".accessibilityLabel(\"Stop recording\")").count - 1
         assert(stopLabelCount == 2, "Standard and notch Stop buttons must both be labeled")
-        guard let failureStart = source.range(of: "struct FailureIndicatorView")?.lowerBound,
-              let failureEnd = source.range(of: "struct ErrorOverlayView", range: failureStart..<source.endIndex)?.lowerBound else {
-            assertionFailure("Expected FailureIndicatorView source block")
-            return
-        }
-        assert(source[failureStart..<failureEnd].contains(".accessibilityLabel(\"Recording failed\")"))
 
         // Degraded notice dismiss stays hover-only visually, but is always
         // exposed to accessibility with a dismiss action.
