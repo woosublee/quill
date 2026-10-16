@@ -422,7 +422,7 @@ struct CredentialStoreTests {
     }
 
     private static func testAStaleFileCopyCantUndoAChangedKey() throws {
-        try withSecretBackedStore { store, _ in
+        try withSecretBackedStore { store, secrets in
             try store.save("synthetic-first-key", account: "groq_api_key")
             try writeLegacySettings(store, ["groq_api_key": "synthetic-stale-key"])
             let directory = store.layout.directory
@@ -435,6 +435,14 @@ struct CredentialStoreTests {
             } catch is CredentialStoreError {
                 // expected: the change would be undone on the next load, so it's reported
             }
+            try expect(
+                secrets.accounts == ["provider": "synthetic-first-key"],
+                "a failed save puts the Keychain back to its earlier key"
+            )
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-stale-key",
+                "loading after the failed save gives what it gave before the save"
+            )
         }
     }
 

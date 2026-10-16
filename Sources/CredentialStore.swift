@@ -190,15 +190,25 @@ struct CredentialStore: Sendable {
         }
         // The Keychain first, so a failed write leaves the earlier key in
         // place. Then the file copy must go: a differing file copy counts
-        // as newer on the next load, so one left behind would undo this
-        // change, and that is reported as a failed save.
+        // as newer on the next load. If it can't, the Keychain goes back
+        // to its earlier key, so a failed save changes nothing.
+        let hadFileCopy = dict.removeValue(forKey: account) != nil
+        let previous: String? = hadFileCopy ? (try? layout.secrets.load(account: keychainAccount)) ?? nil : nil
         do {
             try layout.secrets.save(value, account: keychainAccount)
         } catch {
             throw CredentialStoreError.writeFailed(underlying: error)
         }
-        if dict.removeValue(forKey: account) != nil {
+        guard hadFileCopy else { return }
+        do {
             try writeSettings(dict)
+        } catch {
+            if let previous {
+                try? layout.secrets.save(previous, account: keychainAccount)
+            } else {
+                try? layout.secrets.delete(account: keychainAccount)
+            }
+            throw error
         }
     }
 
