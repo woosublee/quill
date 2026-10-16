@@ -446,12 +446,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private static let retiredNoteBrowserEnabledStorageKey = "note_browser_enabled"
-    private let apiKeyStorageKey = "groq_api_key"
+    private let apiKeyStorageKey = CredentialStore.providerAPIKeyAccount
     private let apiBaseURLStorageKey = "api_base_url"
     private let transcriptionEnabledStorageKey = "transcription_enabled"
     private let transcriptionModelStorageKey = AppState.transcriptionModelStorageKeyName
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
-    private let transcriptionAPIKeyStorageKey = "transcription_api_key"
+    private let transcriptionAPIKeyStorageKey = CredentialStore.transcriptionAPIKeyAccount
     private let postProcessingModelStorageKey = "post_processing_model"
     private let postProcessingFallbackModelStorageKey = "post_processing_fallback_model"
     private let contextModelStorageKey = "context_model"
@@ -2951,6 +2951,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var credentialStore: CredentialStore {
         CredentialStore(layout: dependencies.credentialStorageLayout)
     }
+    /// API key accounts the Keychain couldn't return at launch.
+    private var unreadableAPIKeyAccounts: Set<String> = []
     private let historyWorkflow: HistoryArchiveRecoveryWorkflow
     private var pipelineHistoryStore: PipelineHistoryStore {
         didSet { connectNoteSync(to: pipelineHistoryStore) }
@@ -3063,10 +3065,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let initialCredentialStore = CredentialStore(
             layout: dependencies.credentialStorageLayout
         )
-        let apiKey = Self.loadStoredAPIKey(
-            account: apiKeyStorageKey,
-            credentialStore: initialCredentialStore
-        )
+        let apiKeyLoad = initialCredentialStore.loadReportingFailure(account: apiKeyStorageKey)
+        let apiKey = Self.storedAPIKey(apiKeyLoad)
         let apiBaseURL = Self.loadStoredAPIBaseURL(
             account: "api_base_url",
             credentialStore: initialCredentialStore
@@ -3076,10 +3076,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             account: transcriptionAPIURLStorageKey,
             credentialStore: initialCredentialStore
         )
-        let transcriptionAPIKey = Self.loadStoredAPIKey(
-            account: transcriptionAPIKeyStorageKey,
-            credentialStore: initialCredentialStore
+        let transcriptionAPIKeyLoad = initialCredentialStore.loadReportingFailure(
+            account: transcriptionAPIKeyStorageKey
         )
+        let transcriptionAPIKey = Self.storedAPIKey(transcriptionAPIKeyLoad)
         let meetingSummarySettingsInitialized = UserDefaults.standard.bool(
             forKey: meetingSummarySettingsInitializedStorageKey
         )
@@ -3769,6 +3769,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
            pipelineHistoryStore.availability == .ready,
            pipelineHistoryStore.referenceTrust.permitsStartupReferenceCleanup {
             pruneWarningBannerState(keepingNoteIDs: Set(pipelineHistory.map(\.id)))
+        }
+
+        if apiKeyLoad.keychainUnreadable {
+            unreadableAPIKeyAccounts.insert(apiKeyStorageKey)
+        }
+        if transcriptionAPIKeyLoad.keychainUnreadable {
+            unreadableAPIKeyAccounts.insert(transcriptionAPIKeyStorageKey)
+        }
+        switch (apiKeyLoad.keychainUnreadable, transcriptionAPIKeyLoad.keychainUnreadable) {
+        case (true, true):
+            errorMessage = localizedCatalogString(
+                "Couldn't read the API keys from the Keychain. Enter them again in Settings."
+            )
+        case (true, false):
+            errorMessage = localizedCatalogString(
+                "Couldn't read the API key from the Keychain. Enter it again in Settings."
+            )
+        case (false, true):
+            errorMessage = localizedCatalogString(
+                "Couldn't read the transcription API key from the Keychain. Enter it again in Settings."
+            )
+        case (false, false):
+            break
         }
 
         if Thread.isMainThread {
@@ -4529,11 +4552,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         defaultInputDeviceListenerAddress = nil
     }
 
-    private static func loadStoredAPIKey(
-        account: String,
-        credentialStore: CredentialStore
-    ) -> String {
-        if let storedKey = credentialStore.load(account: account), !storedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    private static func storedAPIKey(_ load: CredentialStore.LoadResult) -> String {
+        if let storedKey = load.value, !storedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return storedKey
         }
         return ""
@@ -4543,11 +4563,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         persistCredential(prefix: "Unable to save API key") {
             if trimmed.isEmpty {
-                try credentialStore.delete(account: apiKeyStorageKey)
+                try deleteAPIKeyUnlessUnread(account: apiKeyStorageKey)
             } else {
                 try credentialStore.save(trimmed, account: apiKeyStorageKey)
+                unreadableAPIKeyAccounts.remove(apiKeyStorageKey)
             }
         }
+    }
+
+    /// A key the Keychain couldn't return at launch still exists there.
+    /// Clearing the empty field mustn't delete it; a new key replaces it.
+    private func deleteAPIKeyUnlessUnread(account: String) throws {
+        guard !unreadableAPIKeyAccounts.contains(account) else { return }
+        try credentialStore.delete(account: account)
     }
 
     private func persistCredential(
@@ -4847,9 +4875,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         persistCredential(prefix: "Unable to save the provider value") {
             if trimmed.isEmpty {
-                try credentialStore.delete(account: account)
+                try deleteAPIKeyUnlessUnread(account: account)
             } else {
                 try credentialStore.save(trimmed, account: account)
+                unreadableAPIKeyAccounts.remove(account)
             }
         }
     }
@@ -4888,7 +4917,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private var resolvedTranscriptionAPIKey: String {
         let trimmed = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? apiKey : trimmed
+        guard trimmed.isEmpty else { return trimmed }
+        // An empty field means "use the API key", but a transcription key
+        // the Keychain couldn't return is not empty: sending the main key
+        // to the transcription host instead would leak it to that host.
+        if unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey) { return "" }
+        return apiKey
     }
 
     private enum GoogleCalendarHealthError: LocalizedError {

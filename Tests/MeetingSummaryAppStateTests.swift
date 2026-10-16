@@ -106,6 +106,7 @@ struct MeetingSummaryAppStateTests {
         let secondRecorder = MeetingSummaryGeneratorConfigurationRecorder()
         var dependencies = AppStateDependencies.live
         dependencies.storageLayout = firstFixture.storageLayout
+        dependencies.credentialStorageLayout = .isolatedForTests()
         dependencies.makePipelineHistoryStore = { _ in firstFixture.store }
         dependencies.makeMeetingSummaryGenerator = { configuration in
             firstRecorder.record(configuration)
@@ -1486,6 +1487,7 @@ struct MeetingSummaryAppStateTests {
         }
     ) -> AppStateDependencies {
         var dependencies = AppStateDependencies.live
+        dependencies.credentialStorageLayout = .isolatedForTests()
         if let storageLayout {
             dependencies.storageLayout = storageLayout
         }

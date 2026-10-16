@@ -82,14 +82,18 @@ struct AppStateAIProcessingBackendTests {
             .appendingPathComponent(
                 "quill-app-state-ai-processing-credentials-\(UUID().uuidString)",
                 isDirectory: true
-            )
+            ),
+        secrets: credentialSecrets
     )
+
+    private static let credentialSecrets = InMemoryCredentialSecretStore()
 
     private static var credentialStore: CredentialStore {
         CredentialStore(layout: credentialStorageLayout)
     }
 
     private static func resetCredentialStore() {
+        credentialSecrets.removeAll()
         let directory = credentialStorageLayout.directory
         guard FileManager.default.fileExists(atPath: directory.path) else {
             return

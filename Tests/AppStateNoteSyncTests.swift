@@ -87,6 +87,7 @@ struct AppStateNoteSyncTests {
         defaults.set(true, forKey: NoteSyncController.enabledKey)
         var dependencies = AppStateDependencies.live
         dependencies.storageLayout = layout
+        dependencies.credentialStorageLayout = .isolatedForTests()
         dependencies.makePipelineHistoryStore = { _ in store }
         dependencies.makeNoteSyncController = { _ in
             NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, makeEngine: { events in

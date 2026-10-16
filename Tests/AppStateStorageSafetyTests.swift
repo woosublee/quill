@@ -6,6 +6,8 @@ struct AppStateStorageSafetyTests {
         try verifiesDefaultAppStateUsesLiveStorageLayout()
         try await verifiesAppStateInstancesKeepIndependentHistoryLayouts()
         try await verifiesAppStateInstancesKeepIndependentCredentialStores()
+        try await verifiesUnreadableKeychainIsReportedAtLaunch()
+        try await verifiesUnreadableTranscriptionKeyDoesNotFallBackToTheMainKey()
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
         try await verifiesCancellableNoteDeletion()
         try await verifiesCancellableNoteDeletionGuards()
@@ -132,8 +134,10 @@ struct AppStateStorageSafetyTests {
 
         var firstDependencies = AppStateDependencies.live
         firstDependencies.storageLayout = firstLayout
+        firstDependencies.credentialStorageLayout = .isolatedForTests()
         var secondDependencies = AppStateDependencies.live
         secondDependencies.storageLayout = secondLayout
+        secondDependencies.credentialStorageLayout = .isolatedForTests()
         let configuredFirstDependencies = firstDependencies
         let configuredSecondDependencies = secondDependencies
         let firstState = await MainActor.run {
@@ -149,6 +153,102 @@ struct AppStateStorageSafetyTests {
                    "second AppState loads only its history layout")
     }
 
+    private static func verifiesUnreadableKeychainIsReportedAtLaunch() async throws {
+        let secrets = InMemoryCredentialSecretStore()
+        let layout = CredentialStorageLayout(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("quill-unreadable-keychain-\(UUID().uuidString)", isDirectory: true),
+            secrets: secrets
+        )
+        defer { try? FileManager.default.removeItem(at: layout.directory) }
+        try CredentialStore(layout: layout).save("synthetic-provider-key", account: "groq_api_key")
+        secrets.failsReads = true
+        var dependencies = AppStateDependencies.live
+        dependencies.credentialStorageLayout = layout
+        let configuredDependencies = dependencies
+
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            var isolated = configuredDependencies
+            isolated.storageLayout = environment.storageLayout
+            let finalDependencies = isolated
+            let state = await MainActor.run { AppState(dependencies: finalDependencies) }
+            let message = await MainActor.run { state.errorMessage }
+            try expect(
+                message?.contains("Keychain") == true,
+                "a Keychain that can't be read at launch is shown, not taken as no key"
+            )
+            let apiKey = await MainActor.run { state.apiKey }
+            try expect(apiKey.isEmpty, "no key is invented when the Keychain can't be read")
+
+            secrets.failsReads = false
+            await MainActor.run { state.apiKey = "" }
+            try expect(
+                secrets.accounts == ["provider": "synthetic-provider-key"],
+                "clearing the empty field doesn't delete the key the Keychain couldn't return"
+            )
+            await MainActor.run { state.apiKey = "synthetic-new-key" }
+            await MainActor.run { state.apiKey = "" }
+            try expect(
+                secrets.accounts.isEmpty,
+                "once a new key is saved, clearing it deletes it as usual"
+            )
+        }
+    }
+
+    private static func verifiesUnreadableTranscriptionKeyDoesNotFallBackToTheMainKey() async throws {
+        let secrets = UnreadableAccountSecretStore(
+            values: ["provider": "synthetic-provider-key", "transcription-provider": "synthetic-transcription-key"],
+            unreadable: ["transcription-provider"]
+        )
+        let layout = CredentialStorageLayout(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("quill-unreadable-transcription-\(UUID().uuidString)", isDirectory: true),
+            secrets: secrets
+        )
+        defer { try? FileManager.default.removeItem(at: layout.directory) }
+        var dependencies = AppStateDependencies.live
+        dependencies.credentialStorageLayout = layout
+        let configuredDependencies = dependencies
+
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            var isolated = configuredDependencies
+            isolated.storageLayout = environment.storageLayout
+            let finalDependencies = isolated
+            let state = await MainActor.run { AppState(dependencies: finalDependencies) }
+            let (apiKey, hasTranscriptionKey, message) = await MainActor.run {
+                (state.apiKey, state.hasTranscriptionAPIKey, state.errorMessage)
+            }
+            try expect(apiKey == "synthetic-provider-key", "the readable main key still loads")
+            try expect(
+                !hasTranscriptionKey,
+                "an unreadable transcription key is not replaced by the main key"
+            )
+            try expect(
+                message?.contains("transcription API key") == true,
+                "the message names the transcription key"
+            )
+        }
+    }
+
+    /// Returns stored keys, except for accounts it fails to read.
+    private final class UnreadableAccountSecretStore: CredentialSecretStore, @unchecked Sendable {
+        private let values: [String: String]
+        private let unreadable: Set<String>
+
+        init(values: [String: String], unreadable: Set<String>) {
+            self.values = values
+            self.unreadable = unreadable
+        }
+
+        func load(account: String) throws -> String? {
+            if unreadable.contains(account) { throw TestSecretStoreFailure() }
+            return values[account]
+        }
+
+        func save(_ value: String, account: String) throws { throw TestSecretStoreFailure() }
+        func delete(account: String) throws { throw TestSecretStoreFailure() }
+    }
+
     private static func verifiesAppStateInstancesKeepIndependentCredentialStores() async throws {
         let parent = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-instance-credentials-\(UUID().uuidString)", isDirectory: true)
@@ -160,10 +260,12 @@ struct AppStateStorageSafetyTests {
             rootDirectory: parent.appendingPathComponent("second-storage", isDirectory: true)
         )
         let firstCredentialLayout = CredentialStorageLayout(
-            directory: parent.appendingPathComponent("first-credentials", isDirectory: true)
+            directory: parent.appendingPathComponent("first-credentials", isDirectory: true),
+            secrets: InMemoryCredentialSecretStore()
         )
         let secondCredentialLayout = CredentialStorageLayout(
-            directory: parent.appendingPathComponent("second-credentials", isDirectory: true)
+            directory: parent.appendingPathComponent("second-credentials", isDirectory: true),
+            secrets: InMemoryCredentialSecretStore()
         )
         try CredentialStore(layout: firstCredentialLayout).save(
             "first-instance-key",
@@ -2191,6 +2293,7 @@ struct AppStateStorageSafetyTests {
             _ = try freshStore.upsert(freshItem, maxCount: Int.max)
             var relaunchDependencies = AppStateDependencies.live
             relaunchDependencies.storageLayout = environment.storageLayout
+            relaunchDependencies.credentialStorageLayout = environment.dependencies.credentialStorageLayout
             let configuredRelaunchDependencies = relaunchDependencies
 
             let relaunchedAppState = await MainActor.run {

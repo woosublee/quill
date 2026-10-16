@@ -8943,6 +8943,54 @@
         }
       }
     },
+    "Couldn't read the API key from the Keychain. Enter it again in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the API key from the Keychain. Enter it again in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키체인에서 API 키를 읽지 못했습니다. 설정에서 다시 입력해 주세요."
+          }
+        }
+      }
+    },
+    "Couldn't read the transcription API key from the Keychain. Enter it again in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the transcription API key from the Keychain. Enter it again in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키체인에서 전사 API 키를 읽지 못했습니다. 설정에서 다시 입력해 주세요."
+          }
+        }
+      }
+    },
+    "Couldn't read the API keys from the Keychain. Enter them again in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the API keys from the Keychain. Enter them again in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키체인에서 API 키들을 읽지 못했습니다. 설정에서 다시 입력해 주세요."
+          }
+        }
+      }
+    },
     "Unable to save API key": {
       "localizations": {
         "en": {
