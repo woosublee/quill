@@ -166,8 +166,8 @@ struct AppStateTranscriptionConfigurationTests {
         testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap()
         testCommandModeManualModifierReportsCancelOverlap()
         testStoppedTranscriptionCompletionSummaryTrimsFinalTranscript()
-        testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
-        testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
+        testStoppedTranscriptionCompletionSummaryEndsRawFallbackAsDone()
+        testStoppedTranscriptionCompletionSummaryDismissesEmptyTranscript()
         testTimeoutFailureReasonOverridesCommandFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
@@ -1584,8 +1584,7 @@ struct AppStateTranscriptionConfigurationTests {
             finalTranscript: "  final transcript\n",
             prompt: "prompt",
             processingStatus: "Post-processing succeeded",
-            shouldPressEnterAfterPaste: false,
-            outcomeWasPostProcessingFailedFallback: false
+            shouldPressEnterAfterPaste: false
         )
 
         precondition(summary.rawTranscript == "raw transcript")
@@ -1593,35 +1592,38 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(summary.prompt == "prompt")
         precondition(summary.processingStatus == "Post-processing succeeded")
         precondition(!summary.shouldPressEnterAfterPaste)
-        precondition(!summary.shouldPersistRawDictationFallback)
+        precondition(summary.overlay == .done)
     }
 
-    private static func testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback() {
-        let summary = StoppedTranscriptionCompletionSummary(
-            rawTranscript: "raw transcript",
-            finalTranscript: "raw transcript",
-            prompt: "",
-            processingStatus: "Post-processing failed, using raw transcript",
-            shouldPressEnterAfterPaste: false,
-            outcomeWasPostProcessingFailedFallback: true
-        )
+    // #550: a raw-transcript fallback still pasted text, so it must not end
+    // with the recording-failure mark.
+    private static func testStoppedTranscriptionCompletionSummaryEndsRawFallbackAsDone() {
+        for outcome in [AIProcessingOutcome.rawFallback(reason: .languageMismatch), .failed(reason: "provider-error")] {
+            let summary = StoppedTranscriptionCompletionSummary(
+                rawTranscript: "raw transcript",
+                finalTranscript: "raw transcript",
+                prompt: "",
+                processingStatus: "Post-processing failed, using raw transcript",
+                shouldPressEnterAfterPaste: false,
+                aiProcessingOutcome: outcome
+            )
 
-        precondition(summary.shouldPersistRawDictationFallback)
+            precondition(summary.overlay == .done)
+        }
     }
 
-    private static func testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback() {
+    private static func testStoppedTranscriptionCompletionSummaryDismissesEmptyTranscript() {
         let summary = StoppedTranscriptionCompletionSummary(
             rawTranscript: "",
             finalTranscript: "  \n",
             prompt: "",
             processingStatus: "Skipped macros and post-processing for empty raw transcript",
-            shouldPressEnterAfterPaste: true,
-            outcomeWasPostProcessingFailedFallback: true
+            shouldPressEnterAfterPaste: true
         )
 
         precondition(summary.finalTranscript.isEmpty)
         precondition(summary.shouldPressEnterAfterPaste)
-        precondition(!summary.shouldPersistRawDictationFallback)
+        precondition(summary.overlay == .dismiss)
     }
 
     private static func testTimeoutFailureReasonOverridesCommandFallback() {

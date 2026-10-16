@@ -227,6 +227,13 @@ private struct TranscriptCommandParsingResult {
     let shouldPressEnterAfterPaste: Bool
 }
 
+/// How the overlay ends a dictation. A raw-transcript fallback (AI cleanup
+/// failed or its output was rejected) still pasted text, so it ends as done.
+enum StoppedTranscriptionCompletionOverlay: Equatable {
+    case dismiss
+    case done
+}
+
 struct StoppedTranscriptionCompletionSummary {
     let rawTranscript: String
     let finalTranscript: String
@@ -234,7 +241,6 @@ struct StoppedTranscriptionCompletionSummary {
     let processingStatus: String
     let shouldPressEnterAfterPaste: Bool
     let spokenLanguage: SpokenLanguageResolution?
-    let shouldPersistRawDictationFallback: Bool
     let aiProcessingOutcome: AIProcessingOutcome
 
     init(
@@ -244,7 +250,6 @@ struct StoppedTranscriptionCompletionSummary {
         processingStatus: String,
         shouldPressEnterAfterPaste: Bool,
         spokenLanguage: SpokenLanguageResolution? = nil,
-        outcomeWasPostProcessingFailedFallback: Bool,
         aiProcessingOutcome: AIProcessingOutcome = .succeeded
     ) {
         self.rawTranscript = rawTranscript
@@ -253,8 +258,11 @@ struct StoppedTranscriptionCompletionSummary {
         self.processingStatus = processingStatus
         self.shouldPressEnterAfterPaste = shouldPressEnterAfterPaste
         self.spokenLanguage = spokenLanguage
-        self.shouldPersistRawDictationFallback = outcomeWasPostProcessingFailedFallback && !self.finalTranscript.isEmpty
         self.aiProcessingOutcome = aiProcessingOutcome
+    }
+
+    var overlay: StoppedTranscriptionCompletionOverlay {
+        finalTranscript.isEmpty ? .dismiss : .done
     }
 }
 
@@ -11910,13 +11918,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 for: result.outcome,
                 parsedTranscript: parsedTranscript
             )
-        let outcomeWasPostProcessingFailedFallback: Bool
-        switch result.outcome {
-        case .postProcessingRawFallback, .postProcessingFailedFallback:
-            outcomeWasPostProcessingFailedFallback = true
-        default:
-            outcomeWasPostProcessingFailedFallback = false
-        }
         return StoppedTranscriptionCompletionSummary(
             rawTranscript: parsedTranscript.transcript,
             finalTranscript: result.finalTranscript,
@@ -11924,7 +11925,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             processingStatus: processingStatus,
             shouldPressEnterAfterPaste: parsedTranscript.shouldPressEnterAfterPaste,
             spokenLanguage: transcription.spokenLanguage,
-            outcomeWasPostProcessingFailedFallback: outcomeWasPostProcessingFailedFallback,
             aiProcessingOutcome: result.aiProcessingOutcome
         )
     }
@@ -12028,21 +12028,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         lastTranscript = completion.finalTranscript
         debugStatusMessage = "Done"
         statusText = completionStatusText
-        if completion.finalTranscript.isEmpty {
+        switch completion.overlay {
+        case .dismiss:
             mcpLastRecordingFailed = true
             statusText = completion.shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
             dismissTranscribingOverlay()
             if completion.shouldPressEnterAfterPaste {
                 pressEnterWhenShortcutReleased()
             }
-        } else {
-            if completion.shouldPersistRawDictationFallback {
-                scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
-            } else {
-                dismissTranscribingOverlay()
-                // Fixed confirmation only; never the transcript itself.
-                OverlayAccessibilityAnnouncer.announce(.done)
-            }
+        case .done:
+            dismissTranscribingOverlay()
+            // Fixed confirmation only; never the transcript itself.
+            OverlayAccessibilityAnnouncer.announce(.done)
             let pendingClipboardRestore = writeTranscriptToPasteboard(completion.finalTranscript)
             if !disableAutoPaste {
                 pasteAtCursorWhenShortcutReleased {
@@ -14532,17 +14529,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.debugStatusMessage = debugStatus
         cancelTranscribingIndicatorTask()
         overlayManager.showTranscribing()
-    }
-
-    private func scheduleOverlayDismissAfterFailureIndicator(after delay: TimeInterval) {
-        let dismissToken = UUID()
-        pendingOverlayDismissToken = dismissToken
-        overlayManager.showFailureIndicator()
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.pendingOverlayDismissToken == dismissToken else { return }
-            self.pendingOverlayDismissToken = nil
-            self.overlayManager.dismiss()
-        }
     }
 
     func toggleDebugPanel() {
