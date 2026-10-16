@@ -51,7 +51,9 @@ extension AppNotificationManager: CalendarRecordingReminderNotificationManaging 
 
 @MainActor
 final class CalendarRecordingReminderScheduler {
-    typealias EventProvider = (_ timeMin: Date, _ timeMax: Date) async throws -> [CalendarEvent]
+    /// `reusesCachedEvents`: only a local source (Apple Calendar) changed,
+    /// so events cached by an earlier refresh may be reused.
+    typealias EventProvider = (_ timeMin: Date, _ timeMax: Date, _ reusesCachedEvents: Bool) async throws -> [CalendarEvent]
 
     nonisolated static let notificationIdentifierPrefix = "calendar-recording-reminder"
     nonisolated static let notificationCategoryIdentifier = "calendar-recording-reminder"
@@ -66,11 +68,11 @@ final class CalendarRecordingReminderScheduler {
     private let notificationManager: CalendarRecordingReminderNotificationManaging
     private weak var inAppPresenter: CalendarRecordingReminderInAppPresenting?
     private let eventProvider: EventProvider
-    /// True inside a refresh that may reuse cached events from an earlier
-    /// one, because only a local source (Apple Calendar) changed.
-    @TaskLocal nonisolated static var reusesCachedEvents = false
 
     private var refreshTimer: Timer?
+    /// What the running timer refreshes with, so a reuse with the same
+    /// settings leaves it running.
+    private var timerSettings: (leadMinutes: [Int], interval: TimeInterval)?
     private var refreshTask: Task<Void, Never>?
     /// A refresh that must fetch fresh events hasn't finished; a reuse
     /// requested meanwhile fetches fresh too.
@@ -100,12 +102,21 @@ final class CalendarRecordingReminderScheduler {
         cleanupTask?.cancel()
         cleanupTask = nil
         isStarted = true
-        stopTimer()
         scheduleRefresh(
             leadMinutes: normalizedLeadMinuteValues,
             reusesCachedEvents: reusesCachedEvents && !isFreshRefreshPending
         )
         let interval = TimeInterval(Self.normalizedRefreshIntervalMinutes(refreshIntervalMinutes) * 60)
+        // A refresh that reuses cached events fetched nothing new, so it
+        // doesn't push the next fresh fetch back (#491).
+        if reusesCachedEvents, refreshTimer != nil,
+           let timerSettings,
+           timerSettings.leadMinutes == normalizedLeadMinuteValues,
+           timerSettings.interval == interval {
+            return
+        }
+        stopTimer()
+        timerSettings = (normalizedLeadMinuteValues, interval)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.scheduleRefresh(leadMinutes: normalizedLeadMinuteValues)
@@ -137,6 +148,15 @@ final class CalendarRecordingReminderScheduler {
         return try await refresh(leadMinutes: leadMinutes, generation: refreshGeneration, requiresStarted: false)
     }
 
+    /// A refresh that fetches fresh events hasn't finished yet.
+    var isFreshRefreshInFlight: Bool {
+        isFreshRefreshPending
+    }
+
+    func refreshTimerFireDate() -> Date? {
+        refreshTimer?.fireDate
+    }
+
     func pendingInAppReminderFireDates() -> [Date] {
         inAppTimers.values.map(\.fireDate).sorted()
     }
@@ -154,6 +174,7 @@ final class CalendarRecordingReminderScheduler {
     private func stopTimer() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        timerSettings = nil
     }
 
     private func scheduleRefresh(leadMinutes: [Int], reusesCachedEvents: Bool = false) {
@@ -163,12 +184,14 @@ final class CalendarRecordingReminderScheduler {
         refreshID += 1
         let id = refreshID
         refreshTask = Task {
-            await Self.$reusesCachedEvents.withValue(reusesCachedEvents) {
-                do {
-                    _ = try await refresh(leadMinutes: leadMinutes, generation: refreshGeneration)
-                } catch is CancellationError {
-                } catch {
-                }
+            do {
+                _ = try await refresh(
+                    leadMinutes: leadMinutes,
+                    generation: refreshGeneration,
+                    reusesCachedEvents: reusesCachedEvents
+                )
+            } catch is CancellationError {
+            } catch {
             }
             if refreshID == id { isFreshRefreshPending = false }
         }
@@ -178,7 +201,8 @@ final class CalendarRecordingReminderScheduler {
     private func refresh(
         leadMinutes: [Int],
         generation refreshGeneration: Int,
-        requiresStarted: Bool = true
+        requiresStarted: Bool = true,
+        reusesCachedEvents: Bool = false
     ) async throws -> Int {
         let canShowAlerts = await notificationManager.canShowAlerts()
         guard canShowAlerts || inAppPresenter != nil else { return 0 }
@@ -186,7 +210,7 @@ final class CalendarRecordingReminderScheduler {
         guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }
         let now = Date()
-        let events = try await eventProvider(now, now.addingTimeInterval(Self.scheduleWindow))
+        let events = try await eventProvider(now, now.addingTimeInterval(Self.scheduleWindow), reusesCachedEvents)
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }

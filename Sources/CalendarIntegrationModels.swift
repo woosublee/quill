@@ -295,6 +295,27 @@ struct GoogleReminderEventsCache: Equatable {
     }
 }
 
+/// What to ask Google again once the network may be back (#491).
+enum GoogleCalendarNetworkRecheck: Equatable {
+    /// The status shows offline: a list read that succeeds also refreshes
+    /// the reminders.
+    case calendarList
+    /// The reminders' last refresh failed offline, even if another
+    /// feature's problem is what the status shows.
+    case reminders
+    case nothing
+
+    static func next(
+        isConnected: Bool,
+        status: GoogleCalendarHealthStatus,
+        remindersAwaitNetwork: Bool
+    ) -> GoogleCalendarNetworkRecheck {
+        guard isConnected else { return .nothing }
+        if status == .offline { return .calendarList }
+        return remindersAwaitNetwork ? .reminders : .nothing
+    }
+}
+
 enum GoogleCalendarHealthFeature: String, Codable, Equatable {
     case calendarList
     case recordingReminders
