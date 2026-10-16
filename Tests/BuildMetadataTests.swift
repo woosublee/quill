@@ -366,6 +366,7 @@ struct BuildMetadataTests {
         assertContains(makefile, "ICLOUD_CONTAINER ?= iCloud.com.woosublee.quill")
         assertContains(makefile, "$(if $(DEV_PROVISIONING_PROFILE), PROVISIONING_PROFILE=\"$(DEV_PROVISIONING_PROFILE)\" ICLOUD_ENVIRONMENT=Development CODESIGN_IDENTITY=\"$(DEV_CODESIGN_IDENTITY)\")")
         assertContains(makefile, "\t@bash Tests/ProvisioningSigningTests.sh")
+        assertContains(makefile, "\t@bash Tests/NotarizeScriptTests.sh")
     }
 
     private static func testSparkleMetadataAndBuildIntegration() throws {
@@ -581,6 +582,19 @@ struct BuildMetadataTests {
         assertContains(releaseWorkflow, #"security find-certificate -a -Z "$KEYCHAIN_PATH" | grep -qi "SHA-256 hash: $expected_sha256""#)
         assertDoesNotContain(releaseWorkflow, #"security import "$path" -k "$KEYCHAIN_PATH" ||"#)
         assertContains(notarizeScript, "xcrun notarytool log")
+        // make notarize follows the release order: app first, then the DMG.
+        assertAppearsInOrder(
+            makefile,
+            [
+                "$(MAKE) all CODESIGN_TIMESTAMP=--timestamp",
+                #"scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME)-notarize.zip""#,
+                #"xcrun stapler staple "$(APP_BUNDLE)""#,
+                "$(MAKE) codesign-dmg CODESIGN_TIMESTAMP=--timestamp",
+                #"scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME).dmg""#,
+                #"xcrun stapler staple "$(BUILD_DIR)/$(APP_NAME).dmg""#,
+                #"spctl -a -vv -t exec "$$mount_dir/$(APP_NAME).app""#,
+            ]
+        )
         assertContains(notarizeScript, #"[ "$status" != "Accepted" ]"#)
 
         assertContains(makefile, "CODESIGN_TIMESTAMP ?=\n")
