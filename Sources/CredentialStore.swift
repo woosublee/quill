@@ -26,10 +26,8 @@ protocol CredentialSecretStore: Sendable {
 struct KeychainCredentialSecretStore: CredentialSecretStore {
     let service: String
 
-    static var live: KeychainCredentialSecretStore {
-        KeychainCredentialSecretStore(
-            service: (Bundle.main.bundleIdentifier ?? "com.woosublee.quill") + ".api-keys"
-        )
+    static func service(bundleIdentifier: String) -> String {
+        bundleIdentifier + ".api-keys"
     }
 
     private func itemQuery(account: String) -> [String: Any] {
@@ -64,6 +62,7 @@ struct KeychainCredentialSecretStore: CredentialSecretStore {
         }
         var insert = query
         insert[kSecValueData as String] = data
+        insert[kSecAttrLabel as String] = "\(AppName.displayName) API key (\(account))"
         let insertStatus = SecItemAdd(insert as CFDictionary, nil)
         guard insertStatus == errSecSuccess else {
             throw KeychainError(status: insertStatus)
@@ -81,8 +80,29 @@ struct KeychainCredentialSecretStore: CredentialSecretStore {
         let status: OSStatus
 
         var errorDescription: String? {
-            "Keychain operation failed with status \(status)"
+            SecCopyErrorMessageString(status, nil) as String?
+                ?? "Keychain operation failed with status \(status)"
         }
+    }
+}
+
+/// Keeps keys for this run only. Used when there is no bundle identifier
+/// to name a Keychain service, as in test executables, so they never
+/// reach the app's own Keychain items.
+final class EphemeralCredentialSecretStore: CredentialSecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    func load(account: String) throws -> String? {
+        lock.withLock { values[account] }
+    }
+
+    func save(_ value: String, account: String) throws {
+        lock.withLock { values[account] = value }
+    }
+
+    func delete(account: String) throws {
+        lock.withLock { _ = values.removeValue(forKey: account) }
     }
 }
 
@@ -93,9 +113,16 @@ struct CredentialStorageLayout: Sendable {
     let secrets: any CredentialSecretStore
 
     static var live: CredentialStorageLayout {
-        CredentialStorageLayout(
+        live(bundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    static func live(bundleIdentifier: String?) -> CredentialStorageLayout {
+        let secrets: any CredentialSecretStore = bundleIdentifier.map {
+            KeychainCredentialSecretStore(service: KeychainCredentialSecretStore.service(bundleIdentifier: $0))
+        } ?? EphemeralCredentialSecretStore()
+        return CredentialStorageLayout(
             directory: AppName.applicationSupportDirectory,
-            secrets: KeychainCredentialSecretStore.live
+            secrets: secrets
         )
     }
 }
@@ -103,21 +130,35 @@ struct CredentialStorageLayout: Sendable {
 struct CredentialStore: Sendable {
     let layout: CredentialStorageLayout
 
+    static let providerAPIKeyAccount = "groq_api_key"
+    static let transcriptionAPIKeyAccount = "transcription_api_key"
+
     /// Settings accounts that hold API keys, and the Keychain account each
     /// one is kept under. Base URLs and other settings stay in the file.
     static let keychainAccounts: [String: String] = [
-        "groq_api_key": "provider",
-        "transcription_api_key": "transcription-provider"
+        providerAPIKeyAccount: "provider",
+        transcriptionAPIKeyAccount: "transcription-provider"
     ]
+
+    /// What loading an API key found. `keychainUnreadable` is set when the
+    /// Keychain couldn't be read and there was no file copy to fall back on.
+    struct LoadResult: Equatable {
+        var value: String?
+        var keychainUnreadable = false
+    }
 
     private var settingsFileURL: URL {
         layout.directory.appendingPathComponent(".settings")
     }
 
     func load(account: String) -> String? {
+        loadReportingFailure(account: account).value
+    }
+
+    func loadReportingFailure(account: String) -> LoadResult {
         let fileValue = loadSettings()[account]
         guard let keychainAccount = Self.keychainAccounts[account] else {
-            return fileValue
+            return LoadResult(value: fileValue)
         }
         let stored: String?
         do {
@@ -125,20 +166,23 @@ struct CredentialStore: Sendable {
         } catch {
             // A Keychain that can't be read leaves the file copy in place
             // and in use, so the key isn't lost.
-            return fileValue
+            return LoadResult(value: fileValue, keychainUnreadable: fileValue == nil)
         }
-        if let stored {
-            if fileValue != nil { removeFileValue(account: account) }
-            return stored
+        guard let fileValue else { return LoadResult(value: stored) }
+        if fileValue == stored {
+            removeFileValue(account: account)
+            return LoadResult(value: stored)
         }
-        guard let fileValue else { return nil }
-        // Move a key saved by an earlier version into the Keychain. The
-        // file copy is removed only after the Keychain reads it back.
+        // This version never writes keys to the file, so a file copy that
+        // differs is newer: either the first move from an earlier version,
+        // or a key entered after going back to one. It replaces the
+        // Keychain key, and leaves the file only once the Keychain reads
+        // it back.
         if (try? layout.secrets.save(fileValue, account: keychainAccount)) != nil,
            (try? layout.secrets.load(account: keychainAccount)) == fileValue {
             removeFileValue(account: account)
         }
-        return fileValue
+        return LoadResult(value: fileValue)
     }
 
     func save(_ value: String, account: String) throws {

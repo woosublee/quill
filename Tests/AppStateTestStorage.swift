@@ -41,44 +41,62 @@ enum AppStateTestStorage {
     }
 }
 
+extension CredentialStorageLayout {
+    /// A throwaway settings folder and in-memory API keys, so a test never
+    /// reads or writes the real settings file or login Keychain.
+    static func isolatedForTests() -> CredentialStorageLayout {
+        CredentialStorageLayout(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("quill-test-credentials-\(UUID().uuidString)", isDirectory: true),
+            secrets: InMemoryCredentialSecretStore()
+        )
+    }
+}
+
 /// Keeps API keys in memory so tests never touch the login Keychain.
 final class InMemoryCredentialSecretStore: CredentialSecretStore, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String: String] = [:]
-    var failsReads = false
-    var failsWrites = false
+    private var _failsReads = false
+    private var _failsWrites = false
+
+    var failsReads: Bool {
+        get { lock.withLock { _failsReads } }
+        set { lock.withLock { _failsReads = newValue } }
+    }
+
+    var failsWrites: Bool {
+        get { lock.withLock { _failsWrites } }
+        set { lock.withLock { _failsWrites = newValue } }
+    }
 
     var accounts: [String: String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return values
+        lock.withLock { values }
     }
 
     func load(account: String) throws -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        if failsReads { throw TestSecretStoreFailure() }
-        return values[account]
+        try lock.withLock {
+            if _failsReads { throw TestSecretStoreFailure() }
+            return values[account]
+        }
     }
 
     func save(_ value: String, account: String) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        if failsWrites { throw TestSecretStoreFailure() }
-        values[account] = value
+        try lock.withLock {
+            if _failsWrites { throw TestSecretStoreFailure() }
+            values[account] = value
+        }
     }
 
     func delete(account: String) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        if failsWrites { throw TestSecretStoreFailure() }
-        values.removeValue(forKey: account)
+        try lock.withLock {
+            if _failsWrites { throw TestSecretStoreFailure() }
+            values.removeValue(forKey: account)
+        }
     }
 
     func removeAll() {
-        lock.lock()
-        defer { lock.unlock() }
-        values.removeAll()
+        lock.withLock { values.removeAll() }
     }
 }
 

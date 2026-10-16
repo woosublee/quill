@@ -6,6 +6,7 @@ struct AppStateStorageSafetyTests {
         try verifiesDefaultAppStateUsesLiveStorageLayout()
         try await verifiesAppStateInstancesKeepIndependentHistoryLayouts()
         try await verifiesAppStateInstancesKeepIndependentCredentialStores()
+        try await verifiesUnreadableKeychainIsReportedAtLaunch()
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
         try await verifiesCancellableNoteDeletion()
         try await verifiesCancellableNoteDeletionGuards()
@@ -132,8 +133,10 @@ struct AppStateStorageSafetyTests {
 
         var firstDependencies = AppStateDependencies.live
         firstDependencies.storageLayout = firstLayout
+        firstDependencies.credentialStorageLayout = .isolatedForTests()
         var secondDependencies = AppStateDependencies.live
         secondDependencies.storageLayout = secondLayout
+        secondDependencies.credentialStorageLayout = .isolatedForTests()
         let configuredFirstDependencies = firstDependencies
         let configuredSecondDependencies = secondDependencies
         let firstState = await MainActor.run {
@@ -147,6 +150,35 @@ struct AppStateStorageSafetyTests {
                    "first AppState loads only its history layout")
         try expect(secondState.pipelineHistory.map(\.id) == [secondItem.id],
                    "second AppState loads only its history layout")
+    }
+
+    private static func verifiesUnreadableKeychainIsReportedAtLaunch() async throws {
+        let secrets = InMemoryCredentialSecretStore()
+        let layout = CredentialStorageLayout(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("quill-unreadable-keychain-\(UUID().uuidString)", isDirectory: true),
+            secrets: secrets
+        )
+        defer { try? FileManager.default.removeItem(at: layout.directory) }
+        try CredentialStore(layout: layout).save("synthetic-provider-key", account: "groq_api_key")
+        secrets.failsReads = true
+        var dependencies = AppStateDependencies.live
+        dependencies.credentialStorageLayout = layout
+        let configuredDependencies = dependencies
+
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            var isolated = configuredDependencies
+            isolated.storageLayout = environment.storageLayout
+            let finalDependencies = isolated
+            let state = await MainActor.run { AppState(dependencies: finalDependencies) }
+            let message = await MainActor.run { state.errorMessage }
+            try expect(
+                message?.contains("Keychain") == true,
+                "a Keychain that can't be read at launch is shown, not taken as no key"
+            )
+            let apiKey = await MainActor.run { state.apiKey }
+            try expect(apiKey.isEmpty, "no key is invented when the Keychain can't be read")
+        }
     }
 
     private static func verifiesAppStateInstancesKeepIndependentCredentialStores() async throws {
@@ -2193,6 +2225,7 @@ struct AppStateStorageSafetyTests {
             _ = try freshStore.upsert(freshItem, maxCount: Int.max)
             var relaunchDependencies = AppStateDependencies.live
             relaunchDependencies.storageLayout = environment.storageLayout
+            relaunchDependencies.credentialStorageLayout = environment.dependencies.credentialStorageLayout
             let configuredRelaunchDependencies = relaunchDependencies
 
             let relaunchedAppState = await MainActor.run {

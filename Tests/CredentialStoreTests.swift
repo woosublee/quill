@@ -23,6 +23,9 @@ struct CredentialStoreTests {
         try testAnUnreadableSecretStoreKeepsTheFileCopy()
         try testDeletingAnAPIKeyRemovesEveryCopy()
         try testLiveAPIKeysUseOneKeychainService()
+        try testANewerFileKeyReplacesTheKeychainKey()
+        try testAnUnreadableKeychainWithNoFileCopyIsReported()
+        try testAPIKeyAccountsMatchTheAppSettings()
         print("CredentialStoreTests passed")
     }
 
@@ -342,14 +345,65 @@ struct CredentialStoreTests {
     }
 
     private static func testLiveAPIKeysUseOneKeychainService() throws {
-        let live = KeychainCredentialSecretStore.live
+        let app = CredentialStorageLayout.live(bundleIdentifier: "com.example.synthetic")
         try expect(
-            live.service.hasSuffix(".api-keys"),
-            "every API key shares the <bundle id>.api-keys service"
+            (app.secrets as? KeychainCredentialSecretStore)?.service == "com.example.synthetic.api-keys",
+            "every API key shares the <bundle id>.api-keys Keychain service"
         )
         try expect(
-            CredentialStorageLayout.live.secrets is KeychainCredentialSecretStore,
-            "the live layout keeps API keys in the Keychain"
+            CredentialStorageLayout.live(bundleIdentifier: nil).secrets is EphemeralCredentialSecretStore,
+            "a process without a bundle identifier, like a test, never reaches the Keychain"
+        )
+        try expect(
+            Bundle.main.bundleIdentifier != nil
+                || !(CredentialStorageLayout.live.secrets is KeychainCredentialSecretStore),
+            "this test executable's live layout stays out of the Keychain"
+        )
+    }
+
+    private static func testANewerFileKeyReplacesTheKeychainKey() throws {
+        try withSecretBackedStore { store, secrets in
+            try store.save("synthetic-old-key", account: "groq_api_key")
+            // An earlier version, run after the move, saved a new key to the file.
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-new-key"])
+
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-new-key",
+                "the key entered in the earlier version is used"
+            )
+            let file = try settingsFileContents(store)
+            try expect(
+                secrets.accounts == ["provider": "synthetic-new-key"]
+                    && !file.contains("synthetic-new-key"),
+                "the newer key replaces the Keychain key and leaves the file"
+            )
+        }
+    }
+
+    private static func testAnUnreadableKeychainWithNoFileCopyIsReported() throws {
+        try withSecretBackedStore { store, secrets in
+            try store.save("synthetic-provider-key", account: "groq_api_key")
+            secrets.failsReads = true
+
+            try expect(
+                store.loadReportingFailure(account: "groq_api_key")
+                    == CredentialStore.LoadResult(value: nil, keychainUnreadable: true),
+                "a Keychain that can't be read is reported, not taken as no key"
+            )
+            try expect(
+                store.loadReportingFailure(account: "api_base_url")
+                    == CredentialStore.LoadResult(value: nil),
+                "settings outside the Keychain are unaffected"
+            )
+        }
+    }
+
+    private static func testAPIKeyAccountsMatchTheAppSettings() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: "Sources/AppState.swift"), encoding: .utf8)
+        try expect(
+            source.contains("apiKeyStorageKey = CredentialStore.providerAPIKeyAccount")
+                && source.contains("transcriptionAPIKeyStorageKey = CredentialStore.transcriptionAPIKeyAccount"),
+            "AppState saves its API keys under the accounts the Keychain mapping knows"
         )
     }
 
