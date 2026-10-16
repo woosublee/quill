@@ -148,6 +148,11 @@ final class CalendarRecordingReminderScheduler {
         return try await refresh(leadMinutes: leadMinutes, generation: refreshGeneration, requiresStarted: false)
     }
 
+    /// A refresh that fetches fresh events hasn't finished yet.
+    var isFreshRefreshInFlight: Bool {
+        isFreshRefreshPending
+    }
+
     func refreshTimerFireDate() -> Date? {
         refreshTimer?.fireDate
     }

@@ -243,6 +243,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testOfflineReminderFetchKeepsExistingReminders()
         await testIncompleteFetchDropsTheCache()
         await testOfflineReminderRefreshUsesSavedGoogleEvents()
+        await testDroppedConnectionOnALiveNetworkIsCheckedAgain()
+        await testListReadWithoutEmailKeepsTheAccount()
         await testSavedGoogleEventsUseTheConnectionsAccount()
         testNetworkRecheckRetriesRemindersBehindAnotherProblem()
         testUnknownNetworkTimeoutIsOffline()
@@ -3482,6 +3484,63 @@ struct AppStateTranscriptionConfigurationTests {
         let requestsWhileOffline = network.requests
         _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
         assert(network.requests == requestsWhileOffline, "offline doesn't drop the saved events")
+        // Beyond what was saved, the refresh fails and keeps the reminders
+        // already scheduled rather than dropping later Google meetings.
+        let later = start.addingTimeInterval(3 * 24 * 3600)
+        do {
+            _ = try await appState.fetchCalendarRecordingReminderEvents(timeMin: later, timeMax: later.addingTimeInterval(6 * 3600))
+            assertionFailure("saved events that don't cover the window must not stand in")
+        } catch {}
+    }
+
+    /// A dropped connection while the network path still looks up brings no
+    /// network-return notice, so Google is checked again soon (#491).
+    private static func testDroppedConnectionOnALiveNetworkIsCheckedAgain() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            guard request.url?.path.contains("calendarList") == true else {
+                return (Data(#"{"items":[]}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            counter.requests += 1
+            if counter.requests == 1 { throw URLError(.networkConnectionLost) }
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let delays = AppState.googleCalendarNetworkRecheckDelays
+        let isEnabled = AppState.googleCalendarOfflineRecheckIsEnabled
+        AppState.googleCalendarNetworkRecheckDelays = [10_000_000, 10_000_000]
+        AppState.googleCalendarOfflineRecheckIsEnabled = { true }
+        defer {
+            AppState.googleCalendarNetworkRecheckDelays = delays
+            AppState.googleCalendarOfflineRecheckIsEnabled = isEnabled
+            restore()
+        }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendars(force: true)
+        assert(appState.googleCalendarConnection.health.status == .offline)
+        await waitUntil { appState.googleCalendarConnection.health.status == .healthy }
+        assert(counter.requests == 2, "checked again once, without waiting for the timer")
+    }
+
+    /// A calendar-list read with a token that has no email keeps the
+    /// account already known, so saved events still match it.
+    private static func testListReadWithoutEmailKeepsTheAccount() async {
+        let restore = connectGoogleForTest { request in
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let loader = AppState.googleCalendarTokenLoader
+        AppState.googleCalendarTokenLoader = { _ in
+            GoogleCalendarOAuthToken(accessToken: "access-token", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600), accountEmail: nil)
+        }
+        defer {
+            AppState.googleCalendarTokenLoader = loader
+            restore()
+        }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendars(force: true)
+        assert(appState.googleCalendarConnection.accountEmail == "user@example.com")
     }
 
     /// Saved Google events carry the connection's account, so a token

@@ -293,19 +293,6 @@ struct GoogleReminderEventsCache: Equatable {
               accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
         return events.filter { $0.end > start && $0.start < end }
     }
-
-    /// Offline, the last complete events stand in whatever their age, so an
-    /// Apple Calendar change still reaches the reminders (#491). Only for
-    /// the same account and calendars.
-    func offlineEvents(
-        from start: Date,
-        to end: Date,
-        accountEmail: String?,
-        calendarIDs: Set<String>
-    ) -> [CalendarEvent]? {
-        guard accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
-        return events.filter { $0.end > start && $0.start < end }
-    }
 }
 
 /// What to ask Google again once the network may be back (#491).
