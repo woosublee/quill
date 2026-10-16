@@ -926,6 +926,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var appleCalendarChangeObserver: NSObjectProtocol?
     private var networkReturnObserver: NSObjectProtocol?
     private var networkReturnCheck: Task<Void, Never>?
+    /// The last reminder refresh couldn't reach Google for lack of network,
+    /// so it runs again when the network is back, whatever the status shows.
+    private var googleRemindersAwaitNetwork = false
+    /// A Google request failed as offline while the Mac's network path still
+    /// looked up, so no network-return notice will come. One recheck is
+    /// scheduled for it until Google answers or the network returns.
+    private var hasScheduledOfflineRecheck = false
+    /// Bumped when Google Calendar is connected or disconnected, so a fetch
+    /// that started under the previous connection doesn't save its events.
+    private var googleCalendarConnectionGeneration = 0
     private var appleCalendarChangeDebounce: DispatchWorkItem?
     private var appleCalendarLastRequestDeclined = false
 
@@ -2034,22 +2044,48 @@ final class AppState: ObservableObject, @unchecked Sendable {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // The path can read online before DNS and routes work, so the
-            // check waits a moment and tries once more if still offline. A
-            // newer return replaces a check still waiting.
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.networkReturnCheck?.cancel()
-                self.networkReturnCheck = Task { @MainActor [weak self] in
-                    for delay in [2, 30] {
-                        try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
-                        guard !Task.isCancelled, let self,
-                              self.googleCalendarConnection.health.status == .offline else { return }
-                        self.startGoogleCalendarHealthCheck()
-                    }
+                self.hasScheduledOfflineRecheck = false
+                self.scheduleGoogleCalendarNetworkRecheck()
+            }
+        }
+    }
+
+    /// Checks Google again what was left waiting for the network: the
+    /// calendar list when the status shows offline, and the reminders when
+    /// their last refresh failed offline, even if another feature's problem
+    /// is what the status shows (#491). The path can read online before DNS
+    /// and routes work, so it waits a moment and tries once more. A newer
+    /// check replaces one still waiting.
+    @MainActor
+    private func scheduleGoogleCalendarNetworkRecheck() {
+        networkReturnCheck?.cancel()
+        networkReturnCheck = Task { @MainActor [weak self] in
+            for delay in [2, 30] {
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                switch GoogleCalendarNetworkRecheck.next(
+                    isConnected: self.googleCalendarConnection.isConnected,
+                    status: self.googleCalendarConnection.health.status,
+                    remindersAwaitNetwork: self.googleRemindersAwaitNetwork
+                ) {
+                case .calendarList:
+                    self.startGoogleCalendarHealthCheck()
+                case .reminders:
+                    self.scheduleCalendarRecordingReminderRefresh()
+                case .nothing:
+                    return
                 }
             }
         }
+    }
+
+    /// How Google Calendar requests read the network: before the monitor's
+    /// first path update the network is unknown, so a timeout then is
+    /// treated as offline, which is checked again, not as a Google problem.
+    nonisolated static func googleCalendarNetworkIsOnline() -> Bool {
+        NetworkMonitor.shared.isKnownOnline
     }
 
     @MainActor
@@ -2139,7 +2175,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         Self.clearGoogleCalendarConnectionMetadata()
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
+        googleCalendarConnectionGeneration += 1
         googleReminderEventsCache = nil
+        googleRemindersAwaitNetwork = false
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
         // Apple Calendar may still be connected; this stops reminders only
         // when no source has a selected calendar.
@@ -2217,6 +2255,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 try GoogleCalendarTokenStore.save(token)
                 Self.saveGoogleCalendarConnectionMetadata(accountEmail: token.accountEmail)
                 await MainActor.run {
+                    self.googleCalendarConnectionGeneration += 1
                     self.googleCalendarConnection = GoogleCalendarConnectionState(
                         isConnected: true,
                         accountEmail: token.accountEmail,
@@ -2861,9 +2900,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler(
         notificationManager: AppNotificationManager.shared,
         inAppPresenter: meetingReminderOverlayManager
-    ) { [weak self] timeMin, timeMax in
+    ) { [weak self] timeMin, timeMax, reusesCachedEvents in
         guard let self else { return [] }
-        return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
+        return try await self.fetchCalendarRecordingReminderEvents(
+            timeMin: timeMin,
+            timeMax: timeMax,
+            reusingGoogleEvents: reusesCachedEvents
+        )
     }
     private var isCalendarRecordingReminderSchedulerActive = false
     private var hasShownScreenshotPermissionAlert = false
@@ -4872,7 +4915,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func fetchCalendarRecordingReminderEvents(
         timeMin: Date,
         timeMax: Date,
-        reusingGoogleEvents: Bool = CalendarRecordingReminderScheduler.reusesCachedEvents
+        reusingGoogleEvents: Bool = false
     ) async throws -> [CalendarEvent] {
         let (googleInUse, appleIDs) = await MainActor.run {
             (
@@ -4898,7 +4941,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 do {
                     google = .success(try await fetchGoogleCalendarReminderEvents(timeMin: timeMin, timeMax: timeMax))
                 } catch {
-                    google = .failure(error)
+                    // Offline, the last complete Google events stand in, so
+                    // an Apple Calendar change still reaches the reminders
+                    // instead of the whole refresh failing (#491).
+                    let standIn = GoogleCalendarFetchFailure.of(error, isOnline: Self.googleCalendarNetworkIsOnline) != .offline
+                        ? nil
+                        : await MainActor.run { () -> [CalendarEvent]? in
+                            googleReminderEventsCache?.offlineEvents(
+                                from: timeMin,
+                                to: timeMax,
+                                accountEmail: googleCalendarConnection.accountEmail,
+                                calendarIDs: googleCalendarConnection.selectedCalendarIDs
+                            )
+                        }
+                    google = standIn.map { .success($0) } ?? .failure(error)
                 }
             }
         }
@@ -4921,8 +4977,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func fetchGoogleCalendarReminderEvents(timeMin: Date, timeMax: Date) async throws -> [CalendarEvent] {
-        let (selectedCalendarIDs, reuseSpan) = await MainActor.run {
-            (googleCalendarConnection.selectedCalendarIDs, googleReminderReuseSpan)
+        // The account is the connection's, read with its generation when
+        // the fetch starts: the token may carry no email, and a reconnect
+        // during the fetch must not label one account's events as another's.
+        let (selectedCalendarIDs, reuseSpan, accountEmail, connectionGeneration) = await MainActor.run {
+            (
+                googleCalendarConnection.selectedCalendarIDs,
+                googleReminderReuseSpan,
+                googleCalendarConnection.accountEmail,
+                googleCalendarConnectionGeneration
+            )
         }
         // A little past the window, so a reuse during the next interval
         // still covers its later window.
@@ -4944,8 +5008,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } catch {
             await MainActor.run {
                 // Older saved events must not stand in for this newer fetch;
-                // a fetch replaced by a newer one leaves them to it.
-                if GoogleCalendarFetchFailure.of(error, isOnline: { NetworkMonitor.shared.isOnline }) != .cancelled {
+                // a fetch replaced by a newer one leaves them to it, and
+                // offline keeps them to stand in until Google answers.
+                switch GoogleCalendarFetchFailure.of(error, isOnline: Self.googleCalendarNetworkIsOnline) {
+                case .cancelled:
+                    break
+                case .offline:
+                    googleRemindersAwaitNetwork = true
+                case .failed:
                     googleReminderEventsCache = nil
                 }
                 if Self.isGoogleCalendarReconnectError(error) {
@@ -4968,30 +5038,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
             calendarIDs: Array(selectedCalendarIDs),
             timeMin: timeMin,
             timeMax: fetchMax,
-            isOnline: { NetworkMonitor.shared.isOnline }
+            isOnline: Self.googleCalendarNetworkIsOnline
         )
         // A newer refresh replaced this one: nothing to report (#474).
         if fetchResult.failure == .cancelled { throw CancellationError() }
         await MainActor.run {
             if let failure = fetchResult.failure {
-                // Older saved events must not stand in for this newer fetch.
-                googleReminderEventsCache = nil
+                // Older saved events must not stand in for this newer fetch,
+                // except offline, where nothing newer was read.
+                if failure == .offline {
+                    googleRemindersAwaitNetwork = true
+                } else {
+                    googleReminderEventsCache = nil
+                }
                 recordGoogleCalendarFailure(
                     failure,
                     feature: .recordingReminders,
                     message: localizedCatalogString("Some Google calendars could not be refreshed. Reminders may be incomplete.")
                 )
             } else {
+                googleRemindersAwaitNetwork = false
                 markGoogleCalendarHealthy(feature: .recordingReminders)
                 // Complete, so an Apple-only refresh may reuse it.
-                googleReminderEventsCache = GoogleReminderEventsCache(
-                    fetchedAt: Date(),
-                    timeMin: timeMin,
-                    timeMax: fetchMax,
-                    accountEmail: token.accountEmail,
-                    calendarIDs: selectedCalendarIDs,
-                    events: fetchResult.events
-                )
+                if connectionGeneration == googleCalendarConnectionGeneration {
+                    googleReminderEventsCache = GoogleReminderEventsCache(
+                        fetchedAt: Date(),
+                        timeMin: timeMin,
+                        timeMax: fetchMax,
+                        accountEmail: accountEmail,
+                        calendarIDs: selectedCalendarIDs,
+                        events: fetchResult.events
+                    )
+                }
             }
         }
         // Offline, no Google calendar was read: failing keeps the reminders
@@ -5047,7 +5125,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func recordGoogleCalendarFailure(_ error: Error, feature: GoogleCalendarHealthFeature, message: @autoclosure () -> String) {
         recordGoogleCalendarFailure(
-            GoogleCalendarFetchFailure.of(error, isOnline: { NetworkMonitor.shared.isOnline }),
+            GoogleCalendarFetchFailure.of(error, isOnline: Self.googleCalendarNetworkIsOnline),
             feature: feature,
             message: message()
         )
@@ -5060,6 +5138,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             break
         case .offline:
             markGoogleCalendarOffline(feature: feature)
+            // A dropped connection on a network path that never went down
+            // (flaky Wi-Fi) brings no network-return notice, so offline
+            // would stay until the next timed refresh. Check once more soon
+            // (#491). Only while the monitor runs, so tests never schedule it.
+            if NetworkMonitor.shared.isMonitoring, NetworkMonitor.shared.isOnline, !hasScheduledOfflineRecheck {
+                hasScheduledOfflineRecheck = true
+                scheduleGoogleCalendarNetworkRecheck()
+            }
         case .failed:
             markGoogleCalendarTemporarilyUnavailable(feature: feature, message: message())
         }
@@ -5084,6 +5170,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func markGoogleCalendarHealthy(feature: GoogleCalendarHealthFeature) {
+        // Google answered, so a later dropped connection may be rechecked.
+        hasScheduledOfflineRecheck = false
         // Any success clears offline: the network is back.
         if googleCalendarConnection.health.status != .healthy,
            googleCalendarConnection.health.status != .offline,
@@ -13655,7 +13743,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     calendarIDs: Array(selectedCalendarIDs),
                     timeMin: start,
                     timeMax: end,
-                    isOnline: { NetworkMonitor.shared.isOnline }
+                    isOnline: Self.googleCalendarNetworkIsOnline
                 )
             // Cut short by a newer request: not a complete list.
             if fetchResult.failure == .cancelled {

@@ -29,6 +29,7 @@ struct CalendarRecordingReminderSchedulerTests {
         await testPresenterFailureFallsBackToImmediateNotification()
         await testShownInAppReminderRemovesOnlyMatchingPendingNotification()
         await testRefreshTellsTheProviderWhetherCachedEventsMayBeReused()
+        await testReuseKeepsTheRefreshTimerRunning()
         await testAcceptedButNotYetShownReminderKeepsPendingNotificationUntilShown()
         await testImmediateReminderUsesInAppPresenterWhenAlertsAreUnavailable()
         await testScheduledReminderCreatesInAppTimerAndKeepsLocalFallback()
@@ -287,7 +288,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
         let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
         let notificationManager = FakeNotificationManager()
-        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -304,7 +305,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let staleIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5)
         let notificationManager = FakeNotificationManager(pendingIdentifiers: [staleIdentifier])
         notificationManager.shouldFailAdd = true
-        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -318,7 +319,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
         let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
         let notificationManager = FakeNotificationManager(pendingIdentifiers: [identifier])
-        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -333,7 +334,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
         let staleIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5)
         let notificationManager = FakeNotificationManager(pendingIdentifiers: [staleIdentifier])
-        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -351,7 +352,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -372,7 +373,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -395,7 +396,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [immediateEvent, scheduledEvent] }
+        ) { _, _, _ in [immediateEvent, scheduledEvent] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -414,7 +415,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -435,7 +436,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -455,7 +456,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
 
         let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -475,7 +476,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
 
         _ = try! await scheduler.rescheduleNow(leadMinutes: [10])
 
@@ -499,7 +500,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let scheduler = CalendarRecordingReminderScheduler(
             notificationManager: notificationManager,
             inAppPresenter: presenter
-        ) { _, _ in [event] }
+        ) { _, _, _ in [event] }
         scheduler.markReminderHandledExternally(
             identifier: tenMinuteIdentifier,
             reminderGroupIdentifier: CalendarRecordingReminderScheduler.reminderGroupIdentifier(for: event)
@@ -574,8 +575,8 @@ struct CalendarRecordingReminderSchedulerTests {
         var seen: [Bool] = []
         var gate: CheckedContinuation<Void, Never>?
         var blocksNext = true
-        let scheduler = CalendarRecordingReminderScheduler(notificationManager: manager) { _, _ in
-            seen.append(CalendarRecordingReminderScheduler.reusesCachedEvents)
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: manager) { _, _, reusesCachedEvents in
+            seen.append(reusesCachedEvents)
             if blocksNext {
                 blocksNext = false
                 await withCheckedContinuation { gate = $0 }
@@ -595,6 +596,26 @@ struct CalendarRecordingReminderSchedulerTests {
         scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 15, reusesCachedEvents: true)
         await settle(until: 3)
         precondition(seen == [false, false, true])
+        scheduler.stop()
+    }
+
+    /// A refresh that only reuses cached events fetched nothing new, so the
+    /// next fresh fetch stays on schedule (#491).
+    @MainActor
+    private static func testReuseKeepsTheRefreshTimerRunning() async {
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: FakeNotificationManager()) { _, _, _ in [] }
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 15)
+        let firstFireDate = scheduler.refreshTimerFireDate()
+        precondition(firstFireDate != nil)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 15, reusesCachedEvents: true)
+        precondition(scheduler.refreshTimerFireDate() == firstFireDate, "a reuse keeps the timer")
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 30, reusesCachedEvents: true)
+        precondition(scheduler.refreshTimerFireDate() != firstFireDate, "a new interval restarts it")
+        let secondFireDate = scheduler.refreshTimerFireDate()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 30)
+        precondition(scheduler.refreshTimerFireDate()! > secondFireDate!, "a fresh refresh restarts it")
         scheduler.stop()
     }
 

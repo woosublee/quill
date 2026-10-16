@@ -293,6 +293,40 @@ struct GoogleReminderEventsCache: Equatable {
               accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
         return events.filter { $0.end > start && $0.start < end }
     }
+
+    /// Offline, the last complete events stand in whatever their age, so an
+    /// Apple Calendar change still reaches the reminders (#491). Only for
+    /// the same account and calendars.
+    func offlineEvents(
+        from start: Date,
+        to end: Date,
+        accountEmail: String?,
+        calendarIDs: Set<String>
+    ) -> [CalendarEvent]? {
+        guard accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
+        return events.filter { $0.end > start && $0.start < end }
+    }
+}
+
+/// What to ask Google again once the network may be back (#491).
+enum GoogleCalendarNetworkRecheck: Equatable {
+    /// The status shows offline: a list read that succeeds also refreshes
+    /// the reminders.
+    case calendarList
+    /// The reminders' last refresh failed offline, even if another
+    /// feature's problem is what the status shows.
+    case reminders
+    case nothing
+
+    static func next(
+        isConnected: Bool,
+        status: GoogleCalendarHealthStatus,
+        remindersAwaitNetwork: Bool
+    ) -> GoogleCalendarNetworkRecheck {
+        guard isConnected else { return .nothing }
+        if status == .offline { return .calendarList }
+        return remindersAwaitNetwork ? .reminders : .nothing
+    }
 }
 
 enum GoogleCalendarHealthFeature: String, Codable, Equatable {

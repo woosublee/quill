@@ -18,6 +18,7 @@ final class NetworkMonitor {
     // Default to online so the first request, before the monitor's first path
     // update lands, is never wrongly blamed on the network.
     private var _isOnline = true
+    private var _hasPathUpdate = false
 
     private init() {}
 
@@ -26,6 +27,22 @@ final class NetworkMonitor {
         lock.lock()
         defer { lock.unlock() }
         return _isOnline
+    }
+
+    /// True once monitoring has begun; tests and previews never start it.
+    var isMonitoring: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return started
+    }
+
+    /// Online as far as a path update has shown. Before the first update
+    /// the network is unknown, so this is false where `isOnline` defaults
+    /// to true (#491).
+    var isKnownOnline: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _hasPathUpdate && _isOnline
     }
 
     /// Begin monitoring. Idempotent — call once at launch.
@@ -44,6 +61,7 @@ final class NetworkMonitor {
             self.lock.lock()
             let cameOnline = online && !self._isOnline
             self._isOnline = online
+            self._hasPathUpdate = true
             self.lock.unlock()
             if cameOnline {
                 DispatchQueue.main.async {
