@@ -160,10 +160,12 @@ struct AppStateStorageSafetyTests {
             rootDirectory: parent.appendingPathComponent("second-storage", isDirectory: true)
         )
         let firstCredentialLayout = CredentialStorageLayout(
-            directory: parent.appendingPathComponent("first-credentials", isDirectory: true)
+            directory: parent.appendingPathComponent("first-credentials", isDirectory: true),
+            secrets: InMemoryCredentialSecretStore()
         )
         let secondCredentialLayout = CredentialStorageLayout(
-            directory: parent.appendingPathComponent("second-credentials", isDirectory: true)
+            directory: parent.appendingPathComponent("second-credentials", isDirectory: true),
+            secrets: InMemoryCredentialSecretStore()
         )
         try CredentialStore(layout: firstCredentialLayout).save(
             "first-instance-key",

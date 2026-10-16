@@ -16,6 +16,13 @@ struct CredentialStoreTests {
         try testSettingsFileHasOwnerOnlyPermissions()
         try testErrorDescriptionSurfacesTheUnderlyingFailure()
         try testLegacyCredentialBridgeIsRemoved()
+        try testAPIKeysAreKeptInTheSecretStoreNotTheFile()
+        try testChangingAnAPIKeyReplacesTheStoredKey()
+        try testAKeyFromAnEarlierVersionMovesOutOfTheFile()
+        try testAFailedMoveKeepsTheFileCopy()
+        try testAnUnreadableSecretStoreKeepsTheFileCopy()
+        try testDeletingAnAPIKeyRemovesEveryCopy()
+        try testLiveAPIKeysUseOneKeychainService()
         print("CredentialStoreTests passed")
     }
 
@@ -70,12 +77,14 @@ struct CredentialStoreTests {
         defer { try? FileManager.default.removeItem(at: parent) }
         let firstStore = CredentialStore(
             layout: CredentialStorageLayout(
-                directory: parent.appendingPathComponent("first", isDirectory: true)
+                directory: parent.appendingPathComponent("first", isDirectory: true),
+                secrets: InMemoryCredentialSecretStore()
             )
         )
         let secondStore = CredentialStore(
             layout: CredentialStorageLayout(
-                directory: parent.appendingPathComponent("second", isDirectory: true)
+                directory: parent.appendingPathComponent("second", isDirectory: true),
+                secrets: InMemoryCredentialSecretStore()
             )
         )
 
@@ -101,7 +110,7 @@ struct CredentialStoreTests {
         // Create a plain file where the settings directory should be, so
         // FileManager cannot create it and any write into it fails.
         try Data().write(to: directory)
-        let store = CredentialStore(layout: CredentialStorageLayout(directory: directory))
+        let store = CredentialStore(layout: CredentialStorageLayout(directory: directory, secrets: InMemoryCredentialSecretStore()))
 
         do {
             try store.save("unwritable", account: "blocked_account")
@@ -118,7 +127,7 @@ struct CredentialStoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let directory = root.appendingPathComponent("settings-dir", isDirectory: true)
         try Data().write(to: directory)
-        let store = CredentialStore(layout: CredentialStorageLayout(directory: directory))
+        let store = CredentialStore(layout: CredentialStorageLayout(directory: directory, secrets: InMemoryCredentialSecretStore()))
 
         do {
             try store.save("unwritable", account: "blocked_account")
@@ -138,7 +147,7 @@ struct CredentialStoreTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let directory = root.appendingPathComponent("settings-dir", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = CredentialStore(layout: CredentialStorageLayout(directory: directory))
+        let store = CredentialStore(layout: CredentialStorageLayout(directory: directory, secrets: InMemoryCredentialSecretStore()))
         try store.save("value", account: "account_to_block")
 
         // Replace the writable directory with a read-only one so the
@@ -215,13 +224,169 @@ struct CredentialStoreTests {
         )
     }
 
+    private static func testAPIKeysAreKeptInTheSecretStoreNotTheFile() throws {
+        try withSecretBackedStore { store, secrets in
+            try store.save("synthetic-provider-key", account: "groq_api_key")
+            try store.save("synthetic-transcription-key", account: "transcription_api_key")
+            try store.save("https://provider.invalid/v1", account: "api_base_url")
+
+            try expect(
+                secrets.accounts == [
+                    "provider": "synthetic-provider-key",
+                    "transcription-provider": "synthetic-transcription-key"
+                ],
+                "API keys are kept under their Keychain account names"
+            )
+            let file = try settingsFileContents(store)
+            try expect(
+                !file.contains("synthetic-provider-key") && !file.contains("synthetic-transcription-key"),
+                "API keys never reach the settings file"
+            )
+            try expect(file.contains("api_base_url"), "base URLs stay in the settings file")
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-provider-key",
+                "a saved API key loads back"
+            )
+        }
+    }
+
+    private static func testChangingAnAPIKeyReplacesTheStoredKey() throws {
+        try withSecretBackedStore { store, secrets in
+            try store.save("synthetic-first-key", account: "groq_api_key")
+            try store.save("synthetic-second-key", account: "groq_api_key")
+            try expect(
+                secrets.accounts == ["provider": "synthetic-second-key"],
+                "a changed key replaces the stored one instead of adding another"
+            )
+        }
+    }
+
+    private static func testAKeyFromAnEarlierVersionMovesOutOfTheFile() throws {
+        try withSecretBackedStore { store, secrets in
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-legacy-key", "api_base_url": "https://provider.invalid/v1"])
+
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-legacy-key",
+                "the earlier key still loads"
+            )
+            try expect(
+                secrets.accounts == ["provider": "synthetic-legacy-key"],
+                "the earlier key is moved into the Keychain"
+            )
+            let file = try settingsFileContents(store)
+            try expect(!file.contains("synthetic-legacy-key"), "the moved key is removed from the file")
+            try expect(file.contains("api_base_url"), "other settings stay in the file")
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-legacy-key",
+                "loading again reads the Keychain copy"
+            )
+        }
+    }
+
+    private static func testAFailedMoveKeepsTheFileCopy() throws {
+        try withSecretBackedStore { store, secrets in
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-legacy-key"])
+            secrets.failsWrites = true
+
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-legacy-key",
+                "the key still loads when the Keychain refuses it"
+            )
+            let keptFile = try settingsFileContents(store)
+            try expect(
+                keptFile.contains("synthetic-legacy-key"),
+                "the file copy is kept when the move fails"
+            )
+
+            secrets.failsWrites = false
+            _ = store.load(account: "groq_api_key")
+            let retriedFile = try settingsFileContents(store)
+            try expect(
+                secrets.accounts == ["provider": "synthetic-legacy-key"]
+                    && !retriedFile.contains("synthetic-legacy-key"),
+                "the move is retried on a later load"
+            )
+        }
+    }
+
+    private static func testAnUnreadableSecretStoreKeepsTheFileCopy() throws {
+        try withSecretBackedStore { store, secrets in
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-legacy-key"])
+            secrets.failsReads = true
+
+            try expect(
+                store.load(account: "groq_api_key") == "synthetic-legacy-key",
+                "the file copy is used while the Keychain can't be read"
+            )
+            let file = try settingsFileContents(store)
+            try expect(
+                file.contains("synthetic-legacy-key"),
+                "the file copy is not removed while the Keychain can't be read"
+            )
+        }
+    }
+
+    private static func testDeletingAnAPIKeyRemovesEveryCopy() throws {
+        try withSecretBackedStore { store, secrets in
+            try store.save("synthetic-provider-key", account: "groq_api_key")
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-stale-key"])
+
+            try store.delete(account: "groq_api_key")
+
+            try expect(secrets.accounts.isEmpty, "the Keychain key is removed")
+            try expect(
+                store.load(account: "groq_api_key") == nil,
+                "a stale file copy doesn't come back after a delete"
+            )
+        }
+    }
+
+    private static func testLiveAPIKeysUseOneKeychainService() throws {
+        let live = KeychainCredentialSecretStore.live
+        try expect(
+            live.service.hasSuffix(".api-keys"),
+            "every API key shares the <bundle id>.api-keys service"
+        )
+        try expect(
+            CredentialStorageLayout.live.secrets is KeychainCredentialSecretStore,
+            "the live layout keeps API keys in the Keychain"
+        )
+    }
+
+    private static func withSecretBackedStore(
+        _ operation: (CredentialStore, InMemoryCredentialSecretStore) throws -> Void
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("credential-store-secrets-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secrets = InMemoryCredentialSecretStore()
+        let store = CredentialStore(layout: CredentialStorageLayout(directory: root, secrets: secrets))
+        try operation(store, secrets)
+    }
+
+    private static func settingsFileURL(_ store: CredentialStore) -> URL {
+        store.layout.directory.appendingPathComponent(".settings")
+    }
+
+    private static func settingsFileContents(_ store: CredentialStore) throws -> String {
+        let url = settingsFileURL(store)
+        guard FileManager.default.fileExists(atPath: url.path) else { return "" }
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Writes the settings file the way earlier versions did, keys included.
+    private static func writeLegacySettings(_ store: CredentialStore, _ values: [String: String]) throws {
+        try FileManager.default.createDirectory(at: store.layout.directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(values).write(to: settingsFileURL(store))
+    }
+
     private static func withTemporaryStore(
         _ operation: (CredentialStore) throws -> Void
     ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("credential-store-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = CredentialStore(layout: CredentialStorageLayout(directory: root))
+        let store = CredentialStore(layout: CredentialStorageLayout(directory: root, secrets: InMemoryCredentialSecretStore()))
         try operation(store)
     }
 
