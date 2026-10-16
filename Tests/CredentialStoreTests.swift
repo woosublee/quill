@@ -28,6 +28,7 @@ struct CredentialStoreTests {
         try testAPIKeyAccountsMatchTheAppSettings()
         try testWithoutAKeychainServiceTheFileKeyStays()
         try testAStaleFileCopyCantUndoAChangedKey()
+        try testAFailedKeychainWriteKeepsTheEarlierKey()
         print("CredentialStoreTests passed")
     }
 
@@ -421,7 +422,7 @@ struct CredentialStoreTests {
     }
 
     private static func testAStaleFileCopyCantUndoAChangedKey() throws {
-        try withSecretBackedStore { store, secrets in
+        try withSecretBackedStore { store, _ in
             try store.save("synthetic-first-key", account: "groq_api_key")
             try writeLegacySettings(store, ["groq_api_key": "synthetic-stale-key"])
             let directory = store.layout.directory
@@ -432,11 +433,26 @@ struct CredentialStoreTests {
                 try store.save("synthetic-second-key", account: "groq_api_key")
                 throw TestFailure("expected save to fail while the stale file copy can't be removed")
             } catch is CredentialStoreError {
+                // expected: the change would be undone on the next load, so it's reported
+            }
+        }
+    }
+
+    private static func testAFailedKeychainWriteKeepsTheEarlierKey() throws {
+        try withSecretBackedStore { store, secrets in
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-legacy-key"])
+            secrets.failsWrites = true
+
+            do {
+                try store.save("synthetic-new-key", account: "groq_api_key")
+                throw TestFailure("expected save to fail when the Keychain refuses the key")
+            } catch is CredentialStoreError {
                 // expected
             }
+            let file = try settingsFileContents(store)
             try expect(
-                secrets.accounts == ["provider": "synthetic-first-key"],
-                "the Keychain isn't changed while a stale file copy would undo the change"
+                file.contains("synthetic-legacy-key"),
+                "the earlier key stays in the file when the Keychain write fails"
             )
         }
     }

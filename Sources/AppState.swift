@@ -3773,15 +3773,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         if apiKeyLoad.keychainUnreadable {
             unreadableAPIKeyAccounts.insert(apiKeyStorageKey)
-            errorMessage = localizedCatalogString(
-                "Couldn't read the API key from the Keychain. Enter it again in Settings."
-            )
         }
         if transcriptionAPIKeyLoad.keychainUnreadable {
             unreadableAPIKeyAccounts.insert(transcriptionAPIKeyStorageKey)
+        }
+        switch (apiKeyLoad.keychainUnreadable, transcriptionAPIKeyLoad.keychainUnreadable) {
+        case (true, true):
+            errorMessage = localizedCatalogString(
+                "Couldn't read the API keys from the Keychain. Enter them again in Settings."
+            )
+        case (true, false):
+            errorMessage = localizedCatalogString(
+                "Couldn't read the API key from the Keychain. Enter it again in Settings."
+            )
+        case (false, true):
             errorMessage = localizedCatalogString(
                 "Couldn't read the transcription API key from the Keychain. Enter it again in Settings."
             )
+        case (false, false):
+            break
         }
 
         if Thread.isMainThread {
@@ -4907,7 +4917,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private var resolvedTranscriptionAPIKey: String {
         let trimmed = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? apiKey : trimmed
+        guard trimmed.isEmpty else { return trimmed }
+        // An empty field means "use the API key", but a transcription key
+        // the Keychain couldn't return is not empty: sending the main key
+        // to the transcription host instead would leak it to that host.
+        if unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey) { return "" }
+        return apiKey
     }
 
     private enum GoogleCalendarHealthError: LocalizedError {

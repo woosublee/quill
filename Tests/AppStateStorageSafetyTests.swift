@@ -7,6 +7,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesAppStateInstancesKeepIndependentHistoryLayouts()
         try await verifiesAppStateInstancesKeepIndependentCredentialStores()
         try await verifiesUnreadableKeychainIsReportedAtLaunch()
+        try await verifiesUnreadableTranscriptionKeyDoesNotFallBackToTheMainKey()
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
         try await verifiesCancellableNoteDeletion()
         try await verifiesCancellableNoteDeletionGuards()
@@ -192,6 +193,60 @@ struct AppStateStorageSafetyTests {
                 "once a new key is saved, clearing it deletes it as usual"
             )
         }
+    }
+
+    private static func verifiesUnreadableTranscriptionKeyDoesNotFallBackToTheMainKey() async throws {
+        let secrets = UnreadableAccountSecretStore(
+            values: ["provider": "synthetic-provider-key", "transcription-provider": "synthetic-transcription-key"],
+            unreadable: ["transcription-provider"]
+        )
+        let layout = CredentialStorageLayout(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("quill-unreadable-transcription-\(UUID().uuidString)", isDirectory: true),
+            secrets: secrets
+        )
+        defer { try? FileManager.default.removeItem(at: layout.directory) }
+        var dependencies = AppStateDependencies.live
+        dependencies.credentialStorageLayout = layout
+        let configuredDependencies = dependencies
+
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            var isolated = configuredDependencies
+            isolated.storageLayout = environment.storageLayout
+            let finalDependencies = isolated
+            let state = await MainActor.run { AppState(dependencies: finalDependencies) }
+            let (apiKey, hasTranscriptionKey, message) = await MainActor.run {
+                (state.apiKey, state.hasTranscriptionAPIKey, state.errorMessage)
+            }
+            try expect(apiKey == "synthetic-provider-key", "the readable main key still loads")
+            try expect(
+                !hasTranscriptionKey,
+                "an unreadable transcription key is not replaced by the main key"
+            )
+            try expect(
+                message?.contains("transcription API key") == true,
+                "the message names the transcription key"
+            )
+        }
+    }
+
+    /// Returns stored keys, except for accounts it fails to read.
+    private final class UnreadableAccountSecretStore: CredentialSecretStore, @unchecked Sendable {
+        private let values: [String: String]
+        private let unreadable: Set<String>
+
+        init(values: [String: String], unreadable: Set<String>) {
+            self.values = values
+            self.unreadable = unreadable
+        }
+
+        func load(account: String) throws -> String? {
+            if unreadable.contains(account) { throw TestSecretStoreFailure() }
+            return values[account]
+        }
+
+        func save(_ value: String, account: String) throws { throw TestSecretStoreFailure() }
+        func delete(account: String) throws { throw TestSecretStoreFailure() }
     }
 
     private static func verifiesAppStateInstancesKeepIndependentCredentialStores() async throws {
