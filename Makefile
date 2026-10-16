@@ -380,7 +380,9 @@ codesign-dmg: dmg
 # staple the DMG built around it, and check both with Gatekeeper. Needs a
 # notarytool profile in the login keychain, made once with
 #   xcrun notarytool store-credentials <name>
-# and passed as NOTARIZE_PROFILE=<name>. Pass the same PROVISIONING_PROFILE
+# and passed as NOTARIZE_PROFILE=<name>. It always builds anew from the
+# settings given to it: for a build like the release, also pass
+# ARCH=universal, APP_VERSION, BUILD_NUMBER and the PROVISIONING_PROFILE
 # you would give `make`, or the app is signed without iCloud.
 NOTARIZE_PROFILE ?=
 notarize:
@@ -388,16 +390,21 @@ notarize:
 		echo "Set NOTARIZE_PROFILE to a notarytool keychain profile (create one with: xcrun notarytool store-credentials <name>)." >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(PROVISIONING_PROFILE)" ]; then \
+		echo "warning: no PROVISIONING_PROFILE, so this notarized app is signed without iCloud note sync." >&2; \
+	fi
 	$(MAKE) all CODESIGN_TIMESTAMP=--timestamp
-	@rm -f "$(BUILD_DIR)/$(APP_NAME)-notarize.zip"
-	ditto -c -k --keepParent "$(APP_BUNDLE)" "$(BUILD_DIR)/$(APP_NAME)-notarize.zip"
-	NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME)-notarize.zip"
-	@rm -f "$(BUILD_DIR)/$(APP_NAME)-notarize.zip"
+	@set -e; \
+		zip="$(BUILD_DIR)/$(APP_NAME)-notarize.zip"; \
+		trap 'rm -f "$$zip"' EXIT; \
+		rm -f "$$zip"; \
+		ditto -c -k --keepParent "$(APP_BUNDLE)" "$$zip"; \
+		env -u KEYCHAIN_PATH NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" scripts/notarize.sh "$$zip"
 	xcrun stapler staple "$(APP_BUNDLE)"
 	xcrun stapler validate "$(APP_BUNDLE)"
 	$(MAKE) codesign-dmg CODESIGN_TIMESTAMP=--timestamp
 	@xcrun stapler validate "$(APP_BUNDLE)" || { echo "make dmg rebuilt the notarized app; run make notarize with the same settings again." >&2; exit 1; }
-	NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME).dmg"
+	env -u KEYCHAIN_PATH NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME).dmg"
 	xcrun stapler staple "$(BUILD_DIR)/$(APP_NAME).dmg"
 	xcrun stapler validate "$(BUILD_DIR)/$(APP_NAME).dmg"
 	spctl -a -vv -t open --context context:primary-signature "$(BUILD_DIR)/$(APP_NAME).dmg"

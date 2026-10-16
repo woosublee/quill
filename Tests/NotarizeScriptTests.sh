@@ -55,6 +55,20 @@ fi
 grep -q -- "notarytool log synthetic-id --keychain-profile synthetic-profile" "$calls" \
   || fail "a rejected submission should print Apple's log: $(cat "$calls")"
 
+# Still processing locally: the resume command names the profile, quoted,
+# and Apple's log isn't fetched for an unfinished submission.
+output="$temporary_dir/output"
+: > "$calls"
+if env -u KEYCHAIN_PATH FAKE_STATUS="In Progress" NOTARIZE_PROFILE="Synthetic Profile" \
+  bash "$script" "$artifact" > "$output" 2>&1; then
+  fail "an unfinished submission should fail"
+fi
+grep -q -- 'xcrun notarytool wait synthetic-id --keychain-profile "Synthetic Profile"' "$output" \
+  || fail "an unfinished local submission should print a resume command: $(cat "$output")"
+if grep -q -- "notarytool log" "$calls"; then
+  fail "an unfinished submission should not fetch Apple's log"
+fi
+
 # Neither credential: fail before submitting anything.
 if FAKE_STATUS=Accepted run -u KEYCHAIN_PATH -u NOTARIZE_PROFILE; then
   fail "a submission without credentials should fail"
@@ -62,7 +76,9 @@ fi
 [ ! -s "$calls" ] || fail "nothing should be submitted without credentials"
 
 # make notarize stops before building when no profile is given.
-make_output="$(make --no-print-directory notarize NOTARIZE_PROFILE= BUILD_DIR="$temporary_dir/build" 2>&1)" \
+# Run without the outer make's settings or any notarization credentials.
+make_output="$(env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u KEYCHAIN_PATH -u NOTARIZE_PROFILE \
+  make --no-print-directory notarize NOTARIZE_PROFILE= BUILD_DIR="$temporary_dir/build" 2>&1)" \
   && fail "make notarize without NOTARIZE_PROFILE should fail"
 case "$make_output" in
   *"Set NOTARIZE_PROFILE"*) ;;

@@ -587,7 +587,7 @@ struct BuildMetadataTests {
             makefile,
             [
                 "$(MAKE) all CODESIGN_TIMESTAMP=--timestamp",
-                #"scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME)-notarize.zip""#,
+                #"scripts/notarize.sh "$$zip""#,
                 #"xcrun stapler staple "$(APP_BUNDLE)""#,
                 "$(MAKE) codesign-dmg CODESIGN_TIMESTAMP=--timestamp",
                 #"scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME).dmg""#,

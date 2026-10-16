@@ -36,7 +36,7 @@ if [ "$submit_status" -ne 0 ] || [ "$status" != "Accepted" ]; then
         echo "  xcrun notarytool wait $submission_id --key <AuthKey.p8> --key-id <ASC_KEY_ID> --issuer <ASC_ISSUER_ID>" >&2
       else
         echo "Still processing. Resume with:" >&2
-        echo "  xcrun notarytool wait $submission_id --keychain-profile $profile" >&2
+        echo "  xcrun notarytool wait $submission_id --keychain-profile \"$profile\"" >&2
       fi
     else
       xcrun notarytool log "$submission_id" "${credentials[@]}" >&2 || true
