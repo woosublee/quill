@@ -48,7 +48,10 @@ struct KeychainCredentialSecretStore: CredentialSecretStore {
         guard status == errSecSuccess, let data = result as? Data else {
             throw KeychainError(status: status)
         }
-        return String(data: data, encoding: .utf8)
+        guard let value = String(data: data, encoding: .utf8) else {
+            throw KeychainError(status: errSecDecode)
+        }
+        return value
     }
 
     func save(_ value: String, account: String) throws {
@@ -86,24 +89,17 @@ struct KeychainCredentialSecretStore: CredentialSecretStore {
     }
 }
 
-/// Keeps keys for this run only. Used when there is no bundle identifier
-/// to name a Keychain service, as in test executables, so they never
-/// reach the app's own Keychain items.
-final class EphemeralCredentialSecretStore: CredentialSecretStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [String: String] = [:]
-
-    func load(account: String) throws -> String? {
-        lock.withLock { values[account] }
+/// Used when there is no bundle identifier to name a Keychain service, as
+/// in test executables. Every call fails, so keys stay where they are in
+/// the settings file: never moved, never removed, never written.
+struct UnavailableCredentialSecretStore: CredentialSecretStore {
+    struct Unavailable: LocalizedError {
+        var errorDescription: String? { "No Keychain service for this process" }
     }
 
-    func save(_ value: String, account: String) throws {
-        lock.withLock { values[account] = value }
-    }
-
-    func delete(account: String) throws {
-        lock.withLock { _ = values.removeValue(forKey: account) }
-    }
+    func load(account: String) throws -> String? { throw Unavailable() }
+    func save(_ value: String, account: String) throws { throw Unavailable() }
+    func delete(account: String) throws { throw Unavailable() }
 }
 
 /// The instance-owned location of Quill's credential settings file, and
@@ -119,7 +115,7 @@ struct CredentialStorageLayout: Sendable {
     static func live(bundleIdentifier: String?) -> CredentialStorageLayout {
         let secrets: any CredentialSecretStore = bundleIdentifier.map {
             KeychainCredentialSecretStore(service: KeychainCredentialSecretStore.service(bundleIdentifier: $0))
-        } ?? EphemeralCredentialSecretStore()
+        } ?? UnavailableCredentialSecretStore()
         return CredentialStorageLayout(
             directory: AppName.applicationSupportDirectory,
             secrets: secrets
@@ -186,18 +182,22 @@ struct CredentialStore: Sendable {
     }
 
     func save(_ value: String, account: String) throws {
-        if let keychainAccount = Self.keychainAccounts[account] {
-            do {
-                try layout.secrets.save(value, account: keychainAccount)
-            } catch {
-                throw CredentialStoreError.writeFailed(underlying: error)
-            }
-            removeFileValue(account: account)
+        var dict = loadSettings()
+        guard let keychainAccount = Self.keychainAccounts[account] else {
+            dict[account] = value
+            try writeSettings(dict)
             return
         }
-        var dict = loadSettings()
-        dict[account] = value
-        try writeSettings(dict)
+        // Remove any file copy first: a differing file copy counts as newer
+        // on the next load, so one left behind would undo this change.
+        if dict.removeValue(forKey: account) != nil {
+            try writeSettings(dict)
+        }
+        do {
+            try layout.secrets.save(value, account: keychainAccount)
+        } catch {
+            throw CredentialStoreError.writeFailed(underlying: error)
+        }
     }
 
     func delete(account: String) throws {
@@ -219,7 +219,8 @@ struct CredentialStore: Sendable {
         }
     }
 
-    /// Best effort: a copy left behind is removed on the next load.
+    /// Best effort, only once the Keychain holds the same key: a copy left
+    /// behind is removed on the next load.
     private func removeFileValue(account: String) {
         var dict = loadSettings()
         guard dict.removeValue(forKey: account) != nil else { return }

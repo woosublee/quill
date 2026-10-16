@@ -178,6 +178,19 @@ struct AppStateStorageSafetyTests {
             )
             let apiKey = await MainActor.run { state.apiKey }
             try expect(apiKey.isEmpty, "no key is invented when the Keychain can't be read")
+
+            secrets.failsReads = false
+            await MainActor.run { state.apiKey = "" }
+            try expect(
+                secrets.accounts == ["provider": "synthetic-provider-key"],
+                "clearing the empty field doesn't delete the key the Keychain couldn't return"
+            )
+            await MainActor.run { state.apiKey = "synthetic-new-key" }
+            await MainActor.run { state.apiKey = "" }
+            try expect(
+                secrets.accounts.isEmpty,
+                "once a new key is saved, clearing it deletes it as usual"
+            )
         }
     }
 

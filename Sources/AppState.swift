@@ -2951,6 +2951,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var credentialStore: CredentialStore {
         CredentialStore(layout: dependencies.credentialStorageLayout)
     }
+    /// API key accounts the Keychain couldn't return at launch.
+    private var unreadableAPIKeyAccounts: Set<String> = []
     private let historyWorkflow: HistoryArchiveRecoveryWorkflow
     private var pipelineHistoryStore: PipelineHistoryStore {
         didSet { connectNoteSync(to: pipelineHistoryStore) }
@@ -3769,9 +3771,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
             pruneWarningBannerState(keepingNoteIDs: Set(pipelineHistory.map(\.id)))
         }
 
-        if apiKeyLoad.keychainUnreadable || transcriptionAPIKeyLoad.keychainUnreadable {
+        if apiKeyLoad.keychainUnreadable {
+            unreadableAPIKeyAccounts.insert(apiKeyStorageKey)
             errorMessage = localizedCatalogString(
                 "Couldn't read the API key from the Keychain. Enter it again in Settings."
+            )
+        }
+        if transcriptionAPIKeyLoad.keychainUnreadable {
+            unreadableAPIKeyAccounts.insert(transcriptionAPIKeyStorageKey)
+            errorMessage = localizedCatalogString(
+                "Couldn't read the transcription API key from the Keychain. Enter it again in Settings."
             )
         }
 
@@ -4544,11 +4553,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         persistCredential(prefix: "Unable to save API key") {
             if trimmed.isEmpty {
-                try credentialStore.delete(account: apiKeyStorageKey)
+                try deleteAPIKeyUnlessUnread(account: apiKeyStorageKey)
             } else {
                 try credentialStore.save(trimmed, account: apiKeyStorageKey)
+                unreadableAPIKeyAccounts.remove(apiKeyStorageKey)
             }
         }
+    }
+
+    /// A key the Keychain couldn't return at launch still exists there.
+    /// Clearing the empty field mustn't delete it; a new key replaces it.
+    private func deleteAPIKeyUnlessUnread(account: String) throws {
+        guard !unreadableAPIKeyAccounts.contains(account) else { return }
+        try credentialStore.delete(account: account)
     }
 
     private func persistCredential(
@@ -4848,9 +4865,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         persistCredential(prefix: "Unable to save the provider value") {
             if trimmed.isEmpty {
-                try credentialStore.delete(account: account)
+                try deleteAPIKeyUnlessUnread(account: account)
             } else {
                 try credentialStore.save(trimmed, account: account)
+                unreadableAPIKeyAccounts.remove(account)
             }
         }
     }

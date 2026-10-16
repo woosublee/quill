@@ -26,6 +26,8 @@ struct CredentialStoreTests {
         try testANewerFileKeyReplacesTheKeychainKey()
         try testAnUnreadableKeychainWithNoFileCopyIsReported()
         try testAPIKeyAccountsMatchTheAppSettings()
+        try testWithoutAKeychainServiceTheFileKeyStays()
+        try testAStaleFileCopyCantUndoAChangedKey()
         print("CredentialStoreTests passed")
     }
 
@@ -351,7 +353,7 @@ struct CredentialStoreTests {
             "every API key shares the <bundle id>.api-keys Keychain service"
         )
         try expect(
-            CredentialStorageLayout.live(bundleIdentifier: nil).secrets is EphemeralCredentialSecretStore,
+            CredentialStorageLayout.live(bundleIdentifier: nil).secrets is UnavailableCredentialSecretStore,
             "a process without a bundle identifier, like a test, never reaches the Keychain"
         )
         try expect(
@@ -394,6 +396,47 @@ struct CredentialStoreTests {
                 store.loadReportingFailure(account: "api_base_url")
                     == CredentialStore.LoadResult(value: nil),
                 "settings outside the Keychain are unaffected"
+            )
+        }
+    }
+
+    private static func testWithoutAKeychainServiceTheFileKeyStays() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("credential-store-no-keychain-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = CredentialStore(
+            layout: CredentialStorageLayout(directory: root, secrets: UnavailableCredentialSecretStore())
+        )
+        try writeLegacySettings(store, ["groq_api_key": "synthetic-legacy-key"])
+
+        try expect(
+            store.load(account: "groq_api_key") == "synthetic-legacy-key",
+            "the file key is still read"
+        )
+        let file = try settingsFileContents(store)
+        try expect(
+            file.contains("synthetic-legacy-key"),
+            "the file key is never moved out when there is no Keychain to hold it"
+        )
+    }
+
+    private static func testAStaleFileCopyCantUndoAChangedKey() throws {
+        try withSecretBackedStore { store, secrets in
+            try store.save("synthetic-first-key", account: "groq_api_key")
+            try writeLegacySettings(store, ["groq_api_key": "synthetic-stale-key"])
+            let directory = store.layout.directory
+            try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
+
+            do {
+                try store.save("synthetic-second-key", account: "groq_api_key")
+                throw TestFailure("expected save to fail while the stale file copy can't be removed")
+            } catch is CredentialStoreError {
+                // expected
+            }
+            try expect(
+                secrets.accounts == ["provider": "synthetic-first-key"],
+                "the Keychain isn't changed while a stale file copy would undo the change"
             )
         }
     }
