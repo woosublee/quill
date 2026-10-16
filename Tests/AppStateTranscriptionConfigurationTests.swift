@@ -166,8 +166,8 @@ struct AppStateTranscriptionConfigurationTests {
         testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap()
         testCommandModeManualModifierReportsCancelOverlap()
         testStoppedTranscriptionCompletionSummaryTrimsFinalTranscript()
-        testStoppedTranscriptionCompletionSummaryEndsRawFallbackAsDone()
-        testStoppedTranscriptionCompletionSummaryDismissesEmptyTranscript()
+        try testStoppedTranscriptionRawFallbackEndsAsDone()
+        testStoppedTranscriptionCompletionSummaryKeepsEmptyTranscriptEmpty()
         testTimeoutFailureReasonOverridesCommandFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
@@ -1592,27 +1592,25 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(summary.prompt == "prompt")
         precondition(summary.processingStatus == "Post-processing succeeded")
         precondition(!summary.shouldPressEnterAfterPaste)
-        precondition(summary.overlay == .done)
     }
 
-    // #550: a raw-transcript fallback still pasted text, so it must not end
-    // with the recording-failure mark.
-    private static func testStoppedTranscriptionCompletionSummaryEndsRawFallbackAsDone() {
-        for outcome in [AIProcessingOutcome.rawFallback(reason: .languageMismatch), .failed(reason: "provider-error")] {
-            let summary = StoppedTranscriptionCompletionSummary(
-                rawTranscript: "raw transcript",
-                finalTranscript: "raw transcript",
-                prompt: "",
-                processingStatus: "Post-processing failed, using raw transcript",
-                shouldPressEnterAfterPaste: false,
-                aiProcessingOutcome: outcome
-            )
-
-            precondition(summary.overlay == .done)
-        }
+    // #550: a raw-transcript fallback still pasted text, so the overlay ends
+    // the same way as a cleaned-up dictation, never with a failure mark.
+    private static func testStoppedTranscriptionRawFallbackEndsAsDone() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let overlay = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        let foregroundUI = sourceBlock(
+            in: source,
+            from: "private func updateForegroundUIForStoppedTranscriptionCompletion(",
+            to: "\n    @MainActor\n    private func finishTranscriptionJob(_ id: UUID, overlayID: UUID)"
+        )
+        precondition(!foregroundUI.contains("aiProcessingOutcome"))
+        precondition(foregroundUI.contains("OverlayAccessibilityAnnouncer.announce(.done)"))
+        precondition(!overlay.contains("FailureIndicatorView"))
+        precondition(!overlay.contains("Recording failed"))
     }
 
-    private static func testStoppedTranscriptionCompletionSummaryDismissesEmptyTranscript() {
+    private static func testStoppedTranscriptionCompletionSummaryKeepsEmptyTranscriptEmpty() {
         let summary = StoppedTranscriptionCompletionSummary(
             rawTranscript: "",
             finalTranscript: "  \n",
@@ -1623,7 +1621,6 @@ struct AppStateTranscriptionConfigurationTests {
 
         precondition(summary.finalTranscript.isEmpty)
         precondition(summary.shouldPressEnterAfterPaste)
-        precondition(summary.overlay == .dismiss)
     }
 
     private static func testTimeoutFailureReasonOverridesCommandFallback() {

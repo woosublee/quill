@@ -227,13 +227,6 @@ private struct TranscriptCommandParsingResult {
     let shouldPressEnterAfterPaste: Bool
 }
 
-/// How the overlay ends a dictation. A raw-transcript fallback (AI cleanup
-/// failed or its output was rejected) still pasted text, so it ends as done.
-enum StoppedTranscriptionCompletionOverlay: Equatable {
-    case dismiss
-    case done
-}
-
 struct StoppedTranscriptionCompletionSummary {
     let rawTranscript: String
     let finalTranscript: String
@@ -259,10 +252,6 @@ struct StoppedTranscriptionCompletionSummary {
         self.shouldPressEnterAfterPaste = shouldPressEnterAfterPaste
         self.spokenLanguage = spokenLanguage
         self.aiProcessingOutcome = aiProcessingOutcome
-    }
-
-    var overlay: StoppedTranscriptionCompletionOverlay {
-        finalTranscript.isEmpty ? .dismiss : .done
     }
 }
 
@@ -12028,17 +12017,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         lastTranscript = completion.finalTranscript
         debugStatusMessage = "Done"
         statusText = completionStatusText
-        switch completion.overlay {
-        case .dismiss:
+        if completion.finalTranscript.isEmpty {
             mcpLastRecordingFailed = true
             statusText = completion.shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
             dismissTranscribingOverlay()
             if completion.shouldPressEnterAfterPaste {
                 pressEnterWhenShortcutReleased()
             }
-        case .done:
+        } else {
+            // Pasted text ends as done, even when AI cleanup fell back to the
+            // raw transcript (#550). Fixed confirmation only; never the
+            // transcript itself.
             dismissTranscribingOverlay()
-            // Fixed confirmation only; never the transcript itself.
             OverlayAccessibilityAnnouncer.announce(.done)
             let pendingClipboardRestore = writeTranscriptToPasteboard(completion.finalTranscript)
             if !disableAutoPaste {

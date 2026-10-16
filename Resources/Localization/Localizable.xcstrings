@@ -18532,22 +18532,6 @@
         }
       }
     },
-    "Recording failed": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recording failed"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음 실패"
-          }
-        }
-      }
-    },
     "Audio input": {
       "localizations": {
         "en": {

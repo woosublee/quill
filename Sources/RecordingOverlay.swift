@@ -57,7 +57,6 @@ enum OverlayPhase {
 enum OverlayAccessibilityAnnouncement: Equatable {
     case transcribing
     case done
-    case failed
     /// Full, untruncated localized error message (the pill may truncate it).
     case error(String)
     /// Calendar event title already visible on the meeting reminder.
@@ -69,8 +68,6 @@ enum OverlayAccessibilityAnnouncement: Equatable {
             return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
         case .done:
             return localizedCatalogString("Done", language: language, bundle: bundle)
-        case .failed:
-            return localizedCatalogString("Recording failed", language: language, bundle: bundle)
         case .error(let message):
             return message.trimmingCharacters(in: .whitespacesAndNewlines)
         case .meetingStarting(let title):
@@ -85,7 +82,7 @@ enum OverlayAccessibilityAnnouncement: Equatable {
 
     var priority: NSAccessibilityPriorityLevel {
         switch self {
-        case .failed, .error, .meetingStarting:
+        case .error, .meetingStarting:
             return .high
         case .transcribing, .done:
             return .medium
@@ -654,15 +651,6 @@ final class RecordingOverlayManager {
     func showTranscribing() {
         DispatchQueue.main.async {
             self.setTranscribingPhase()
-        }
-    }
-
-    func showFailureIndicator() {
-        DispatchQueue.main.async {
-            self.overlayState.errorMessage = nil
-            self.overlayState.toastID = nil
-            self.showFeedbackPanel()
-            OverlayAccessibilityAnnouncer.announce(.failed)
         }
     }
 
@@ -1810,10 +1798,7 @@ private struct NotchSideOverlayView: View {
                     .accessibilityLabel("Stop recording")
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-            case .feedback:
-                FailureIndicatorView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            case .initializing, .transcribing, .updateAvailable:
+            case .initializing, .transcribing, .feedback, .updateAvailable:
                 Color.clear
             }
         }
@@ -1848,8 +1833,6 @@ struct RecordingOverlayView: View {
         Group {
             if state.phase == .feedback, let message = state.errorMessage {
                 ErrorOverlayView(message: message)
-            } else if state.phase == .feedback {
-                FailureIndicatorView()
             } else if state.phase == .updateAvailable {
                 UpdateAvailableOverlayView(version: state.updateVersion, onPress: onUpdateOverlayPressed)
             } else {
@@ -2155,19 +2138,6 @@ struct CommandModeIndicator: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.white.opacity(0.92))
             .frame(width: 16, height: 16, alignment: .center)
-    }
-}
-
-struct FailureIndicatorView: View {
-    var body: some View {
-        Image(systemName: "xmark")
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: 20, height: 20)
-            .background(Circle().fill(Color.red.opacity(0.92)))
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Recording failed")
     }
 }
 
