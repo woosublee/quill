@@ -8,7 +8,10 @@ set -euo pipefail
 file="${1:?usage: notarize.sh <zip-or-dmg>}"
 timeout="${NOTARIZE_TIMEOUT:-45m}"
 
-if [ -n "${KEYCHAIN_PATH:-}" ]; then
+if [ -n "${KEYCHAIN_PATH:-}" ] && [ -n "${NOTARIZE_PROFILE:-}" ]; then
+  echo "Set either KEYCHAIN_PATH (release workflow) or NOTARIZE_PROFILE (login keychain), not both." >&2
+  exit 1
+elif [ -n "${KEYCHAIN_PATH:-}" ]; then
   profile="notarytool-profile"
   credentials=(--keychain-profile "$profile" --keychain "$KEYCHAIN_PATH")
 else
@@ -36,7 +39,7 @@ if [ "$submit_status" -ne 0 ] || [ "$status" != "Accepted" ]; then
         echo "  xcrun notarytool wait $submission_id --key <AuthKey.p8> --key-id <ASC_KEY_ID> --issuer <ASC_ISSUER_ID>" >&2
       else
         echo "Still processing. Resume with:" >&2
-        echo "  xcrun notarytool wait $submission_id --keychain-profile \"$profile\"" >&2
+        printf '  xcrun notarytool wait %q --keychain-profile %q\n' "$submission_id" "$profile" >&2
       fi
     else
       xcrun notarytool log "$submission_id" "${credentials[@]}" >&2 || true

@@ -34,7 +34,7 @@ run() {
 }
 
 # The release workflow: its temporary keychain and fixed profile name.
-FAKE_STATUS=Accepted run KEYCHAIN_PATH=/synthetic/release.keychain-db NOTARIZE_PROFILE=ignored \
+FAKE_STATUS=Accepted run -u NOTARIZE_PROFILE KEYCHAIN_PATH=/synthetic/release.keychain-db \
   || fail "an accepted CI submission should succeed"
 grep -q -- "notarytool submit $artifact --keychain-profile notarytool-profile --keychain /synthetic/release.keychain-db --wait" "$calls" \
   || fail "CI submissions should use notarytool-profile in KEYCHAIN_PATH: $(cat "$calls")"
@@ -63,11 +63,17 @@ if env -u KEYCHAIN_PATH FAKE_STATUS="In Progress" NOTARIZE_PROFILE="Synthetic Pr
   bash "$script" "$artifact" > "$output" 2>&1; then
   fail "an unfinished submission should fail"
 fi
-grep -q -- 'xcrun notarytool wait synthetic-id --keychain-profile "Synthetic Profile"' "$output" \
+grep -q -- 'xcrun notarytool wait synthetic-id --keychain-profile Synthetic\\ Profile' "$output" \
   || fail "an unfinished local submission should print a resume command: $(cat "$output")"
 if grep -q -- "notarytool log" "$calls"; then
   fail "an unfinished submission should not fetch Apple's log"
 fi
+
+# Both credentials: ambiguous, so fail before submitting anything.
+if FAKE_STATUS=Accepted run KEYCHAIN_PATH=/synthetic/release.keychain-db NOTARIZE_PROFILE=synthetic-profile; then
+  fail "a submission with both KEYCHAIN_PATH and NOTARIZE_PROFILE should fail"
+fi
+[ ! -s "$calls" ] || fail "nothing should be submitted with both credentials"
 
 # Neither credential: fail before submitting anything.
 if FAKE_STATUS=Accepted run -u KEYCHAIN_PATH -u NOTARIZE_PROFILE; then
@@ -83,6 +89,17 @@ make_output="$(env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u KEYCHAIN_PATH -u NOTAR
 case "$make_output" in
   *"Set NOTARIZE_PROFILE"*) ;;
   *) fail "make notarize should explain NOTARIZE_PROFILE: $make_output" ;;
+esac
+[ ! -e "$temporary_dir/build" ] || fail "make notarize should stop before building"
+
+# ...and when the signing identity isn't a Developer ID Application one.
+make_output="$(env -u MAKEFLAGS -u MAKELEVEL -u MFLAGS -u KEYCHAIN_PATH -u NOTARIZE_PROFILE \
+  make --no-print-directory notarize NOTARIZE_PROFILE=synthetic-profile \
+  CODESIGN_IDENTITY=synthetic-missing-identity BUILD_DIR="$temporary_dir/build" 2>&1)" \
+  && fail "make notarize without a Developer ID identity should fail"
+case "$make_output" in
+  *"needs a Developer ID Application identity"*) ;;
+  *) fail "make notarize should explain the identity: $make_output" ;;
 esac
 [ ! -e "$temporary_dir/build" ] || fail "make notarize should stop before building"
 

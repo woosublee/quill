@@ -380,14 +380,20 @@ codesign-dmg: dmg
 # staple the DMG built around it, and check both with Gatekeeper. Needs a
 # notarytool profile in the login keychain, made once with
 #   xcrun notarytool store-credentials <name>
-# and passed as NOTARIZE_PROFILE=<name>. It always builds anew from the
-# settings given to it: for a build like the release, also pass
-# ARCH=universal, APP_VERSION, BUILD_NUMBER and the PROVISIONING_PROFILE
-# you would give `make`, or the app is signed without iCloud.
+# and passed as NOTARIZE_PROFILE=<name>. It builds with the settings given
+# to it, not those an earlier `make dmg` used: for a build like the
+# release, also pass ARCH=universal, APP_VERSION, BUILD_NUMBER and the
+# PROVISIONING_PROFILE you would give `make`, or the app is signed without
+# iCloud. The release's own profile and entitlement checks are not repeated.
 NOTARIZE_PROFILE ?=
 notarize:
 	@if [ -z "$(NOTARIZE_PROFILE)" ]; then \
 		echo "Set NOTARIZE_PROFILE to a notarytool keychain profile (create one with: xcrun notarytool store-credentials <name>)." >&2; \
+		exit 1; \
+	fi
+	@identity="$(CODESIGN_IDENTITY)"; \
+	if [ -z "$$identity" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -F -- "$$identity" | grep -q '"Developer ID Application: '; then \
+		echo "make notarize needs a Developer ID Application identity; CODESIGN_IDENTITY is \"$$identity\"." >&2; \
 		exit 1; \
 	fi
 	@if [ -z "$(PROVISIONING_PROFILE)" ]; then \
