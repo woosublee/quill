@@ -5,12 +5,15 @@ import Foundation
 import Network
 
 /// Drives `CKSyncEngine` for the coordinator: queues changes, builds the
-/// records it asks for, and hands back what it fetched and sent. The engine
-/// asks the server by itself after a CloudKit push, at start, and when the
-/// app comes to the front. The fetches asked for here (every minute while
-/// sync is on, and when the Mac wakes or the network comes back) reached the
-/// server in testing on macOS 27 only once the engine knew something
-/// changed, and otherwise returned at once; they stay as a fallback.
+/// records it asks for, and hands back what it fetched and sent. Changes
+/// from other Macs arrive through CloudKit pushes: the engine asks the
+/// server by itself after a push, at start, and when the app comes to the
+/// front. On the Production environment pushes brought another Mac's edits
+/// within about ten seconds (#509). The fetches asked for here (every
+/// minute while sync is on, and when the Mac wakes or the network comes
+/// back) reach the server on macOS only once the engine knows something
+/// changed, and otherwise return at once. They cost next to nothing and
+/// stay as a fallback, and with them whatever runs when a fetch finishes.
 @available(macOS 14.0, *)
 final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60
@@ -414,8 +417,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return notes
     }
 
-    /// Sync Now: fetches, then sends what is waiting. Failures are left to
-    /// the status the engine's events already report.
+    /// Sync Now: fetches, then sends what is waiting. The fetch reaches the
+    /// server only when the engine knows of a change; pushes bring the
+    /// rest, so Sync Now is mainly for sending changes that failed again.
+    /// Failures are left to the status the engine's events already report.
     func syncNow() async {
         guard let engine = activeEngine() else { return }
         do {
