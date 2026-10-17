@@ -375,10 +375,52 @@ dmg: all
 codesign-dmg: dmg
 	codesign --force $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$(BUILD_DIR)/$(APP_NAME).dmg"
 
+# Local notarized build, in the same order as release.yml: build with a
+# secure timestamp, notarize and staple the app, then sign, notarize and
+# staple the DMG built around it, and check both with Gatekeeper. Needs a
+# notarytool profile in the login keychain, made once with
+#   xcrun notarytool store-credentials <name>
+# and passed as NOTARIZE_PROFILE=<name>. It builds with the settings given
+# to it, not those an earlier `make dmg` used: for a build like the
+# release, also pass ARCH=universal, APP_VERSION, BUILD_NUMBER and the
+# PROVISIONING_PROFILE you would give `make`, or the app is signed without
+# iCloud. The release's own profile and entitlement checks are not repeated.
+NOTARIZE_PROFILE ?=
 notarize:
-	xcrun notarytool submit "$(BUILD_DIR)/$(APP_NAME).dmg" \
-		--keychain-profile "$(NOTARIZE_PROFILE)" --wait
+	@if [ -z "$(NOTARIZE_PROFILE)" ]; then \
+		echo "Set NOTARIZE_PROFILE to a notarytool keychain profile (create one with: xcrun notarytool store-credentials <name>)." >&2; \
+		exit 1; \
+	fi
+	@identity="$(CODESIGN_IDENTITY)"; \
+	if [ -z "$$identity" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -F -- "$$identity" | grep -q '"Developer ID Application: '; then \
+		echo "make notarize needs a Developer ID Application identity; CODESIGN_IDENTITY is \"$$identity\"." >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(PROVISIONING_PROFILE)" ]; then \
+		echo "warning: no PROVISIONING_PROFILE, so this notarized app is signed without iCloud note sync." >&2; \
+	fi
+	$(MAKE) all CODESIGN_TIMESTAMP=--timestamp
+	@set -e; \
+		zip="$(BUILD_DIR)/$(APP_NAME)-notarize.zip"; \
+		trap 'rm -f "$$zip"' EXIT; \
+		rm -f "$$zip"; \
+		ditto -c -k --keepParent "$(APP_BUNDLE)" "$$zip"; \
+		env -u KEYCHAIN_PATH NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" scripts/notarize.sh "$$zip"
+	xcrun stapler staple "$(APP_BUNDLE)"
+	xcrun stapler validate "$(APP_BUNDLE)"
+	$(MAKE) codesign-dmg CODESIGN_TIMESTAMP=--timestamp
+	@xcrun stapler validate "$(APP_BUNDLE)" || { echo "make dmg rebuilt the notarized app; run make notarize with the same settings again." >&2; exit 1; }
+	env -u KEYCHAIN_PATH NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" scripts/notarize.sh "$(BUILD_DIR)/$(APP_NAME).dmg"
 	xcrun stapler staple "$(BUILD_DIR)/$(APP_NAME).dmg"
+	xcrun stapler validate "$(BUILD_DIR)/$(APP_NAME).dmg"
+	spctl -a -vv -t open --context context:primary-signature "$(BUILD_DIR)/$(APP_NAME).dmg"
+	@set -e; \
+		mount_dir="$$(mktemp -d)"; \
+		trap 'hdiutil detach "$$mount_dir" >/dev/null 2>&1 || true; rmdir "$$mount_dir" 2>/dev/null || true' EXIT; \
+		hdiutil attach "$(BUILD_DIR)/$(APP_NAME).dmg" -nobrowse -readonly -mountpoint "$$mount_dir" >/dev/null; \
+		xcrun stapler validate "$$mount_dir/$(APP_NAME).app"; \
+		spctl -a -vv -t exec "$$mount_dir/$(APP_NAME).app"
+	@echo "Notarized $(BUILD_DIR)/$(APP_NAME).dmg"
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -649,6 +691,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@python3 Tests/StableReleaseValidationTests.py
 	@bash Tests/SparkleKeyValidationTests.sh
 	@bash Tests/ProvisioningSigningTests.sh
+	@bash Tests/NotarizeScriptTests.sh
 	@$(TEST_BUILD_DIR)/MeetingSummaryModelsTests
 	@$(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests
 	@$(TEST_BUILD_DIR)/SpokenLanguageResolutionTests
