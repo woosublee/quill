@@ -14,6 +14,24 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// the notes are gone but the audio couldn't be deleted.
     func deleteAllFromICloud() async throws -> Bool
     func stop(forgetState: Bool)
+    /// What iCloud's copy of each of these notes says of its deletion.
+    func deletionOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteDeletionInICloud]
+}
+
+/// What iCloud's copy of a note says of its deletion, read right before a
+/// Recently Deleted purge (#562).
+enum NoteDeletionInICloud: Equatable {
+    case noNote
+    /// The record can't be read here (a newer version wrote it, say).
+    case unreadable
+    case live
+    case deleted(Date)
+
+    /// From the record's payload, as fetched.
+    static func read(payload: Data?) -> NoteDeletionInICloud {
+        guard let payload, let record = try? NoteSyncPayload.decode(payload) else { return .unreadable }
+        return record.deletedAt.map(NoteDeletionInICloud.deleted) ?? .live
+    }
 }
 
 enum NoteSyncEngineError: Error {
@@ -58,8 +76,6 @@ enum NoteSyncTurnOffFailure: Error, Equatable {
 
 struct NoteSyncEngineEvents {
     let remoteChange: @MainActor (NoteSyncRemoteChange) -> Void
-    /// A fetch finished, after every change it brought was reported.
-    var fetchFinished: @MainActor () -> Void = {}
 }
 
 /// iCloud sync on and off, its status for Settings, and the engine's life.
@@ -89,9 +105,6 @@ final class NoteSyncController: ObservableObject {
     /// done about once a day, once sync is up to date.
     static let lastLeftoverScanKey = "iCloudNoteSyncLastLeftoverScan"
     static let leftoverScanInterval: TimeInterval = 24 * 60 * 60
-    /// Notes whose iCloud copy couldn't be read here. Recently Deleted
-    /// keeps them until a fetch reads them (#562).
-    static let unreadableNotesKey = "iCloudNoteSyncUnreadableNotes"
 
     @Published private(set) var status: NoteSyncStatus = .off
     @Published private(set) var isEnabled: Bool
@@ -106,17 +119,19 @@ final class NoteSyncController: ObservableObject {
     @Published private(set) var audioLeftOnlyInOtherAccounts = false
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
-    /// A fetch finished: notes it let go from Recently Deleted can be
-    /// purged now rather than at the next hourly check (#562).
-    var onFetchFinished: (() -> Void)?
 
-    /// Whether a Recently Deleted note that expired at `expiry` can be
-    /// purged now (#562). With sync off, or no engine running (paused), a
-    /// purge never reaches iCloud; otherwise it waits for a whole fetch
-    /// after the expiry, which brings a restore made on another device.
-    func allowsRecentlyDeletedPurge(noteID: UUID, expiredAt expiry: Date) -> Bool {
-        guard isEnabled, let coordinator else { return true }
-        return coordinator.allowsPurge(noteID: noteID, expiredAt: expiry)
+    /// With sync running, a purge here sends a delete to iCloud, so each
+    /// note's iCloud copy is checked first (#562). Without an engine, a
+    /// purge stays on this Mac.
+    var purgeChecksICloud: Bool { isEnabled && engine != nil }
+
+    /// What iCloud holds for these notes right now, asked directly before a
+    /// Recently Deleted purge (#562): a fetch reaches the server only when
+    /// the engine knows of a change, so a missed push leaves this Mac unaware
+    /// of a restore. Nil when sync isn't running or iCloud can't be asked.
+    func deletionOfNotesInICloud(_ ids: Set<UUID>) async -> [UUID: NoteDeletionInICloud]? {
+        guard isEnabled, let engine else { return nil }
+        return try? await engine.deletionOfNotesInICloud(ids)
     }
     /// The engine stopped (sync turned off, or stopped by itself): audio
     /// downloads stop with it, since sync off means no talking to iCloud.
@@ -512,8 +527,6 @@ final class NoteSyncController: ObservableObject {
         }
         guard let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
             self?.onRemoteChange?(change)
-        }, fetchFinished: { [weak self] in
-            self?.onFetchFinished?()
         })) else { return }
         // Read before anything can fail and overwrite it. A full upload sends
         // every note again, so only the deletes are still owed then.
@@ -528,12 +541,6 @@ final class NoteSyncController: ObservableObject {
         coordinator.onNeedsFullRefetch = { [weak self] in
             // Restart after the engine's current event returns.
             DispatchQueue.main.async { self?.startOver() }
-        }
-        coordinator.restoreUnreadableNotes(Set(
-            (defaults.stringArray(forKey: Self.unreadableNotesKey) ?? []).compactMap(UUID.init(uuidString:))
-        ))
-        coordinator.onUnreadableNotesChange = { [weak self] ids in
-            self?.defaults.set(ids.map(\.uuidString).sorted(), forKey: Self.unreadableNotesKey)
         }
         coordinator.onFailedChangesChange = { [weak self] changes in
             self?.saveFailedChanges(changes.isEmpty ? nil : changes) ?? false
@@ -654,7 +661,6 @@ final class NoteSyncController: ObservableObject {
             _ = saveFailedChanges(nil)
             defaults.removeObject(forKey: Self.syncAccountKey)
             defaults.removeObject(forKey: Self.lastLeftoverScanKey)
-            defaults.removeObject(forKey: Self.unreadableNotesKey)
         }
     }
 }

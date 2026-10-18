@@ -417,6 +417,35 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return notes
     }
 
+    func deletionOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteDeletionInICloud] {
+        guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        var notes: [UUID: NoteDeletionInICloud] = [:]
+        let all = Array(ids)
+        for start in stride(from: 0, to: all.count, by: 100) {
+            let batch = all[start..<min(start + 100, all.count)].map(NoteSyncCloudRecord.recordID(for:))
+            let results: [CKRecord.ID: Result<CKRecord, Error>]
+            do {
+                results = try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
+            } catch let error as CKError where Self.isZoneGone(error.code) {
+                for recordID in batch { NoteSyncCloudRecord.noteID(from: recordID).map { notes[$0] = .noNote } }
+                continue
+            }
+            for (recordID, result) in results {
+                guard let id = NoteSyncCloudRecord.noteID(from: recordID) else { continue }
+                switch result {
+                case .success(let record):
+                    notes[id] = NoteDeletionInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
+                case .failure(let error as CKError) where error.code == .unknownItem || Self.isZoneGone(error.code):
+                    notes[id] = .noNote
+                case .failure:
+                    // Not known: this note waits for the next purge.
+                    notes[id] = .unreadable
+                }
+            }
+        }
+        return notes
+    }
+
     /// Sync Now: fetches, then sends what is waiting. The fetch reaches the
     /// server only when the engine knows of a change; pushes bring the
     /// rest, so Sync Now is mainly for sending changes that failed again.
@@ -693,17 +722,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 }
             }
 
-        case .willFetchChanges:
-            await MainActor.run { coordinator?.handleFetchStarted() }
-
-        case .didFetchChanges:
-            let pending = syncEngine.state.pendingRecordZoneChanges.count
-            await MainActor.run {
-                coordinator?.handleFetchCompleted(pending: pending)
-                events.fetchFinished()
-            }
-
-        case .didSendChanges:
+        case .didFetchChanges, .didSendChanges:
             let pending = syncEngine.state.pendingRecordZoneChanges.count
             await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
 

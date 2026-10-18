@@ -92,7 +92,7 @@ struct RecentlyDeletedNotesSection: View {
                 let days = RecentlyDeletedPolicy.daysShown(
                     deletedAt: deletedAt,
                     now: Date(),
-                    isWaitingForSync: !appState.isRecentlyDeletedPurgeAllowed(note, deletedAt: deletedAt)
+                    isWaitingForSync: appState.noteSyncController?.purgeChecksICloud == true
                 )
                 Text(days == 1
                     ? localizedCatalogString("1 day left")

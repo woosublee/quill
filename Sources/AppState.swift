@@ -13426,15 +13426,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             applyRemoteNoteChange(change)
         }
-        controller.onFetchFinished = { [weak self] in
-            // Fetches come often; most find no expired note waiting.
-            guard let self else { return }
-            let now = Date()
-            guard recentlyDeletedNotes.contains(where: { note in
-                note.deletedAt.map { RecentlyDeletedPolicy.isExpired(deletedAt: $0, now: now) } == true
-            }) else { return }
-            purgeExpiredRecentlyDeletedNotes(now: now)
-        }
         noteSyncController = controller
         // Attaching starts the engine when sync is on, and it fetches then.
         connectNoteSync(to: pipelineHistoryStore)
@@ -13510,29 +13501,49 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Removes expired notes for good. It runs from a timer and when
     /// Settings opens, so it waits silently while history is busy.
-    /// With iCloud sync on, a note waits for sync to have fetched since it
-    /// expired: another device may have restored it, and purging it before
-    /// hearing that would delete it everywhere (#562).
     @MainActor
     func purgeExpiredRecentlyDeletedNotes(now: Date = Date()) {
         synchronizeHistoryPersistenceState()
         guard HistoryWorkflowAdmission.mutation(state: historyWorkflow.state) == .accepted else { return }
-        let expiredIDs = recentlyDeletedNotes.compactMap { note -> UUID? in
-            guard let deletedAt = note.deletedAt,
-                  RecentlyDeletedPolicy.isExpired(deletedAt: deletedAt, now: now),
-                  isRecentlyDeletedPurgeAllowed(note, deletedAt: deletedAt) else { return nil }
-            return note.id
+        let expiredIDs = expiredRecentlyDeletedNoteIDs(now: now)
+        // With sync running the purge's delete reaches every device, so
+        // iCloud is asked first whether another one restored the note (#562).
+        if let controller = noteSyncController, controller.purgeChecksICloud {
+            guard !expiredIDs.isEmpty, recentlyDeletedPurgeCheck == nil else { return }
+            recentlyDeletedPurgeCheck = Task { @MainActor [weak self] in
+                let copies = await controller.deletionOfNotesInICloud(Set(expiredIDs))
+                guard let self else { return }
+                self.recentlyDeletedPurgeCheck = nil
+                // History may have become busy, or a note restored, meanwhile.
+                self.synchronizeHistoryPersistenceState()
+                guard HistoryWorkflowAdmission.mutation(state: self.historyWorkflow.state) == .accepted else { return }
+                let stillExpired = Set(self.expiredRecentlyDeletedNoteIDs(now: now))
+                let purgeable = expiredIDs.filter { id in
+                    guard stillExpired.contains(id) else { return false }
+                    // A note restored elsewhere, one whose copy can't be read,
+                    // and every note when iCloud didn't answer, wait.
+                    switch copies?[id] {
+                    case .noNote?: return true
+                    case .deleted(let deletedAt)?: return RecentlyDeletedPolicy.isExpired(deletedAt: deletedAt, now: now)
+                    case .live?, .unreadable?, nil: return false
+                    }
+                }
+                self.removeRecentlyDeletedNotes(ids: purgeable, reportsErrors: false)
+            }
+            return
         }
         removeRecentlyDeletedNotes(ids: expiredIDs, reportsErrors: false)
     }
 
-    /// False while an expired note waits for sync to fetch (#562).
-    @MainActor
-    func isRecentlyDeletedPurgeAllowed(_ note: PipelineHistoryItem, deletedAt: Date) -> Bool {
-        noteSyncController?.allowsRecentlyDeletedPurge(
-            noteID: note.id,
-            expiredAt: RecentlyDeletedPolicy.expiry(deletedAt: deletedAt)
-        ) ?? true
+    /// The iCloud check of a purge in progress; one runs at a time.
+    private(set) var recentlyDeletedPurgeCheck: Task<Void, Never>?
+
+    private func expiredRecentlyDeletedNoteIDs(now: Date) -> [UUID] {
+        recentlyDeletedNotes.compactMap { note -> UUID? in
+            guard let deletedAt = note.deletedAt,
+                  RecentlyDeletedPolicy.isExpired(deletedAt: deletedAt, now: now) else { return nil }
+            return note.id
+        }
     }
 
     /// Deletes Recently Deleted rows, then their files once, against one

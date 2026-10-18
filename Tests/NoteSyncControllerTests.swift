@@ -10,7 +10,6 @@ struct NoteSyncControllerTests {
         testAvailabilityDecision()
         testStartsOffAndStaysOffWhenUnavailable()
         testTurnOnUploadsEverySyncableNote()
-        testUnreadableNotesAreKeptAcrossLaunches()
         testRelaunchResumesWithoutUploadingAgain()
         testTurnOffKeepsNotesAndForgetsEngineState()
         testTurnOffAndDeleteFromICloud()
@@ -175,6 +174,7 @@ struct NoteSyncControllerTests {
         /// Runs while the delete is in progress.
         var whileDeleting: (@MainActor () async -> Void)?
         var deleteError: Error?
+        func deletionOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteDeletionInICloud] { [:] }
         func deleteAllFromICloud() async throws -> Bool {
             await whileDeleting?()
             if let deleteError { throw deleteError }
@@ -226,35 +226,6 @@ struct NoteSyncControllerTests {
         let store = FakeStore()
         store.ids = [UUID(), UUID()]
         return (controller, store, { engines.last }, defaults)
-    }
-
-    /// #562: a note whose iCloud copy couldn't be read stays out of the
-    /// Recently Deleted purge after a relaunch, when the engine won't bring
-    /// the record again.
-    @MainActor
-    static func testUnreadableNotesAreKeptAcrossLaunches() {
-        let (controller, store, engine, defaults) = make(enabled: true)
-        controller.attach(store: store)
-        let unreadable = UUID()
-        _ = engine()!.coordinator!.handleFetched(
-            [NoteSyncFetched(noteID: unreadable, payload: Data("{".utf8), systemFields: Data([7]))],
-            deletions: []
-        )
-        precondition(defaults.stringArray(forKey: NoteSyncController.unreadableNotesKey) == [unreadable.uuidString])
-
-        var laterEngine: FakeEngine?
-        let relaunched = NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, makeEngine: { _ in
-            let engine = FakeEngine()
-            laterEngine = engine
-            return engine
-        })
-        relaunched.attach(store: FakeStore())
-        let coordinator = laterEngine!.coordinator!
-        coordinator.handleFetchStarted()
-        coordinator.handleFetchCompleted(pending: 0)
-        let expired = Date().addingTimeInterval(-60)
-        precondition(!relaunched.allowsRecentlyDeletedPurge(noteID: unreadable, expiredAt: expired))
-        precondition(relaunched.allowsRecentlyDeletedPurge(noteID: UUID(), expiredAt: expired))
     }
 
     @MainActor

@@ -289,32 +289,6 @@ final class NoteSyncCoordinator {
     private var isRetired = false
     /// Audio work started so far (checks and clean-ups), for tests to wait on.
     private(set) var lastAudioCheck: Task<Void, Never>?
-    /// When the last whole fetch started, which is when it saw iCloud: it
-    /// ran online and saved every record it brought. Recently Deleted waits
-    /// for one (#562).
-    private(set) var lastWholeFetch: Date?
-    /// When the fetch running now started; nil when none is running.
-    private var fetchStartedAt: Date?
-    /// The fetch running now lost something: a record the store couldn't
-    /// save, or one it wasn't ready for.
-    private var fetchIsMissingRecords = false
-    /// Notes whose iCloud copy couldn't be read here; a restore of one
-    /// wouldn't show, so it is never purged on a fetch's word. Kept across
-    /// launches, since the engine doesn't bring the record again.
-    private(set) var unreadableFetchedNotes: Set<UUID> = []
-    var onUnreadableNotesChange: ((Set<UUID>) -> Void)?
-
-    /// The notes found unreadable before this launch.
-    func restoreUnreadableNotes(_ ids: Set<UUID>) {
-        unreadableFetchedNotes = ids
-    }
-
-    private func markReadable(_ id: UUID, _ readable: Bool) {
-        let changed = readable
-            ? unreadableFetchedNotes.remove(id) != nil
-            : unreadableFetchedNotes.insert(id).inserted
-        if changed { onUnreadableNotesChange?(unreadableFetchedNotes) }
-    }
 
     /// After an account change or a deletion elsewhere nothing more is sent;
     /// sync starts again only when the user turns it on.
@@ -1071,7 +1045,6 @@ final class NoteSyncCoordinator {
         // arrives touches local notes.
         guard !isStopped else { return change }
         guard store.isReadyForSync else {
-            fetchIsMissingRecords = true
             onNeedsFullRefetch?()
             return change
         }
@@ -1083,7 +1056,6 @@ final class NoteSyncCoordinator {
                   let record = try? NoteSyncPayload.decode(payload),
                   record.noteID == fetched.noteID else {
                 change.skipped += 1
-                markReadable(fetched.noteID, false)
                 continue
             }
             do {
@@ -1091,7 +1063,6 @@ final class NoteSyncCoordinator {
                 // The note now holds iCloud's copy: a failed save of it is
                 // moot, and one with newer changes here goes up below.
                 saveRetries.forget(record.noteID)
-                markReadable(record.noteID, true)
                 switch result {
                 case .inserted:
                     change.changed.append(record.noteID)
@@ -1104,7 +1075,6 @@ final class NoteSyncCoordinator {
                 }
             } catch PipelineHistorySyncError.incompleteRecord, PipelineHistorySyncError.unreadableRecord {
                 change.skipped += 1
-                markReadable(record.noteID, false)
             } catch {
                 // The store couldn't save it; the record would be lost once
                 // the engine saves its position.
@@ -1112,7 +1082,6 @@ final class NoteSyncCoordinator {
             }
         }
         if needsFullRefetch {
-            fetchIsMissingRecords = true
             onNeedsFullRefetch?()
             return change
         }
@@ -1346,33 +1315,6 @@ final class NoteSyncCoordinator {
     private func isOtherFile(_ part: NoteAudioPartID, _ here: NotesHere) -> Bool {
         guard !here.sending.contains(part), let used = here.usedKeys[part.noteID] else { return false }
         return !used.contains(part.key)
-    }
-
-    /// A fetch is starting: it is whole until it loses a record.
-    func handleFetchStarted() {
-        fetchStartedAt = now()
-        fetchIsMissingRecords = false
-    }
-
-    /// A fetch ended. Only one that ran online and saved all it brought
-    /// counts as whole (#562).
-    func handleFetchCompleted(pending: Int) {
-        if let fetchStartedAt, !fetchIsMissingRecords, !isOffline, !isStopped {
-            lastWholeFetch = fetchStartedAt
-        }
-        fetchStartedAt = nil
-        handleFetchFinished(pending: pending)
-    }
-
-    /// Whether a Recently Deleted note that expired at `expiry` can be
-    /// purged: only once a whole fetch started after it, so a restore made on
-    /// another device has arrived, since the purge's delete would reach
-    /// every device. A stopped sync sends nothing, so it doesn't hold the
-    /// purge back.
-    func allowsPurge(noteID: UUID, expiredAt expiry: Date) -> Bool {
-        if isStopped { return true }
-        guard !unreadableFetchedNotes.contains(noteID), let lastWholeFetch else { return false }
-        return lastWholeFetch >= expiry
     }
 
     /// A fetch or send finished. With nothing left to send, sync is up to date.

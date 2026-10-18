@@ -21,8 +21,8 @@ enum RecentlyDeletedPolicy {
         return Int((remaining / 86_400).rounded(.up))
     }
 
-    /// The days a row shows. An expired note still here waits for sync to
-    /// fetch before it is purged (#562), so it shows its last day, not 0.
+    /// The days a row shows. With sync on, an expired note still here waits
+    /// for iCloud to confirm it can go (#562), so it shows its last day, not 0.
     static func daysShown(deletedAt: Date, now: Date, isWaitingForSync: Bool) -> Int {
         let left = daysLeft(deletedAt: deletedAt, now: now)
         return left == 0 && isWaitingForSync ? 1 : left

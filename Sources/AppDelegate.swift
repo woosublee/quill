@@ -88,8 +88,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         appState.startLocalAIIdleShutdownMonitoring()
-        // Sync first, so the first purge knows whether it must wait for a
-        // fetch (#562).
+        // Sync first, so the first purge knows sync runs and asks iCloud
+        // before deleting (#562).
         appState.startNoteSync()
         appState.startRecentlyDeletedPurgeSchedule()
 
