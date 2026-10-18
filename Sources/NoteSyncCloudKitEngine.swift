@@ -428,20 +428,20 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// `timeLimited` keeps a stalled request from holding up its caller.
     private func noteRecordsInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: Result<CKRecord?, Error>] {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
-        let configuration = CKOperation.Configuration()
-        if timeLimited {
-            configuration.timeoutIntervalForRequest = 30
-            configuration.timeoutIntervalForResource = 60
-        }
+        let limit = CKOperation.Configuration()
+        limit.timeoutIntervalForRequest = 30
+        limit.timeoutIntervalForResource = 60
         var notes: [UUID: Result<CKRecord?, Error>] = [:]
         let all = Array(ids)
         for start in stride(from: 0, to: all.count, by: 100) {
             let batch = all[start..<min(start + 100, all.count)].map(NoteSyncCloudRecord.recordID(for:))
             let results: [CKRecord.ID: Result<CKRecord, Error>]
             do {
-                results = try await database.configuredWith(configuration: configuration) { database in
-                    try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
-                }
+                results = timeLimited
+                    ? try await database.configuredWith(configuration: limit) { database in
+                        try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
+                    }
+                    : try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 for recordID in batch { NoteSyncCloudRecord.noteID(from: recordID).map { notes[$0] = .success(nil) } }
                 continue

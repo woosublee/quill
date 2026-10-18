@@ -27,27 +27,15 @@ enum NoteCopyInICloud {
     case found(NoteSyncFetched)
 }
 
-/// What iCloud's copy of a note says of its deletion, read right before a
-/// Recently Deleted purge (#562).
-enum NoteDeletionInICloud: Equatable {
-    case noNote
-    /// Not known: the record couldn't be fetched, or read here (a newer
-    /// version wrote it, say).
-    case unreadable
-    case live
-    case deleted(Date)
-
-    /// From the record's payload, as fetched. A record this build can't
-    /// fully read decides nothing, as for audio.
-    static func read(payload: Data?) -> NoteDeletionInICloud {
-        guard let payload, let record = try? NoteSyncPayload.decode(payload), !record.hasUnreadableKnownFields else {
-            return .unreadable
-        }
-        if case .int(let version)? = record.fields[NoteSyncRecord.schemaVersionKey], version > NoteSyncRecord.schemaVersion {
-            return .unreadable
-        }
-        return record.deletedAt.map(NoteDeletionInICloud.deleted) ?? .live
-    }
+/// What a check of iCloud found for an expired Recently Deleted note
+/// (#562).
+enum RecentlyDeletedICloudCheck: Equatable {
+    /// iCloud holds no such note.
+    case gone
+    /// iCloud's copy was merged into this note, as a fetch would merge it.
+    case merged
+    /// Not known: the record couldn't be fetched, read or merged here.
+    case unknown
 }
 
 enum NoteSyncEngineError: Error {
@@ -136,39 +124,48 @@ final class NoteSyncController: ObservableObject {
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
 
-    /// With sync running, a purge here sends a delete to iCloud, so each
-    /// note's iCloud copy is checked first (#562). Without an engine, a
-    /// purge stays on this Mac.
-    var purgeChecksICloud: Bool { isEnabled && engine != nil }
+    /// With sync on, a purge here can send a delete to iCloud, so each
+    /// note's iCloud copy is checked first (#562); while no engine runs,
+    /// the purge waits.
+    var purgeChecksICloud: Bool { isEnabled }
 
-    /// What iCloud holds for these notes right now, asked directly before a
-    /// Recently Deleted purge (#562): a fetch reaches the server only when
-    /// the engine knows of a change, so a missed push leaves this Mac unaware
-    /// of a restore. Nil when sync isn't running or iCloud can't be asked.
-    ///
-    /// The records found are applied as a fetch would apply them, so a
-    /// restore made on another device shows here now instead of the note
-    /// waiting in Recently Deleted for a fetch that may not come.
-    func deletionOfNotesInICloud(_ ids: Set<UUID>) async -> [UUID: NoteDeletionInICloud]? {
-        guard isEnabled, let engine else { return nil }
-        guard let copies = try? await engine.noteCopiesInICloud(ids) else { return nil }
+    /// Reads these notes from iCloud right before a Recently Deleted purge
+    /// and merges what it finds, as a fetch would (#562). A fetch can't be
+    /// trusted for this: it reaches the server only when the engine knows
+    /// of a change, so a missed push leaves this Mac unaware of a restore.
+    /// After the merge, a note restored later elsewhere is live again here,
+    /// and one deleted later elsewhere carries that date. Notes left out of
+    /// the result, and every note while no engine runs, are unknown.
+    func checkRecentlyDeletedInICloud(_ ids: Set<UUID>) async -> [UUID: RecentlyDeletedICloudCheck] {
+        guard isEnabled, let engine, !isDeletingFromICloud else { return [:] }
+        let copies: [UUID: NoteCopyInICloud]
+        do {
+            copies = try await engine.noteCopiesInICloud(ids)
+        } catch {
+            print("[NoteSync] Couldn't check iCloud before purging Recently Deleted")
+            return [:]
+        }
+        // The engine may have stopped, or a delete from iCloud begun, meanwhile.
+        guard self.engine === engine, !isDeletingFromICloud, let coordinator else { return [:] }
         let found = copies.values.compactMap { copy -> NoteSyncFetched? in
             if case .found(let fetched) = copy { return fetched }
             return nil
         }
-        // The engine may have stopped while iCloud answered.
-        if !found.isEmpty, let coordinator, self.engine === engine {
+        var merged: Set<UUID> = []
+        if !found.isEmpty {
             let change = coordinator.handleFetched(found, deletions: [])
+            merged = Set(change.changed)
             if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
         }
-        return copies.mapValues { copy in
+        return copies.mapValues { copy -> RecentlyDeletedICloudCheck in
             switch copy {
-            case .noNote: return .noNote
-            case .failed: return .unreadable
-            case .found(let fetched): return NoteDeletionInICloud.read(payload: fetched.payload)
+            case .noNote: return .gone
+            case .found(let fetched): return merged.contains(fetched.noteID) ? .merged : .unknown
+            case .failed: return .unknown
             }
         }
     }
+
     /// The engine stopped (sync turned off, or stopped by itself): audio
     /// downloads stop with it, since sync off means no talking to iCloud.
     var onEngineStop: (() -> Void)?
