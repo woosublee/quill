@@ -14,22 +14,38 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// the notes are gone but the audio couldn't be deleted.
     func deleteAllFromICloud() async throws -> Bool
     func stop(forgetState: Bool)
-    /// What iCloud's copy of each of these notes says of its deletion.
-    func deletionOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteDeletionInICloud]
+    /// Each of these notes' records in iCloud, read right now. A stalled
+    /// request gives up rather than wait for CloudKit's long default.
+    func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud]
+}
+
+/// A note's record as iCloud holds it now.
+enum NoteCopyInICloud {
+    case noNote
+    /// This record couldn't be read from iCloud right now.
+    case failed
+    case found(NoteSyncFetched)
 }
 
 /// What iCloud's copy of a note says of its deletion, read right before a
 /// Recently Deleted purge (#562).
 enum NoteDeletionInICloud: Equatable {
     case noNote
-    /// The record can't be read here (a newer version wrote it, say).
+    /// Not known: the record couldn't be fetched, or read here (a newer
+    /// version wrote it, say).
     case unreadable
     case live
     case deleted(Date)
 
-    /// From the record's payload, as fetched.
+    /// From the record's payload, as fetched. A record this build can't
+    /// fully read decides nothing, as for audio.
     static func read(payload: Data?) -> NoteDeletionInICloud {
-        guard let payload, let record = try? NoteSyncPayload.decode(payload) else { return .unreadable }
+        guard let payload, let record = try? NoteSyncPayload.decode(payload), !record.hasUnreadableKnownFields else {
+            return .unreadable
+        }
+        if case .int(let version)? = record.fields[NoteSyncRecord.schemaVersionKey], version > NoteSyncRecord.schemaVersion {
+            return .unreadable
+        }
         return record.deletedAt.map(NoteDeletionInICloud.deleted) ?? .live
     }
 }
@@ -129,9 +145,29 @@ final class NoteSyncController: ObservableObject {
     /// Recently Deleted purge (#562): a fetch reaches the server only when
     /// the engine knows of a change, so a missed push leaves this Mac unaware
     /// of a restore. Nil when sync isn't running or iCloud can't be asked.
+    ///
+    /// The records found are applied as a fetch would apply them, so a
+    /// restore made on another device shows here now instead of the note
+    /// waiting in Recently Deleted for a fetch that may not come.
     func deletionOfNotesInICloud(_ ids: Set<UUID>) async -> [UUID: NoteDeletionInICloud]? {
         guard isEnabled, let engine else { return nil }
-        return try? await engine.deletionOfNotesInICloud(ids)
+        guard let copies = try? await engine.noteCopiesInICloud(ids) else { return nil }
+        let found = copies.values.compactMap { copy -> NoteSyncFetched? in
+            if case .found(let fetched) = copy { return fetched }
+            return nil
+        }
+        // The engine may have stopped while iCloud answered.
+        if !found.isEmpty, let coordinator, self.engine === engine {
+            let change = coordinator.handleFetched(found, deletions: [])
+            if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
+        }
+        return copies.mapValues { copy in
+            switch copy {
+            case .noNote: return .noNote
+            case .failed: return .unreadable
+            case .found(let fetched): return NoteDeletionInICloud.read(payload: fetched.payload)
+            }
+        }
     }
     /// The engine stopped (sync turned off, or stopped by itself): audio
     /// downloads stop with it, since sync off means no talking to iCloud.

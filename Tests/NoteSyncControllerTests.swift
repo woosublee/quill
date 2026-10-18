@@ -174,7 +174,7 @@ struct NoteSyncControllerTests {
         /// Runs while the delete is in progress.
         var whileDeleting: (@MainActor () async -> Void)?
         var deleteError: Error?
-        func deletionOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteDeletionInICloud] { [:] }
+        func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] { [:] }
         func deleteAllFromICloud() async throws -> Bool {
             await whileDeleting?()
             if let deleteError { throw deleteError }
