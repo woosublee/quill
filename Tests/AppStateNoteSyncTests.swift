@@ -18,6 +18,7 @@ struct AppStateNoteSyncTests {
         try await testExpiredNoteRestoredElsewhereComesBack()
         try await testNoteDeletedAgainElsewhereWaitsForItsOwnDate()
         try await testExpiredNoteIsPurgedOnceICloudAgrees()
+        try await testMissingNoteInAnotherAccountWaits()
         try await testPurgeWaitsWhenICloudCantBeAsked()
         try await testOlderLiveCopyDoesNotHoldBackTheDelete()
         try await testPurgeRunsAtOnceWhenSyncIsOff()
@@ -93,8 +94,10 @@ struct AppStateNoteSyncTests {
     static func makeFixture(
         items: [PipelineHistoryItem],
         deleted: [UUID: Date] = [:],
-        syncOn: Bool = true
+        syncOn: Bool = true,
+        signedInAccount: String = "synthetic-account"
     ) throws -> Fixture {
+        let syncAccount = "synthetic-account"
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-note-sync-app-state-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -106,12 +109,13 @@ struct AppStateNoteSyncTests {
         let defaults = UserDefaults(suiteName: "quill-note-sync-app-state-\(UUID().uuidString)")!
         // Sync already on, as after a relaunch.
         defaults.set(syncOn, forKey: NoteSyncController.enabledKey)
+        defaults.set(syncAccount, forKey: NoteSyncController.syncAccountKey)
         var dependencies = AppStateDependencies.live
         dependencies.storageLayout = layout
         dependencies.credentialStorageLayout = .isolatedForTests()
         dependencies.makePipelineHistoryStore = { _ in store }
         dependencies.makeNoteSyncController = { _ in
-            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, makeEngine: { events in
+            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, accountID: { signedInAccount }, makeEngine: { events in
                 engine.events = events
                 return engine
             })
@@ -312,6 +316,20 @@ struct AppStateNoteSyncTests {
                 Set(fixture.appState.recentlyDeletedNotes.map(\.id)) == [unknown.id, unreadable.id],
                 "expired or gone in iCloud goes; a copy not fetched or not read waits"
             )
+        }
+    }
+
+    /// iCloud answers for the account signed in now; if that isn't the
+    /// account sync uses, "no such note" says nothing about this one.
+    static func testMissingNoteInAnotherAccountWaits() async throws {
+        let note = makeItem()
+        let fixture = try await MainActor.run {
+            try makeFixture(items: [note], deleted: [note.id: expiredDeletion], signedInAccount: "another-account")
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(fixture.appState.recentlyDeletedNotes.map(\.id) == [note.id], "not gone in the account sync uses")
         }
     }
 

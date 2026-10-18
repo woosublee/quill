@@ -157,13 +157,24 @@ final class NoteSyncController: ObservableObject {
             merged = Set(change.changed)
             if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
         }
-        return copies.mapValues { copy -> RecentlyDeletedICloudCheck in
+        var checks = copies.mapValues { copy -> RecentlyDeletedICloudCheck in
             switch copy {
             case .noNote: return .gone
             case .found(let fetched): return merged.contains(fetched.noteID) ? .merged : .unknown
             case .failed: return .unknown
             }
         }
+        // A note missing from iCloud counts only in the account sync uses:
+        // an account switched before the engine reported it holds none of
+        // these notes.
+        if checks.values.contains(.gone) {
+            let synced = defaults.string(forKey: Self.syncAccountKey)
+            let current = await accountID()
+            if synced == nil || current == nil || synced != current {
+                for (id, check) in checks where check == .gone { checks[id] = .unknown }
+            }
+        }
+        return checks
     }
 
     /// The engine stopped (sync turned off, or stopped by itself): audio
