@@ -88,8 +88,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         appState.startLocalAIIdleShutdownMonitoring()
-        appState.startRecentlyDeletedPurgeSchedule()
+        // Sync first, so the first purge knows whether it must wait for a
+        // fetch (#562).
         appState.startNoteSync()
+        appState.startRecentlyDeletedPurgeSchedule()
 
         if !appState.hasCompletedSetup {
             showSetupWindow()

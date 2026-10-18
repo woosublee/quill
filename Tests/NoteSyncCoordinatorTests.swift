@@ -50,6 +50,7 @@ struct NoteSyncCoordinatorTests {
         try testNoteBackFromAnotherMacCancelsItsDelete()
         testSaveOfAMissingRecordStartsFresh()
         testLosingTheNetworkShowsOffline()
+        try testRecentlyDeletedPurgeWaitsForAWholeFetch()
         try await testAudioIsNamedAfterItsFileAndQueuedInParts()
         try await testAudioIsQueuedOnceAndNeverWhenInICloud()
         try await testManifestIsWrittenAfterTheLastPart()
@@ -1333,6 +1334,75 @@ struct NoteSyncCoordinatorTests {
         store.applyResult = .updated(needsUpload: false)
         _ = coordinator.handleFetched([try fetched(store.records[id]!)], deletions: [])
         precondition(coordinator.lastAudioCheck == nil && engine.lookups == 0)
+    }
+
+    /// #562: a Recently Deleted note is purged only after a whole fetch that
+    /// ended past its expiry, since the purge's delete reaches every device
+    /// and a restore made elsewhere must have arrived first.
+    @MainActor
+    static func testRecentlyDeletedPurgeWaitsForAWholeFetch() throws {
+        let (coordinator, store, _) = make()
+        let expired = t0.addingTimeInterval(-60)
+        let note = UUID()
+        precondition(!coordinator.allowsPurge(noteID: note, expiredAt: expired), "no fetch yet")
+
+        // A record the store couldn't save: the restore may be in it.
+        store.applyError = PipelineHistoryStoreError.storeUnavailable
+        coordinator.handleFetchStarted()
+        _ = coordinator.handleFetched([try fetched(record())], deletions: [])
+        coordinator.handleFetchCompleted(pending: 0)
+        precondition(!coordinator.allowsPurge(noteID: note, expiredAt: expired), "a fetch that lost a record isn't whole")
+        store.applyError = nil
+
+        // Cut off by the network while a quota pause stays on screen.
+        coordinator.handleSendFailures([.quotaExceeded(noteID: UUID())])
+        coordinator.handleNetworkChange(isOnline: false)
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)))
+        coordinator.handleFetchStarted()
+        coordinator.handleFetchCompleted(pending: 0)
+        precondition(!coordinator.allowsPurge(noteID: note, expiredAt: expired), "an offline fetch isn't whole")
+        coordinator.handleNetworkChange(isOnline: true)
+
+        // A whole fetch, with one note whose copy couldn't be read.
+        let unreadable = UUID()
+        coordinator.handleFetchStarted()
+        _ = coordinator.handleFetched([NoteSyncFetched(noteID: unreadable, payload: Data("{".utf8), systemFields: Data([7]))], deletions: [])
+        coordinator.handleFetchCompleted(pending: 0)
+        precondition(coordinator.allowsPurge(noteID: note, expiredAt: expired))
+        precondition(!coordinator.allowsPurge(noteID: note, expiredAt: t0.addingTimeInterval(60)), "expired after the fetch: wait for the next")
+        precondition(!coordinator.allowsPurge(noteID: unreadable, expiredAt: expired), "a restore in an unreadable copy wouldn't show")
+
+        // A fetch that started before the expiry saw iCloud before it, even
+        // if it ended after.
+        let expiresSoon = clock.addingTimeInterval(60)
+        coordinator.handleFetchStarted()
+        passTime(120)
+        coordinator.handleFetchCompleted(pending: 0)
+        precondition(!coordinator.allowsPurge(noteID: note, expiredAt: expiresSoon), "the fetch's start counts, not its end")
+        coordinator.handleFetchStarted()
+        coordinator.handleFetchCompleted(pending: 0)
+        precondition(coordinator.allowsPurge(noteID: note, expiredAt: expiresSoon))
+
+        // Unreadable notes are reported to be kept, and read again on restore.
+        var reported: Set<UUID> = []
+        let (relaunched, _, _) = make()
+        relaunched.onUnreadableNotesChange = { reported = $0 }
+        relaunched.handleFetchStarted()
+        _ = relaunched.handleFetched([NoteSyncFetched(noteID: unreadable, payload: Data("{".utf8), systemFields: Data([7]))], deletions: [])
+        relaunched.handleFetchCompleted(pending: 0)
+        precondition(reported == [unreadable], "the unreadable note is reported for keeping")
+        let (later, _, _) = make()
+        later.restoreUnreadableNotes(reported)
+        later.handleFetchStarted()
+        later.handleFetchCompleted(pending: 0)
+        precondition(!later.allowsPurge(noteID: unreadable, expiredAt: expired), "a later launch still holds it")
+        _ = later.handleFetched([try fetched(record(unreadable))], deletions: [])
+        precondition(later.allowsPurge(noteID: unreadable, expiredAt: expired), "read at last, it can go")
+
+        // A stopped sync sends nothing, so it holds nothing back.
+        let (stopped, _, _) = make()
+        stopped.handleZoneDeleted()
+        precondition(stopped.allowsPurge(noteID: note, expiredAt: expired))
     }
 
     /// CKSyncEngine doesn't try to send without a network, so no send fails;

@@ -693,7 +693,17 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 }
             }
 
-        case .didFetchChanges, .didSendChanges:
+        case .willFetchChanges:
+            await MainActor.run { coordinator?.handleFetchStarted() }
+
+        case .didFetchChanges:
+            let pending = syncEngine.state.pendingRecordZoneChanges.count
+            await MainActor.run {
+                coordinator?.handleFetchCompleted(pending: pending)
+                events.fetchFinished()
+            }
+
+        case .didSendChanges:
             let pending = syncEngine.state.pendingRecordZoneChanges.count
             await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
 

@@ -90,6 +90,11 @@ struct RecentlyDeletedCoreTests {
         precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0) == 30)
         precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0.addingTimeInterval(29 * 86_400 + 60)) == 1)
         precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0.addingTimeInterval(31 * 86_400)) == 0)
+        // #562: an expired note waiting for sync shows its last day.
+        let expired = t0.addingTimeInterval(31 * 86_400)
+        precondition(RecentlyDeletedPolicy.daysShown(deletedAt: t0, now: expired, isWaitingForSync: true) == 1)
+        precondition(RecentlyDeletedPolicy.daysShown(deletedAt: t0, now: expired, isWaitingForSync: false) == 0)
+        precondition(RecentlyDeletedPolicy.daysShown(deletedAt: t0, now: t0, isWaitingForSync: true) == 30)
     }
 
     private static func testPartitionSplitsAndOrdersDeletedNewestFirst() {
