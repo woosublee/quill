@@ -14,6 +14,28 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// the notes are gone but the audio couldn't be deleted.
     func deleteAllFromICloud() async throws -> Bool
     func stop(forgetState: Bool)
+    /// Each of these notes' records in iCloud, read right now. A stalled
+    /// request gives up rather than wait for CloudKit's long default.
+    func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud]
+}
+
+/// A note's record as iCloud holds it now.
+enum NoteCopyInICloud {
+    case noNote
+    /// This record couldn't be read from iCloud right now.
+    case failed
+    case found(NoteSyncFetched)
+}
+
+/// What a check of iCloud found for an expired Recently Deleted note
+/// (#562).
+enum RecentlyDeletedICloudCheck: Equatable {
+    /// iCloud holds no such note.
+    case gone
+    /// iCloud's copy was merged into this note, as a fetch would merge it.
+    case merged
+    /// Not known: the record couldn't be fetched, read or merged here.
+    case unknown
 }
 
 enum NoteSyncEngineError: Error {
@@ -101,6 +123,64 @@ final class NoteSyncController: ObservableObject {
     @Published private(set) var audioLeftOnlyInOtherAccounts = false
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
+
+    /// With sync on, a purge here can send a delete to iCloud, so each
+    /// note's iCloud copy is checked first (#562); while no engine runs,
+    /// the purge waits.
+    var purgeChecksICloud: Bool { isEnabled }
+
+    /// Reads these notes from iCloud right before a Recently Deleted purge
+    /// and merges what it finds, as a fetch would (#562). A fetch can't be
+    /// trusted for this: it reaches the server only when the engine knows
+    /// of a change, so a missed push leaves this Mac unaware of a restore.
+    /// After the merge, a note restored later elsewhere is live again here,
+    /// and one deleted later elsewhere carries that date. Notes left out of
+    /// the result, and every note while no engine runs, are unknown.
+    func checkRecentlyDeletedInICloud(_ ids: Set<UUID>) async -> [UUID: RecentlyDeletedICloudCheck] {
+        guard isEnabled, let engine, !isDeletingFromICloud, turnOffInProgress == nil else { return [:] }
+        let copies: [UUID: NoteCopyInICloud]
+        do {
+            copies = try await engine.noteCopiesInICloud(ids)
+        } catch {
+            print("[NoteSync] Couldn't check iCloud before purging Recently Deleted")
+            return [:]
+        }
+        // The engine may have stopped, or a turn-off or delete from iCloud
+        // begun, meanwhile.
+        guard self.engine === engine, !isDeletingFromICloud, turnOffInProgress == nil, let coordinator else { return [:] }
+        let found = copies.values.compactMap { copy -> NoteSyncFetched? in
+            if case .found(let fetched) = copy { return fetched }
+            return nil
+        }
+        var merged: Set<UUID> = []
+        if !found.isEmpty {
+            let change = coordinator.handleFetched(found, deletions: [])
+            merged = Set(change.changed)
+            if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
+        }
+        var checks = copies.mapValues { copy -> RecentlyDeletedICloudCheck in
+            switch copy {
+            case .noNote: return .gone
+            case .found(let fetched): return merged.contains(fetched.noteID) ? .merged : .unknown
+            case .failed: return .unknown
+            }
+        }
+        // A note missing from iCloud counts only in the account sync uses:
+        // an account switched before the engine reported it holds none of
+        // these notes.
+        if checks.values.contains(.gone) {
+            let synced = defaults.string(forKey: Self.syncAccountKey)
+            let current = await accountID()
+            if synced == nil || current == nil || synced != current {
+                for (id, check) in checks where check == .gone { checks[id] = .unknown }
+            }
+            // Reading the account let other work run: sync may have stopped
+            // (an account change), or begun turning off or deleting, since.
+            guard isEnabled, self.engine === engine, !isDeletingFromICloud, turnOffInProgress == nil else { return [:] }
+        }
+        return checks
+    }
+
     /// The engine stopped (sync turned off, or stopped by itself): audio
     /// downloads stop with it, since sync off means no talking to iCloud.
     var onEngineStop: (() -> Void)?

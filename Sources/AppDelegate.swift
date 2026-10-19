@@ -88,8 +88,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         appState.startLocalAIIdleShutdownMonitoring()
-        appState.startRecentlyDeletedPurgeSchedule()
+        // Sync first, so the first purge knows sync runs and asks iCloud
+        // before deleting (#562).
         appState.startNoteSync()
+        appState.startRecentlyDeletedPurgeSchedule()
 
         if !appState.hasCompletedSetup {
             showSetupWindow()

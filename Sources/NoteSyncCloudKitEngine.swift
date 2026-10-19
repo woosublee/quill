@@ -385,32 +385,76 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     }
 
     func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
-        guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
         var notes: [UUID: NoteAudioInICloud] = [:]
+        for (id, result) in try await noteRecordsInICloud(ids, timeLimited: false) {
+            switch result {
+            case .success(let record?):
+                notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
+            case .success(nil):
+                notes[id] = .noNote
+            case .failure(let error as CKError) where Self.isPassing(error.code):
+                // Offline or busy for a moment: the search is tried
+                // again soon, rather than a day later without this note.
+                throw error
+            case .failure:
+                // This one note stays as it is; the rest go on.
+                notes[id] = .unreadable
+            }
+        }
+        return notes
+    }
+
+    func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] {
+        var notes: [UUID: NoteCopyInICloud] = [:]
+        for (id, result) in try await noteRecordsInICloud(ids, timeLimited: true) {
+            switch result {
+            case .success(let record?):
+                notes[id] = .found(NoteSyncFetched(
+                    noteID: id,
+                    payload: NoteSyncCloudRecord.payload(of: record),
+                    systemFields: NoteSyncCloudRecord.systemFields(of: record)
+                ))
+            case .success(nil):
+                notes[id] = .noNote
+            case .failure:
+                notes[id] = .failed
+            }
+        }
+        return notes
+    }
+
+    /// These notes' records in iCloud, payload only, in batches: nil for a
+    /// note iCloud doesn't hold (or no zone), or that one record's error.
+    /// `timeLimited` keeps a stalled request from holding up its caller.
+    private func noteRecordsInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: Result<CKRecord?, Error>] {
+        guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        let limit = CKOperation.Configuration()
+        limit.timeoutIntervalForRequest = 30
+        limit.timeoutIntervalForResource = 60
+        var notes: [UUID: Result<CKRecord?, Error>] = [:]
         let all = Array(ids)
         for start in stride(from: 0, to: all.count, by: 100) {
             let batch = all[start..<min(start + 100, all.count)].map(NoteSyncCloudRecord.recordID(for:))
             let results: [CKRecord.ID: Result<CKRecord, Error>]
             do {
-                results = try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
+                results = timeLimited
+                    ? try await database.configuredWith(configuration: limit) { database in
+                        try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
+                    }
+                    : try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
             } catch let error as CKError where Self.isZoneGone(error.code) {
-                for recordID in batch { NoteSyncCloudRecord.noteID(from: recordID).map { notes[$0] = .noNote } }
+                for recordID in batch { NoteSyncCloudRecord.noteID(from: recordID).map { notes[$0] = .success(nil) } }
                 continue
             }
             for (recordID, result) in results {
                 guard let id = NoteSyncCloudRecord.noteID(from: recordID) else { continue }
                 switch result {
                 case .success(let record):
-                    notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
+                    notes[id] = .success(record)
                 case .failure(let error as CKError) where error.code == .unknownItem || Self.isZoneGone(error.code):
-                    notes[id] = .noNote
-                case .failure(let error as CKError) where Self.isPassing(error.code):
-                    // Offline or busy for a moment: the search is tried
-                    // again soon, rather than a day later without this note.
-                    throw error
-                case .failure:
-                    // This one note stays as it is; the rest go on.
-                    notes[id] = .unreadable
+                    notes[id] = .success(nil)
+                case .failure(let error):
+                    notes[id] = .failure(error)
                 }
             }
         }

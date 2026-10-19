@@ -15,6 +15,13 @@ struct AppStateNoteSyncTests {
         try testSourceContracts()
         if #available(macOS 14.0, *) { testAudioFetchErrorsSayOffline() }
         try await testEmptyAudioFileCountsAsNoFile()
+        try await testExpiredNoteRestoredElsewhereComesBack()
+        try await testNoteDeletedAgainElsewhereWaitsForItsOwnDate()
+        try await testExpiredNoteIsPurgedOnceICloudAgrees()
+        try await testMissingNoteInAnotherAccountWaits()
+        try await testPurgeWaitsWhenICloudCantBeAsked()
+        try await testOlderLiveCopyDoesNotHoldBackTheDelete()
+        try await testPurgeRunsAtOnceWhenSyncIsOff()
         print("AppStateNoteSyncTests passed")
     }
 
@@ -44,6 +51,15 @@ struct AppStateNoteSyncTests {
         func syncNow() async {}
         func deleteAllFromICloud() async throws -> Bool { true }
         func stop(forgetState: Bool) {}
+        /// What iCloud answers for each note; unlisted notes get no answer.
+        var copies: [UUID: NoteCopyInICloud] = [:]
+        var copiesError: Error?
+        var copyChecks = 0
+        func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] {
+            copyChecks += 1
+            if let copiesError { throw copiesError }
+            return Dictionary(uniqueKeysWithValues: ids.compactMap { id in copies[id].map { (id, $0) } })
+        }
     }
 
     struct Fixture {
@@ -73,24 +89,33 @@ struct AppStateNoteSyncTests {
         )
     }
 
+    /// `deleted`: notes put in Recently Deleted at these times before launch.
     @MainActor
-    static func makeFixture(items: [PipelineHistoryItem]) throws -> Fixture {
+    static func makeFixture(
+        items: [PipelineHistoryItem],
+        deleted: [UUID: Date] = [:],
+        syncOn: Bool = true,
+        signedInAccount: String = "synthetic-account"
+    ) throws -> Fixture {
+        let syncAccount = "synthetic-account"
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-note-sync-app-state-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let layout = AppStateStorageLayout(rootDirectory: root)
         let store = PipelineHistoryStore(storeURL: layout.historyStoreURL)
         for item in items { _ = try store.append(item, maxCount: Int.max) }
+        for (id, date) in deleted { _ = try store.setDeletedAt(date, id: id) }
         let engine = FakeEngine()
         let defaults = UserDefaults(suiteName: "quill-note-sync-app-state-\(UUID().uuidString)")!
         // Sync already on, as after a relaunch.
-        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set(syncOn, forKey: NoteSyncController.enabledKey)
+        defaults.set(syncAccount, forKey: NoteSyncController.syncAccountKey)
         var dependencies = AppStateDependencies.live
         dependencies.storageLayout = layout
         dependencies.credentialStorageLayout = .isolatedForTests()
         dependencies.makePipelineHistoryStore = { _ in store }
         dependencies.makeNoteSyncController = { _ in
-            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, makeEngine: { events in
+            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, accountID: { signedInAccount }, makeEngine: { events in
                 engine.events = events
                 return engine
             })
@@ -213,6 +238,159 @@ struct AppStateNoteSyncTests {
         }
     }
 
+    /// Deleted 31 days ago here; past the 30 days Recently Deleted keeps it.
+    static var expiredDeletion: Date { Date().addingTimeInterval(-31 * 24 * 60 * 60) }
+
+    /// iCloud's copy of a note, as another device saved it just now.
+    /// `savedAt`: when that device changed it (now by default).
+    static func iCloudCopy(of id: UUID, deletedAt: Date?, savedAt: Date = Date().addingTimeInterval(60)) throws -> NoteCopyInICloud {
+        let item = PipelineHistoryItem(
+            id: id,
+            timestamp: t0,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            customTitle: "Synthetic",
+            deletedAt: deletedAt,
+            fieldClock: .uniform(savedAt)
+        )
+        return .found(NoteSyncFetched(noteID: id, payload: try NoteSyncPayload.encode(NoteSyncRecord(item: item)), systemFields: Data([1])))
+    }
+
+    /// #562: a purge's delete reaches every device, so with sync running
+    /// iCloud is asked first. A fetch can't tell: it reaches the server only
+    /// when the engine knows of a change. What iCloud holds is applied, so a
+    /// restore shows here at once.
+    static func testExpiredNoteRestoredElsewhereComesBack() async throws {
+        let note = makeItem()
+        let fixture = try await MainActor.run { try makeFixture(items: [note], deleted: [note.id: expiredDeletion]) }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // Restored on another device; this Mac missed the push.
+        fixture.engine.copies[note.id] = try iCloudCopy(of: note.id, deletedAt: nil)
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(fixture.engine.copyChecks == 1, "iCloud is asked before deleting")
+            precondition(fixture.appState.recentlyDeletedNotes.isEmpty, "the restore is applied")
+            precondition(fixture.appState.pipelineHistory.map(\.id) == [note.id], "the note is back in the list")
+            precondition(fixture.store.loadAllHistory().map(\.id) == [note.id])
+        }
+    }
+
+    static func testNoteDeletedAgainElsewhereWaitsForItsOwnDate() async throws {
+        let note = makeItem()
+        let fixture = try await MainActor.run { try makeFixture(items: [note], deleted: [note.id: expiredDeletion]) }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let again = Date().addingTimeInterval(-24 * 60 * 60)
+        fixture.engine.copies[note.id] = try iCloudCopy(of: note.id, deletedAt: again)
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(fixture.appState.recentlyDeletedNotes.map(\.id) == [note.id], "deleted again a day ago: not 30 days yet")
+            let deletedAt = fixture.appState.recentlyDeletedNotes.first?.deletedAt
+            precondition(deletedAt.map { abs($0.timeIntervalSince(again)) < 1 } == true, "iCloud's later deletion is applied")
+        }
+    }
+
+    static func testExpiredNoteIsPurgedOnceICloudAgrees() async throws {
+        let expired = makeItem(), gone = makeItem(), unknown = makeItem(), unreadable = makeItem(), unanswered = makeItem()
+        let notes = [expired, gone, unknown, unreadable, unanswered]
+        let fixture = try await MainActor.run {
+            try makeFixture(items: notes, deleted: Dictionary(uniqueKeysWithValues: notes.map { ($0.id, expiredDeletion) }))
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.engine.copies = [
+            expired.id: try iCloudCopy(of: expired.id, deletedAt: expiredDeletion),
+            gone.id: .noNote,
+            unknown.id: .failed,
+            unreadable.id: .found(NoteSyncFetched(noteID: unreadable.id, payload: Data("{".utf8), systemFields: Data([1]))),
+        ]
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(
+                Set(fixture.appState.recentlyDeletedNotes.map(\.id)) == [unknown.id, unreadable.id, unanswered.id],
+                "expired or gone in iCloud goes; a copy not fetched, not read or not answered for waits"
+            )
+        }
+    }
+
+    /// iCloud answers for the account signed in now; if that isn't the
+    /// account sync uses, "no such note" says nothing about this one.
+    static func testMissingNoteInAnotherAccountWaits() async throws {
+        let note = makeItem()
+        let fixture = try await MainActor.run {
+            try makeFixture(items: [note], deleted: [note.id: expiredDeletion], signedInAccount: "another-account")
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.engine.copies[note.id] = .noNote
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(fixture.appState.recentlyDeletedNotes.map(\.id) == [note.id], "not gone in the account sync uses")
+        }
+    }
+
+    static func testPurgeWaitsWhenICloudCantBeAsked() async throws {
+        let note = makeItem()
+        let fixture = try await MainActor.run { try makeFixture(items: [note], deleted: [note.id: expiredDeletion]) }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.engine.copiesError = URLError(.notConnectedToInternet)
+        // A second purge while the first asks doesn't ask again.
+        let check = await MainActor.run { () -> Task<Void, Never>? in
+            fixture.appState.purgeExpiredRecentlyDeletedNotes()
+            fixture.appState.purgeExpiredRecentlyDeletedNotes()
+            return fixture.appState.recentlyDeletedPurgeCheck
+        }
+        await check?.value
+        await MainActor.run {
+            precondition(fixture.engine.copyChecks == 1, "one check at a time")
+            precondition(fixture.appState.recentlyDeletedNotes.map(\.id) == [note.id], "nothing goes without an answer")
+        }
+        fixture.engine.copiesError = nil
+        fixture.engine.copies[note.id] = .noNote
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(fixture.appState.recentlyDeletedNotes.isEmpty, "the next purge asks again")
+        }
+    }
+
+    /// This Mac's delete is newer than iCloud's live copy (its upload kept
+    /// failing): the merge keeps the delete, so the note goes, and its
+    /// delete replaces the older copy in iCloud.
+    static func testOlderLiveCopyDoesNotHoldBackTheDelete() async throws {
+        let note = makeItem()
+        let fixture = try await MainActor.run { try makeFixture(items: [note], deleted: [note.id: expiredDeletion]) }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.engine.copies[note.id] = try iCloudCopy(of: note.id, deletedAt: nil, savedAt: expiredDeletion.addingTimeInterval(-60 * 60))
+        try await purge(fixture)
+        await MainActor.run {
+            precondition(fixture.appState.recentlyDeletedNotes.isEmpty && fixture.appState.pipelineHistory.isEmpty, "the later delete wins")
+        }
+    }
+
+    /// Runs a purge and waits for its iCloud check.
+    static func purge(_ fixture: Fixture) async throws {
+        let check = await MainActor.run { () -> Task<Void, Never>? in
+            fixture.appState.purgeExpiredRecentlyDeletedNotes()
+            return fixture.appState.recentlyDeletedPurgeCheck
+        }
+        await check?.value
+    }
+
+    static func testPurgeRunsAtOnceWhenSyncIsOff() async throws {
+        try await MainActor.run {
+            let note = makeItem()
+            let fixture = try makeFixture(items: [note], deleted: [note.id: expiredDeletion], syncOn: false)
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.appState.purgeExpiredRecentlyDeletedNotes()
+            precondition(fixture.appState.recentlyDeletedNotes.isEmpty, "with sync off the purge stays on this Mac")
+            precondition(fixture.engine.copyChecks == 0)
+        }
+    }
+
     static func testWriteTranscriptRejectsUnsafeNames() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-note-sync-assets-\(UUID().uuidString)", isDirectory: true)
@@ -242,5 +420,11 @@ struct AppStateNoteSyncTests {
         // Clearing every note would delete them from iCloud on every Mac.
         precondition(settings.contains(".disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable || appState.noteSyncController?.isEnabled == true)"))
         precondition(delegate.contains("appState.startNoteSync()"))
+        // The first purge must already know sync is on (#562).
+        guard let syncStart = delegate.range(of: "appState.startNoteSync()"),
+              let purgeStart = delegate.range(of: "appState.startRecentlyDeletedPurgeSchedule()") else {
+            preconditionFailure("launch calls are missing")
+        }
+        precondition(syncStart.lowerBound < purgeStart.lowerBound)
     }
 }
