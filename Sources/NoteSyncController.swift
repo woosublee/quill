@@ -173,6 +173,9 @@ final class NoteSyncController: ObservableObject {
             if synced == nil || current == nil || synced != current {
                 for (id, check) in checks where check == .gone { checks[id] = .unknown }
             }
+            // Reading the account let other work run: sync may have stopped
+            // (an account change) or begun deleting from iCloud since.
+            guard isEnabled, self.engine === engine, !isDeletingFromICloud else { return [:] }
         }
         return checks
     }
