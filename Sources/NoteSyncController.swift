@@ -137,7 +137,7 @@ final class NoteSyncController: ObservableObject {
     /// and one deleted later elsewhere carries that date. Notes left out of
     /// the result, and every note while no engine runs, are unknown.
     func checkRecentlyDeletedInICloud(_ ids: Set<UUID>) async -> [UUID: RecentlyDeletedICloudCheck] {
-        guard isEnabled, let engine, !isDeletingFromICloud else { return [:] }
+        guard isEnabled, let engine, !isDeletingFromICloud, turnOffInProgress == nil else { return [:] }
         let copies: [UUID: NoteCopyInICloud]
         do {
             copies = try await engine.noteCopiesInICloud(ids)
@@ -145,8 +145,9 @@ final class NoteSyncController: ObservableObject {
             print("[NoteSync] Couldn't check iCloud before purging Recently Deleted")
             return [:]
         }
-        // The engine may have stopped, or a delete from iCloud begun, meanwhile.
-        guard self.engine === engine, !isDeletingFromICloud, let coordinator else { return [:] }
+        // The engine may have stopped, or a turn-off or delete from iCloud
+        // begun, meanwhile.
+        guard self.engine === engine, !isDeletingFromICloud, turnOffInProgress == nil, let coordinator else { return [:] }
         let found = copies.values.compactMap { copy -> NoteSyncFetched? in
             if case .found(let fetched) = copy { return fetched }
             return nil
@@ -174,8 +175,8 @@ final class NoteSyncController: ObservableObject {
                 for (id, check) in checks where check == .gone { checks[id] = .unknown }
             }
             // Reading the account let other work run: sync may have stopped
-            // (an account change) or begun deleting from iCloud since.
-            guard isEnabled, self.engine === engine, !isDeletingFromICloud else { return [:] }
+            // (an account change), or begun turning off or deleting, since.
+            guard isEnabled, self.engine === engine, !isDeletingFromICloud, turnOffInProgress == nil else { return [:] }
         }
         return checks
     }

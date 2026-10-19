@@ -51,14 +51,14 @@ struct AppStateNoteSyncTests {
         func syncNow() async {}
         func deleteAllFromICloud() async throws -> Bool { true }
         func stop(forgetState: Bool) {}
-        /// What iCloud holds for each note; unlisted notes are gone.
+        /// What iCloud answers for each note; unlisted notes get no answer.
         var copies: [UUID: NoteCopyInICloud] = [:]
         var copiesError: Error?
         var copyChecks = 0
         func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] {
             copyChecks += 1
             if let copiesError { throw copiesError }
-            return Dictionary(uniqueKeysWithValues: ids.map { ($0, copies[$0] ?? .noNote) })
+            return Dictionary(uniqueKeysWithValues: ids.compactMap { id in copies[id].map { (id, $0) } })
         }
     }
 
@@ -297,24 +297,23 @@ struct AppStateNoteSyncTests {
     }
 
     static func testExpiredNoteIsPurgedOnceICloudAgrees() async throws {
-        let expired = makeItem(), gone = makeItem(), unknown = makeItem(), unreadable = makeItem()
+        let expired = makeItem(), gone = makeItem(), unknown = makeItem(), unreadable = makeItem(), unanswered = makeItem()
+        let notes = [expired, gone, unknown, unreadable, unanswered]
         let fixture = try await MainActor.run {
-            try makeFixture(
-                items: [expired, gone, unknown, unreadable],
-                deleted: [expired.id: expiredDeletion, gone.id: expiredDeletion, unknown.id: expiredDeletion, unreadable.id: expiredDeletion]
-            )
+            try makeFixture(items: notes, deleted: Dictionary(uniqueKeysWithValues: notes.map { ($0.id, expiredDeletion) }))
         }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         fixture.engine.copies = [
             expired.id: try iCloudCopy(of: expired.id, deletedAt: expiredDeletion),
+            gone.id: .noNote,
             unknown.id: .failed,
             unreadable.id: .found(NoteSyncFetched(noteID: unreadable.id, payload: Data("{".utf8), systemFields: Data([1]))),
         ]
         try await purge(fixture)
         await MainActor.run {
             precondition(
-                Set(fixture.appState.recentlyDeletedNotes.map(\.id)) == [unknown.id, unreadable.id],
-                "expired or gone in iCloud goes; a copy not fetched or not read waits"
+                Set(fixture.appState.recentlyDeletedNotes.map(\.id)) == [unknown.id, unreadable.id, unanswered.id],
+                "expired or gone in iCloud goes; a copy not fetched, not read or not answered for waits"
             )
         }
     }
@@ -327,6 +326,7 @@ struct AppStateNoteSyncTests {
             try makeFixture(items: [note], deleted: [note.id: expiredDeletion], signedInAccount: "another-account")
         }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.engine.copies[note.id] = .noNote
         try await purge(fixture)
         await MainActor.run {
             precondition(fixture.appState.recentlyDeletedNotes.map(\.id) == [note.id], "not gone in the account sync uses")
@@ -350,6 +350,7 @@ struct AppStateNoteSyncTests {
             precondition(fixture.appState.recentlyDeletedNotes.map(\.id) == [note.id], "nothing goes without an answer")
         }
         fixture.engine.copiesError = nil
+        fixture.engine.copies[note.id] = .noNote
         try await purge(fixture)
         await MainActor.run {
             precondition(fixture.appState.recentlyDeletedNotes.isEmpty, "the next purge asks again")
