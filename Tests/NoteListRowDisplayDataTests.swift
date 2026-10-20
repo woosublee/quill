@@ -488,16 +488,31 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
         assert(data.displayTitle == "Manual title")
+        assert(!data.isNamedByDate)
         assert(data.preview == "Automatic transcript title\nDetails continue here")
     }
 
+    /// An untitled note is named by when it was recorded (as its detail
+    /// placeholder and the iPhone app show it), so its preview starts at
+    /// the transcript's first line.
     private static func testDropsAutomaticTitleFromPreview() {
         let item = historyItem(transcript: "Automatic transcript title\nDetails continue here")
 
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
-        assert(data.displayTitle == "Automatic transcript title")
-        assert(data.preview == "Details continue here", "Unexpected preview: \(data.preview)")
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
+        assert(data.preview == "Automatic transcript title\nDetails continue here", "Unexpected preview: \(data.preview)")
+        // VoiceOver reads the date once: the title already is the date.
+        assert(data.isNamedByDate)
+        let label = NoteListRowAccessibility.label(
+            title: data.displayTitle,
+            date: data.isNamedByDate ? nil : data.rowDate,
+            status: data.status,
+            hasSummary: false,
+            selection: nil,
+            localize: { $0 }
+        )
+        assert(!label.contains(data.rowDate), "Unexpected label: \(label)")
     }
 
     private static func testWhitespaceOnlyCustomTitleDoesNotForceContentPreview() {
@@ -508,8 +523,8 @@ struct NoteListRowDisplayDataTests {
 
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
-        assert(data.displayTitle == "Automatic transcript title")
-        assert(data.preview == "Details continue here", "Unexpected preview: \(data.preview)")
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
+        assert(data.preview == "Automatic transcript title\nDetails continue here", "Unexpected preview: \(data.preview)")
     }
 
     private static func testLegacyFailurePreviewUsesSafeMessage() {
@@ -762,7 +777,7 @@ struct NoteListRowDisplayDataTests {
         let retriedAudioOnly = NoteListRowDisplayData(item: audioOnly, retryingIDs: [audioOnly.id])
         assert(retriedAudioOnly.status == .transcribing)
         assert(
-            retriedAudioOnly.displayTitle == "Audio recording",
+            retriedAudioOnly.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)),
             "Unexpected title: \(retriedAudioOnly.displayTitle)"
         )
 
@@ -775,7 +790,7 @@ struct NoteListRowDisplayDataTests {
         let retriedFailed = NoteListRowDisplayData(item: failed, retryingIDs: [failedID])
         assert(retriedFailed.status == .transcribing)
         assert(
-            retriedFailed.displayTitle == "New Recording",
+            retriedFailed.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)),
             "Unexpected title: \(retriedFailed.displayTitle)"
         )
 
@@ -787,7 +802,7 @@ struct NoteListRowDisplayDataTests {
         let withTextID = UUID()
         let withText = historyItem(id: withTextID, transcript: "Weekly sync\nNotes follow")
         let retriedWithText = NoteListRowDisplayData(item: withText, retryingIDs: [withTextID])
-        assert(retriedWithText.displayTitle == "Weekly sync")
+        assert(retriedWithText.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
 
         for data in [retriedAudioOnly, retriedFailed, retriedTitled, retriedWithText] {
             assert(!stageTitles.contains(data.displayTitle), "Row must not name the stage")
@@ -912,7 +927,7 @@ struct NoteListRowDisplayDataTests {
         )
 
         assert(data.status == .audioOnly)
-        assert(data.displayTitle == "Audio recording")
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
         assert(data.preview == "Not transcribed")
         assert(transcriptStatus(for: item, retrying: [item.id]) == .transcribing)
     }

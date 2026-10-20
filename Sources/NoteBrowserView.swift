@@ -2181,7 +2181,7 @@ private struct NoteListRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: NoteListRowAccessibility.label(
             title: displayData.displayTitle,
-            date: displayData.rowDate,
+            date: displayData.isNamedByDate ? nil : displayData.rowDate,
             status: displayData.status,
             hasSummary: displayData.hasMeetingSummary,
             selection: selectionMark.map { mark in
@@ -2999,7 +2999,7 @@ private struct NoteDetailView: View {
 
             // Title — auto-save on change
             HorizontallyScrollableTitleField(
-                placeholder: item.timestamp.formatted(date: .long, time: .shortened),
+                placeholder: NoteTitleResolver.dateTitle(for: item),
                 text: $titleDraft
             )
             .frame(minHeight: 38, maxHeight: 38, alignment: .leading)

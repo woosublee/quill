@@ -310,7 +310,7 @@ final class MCPServer {
             ],
             [
                 "name": "list_notes",
-                "description": "List Quill notes in the Note Browser's order (newest first) as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
+                "description": "List Quill notes in the Note Browser's order (newest first) as JSON: id, title (the note's own or applied calendar title, else the transcript's first line, or a state name when there is no transcript), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -431,7 +431,7 @@ final class MCPServer {
                 appState.pipelineHistory,
                 filter: filter,
                 matches: { matcher.matches($0, query: $1) },
-                title: { NoteTitleResolver.displayTitle(for: $0) },
+                title: { NoteTitleResolver.toolTitle(for: $0) },
                 hasSummary: { $0.meetingSummaryJSON != nil },
                 formatter: Self.localISOFormatter()
             )
@@ -451,7 +451,7 @@ final class MCPServer {
             }
             let payload = NotePayload.make(
                 item: item,
-                title: NoteTitleResolver.displayTitle(for: item),
+                title: NoteTitleResolver.toolTitle(for: item),
                 titleSource: NoteTitleResolver.displayTitleSource(for: item).rawValue,
                 summary: item.meetingSummary.map { envelope in
                     NotePayload.Summary(

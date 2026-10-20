@@ -15,8 +15,10 @@ struct NoteTitleResolutionTests {
         testRecoveredRecordingTitlesNameAvailableSource()
         testStorageInterruptionReasonWinsRecoveredTitle()
         testAudioOnlyTitleUsesNormalPrecedence()
-        testSuggestedCalendarTitleHiddenWhenAlreadyEffectivelyApplied()
-        testSuggestedCalendarTitleHiddenWhenOnlyWhitespaceDiffers()
+        testSuggestedCalendarTitleShownEvenWhenTranscriptReadsLikeIt()
+        testSuggestedCalendarTitleTreatsWhitespaceTitleAsNone()
+        testDateTitleUsesRecordingStartAndLocale()
+        testToolTitleKeepsTheTranscriptsFirstLine()
         testSuggestedCalendarTitleShownWhenItWouldChangeTheTitle()
         testOutsideTitleChangeReplacesTheDraft()
         testOutsideTitleChangeKeepsAnUnsavedEdit()
@@ -44,13 +46,15 @@ struct NoteTitleResolutionTests {
     private static func testSuggestedCalendarTitleDoesNotOverrideTranscriptTitle() {
         let item = item(transcript: "Transcript title", calendarMatch: match(title: "Calendar title", titleState: .suggested))
         let title = NoteTitleResolver.displayTitle(for: item)
-        assert(title == "Transcript title")
+        // An untitled note is named by when it was recorded, as its detail
+        // placeholder and the iPhone app show it.
+        assert(title == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testFallbackUsedWhenNoContentOrAppliedCalendarTitle() {
         let item = item(transcript: "", calendarMatch: nil)
         let title = NoteTitleResolver.displayTitle(for: item)
-        assert(title == "(No content)")
+        assert(title == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testTranscribingFallbackWinsOverFailedEmptyContent() {
@@ -68,7 +72,7 @@ struct NoteTitleResolutionTests {
         )
         assert(title == "Post-processing...")
         // Post-processing only labels a note that is still being processed.
-        assert(NoteTitleResolver.displayTitle(for: item, isPostProcessing: true) == "(No content)")
+        assert(NoteTitleResolver.displayTitle(for: item, isPostProcessing: true) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testProcessingTitlesAreLocalized() {
@@ -163,7 +167,9 @@ struct NoteTitleResolutionTests {
             transcriptionLanguageCode: "auto",
             localTranscriptionModelID: "remembered-model"
         )
-        assert(NoteTitleResolver.displayTitle(for: audioOnly) == "Audio recording")
+        // Its row preview says "Not transcribed"; the name is when its
+        // recording started, as the row's date reads it.
+        assert(NoteTitleResolver.displayTitle(for: audioOnly) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
 
         let calendarMatch = CalendarEventMatch(
             calendarID: "calendar",
@@ -191,36 +197,85 @@ struct NoteTitleResolutionTests {
         )
     }
 
-    // Applying the suggestion would set the effective title to exactly what
-    // is already shown (the transcript-derived title happens to match), so
-    // the banner offering that suggestion must not appear.
-    private static func testSuggestedCalendarTitleHiddenWhenAlreadyEffectivelyApplied() {
-        let recordingStartedAt = Date(timeIntervalSince1970: 1)
+    // An untitled note is named by its date, so a transcript that happens
+    // to read like the applied title doesn't count as that title: the
+    // suggestion is offered.
+    private static func testSuggestedCalendarTitleShownEvenWhenTranscriptReadsLikeIt() {
         let appliedTitle = NoteTitleResolver.calendarAppliedTitle(
             suggestedTitle: "Team Standup",
-            recordingStartedAt: recordingStartedAt
+            recordingStartedAt: Date(timeIntervalSince1970: 1)
         )
         let note = item(
             transcript: appliedTitle,
             calendarMatch: match(title: "Team Standup", titleState: .suggested)
         )
-        assert(NoteTitleResolver.suggestedCalendarTitle(for: note) == nil)
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: note)?.applied == appliedTitle)
     }
 
-    // displayTitle(for:) trims the transcript-derived title, so a match that
-    // is only different by leading/trailing whitespace must still count as
-    // already applied and hide the banner.
-    private static func testSuggestedCalendarTitleHiddenWhenOnlyWhitespaceDiffers() {
-        let recordingStartedAt = Date(timeIntervalSince1970: 1)
-        let appliedTitle = NoteTitleResolver.calendarAppliedTitle(
-            suggestedTitle: "Team Standup",
-            recordingStartedAt: recordingStartedAt
+    // A whitespace-only title counts as none, as everywhere else; a padded
+    // real title is the note's own and hides the suggestion.
+    private static func testSuggestedCalendarTitleTreatsWhitespaceTitleAsNone() {
+        let blank = item(
+            transcript: "Synthetic transcript",
+            calendarMatch: match(title: "Team Standup", titleState: .suggested),
+            customTitle: "   "
         )
-        let note = item(
-            transcript: "  \(appliedTitle)  ",
-            calendarMatch: match(title: "Team Standup", titleState: .suggested)
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: blank)?.suggested == "Team Standup")
+        let titled = item(
+            transcript: "Synthetic transcript",
+            calendarMatch: match(title: "Team Standup", titleState: .suggested),
+            customTitle: "  Planning  "
         )
-        assert(NoteTitleResolver.suggestedCalendarTitle(for: note) == nil)
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: titled) == nil)
+    }
+
+    private static func testDateTitleUsesRecordingStartAndLocale() {
+        var note = item(transcript: "Synthetic transcript", calendarMatch: nil)
+        let saved = NoteTitleResolver.displayTitle(for: note)
+        assert(saved == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
+        note = PipelineHistoryItem(
+            timestamp: Date(timeIntervalSince1970: 7_200),
+            recordingStartedAt: Date(timeIntervalSince1970: 3_600),
+            rawTranscript: "Synthetic transcript",
+            postProcessedTranscript: "Synthetic transcript",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "Post-processing succeeded",
+            debugStatus: "Done",
+            customVocabulary: ""
+        )
+        assert(NoteTitleResolver.displayTitle(for: note) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 3_600)), "the recording's start, as the row's date")
+        let korean = NoteTitleResolver.displayTitle(for: note, locale: Locale(identifier: "ko_KR"))
+        assert(korean == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 3_600), locale: Locale(identifier: "ko_KR")))
+        assert(korean != NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 3_600), locale: Locale(identifier: "en_US")), "the row's locale decides")
+        assert(NoteTitleResolver.isNamedByDate(note))
+        let live = item(transcript: "", calendarMatch: nil, postProcessingStatus: "live-recording")
+        assert(!NoteTitleResolver.isNamedByDate(live), "a note being recorded keeps its state name")
+    }
+
+    /// AI tools (MCP) keep telling notes apart by their content.
+    private static func testToolTitleKeepsTheTranscriptsFirstLine() {
+        let note = item(transcript: "\n  Weekly sync  \nNotes follow", calendarMatch: nil)
+        assert(NoteTitleResolver.toolTitle(for: note) == "Weekly sync")
+        let titled = item(transcript: "Weekly sync", calendarMatch: nil, customTitle: "Planning")
+        assert(NoteTitleResolver.toolTitle(for: titled) == "Planning")
+        // Without a transcript, tools keep the names they always got.
+        let empty = item(transcript: "", calendarMatch: nil)
+        assert(NoteTitleResolver.toolTitle(for: empty) == "(No content)")
+        let failed = item(transcript: "", calendarMatch: nil, postProcessingStatus: "Error: Previous failure")
+        assert(NoteTitleResolver.toolTitle(for: failed) == "New Recording")
+        let audioOnly = PipelineHistoryItem.audioOnly(
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: nil,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+        assert(NoteTitleResolver.toolTitle(for: audioOnly) == "Audio recording")
     }
 
     private static func testSuggestedCalendarTitleShownWhenItWouldChangeTheTitle() {

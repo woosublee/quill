@@ -212,6 +212,8 @@ struct NoteListRowDisplayData: Equatable {
     let id: UUID
     let status: TranscriptStatus
     let rowDate: String
+    /// The title is the recording date, so the row's date isn't read again.
+    let isNamedByDate: Bool
     let displayTitle: String
     let preview: String
     let hasMeetingSummary: Bool
@@ -252,8 +254,8 @@ struct NoteListRowDisplayData: Equatable {
         // The row names the note; the stage ("Transcribing…", "Post-
         // processing…") is shown once, in the note detail, and by the row's
         // spinner. A recording or import with no title or transcript yet
-        // gets a neutral name; a note being retried keeps its own name, such
-        // as "Audio recording" or "New Recording", never the stage.
+        // gets a neutral name; a note being retried keeps its own name
+        // (its title, or when it was recorded), never the stage.
         let hasOwnTitle = customTitle != nil || item.calendarMatch?.appliedTitle != nil
         let isUnnamed = !hasOwnTitle && content.isEmpty && !retryingIDs.contains(item.id)
         // An import transcribed by a cloud model has the cloud status, not
@@ -278,9 +280,11 @@ struct NoteListRowDisplayData: Equatable {
             displayTitle = NoteTitleResolver.displayTitle(
                 for: item,
                 language: localizationLanguage,
-                bundle: localizationBundle
+                bundle: localizationBundle,
+                locale: locale
             )
         }
+        self.isNamedByDate = !isNewRecording && !isImporting && NoteTitleResolver.isNamedByDate(item)
 
         self.id = item.id
         self.status = status
@@ -293,8 +297,6 @@ struct NoteListRowDisplayData: Equatable {
             for: item,
             status: status,
             content: content,
-            customTitle: customTitle,
-            displayTitle: displayTitle,
             cloudProgress: cloudProgress,
             localizationLanguage: localizationLanguage,
             localizationBundle: localizationBundle,
@@ -306,8 +308,6 @@ struct NoteListRowDisplayData: Equatable {
         for item: PipelineHistoryItem,
         status: TranscriptStatus,
         content: String,
-        customTitle: String?,
-        displayTitle: String,
         cloudProgress: CloudTranscriptionDisplayProgress?,
         localizationLanguage: String,
         localizationBundle: Bundle,
@@ -339,13 +339,8 @@ struct NoteListRowDisplayData: Equatable {
             // Progress lives in the note detail and the row's spinner.
             return ""
         }
-        if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
-            return String(content.prefix(100))
-        }
-        if content.hasPrefix(displayTitle) {
-            let rest = content.dropFirst(displayTitle.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            return String(rest.prefix(100))
-        }
+        // The title is the note's own or its date, never the transcript, so
+        // the preview starts at the transcript's first line.
         return String(content.prefix(100))
     }
 }
@@ -375,23 +370,22 @@ enum NoteListRowAccessibility {
         }
     }
 
+    /// `date` is nil when the title already is the date.
     static func label(
         title: String,
-        date: String,
+        date: String?,
         status: TranscriptStatus,
         hasSummary: Bool,
         selection: SelectionState?,
         isUnrecoveredRecording: Bool = false,
         localize: (String) -> String = { localizedCatalogString($0) }
     ) -> String {
-        var parts = [
-            title,
-            date,
-            localize(statusKey(
-                for: status,
-                isUnrecoveredRecording: isUnrecoveredRecording
-            ))
-        ]
+        var parts = [title]
+        if let date { parts.append(date) }
+        parts.append(localize(statusKey(
+            for: status,
+            isUnrecoveredRecording: isUnrecoveredRecording
+        )))
         if hasSummary {
             parts.append(localize("Summary"))
         }
