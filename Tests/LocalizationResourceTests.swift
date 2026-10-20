@@ -51,31 +51,31 @@ struct LocalizationResourceTests {
             "Shortcut": "단축키",
             "Optional permissions": "선택 권한",
             "The download continues in the background while Quill is running.":
-                "Quill이 실행되는 동안 다운로드가 백그라운드에서 계속됩니다.",
+                "Quill이 실행되는 동안 다운로드가 백그라운드에서 계속돼요.",
             "Whisper will become active when the download finishes.":
-                "다운로드가 끝나면 Whisper가 활성화됩니다.",
+                "다운로드가 끝나면 Whisper가 활성화돼요.",
             "Download continues in the background. Select Whisper after installation.":
-                "다운로드가 백그라운드에서 계속됩니다. 설치 후 Whisper를 선택하세요.",
+                "다운로드가 백그라운드에서 계속돼요. 설치 후 Whisper를 선택하세요.",
             "Enable at least one recording shortcut to continue.":
                 "계속하려면 녹음 단축키를 하나 이상 활성화하세요.",
             "Hold to Talk": "길게 눌러 말하기",
             "Tap to Toggle": "눌러서 전환",
             "Quit while models are downloading?":
-                "모델 다운로드가 진행 중입니다. Quill을 종료할까요?",
+                "모델 다운로드가 진행 중이에요. Quill을 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
-                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",
+                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제돼요.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소",
             "Record only": "녹음만",
             "No transcription · No model download": "전사 없음 · 모델 다운로드 없음",
             "Save audio notes now. Transcribe them later if needed. No model download or API key required.":
-                "지금 오디오 노트를 저장하고 필요할 때 나중에 전사하세요. 모델 다운로드나 API 키가 필요하지 않습니다.",
+                "지금 오디오 노트를 저장하고 필요할 때 나중에 전사하세요. 모델 다운로드나 API 키가 필요하지 않아요.",
             "Record only · Audio notes": "녹음만 · 오디오 노트",
             "Enables automatic paste and Edit Mode when you turn them on.":
-                "자동 붙여넣기와 편집 모드를 켜면 사용할 수 있습니다.",
-            "Record your voice and other selected audio inputs.": "음성과 선택한 다른 오디오 입력을 녹음합니다.",
+                "자동 붙여넣기와 편집 모드를 켜면 사용할 수 있어요.",
+            "Record your voice and other selected audio inputs.": "음성과 선택한 다른 오디오 입력을 녹음해요.",
             "Screen & System Audio Recording": "화면 및 시스템 오디오 녹음",
             "Enables System Audio recording and optional screen context.":
-                "시스템 오디오 녹음과 선택적 화면 컨텍스트를 사용할 수 있습니다."
+                "시스템 오디오 녹음과 선택적 화면 컨텍스트를 사용할 수 있어요."
         ]
         for (key, expected) in onboardingKorean {
             let english = try localizedValue(key: key, language: "en", root: root)
@@ -91,23 +91,23 @@ struct LocalizationResourceTests {
             "This model will become active when the download finishes.":
                 "다운로드가 완료되면 이 모델로 바뀌어요.",
             "This removes the downloaded Local AI model. You can download it again later.":
-                "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
+                "다운로드한 로컬 AI 모델을 삭제해요. 나중에 다시 다운로드할 수 있어요.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
             "Cloud fallback is only used when Post-processing uses a cloud model.":
-                "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
+                "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용돼요.",
             "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.":
-                "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
-            "Quit while models are downloading?": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?",
+                "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석해요. 스크린샷은 이 Mac을 벗어나지 않아요.",
+            "Quit while models are downloading?": "모델 다운로드가 진행 중이에요. Quill을 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
-                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",
+                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제돼요.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소",
-            "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
+            "Best quality. Needs more memory.": "최고 품질이에요. 더 많은 메모리가 필요해요.",
             "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.":
-                "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없습니다. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
+                "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
             "The previously selected on-device model is no longer available. Context requires an image-capable model.":
-                "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없습니다. Context에는 이미지 지원 모델이 필요합니다.",
+                "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. Context에는 이미지 지원 모델이 필요해요.",
             "Previously selected on-device model": "이전에 선택한 온디바이스 모델",
-            "This on-device model is no longer available and cannot be used.": "이 온디바이스 모델은 더 이상 제공되지 않으며 사용할 수 없습니다.",
+            "This on-device model is no longer available and cannot be used.": "이 온디바이스 모델은 더 이상 제공되지 않으며 사용할 수 없어요.",
             "Canceled": "취소됨"
         ]
         for (key, expected) in localAISettingsKorean {
@@ -144,11 +144,11 @@ struct LocalizationResourceTests {
         assert(cloudProgressKorean == "%d/%d 청크 전사 중…")
         assert(cloudResumeKorean == "클라우드 전사 재개 중…")
         let recoverySingularCounts: [String: String] = [
-            "%lld record found.": "%lld개 기록을 찾았습니다.",
+            "%lld record found.": "%lld개 기록을 찾았어요.",
             "Import %lld record…": "%lld개 기록 가져오기…",
-            "%lld record is ready to import.": "%lld개 기록을 가져올 수 있습니다.",
-            "%lld record is already in the current history.": "%lld개 기록은 이미 현재 기록에 있습니다.",
-            "%lld record conflicts with the current history.": "%lld개 기록이 현재 기록과 충돌합니다."
+            "%lld record is ready to import.": "%lld개 기록을 가져올 수 있어요.",
+            "%lld record is already in the current history.": "%lld개 기록은 이미 현재 기록에 있어요.",
+            "%lld record conflicts with the current history.": "%lld개 기록이 현재 기록과 충돌해요."
         ]
         for (key, korean) in recoverySingularCounts {
             let english = try localizedValue(key: key, language: "en", root: root)
@@ -167,7 +167,7 @@ struct LocalizationResourceTests {
             root: root
         )
         assert(snapshotFailureEnglish == "Recovery snapshot operation could not be completed.")
-        assert(snapshotFailureKorean == "복구 보관본 작업을 완료하지 못했습니다.")
+        assert(snapshotFailureKorean == "복구 보관본 작업을 완료하지 못했어요.")
         try assertAIProcessingBackendErrorTranslations(root: root)
         let partialTitleEntry = strings["Some audio recovered"]
             as? [String: Any]
@@ -186,7 +186,7 @@ struct LocalizationResourceTests {
         assert(partialTitleUnit?["value"] as? String == "일부 오디오 복구됨")
         assert(
             partialDescriptionUnit?["value"] as? String
-                == "이 녹음의 일부가 누락되었을 수 있습니다. 복구된 오디오는 재생하거나 전사할 수 있습니다."
+                == "이 녹음의 일부가 누락되었을 수 있어요. 복구된 오디오는 재생하거나 전사할 수 있어요."
         )
 
         for language in ["en", "ko"] {
@@ -669,13 +669,13 @@ struct LocalizationResourceTests {
         try assertBundledDynamicString(
             key: "Meeting starts in %d minutes",
             arguments: [3],
-            expected: ["en": "Meeting starts in 3 minutes", "ko": "회의가 3분 후 시작됩니다"],
+            expected: ["en": "Meeting starts in 3 minutes", "ko": "회의가 3분 후 시작돼요"],
             languageBundles: languageBundles
         )
         try assertBundledDynamicString(
             key: "Welcome to %@",
             arguments: ["Quill"],
-            expected: ["en": "Welcome to Quill", "ko": "Quill에 오신 것을 환영합니다."],
+            expected: ["en": "Welcome to Quill", "ko": "Quill에 오신 것을 환영해요."],
             languageBundles: languageBundles
         )
 
@@ -957,10 +957,10 @@ struct LocalizationResourceTests {
 
     private static func assertAIProcessingBackendErrorTranslations(root: URL) throws {
         let translations = [
-            "The cloud AI base URL is invalid.": "클라우드 AI 기본 URL이 올바르지 않습니다.",
-            "The selected local AI model is unknown.": "선택한 로컬 AI 모델을 찾을 수 없습니다.",
-            "The local AI runtime is unavailable.": "로컬 AI 런타임을 사용할 수 없습니다.",
-            "The local AI runtime stopped unexpectedly.": "로컬 AI 런타임이 예기치 않게 중지되었습니다."
+            "The cloud AI base URL is invalid.": "클라우드 AI 기본 URL이 올바르지 않아요.",
+            "The selected local AI model is unknown.": "선택한 로컬 AI 모델을 찾을 수 없어요.",
+            "The local AI runtime is unavailable.": "로컬 AI 런타임을 사용할 수 없어요.",
+            "The local AI runtime stopped unexpectedly.": "로컬 AI 런타임이 예기치 않게 중지됐어요."
         ]
         for (english, korean) in translations {
             let englishValue = try localizedValue(key: english, language: "en", root: root)

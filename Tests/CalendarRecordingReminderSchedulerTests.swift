@@ -234,7 +234,7 @@ struct CalendarRecordingReminderSchedulerTests {
         let schedule = CalendarRecordingReminderSchedule(identifier: "localized", fireDate: now, event: event, delivery: .scheduled)
 
         assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "en", bundle: bundle) == "Meeting starts in 10 minutes")
-        assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "ko", bundle: bundle) == "회의가 10분 후 시작됩니다")
+        assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "ko", bundle: bundle) == "회의가 10분 후 시작돼요")
         assert(CalendarRecordingReminderScheduler.notificationBody(for: event, language: "ko", bundle: bundle) == "눌러서 녹음 시작: Quarterly Review: Q3")
     }
 

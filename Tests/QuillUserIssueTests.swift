@@ -225,7 +225,7 @@ struct QuillUserIssueTests {
             "empty cleanup output has a specific English title"
         )
         try expect(
-            korean.title == "후처리로 바꿀 부분이 없었습니다",
+            korean.title == "후처리로 바꿀 부분이 없었어요",
             "empty cleanup output has a specific Korean title"
         )
         try expect(
@@ -241,7 +241,7 @@ struct QuillUserIssueTests {
             korean.detailsRows.contains(
                 QuillUserIssueDetailsRow(
                     label: "실패 원인",
-                    value: "모델이 후처리 결과를 반환하지 않았습니다"
+                    value: "모델이 후처리 결과를 반환하지 않았어요"
                 )
             ),
             "empty cleanup output exposes a safe Korean reason"
@@ -374,7 +374,7 @@ struct QuillUserIssueTests {
         try expect(!english.compactMessage.contains("xx-XX"), "the private diagnostic stays private")
 
         let korean = issue.record.presentation(language: "ko", bundle: bundle)
-        try expect(korean.title == "이 언어는 Apple 음성 인식을 쓸 수 없습니다", korean.title)
+        try expect(korean.title == "이 언어는 Apple 음성 인식을 쓸 수 없어요", korean.title)
     }
 
     private static func testMeetingSummaryIssueActionResolver() throws {
@@ -563,7 +563,7 @@ struct QuillUserIssueTests {
             english.suggestion == "Try again or switch to another network.",
             "연결 끊김에는 재시도와 다른 네트워크 사용을 안내한다"
         )
-        try expect(korean.title == "연결이 끊겼습니다", "연결 끊김 제목을 한국어로 표시한다")
+        try expect(korean.title == "연결이 끊겼어요", "연결 끊김 제목을 한국어로 표시한다")
         try expect(
             korean.suggestion == "다시 시도하거나 다른 네트워크를 사용해 보세요.",
             "한국어에서도 재시도와 다른 네트워크 사용을 안내한다"

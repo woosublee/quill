@@ -23,8 +23,8 @@ struct LocalizedUserMessageTests {
         let screenshot = LocalizedUserMessage.screenshotFailure(detail: screenshotDetail, language: "ko", bundle: bundle)
 
         assert(englishPermission == "\(permissionDetail)\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.")
-        assert(koreanPermission == "\(permissionDetail)\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요합니다.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요.")
-        assert(screenshot == "스크린샷을 캡처하지 못했습니다: \(screenshotDetail)\n\n맥락 인식 전사에는 스크린샷이 필요합니다. 녹음이 중지되었습니다.")
+        assert(koreanPermission == "\(permissionDetail)\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요해요.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요.")
+        assert(screenshot == "스크린샷을 캡처하지 못했어요: \(screenshotDetail)\n\n맥락 인식 전사에는 스크린샷이 필요해요. 녹음이 중지됐어요.")
         assert(englishPermission.components(separatedBy: permissionDetail).count == 2)
         assert(koreanPermission.components(separatedBy: permissionDetail).count == 2)
         assert(englishPermission.components(separatedBy: "System Settings > Privacy & Security > Screen Recording").count == 2)

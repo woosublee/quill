@@ -580,8 +580,8 @@ struct RecordingOverlayGeometryTests {
         let catalog = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let strings = catalog?["strings"] as? [String: Any] ?? [:]
         let expectedKorean = [
-            RecordingInputHint.quiet.messageKey: "말하고 계신가요? 마이크에서 소리가 들리지 않습니다.",
-            RecordingInputHint.inputLost.messageKey: "마이크 입력이 끊겼습니다. 연결을 확인하세요."
+            RecordingInputHint.quiet.messageKey: "말하고 계신가요? 마이크에서 소리가 들리지 않아요.",
+            RecordingInputHint.inputLost.messageKey: "마이크 입력이 끊겼어요. 연결을 확인하세요."
         ]
         for (key, korean) in expectedKorean {
             let entry = strings[key] as? [String: Any]
