@@ -15,8 +15,10 @@ struct NoteTitleResolutionTests {
         testRecoveredRecordingTitlesNameAvailableSource()
         testStorageInterruptionReasonWinsRecoveredTitle()
         testAudioOnlyTitleUsesNormalPrecedence()
-        testSuggestedCalendarTitleHiddenWhenAlreadyEffectivelyApplied()
-        testSuggestedCalendarTitleHiddenWhenOnlyWhitespaceDiffers()
+        testSuggestedCalendarTitleShownEvenWhenTranscriptReadsLikeIt()
+        testSuggestedCalendarTitleTreatsWhitespaceTitleAsNone()
+        testDateTitleUsesRecordingStartAndLocale()
+        testToolTitleKeepsTheTranscriptsFirstLine()
         testSuggestedCalendarTitleShownWhenItWouldChangeTheTitle()
         testOutsideTitleChangeReplacesTheDraft()
         testOutsideTitleChangeKeepsAnUnsavedEdit()
@@ -165,8 +167,9 @@ struct NoteTitleResolutionTests {
             transcriptionLanguageCode: "auto",
             localTranscriptionModelID: "remembered-model"
         )
-        // Its row preview says "Not transcribed"; the name is the date.
-        assert(NoteTitleResolver.displayTitle(for: audioOnly) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 10)))
+        // Its row preview says "Not transcribed"; the name is when its
+        // recording started, as the row's date reads it.
+        assert(NoteTitleResolver.displayTitle(for: audioOnly) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
 
         let calendarMatch = CalendarEventMatch(
             calendarID: "calendar",
@@ -195,13 +198,12 @@ struct NoteTitleResolutionTests {
     }
 
     // An untitled note is named by its date, so a transcript that happens
-    // to read like the applied title no longer counts as that title: the
+    // to read like the applied title doesn't count as that title: the
     // suggestion is offered.
-    private static func testSuggestedCalendarTitleHiddenWhenAlreadyEffectivelyApplied() {
-        let recordingStartedAt = Date(timeIntervalSince1970: 1)
+    private static func testSuggestedCalendarTitleShownEvenWhenTranscriptReadsLikeIt() {
         let appliedTitle = NoteTitleResolver.calendarAppliedTitle(
             suggestedTitle: "Team Standup",
-            recordingStartedAt: recordingStartedAt
+            recordingStartedAt: Date(timeIntervalSince1970: 1)
         )
         let note = item(
             transcript: appliedTitle,
@@ -210,15 +212,57 @@ struct NoteTitleResolutionTests {
         assert(NoteTitleResolver.suggestedCalendarTitle(for: note)?.applied == appliedTitle)
     }
 
-    // A custom title equal to the applied form hides the suggestion: the
-    // suggestion applies only to notes without a title of their own.
-    private static func testSuggestedCalendarTitleHiddenWhenOnlyWhitespaceDiffers() {
-        let note = item(
+    // A whitespace-only title counts as none, as everywhere else; a padded
+    // real title is the note's own and hides the suggestion.
+    private static func testSuggestedCalendarTitleTreatsWhitespaceTitleAsNone() {
+        let blank = item(
             transcript: "Synthetic transcript",
             calendarMatch: match(title: "Team Standup", titleState: .suggested),
-            customTitle: "  Team Standup  "
+            customTitle: "   "
         )
-        assert(NoteTitleResolver.suggestedCalendarTitle(for: note) == nil)
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: blank)?.suggested == "Team Standup")
+        let titled = item(
+            transcript: "Synthetic transcript",
+            calendarMatch: match(title: "Team Standup", titleState: .suggested),
+            customTitle: "  Planning  "
+        )
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: titled) == nil)
+    }
+
+    private static func testDateTitleUsesRecordingStartAndLocale() {
+        var note = item(transcript: "Synthetic transcript", calendarMatch: nil)
+        let saved = NoteTitleResolver.displayTitle(for: note)
+        assert(saved == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
+        note = PipelineHistoryItem(
+            timestamp: Date(timeIntervalSince1970: 7_200),
+            recordingStartedAt: Date(timeIntervalSince1970: 3_600),
+            rawTranscript: "Synthetic transcript",
+            postProcessedTranscript: "Synthetic transcript",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "Post-processing succeeded",
+            debugStatus: "Done",
+            customVocabulary: ""
+        )
+        assert(NoteTitleResolver.displayTitle(for: note) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 3_600)), "the recording's start, as the row's date")
+        let korean = NoteTitleResolver.displayTitle(for: note, locale: Locale(identifier: "ko_KR"))
+        assert(korean == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 3_600), locale: Locale(identifier: "ko_KR")))
+        assert(korean != NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 3_600), locale: Locale(identifier: "en_US")), "the row's locale decides")
+        assert(NoteTitleResolver.isNamedByDate(note))
+        let live = item(transcript: "", calendarMatch: nil, postProcessingStatus: "live-recording")
+        assert(!NoteTitleResolver.isNamedByDate(live), "a note being recorded keeps its state name")
+    }
+
+    /// AI tools (MCP) keep telling notes apart by their content.
+    private static func testToolTitleKeepsTheTranscriptsFirstLine() {
+        let note = item(transcript: "\n  Weekly sync  \nNotes follow", calendarMatch: nil)
+        assert(NoteTitleResolver.toolTitle(for: note) == "Weekly sync")
+        let titled = item(transcript: "Weekly sync", calendarMatch: nil, customTitle: "Planning")
+        assert(NoteTitleResolver.toolTitle(for: titled) == "Planning")
+        let empty = item(transcript: "", calendarMatch: nil)
+        assert(NoteTitleResolver.toolTitle(for: empty) == NoteTitleResolver.displayTitle(for: empty))
     }
 
     private static func testSuggestedCalendarTitleShownWhenItWouldChangeTheTitle() {

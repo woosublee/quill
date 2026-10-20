@@ -488,6 +488,7 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
         assert(data.displayTitle == "Manual title")
+        assert(!data.isNamedByDate)
         assert(data.preview == "Automatic transcript title\nDetails continue here")
     }
 
@@ -501,6 +502,17 @@ struct NoteListRowDisplayDataTests {
 
         assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
         assert(data.preview == "Automatic transcript title\nDetails continue here", "Unexpected preview: \(data.preview)")
+        // VoiceOver reads the date once: the title already is the date.
+        assert(data.isNamedByDate)
+        let label = NoteListRowAccessibility.label(
+            title: data.displayTitle,
+            date: data.isNamedByDate ? nil : data.rowDate,
+            status: data.status,
+            hasSummary: false,
+            selection: nil,
+            localize: { $0 }
+        )
+        assert(!label.contains(data.rowDate), "Unexpected label: \(label)")
     }
 
     private static func testWhitespaceOnlyCustomTitleDoesNotForceContentPreview() {
@@ -765,7 +777,7 @@ struct NoteListRowDisplayDataTests {
         let retriedAudioOnly = NoteListRowDisplayData(item: audioOnly, retryingIDs: [audioOnly.id])
         assert(retriedAudioOnly.status == .transcribing)
         assert(
-            retriedAudioOnly.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 10)),
+            retriedAudioOnly.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)),
             "Unexpected title: \(retriedAudioOnly.displayTitle)"
         )
 
@@ -915,7 +927,7 @@ struct NoteListRowDisplayDataTests {
         )
 
         assert(data.status == .audioOnly)
-        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 10)))
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
         assert(data.preview == "Not transcribed")
         assert(transcriptStatus(for: item, retrying: [item.id]) == .transcribing)
     }

@@ -431,7 +431,7 @@ final class MCPServer {
                 appState.pipelineHistory,
                 filter: filter,
                 matches: { matcher.matches($0, query: $1) },
-                title: { NoteTitleResolver.displayTitle(for: $0) },
+                title: { NoteTitleResolver.toolTitle(for: $0) },
                 hasSummary: { $0.meetingSummaryJSON != nil },
                 formatter: Self.localISOFormatter()
             )
@@ -451,7 +451,7 @@ final class MCPServer {
             }
             let payload = NotePayload.make(
                 item: item,
-                title: NoteTitleResolver.displayTitle(for: item),
+                title: NoteTitleResolver.toolTitle(for: item),
                 titleSource: NoteTitleResolver.displayTitleSource(for: item).rawValue,
                 summary: item.meetingSummary.map { envelope in
                     NotePayload.Summary(

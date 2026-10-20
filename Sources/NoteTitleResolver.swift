@@ -9,12 +9,43 @@ enum NoteTitleResolver {
         return formatter
     }()
 
-    /// The name of a settled note without a title of its own: when it was
-    /// recorded. The note detail shows the same as its title placeholder,
+    /// The name of a settled note without a title of its own: when its
+    /// recording started (else when it was saved), as the list row's date
+    /// reads it. The note detail shows the same as its title placeholder,
     /// and the iPhone app names such notes the same way.
-    static func dateTitle(for timestamp: Date) -> String {
-        timestamp.formatted(date: .long, time: .shortened)
+    static func dateTitle(for item: PipelineHistoryItem, locale: Locale = .current) -> String {
+        dateTitle(for: item.recordingStartedAt ?? item.timestamp, locale: locale)
     }
+
+    static func dateTitle(for date: Date, locale: Locale = .current) -> String {
+        dateTitleFormatters.string(from: date, locale: locale)
+    }
+
+    /// One formatter per locale: rows and tool listings name many notes.
+    private final class DateTitleFormatters: @unchecked Sendable {
+        private let lock = NSLock()
+        private var formatters: [String: DateFormatter] = [:]
+
+        func string(from date: Date, locale: Locale) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = "\(locale.identifier)|\(TimeZone.current.identifier)|\(Calendar.current.identifier)"
+            let formatter: DateFormatter
+            if let cached = formatters[key] {
+                formatter = cached
+            } else {
+                formatter = DateFormatter()
+                formatter.locale = locale
+                formatter.setLocalizedDateFormatFromTemplate("yMMMMdjm")
+                formatters[key] = formatter
+            }
+            return formatter.string(from: date)
+                .replacingOccurrences(of: "\u{202F}", with: " ")
+                .replacingOccurrences(of: "\u{00A0}", with: " ")
+        }
+    }
+
+    private static let dateTitleFormatters = DateTitleFormatters()
 
     static func calendarAppliedTitle(suggestedTitle: String, recordingStartedAt: Date) -> String {
         "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"
@@ -27,7 +58,10 @@ enum NoteTitleResolver {
     static func suggestedCalendarTitle(
         for item: PipelineHistoryItem
     ) -> (suggested: String, applied: String)? {
-        guard item.customTitle == nil,
+        // A whitespace-only title counts as none, as it does everywhere else.
+        // An untitled note is named by its date, which never reads like the
+        // applied form, so applying always changes the title.
+        guard normalizedCustomTitle(item.customTitle ?? "") == nil,
               item.calendarMatch?.titleState == .suggested,
               let suggestedTitle = item.calendarMatch?.suggestedTitle else {
             return nil
@@ -36,9 +70,6 @@ enum NoteTitleResolver {
             suggestedTitle: suggestedTitle,
             recordingStartedAt: item.timestamp
         )
-        guard displayTitle(for: item) != appliedTitle else {
-            return nil
-        }
         return (suggested: suggestedTitle, applied: appliedTitle)
     }
 
@@ -97,7 +128,8 @@ enum NoteTitleResolver {
         isTranscribing: Bool = false,
         isPostProcessing: Bool = false,
         language: String = preferredLocalizedStringLanguage(),
-        bundle: Bundle = .main
+        bundle: Bundle = .main,
+        locale: Locale = .current
     ) -> String {
         if let explicit = explicitTitle(for: item) {
             return explicit.title
@@ -107,7 +139,8 @@ enum NoteTitleResolver {
             isTranscribing: isTranscribing,
             isPostProcessing: isPostProcessing,
             language: language,
-            bundle: bundle
+            bundle: bundle,
+            locale: locale
         )
     }
 
@@ -116,41 +149,72 @@ enum NoteTitleResolver {
         isTranscribing: Bool = false,
         isPostProcessing: Bool = false,
         language: String = preferredLocalizedStringLanguage(),
-        bundle: Bundle = .main
+        bundle: Bundle = .main,
+        locale: Locale = .current
     ) -> String {
-        let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A note still being made, or recovered, says so; once settled it is
-        // named by when it was recorded. Its row preview tells the rest
-        // ("Not transcribed", "Couldn't transcribe", the transcript).
-        if content.isEmpty {
-            if isTranscribing {
-                return localizedCatalogString(
-                    isPostProcessing ? "Post-processing..." : "Transcribing...",
-                    language: language,
-                    bundle: bundle
-                )
-            }
-            if case .unrecovered = item.machineStatus {
-                return localizedCatalogString(
-                    "New Recording",
-                    language: language,
-                    bundle: bundle
-                )
-            }
-            if let context = item.recoveredRecordingContext {
-                return localizedCatalogString(
-                    context.titleLocalizationKey,
-                    language: language,
-                    bundle: bundle
-                )
-            }
-            if item.postProcessingStatus == "live-recording" {
-                return localizedCatalogString("Recording...", language: language, bundle: bundle)
-            }
-            if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" {
-                return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
-            }
+        stateTitle(
+            for: item,
+            isTranscribing: isTranscribing,
+            isPostProcessing: isPostProcessing,
+            language: language,
+            bundle: bundle
+        ) ?? dateTitle(for: item, locale: locale)
+    }
+
+    /// True when the note is named by its date: no title of its own, and
+    /// settled. Its row then doesn't read the date twice.
+    static func isNamedByDate(_ item: PipelineHistoryItem) -> Bool {
+        explicitTitle(for: item) == nil
+            && stateTitle(for: item, language: "en", bundle: .main) == nil
+    }
+
+    /// The title for AI tools (MCP): a title of its own, else the
+    /// transcript's first line, so a tool can tell notes apart by name;
+    /// else the name the app shows.
+    static func toolTitle(for item: PipelineHistoryItem) -> String {
+        if let explicit = explicitTitle(for: item) {
+            return explicit.title
         }
-        return dateTitle(for: item.timestamp)
+        let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return displayTitle(for: item) }
+        let firstLine = content.components(separatedBy: .newlines)
+            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? content
+        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+        return trimmed.count <= 60 ? trimmed : String(trimmed.prefix(60))
+    }
+
+    /// The name of a note still being made, or recovered; nil once it is
+    /// settled and named by when it was recorded. Its row preview tells the
+    /// rest ("Not transcribed", "Couldn't transcribe", the transcript).
+    private static func stateTitle(
+        for item: PipelineHistoryItem,
+        isTranscribing: Bool = false,
+        isPostProcessing: Bool = false,
+        language: String,
+        bundle: Bundle
+    ) -> String? {
+        let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard content.isEmpty else { return nil }
+        if isTranscribing {
+            return localizedCatalogString(
+                isPostProcessing ? "Post-processing..." : "Transcribing...",
+                language: language,
+                bundle: bundle
+            )
+        }
+        if let context = item.recoveredRecordingContext {
+            return localizedCatalogString(
+                context.titleLocalizationKey,
+                language: language,
+                bundle: bundle
+            )
+        }
+        if item.postProcessingStatus == "live-recording" {
+            return localizedCatalogString("Recording...", language: language, bundle: bundle)
+        }
+        if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" {
+            return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
+        }
+        return nil
     }
 }
