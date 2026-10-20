@@ -228,7 +228,7 @@ struct SettingsLocalizationTests {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
             "Calendar Connections": "캘린더 연결",
-            "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채워요. 일정은 노트와 함께일 때만 Mac 밖으로 나가요. iCloud 동기화를 켜면 본인 iCloud로, 설정 › AI 도구에서 허용하면 연결한 AI 도구로 전달돼요.",
+            "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채워요. iCloud 동기화를 켜거나 설정 › AI 도구에서 도구를 허용하면, 노트에 연결된 일정도 노트와 함께 본인 iCloud나 그 도구로 전달돼요.",
             "Apple Calendar": "Apple 캘린더",
             "Use events from the Mac Calendar app": "Mac 캘린더 앱의 일정 사용",
             "Calendar access is off": "캘린더 접근이 꺼져 있어요",
