@@ -99,7 +99,7 @@ private struct ConnectionsSyncCard: View {
             isOn: controller.isEnabled ? .constant(true) : $wantsICloudSync,
             isDisabled: controller.isEnabled
         ) {
-            Text("Keeps your notes the same on your Macs with this iCloud account. Notes and audio are stored only in your private iCloud.")
+            Text("Keeps your notes the same on your devices with this iCloud account. Notes and audio are stored only in your private iCloud.")
             if !controller.isEnabled {
                 uploadSize
             }

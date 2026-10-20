@@ -60,7 +60,7 @@ When configured by the user, Quill may send necessary audio, transcript, selecte
 - Custom vocabulary and custom prompts.
 - Independent microphone selection with microphone, system audio, or combined capture that can be switched mid-recording.
 - Recording overlay with a live waveform and optional elapsed-time display.
-- Optional iCloud sync of notes between the user's Macs (off by default).
+- Optional iCloud sync of notes between the user's devices (off by default).
 - Optional local MCP server for driving recordings and reading notes from Claude Code (off by default).
 - Optional read-only Google Calendar note title suggestions and in-app meeting reminders.
 - Local run history for reviewing and retrying dictation results.

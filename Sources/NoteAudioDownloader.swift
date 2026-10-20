@@ -3,7 +3,7 @@ import Foundation
 
 /// Why a note's audio can't be downloaded right now.
 enum NoteAudioUnavailableReason: Equatable, Sendable {
-    /// No marker: the Mac that recorded it hasn't finished uploading.
+    /// No marker: the device that recorded it hasn't finished uploading.
     case notUploadedYet
     case syncOff
     case offline
@@ -24,7 +24,7 @@ enum NoteAudioState: Equatable {
         guard case .unavailable(let reason) = self else { return nil }
         switch reason {
         case .notUploadedYet:
-            return localizedCatalogString("It can be downloaded once the Mac that recorded it uploads it to iCloud.")
+            return localizedCatalogString("It can be downloaded once the device that recorded it uploads it to iCloud.")
         case .syncOff:
             return localizedCatalogString("Turn on iCloud sync to download this audio.")
         case .offline:

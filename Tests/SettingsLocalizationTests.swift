@@ -292,7 +292,7 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "iCloud Sync": "iCloud 동기화",
             "Sync this Mac's notes with iCloud": "이 Mac의 노트를 iCloud로 동기화",
-            "Keeps your notes the same on your Macs with this iCloud account.": "같은 iCloud 계정의 다른 Mac과 노트를 맞춰요.",
+            "Keeps your notes the same on your devices with this iCloud account.": "같은 iCloud 계정의 다른 기기와 노트를 맞춰요.",
             "Sync Now": "지금 동기화",
             "1 note": "노트 1개",
             "%lld notes": "노트 %lld개",
@@ -310,23 +310,23 @@ struct SettingsLocalizationTests {
             "Your notes weren't deleted. Turn sync on again to continue with the new account.": "노트는 지우지 않았어요. 새 계정으로 이어 가려면 스위치를 다시 켜 주세요.",
             "Sync stopped because you signed out of iCloud": "iCloud에서 로그아웃해서 동기화를 멈췄어요",
             "Your notes weren't deleted. Sign in to iCloud, then turn sync on again.": "노트는 지우지 않았어요. iCloud에 로그인한 뒤 스위치를 다시 켜 주세요.",
-            "iCloud data was deleted from another Mac, so sync stopped": "다른 Mac에서 iCloud 데이터를 지워서 동기화를 멈췄어요",
+            "iCloud data was deleted from another device, so sync stopped": "다른 기기에서 iCloud 데이터를 지워서 동기화를 멈췄어요",
             "Notes on this Mac weren't deleted.": "이 Mac의 노트는 지우지 않았어요.",
             "iCloud sync needs macOS 14 or later": "iCloud 동기화는 macOS 14 이상에서 쓸 수 있어요",
             "This build doesn't support iCloud sync": "이 빌드는 iCloud 동기화를 지원하지 않아요",
             "Turn on iCloud sync?": "iCloud 동기화를 켤까요?",
-            "Upload 1 note from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one.": "이 Mac의 노트 1개를 iCloud에 올려요. 다른 Mac에서 올린 노트도 받아서 하나의 목록으로 합쳐요.",
-            "Upload %lld notes from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one.": "이 Mac의 노트 %lld개를 iCloud에 올려요. 다른 Mac에서 올린 노트도 받아서 하나의 목록으로 합쳐요.",
+            "Upload 1 note from this Mac to iCloud. Notes from your other devices download too, and the lists merge into one.": "이 Mac의 노트 1개를 iCloud에 올려요. 다른 기기에서 올린 노트도 받아서 하나의 목록으로 합쳐요.",
+            "Upload %lld notes from this Mac to iCloud. Notes from your other devices download too, and the lists merge into one.": "이 Mac의 노트 %lld개를 iCloud에 올려요. 다른 기기에서 올린 노트도 받아서 하나의 목록으로 합쳐요.",
             "Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads.": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요. 올리는 동안에도 Quill을 평소처럼 쓸 수 있어요.",
             "Turn On and Upload": "켜고 올리기",
             "Turn off iCloud sync?": "iCloud 동기화를 끌까요?",
-            "Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.": "이 Mac의 노트는 그대로 남아요. 동기화만 끄면 iCloud의 노트는 다른 Mac을 위해 남겨 둬요. 끄고 iCloud에서도 지우면 iCloud의 Quill 데이터를 모두 지워요. 모든 Mac의 동기화가 멈추고, 각 Mac의 노트는 남아요.",
+            "Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other devices. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every device, and each device keeps its notes.": "이 Mac의 노트는 그대로 남아요. 동기화만 끄면 iCloud의 노트는 다른 기기를 위해 남겨 둬요. 끄고 iCloud에서도 지우면 iCloud의 Quill 데이터를 모두 지워요. 모든 기기의 동기화가 멈추고, 각 기기의 노트는 남아요.",
             "Turn Off Sync": "동기화만 끄기",
             "Turn Off and Delete from iCloud": "끄고 iCloud에서도 지우기",
             "Couldn't delete from iCloud": "iCloud에서 지우지 못했어요",
             "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
             "This includes %@ of audio.": "오디오 %@도 함께 올라가요.",
-            "It can be downloaded once the Mac that recorded it uploads it to iCloud.": "녹음한 Mac에서 iCloud로 올리면 받을 수 있어요.",
+            "It can be downloaded once the device that recorded it uploads it to iCloud.": "녹음한 기기에서 iCloud로 올리면 받을 수 있어요.",
             "Waiting for upload": "업로드 대기 중",
             "Sync off": "동기화 꺼짐",
             "Turn on iCloud sync to download this audio.": "이 오디오를 받으려면 iCloud 동기화를 켜 주세요.",
@@ -386,7 +386,7 @@ struct SettingsLocalizationTests {
         // On, the card is the status line and Sync Now; what goes to iCloud
         // is said once, when turning on. Off, one line says what it does.
         assert(!view.contains("Screenshots and window details stay on this Mac."))
-        assert(view.contains("Text(\"Keeps your notes the same on your Macs with this iCloud account.\")"))
+        assert(view.contains("Text(\"Keeps your notes the same on your devices with this iCloud account.\")"))
         assert(view.contains("await controller.syncNow()"))
         assert(view.contains(".help(\"Sync Now\")"))
         assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
@@ -394,7 +394,7 @@ struct SettingsLocalizationTests {
         // The confirmations say how much audio goes up, and what deleting
         // from iCloud would lose.
         assert(view.contains("Text(turnOnMessage) + audioSizeText + Text(\"\\n\\n\")"))
-        assert(view.contains("each Mac keeps its notes.\") + audioOnlyInICloudText"))
+        assert(view.contains("each device keeps its notes.\") + audioOnlyInICloudText"))
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         assert(settings.contains("case .sync:\n                    SyncSettingsView()"))
     }
