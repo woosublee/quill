@@ -2999,7 +2999,7 @@ private struct NoteDetailView: View {
 
             // Title — auto-save on change
             HorizontallyScrollableTitleField(
-                placeholder: item.timestamp.formatted(date: .long, time: .shortened),
+                placeholder: NoteTitleResolver.dateTitle(for: item.timestamp),
                 text: $titleDraft
             )
             .frame(minHeight: 38, maxHeight: 38, alignment: .leading)

@@ -21,7 +21,8 @@ struct NoteTitleHorizontalScrollFieldTests {
         )
 
         precondition(header.contains("HorizontallyScrollableTitleField("))
-        precondition(header.contains("placeholder: item.timestamp.formatted(date: .long, time: .shortened),"))
+        // The same date the list names an untitled note by.
+        precondition(header.contains("placeholder: NoteTitleResolver.dateTitle(for: item.timestamp),"))
         precondition(header.contains("text: $titleDraft"))
         precondition(!header.contains("TextField(\n                item.timestamp.formatted(date: .long, time: .shortened),\n                text: $titleDraft"))
         precondition(header.contains(".onChange(of: titleDraft)"))

@@ -44,13 +44,15 @@ struct NoteTitleResolutionTests {
     private static func testSuggestedCalendarTitleDoesNotOverrideTranscriptTitle() {
         let item = item(transcript: "Transcript title", calendarMatch: match(title: "Calendar title", titleState: .suggested))
         let title = NoteTitleResolver.displayTitle(for: item)
-        assert(title == "Transcript title")
+        // An untitled note is named by when it was recorded, as its detail
+        // placeholder and the iPhone app show it.
+        assert(title == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testFallbackUsedWhenNoContentOrAppliedCalendarTitle() {
         let item = item(transcript: "", calendarMatch: nil)
         let title = NoteTitleResolver.displayTitle(for: item)
-        assert(title == "(No content)")
+        assert(title == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testTranscribingFallbackWinsOverFailedEmptyContent() {
@@ -68,7 +70,7 @@ struct NoteTitleResolutionTests {
         )
         assert(title == "Post-processing...")
         // Post-processing only labels a note that is still being processed.
-        assert(NoteTitleResolver.displayTitle(for: item, isPostProcessing: true) == "(No content)")
+        assert(NoteTitleResolver.displayTitle(for: item, isPostProcessing: true) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testProcessingTitlesAreLocalized() {
@@ -163,7 +165,8 @@ struct NoteTitleResolutionTests {
             transcriptionLanguageCode: "auto",
             localTranscriptionModelID: "remembered-model"
         )
-        assert(NoteTitleResolver.displayTitle(for: audioOnly) == "Audio recording")
+        // Its row preview says "Not transcribed"; the name is the date.
+        assert(NoteTitleResolver.displayTitle(for: audioOnly) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 10)))
 
         let calendarMatch = CalendarEventMatch(
             calendarID: "calendar",
@@ -191,9 +194,9 @@ struct NoteTitleResolutionTests {
         )
     }
 
-    // Applying the suggestion would set the effective title to exactly what
-    // is already shown (the transcript-derived title happens to match), so
-    // the banner offering that suggestion must not appear.
+    // An untitled note is named by its date, so a transcript that happens
+    // to read like the applied title no longer counts as that title: the
+    // suggestion is offered.
     private static func testSuggestedCalendarTitleHiddenWhenAlreadyEffectivelyApplied() {
         let recordingStartedAt = Date(timeIntervalSince1970: 1)
         let appliedTitle = NoteTitleResolver.calendarAppliedTitle(
@@ -204,21 +207,16 @@ struct NoteTitleResolutionTests {
             transcript: appliedTitle,
             calendarMatch: match(title: "Team Standup", titleState: .suggested)
         )
-        assert(NoteTitleResolver.suggestedCalendarTitle(for: note) == nil)
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: note)?.applied == appliedTitle)
     }
 
-    // displayTitle(for:) trims the transcript-derived title, so a match that
-    // is only different by leading/trailing whitespace must still count as
-    // already applied and hide the banner.
+    // A custom title equal to the applied form hides the suggestion: the
+    // suggestion applies only to notes without a title of their own.
     private static func testSuggestedCalendarTitleHiddenWhenOnlyWhitespaceDiffers() {
-        let recordingStartedAt = Date(timeIntervalSince1970: 1)
-        let appliedTitle = NoteTitleResolver.calendarAppliedTitle(
-            suggestedTitle: "Team Standup",
-            recordingStartedAt: recordingStartedAt
-        )
         let note = item(
-            transcript: "  \(appliedTitle)  ",
-            calendarMatch: match(title: "Team Standup", titleState: .suggested)
+            transcript: "Synthetic transcript",
+            calendarMatch: match(title: "Team Standup", titleState: .suggested),
+            customTitle: "  Team Standup  "
         )
         assert(NoteTitleResolver.suggestedCalendarTitle(for: note) == nil)
     }

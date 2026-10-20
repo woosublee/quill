@@ -252,8 +252,8 @@ struct NoteListRowDisplayData: Equatable {
         // The row names the note; the stage ("Transcribing…", "Post-
         // processing…") is shown once, in the note detail, and by the row's
         // spinner. A recording or import with no title or transcript yet
-        // gets a neutral name; a note being retried keeps its own name, such
-        // as "Audio recording" or "New Recording", never the stage.
+        // gets a neutral name; a note being retried keeps its own name
+        // (its title, or when it was recorded), never the stage.
         let hasOwnTitle = customTitle != nil || item.calendarMatch?.appliedTitle != nil
         let isUnnamed = !hasOwnTitle && content.isEmpty && !retryingIDs.contains(item.id)
         // An import transcribed by a cloud model has the cloud status, not

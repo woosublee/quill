@@ -9,6 +9,13 @@ enum NoteTitleResolver {
         return formatter
     }()
 
+    /// The name of a settled note without a title of its own: when it was
+    /// recorded. The note detail shows the same as its title placeholder,
+    /// and the iPhone app names such notes the same way.
+    static func dateTitle(for timestamp: Date) -> String {
+        timestamp.formatted(date: .long, time: .shortened)
+    }
+
     static func calendarAppliedTitle(suggestedTitle: String, recordingStartedAt: Date) -> String {
         "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"
     }
@@ -112,6 +119,9 @@ enum NoteTitleResolver {
         bundle: Bundle = .main
     ) -> String {
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A note still being made, or recovered, says so; once settled it is
+        // named by when it was recorded. Its row preview tells the rest
+        // ("Not transcribed", "Couldn't transcribe", the transcript).
         if content.isEmpty {
             if isTranscribing {
                 return localizedCatalogString(
@@ -120,24 +130,12 @@ enum NoteTitleResolver {
                     bundle: bundle
                 )
             }
-            if item.machineStatus == .audioOnly {
-                return localizedCatalogString(
-                    "Audio recording",
-                    language: language,
-                    bundle: bundle
-                )
-            }
-            // A failed note keeps a plain name; the list preview and the
-            // note detail say what went wrong.
-            switch item.machineStatus {
-            case .failed, .unrecovered:
+            if case .unrecovered = item.machineStatus {
                 return localizedCatalogString(
                     "New Recording",
                     language: language,
                     bundle: bundle
                 )
-            default:
-                break
             }
             if let context = item.recoveredRecordingContext {
                 return localizedCatalogString(
@@ -152,10 +150,7 @@ enum NoteTitleResolver {
             if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" {
                 return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
             }
-            return "(No content)"
         }
-        let firstLine = content.components(separatedBy: .newlines).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? content
-        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        return trimmed.count <= 60 ? trimmed : String(trimmed.prefix(60))
+        return dateTitle(for: item.timestamp)
     }
 }
