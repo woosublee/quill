@@ -591,12 +591,12 @@ struct SettingsLocalizationTests {
             "Delete Summary Only": "요약만 삭제",
             "Delete Entire Note": "노트 전체 삭제",
             "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다.",
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지고 되돌릴 수 없어요.",
             "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워집니다. 삭제한 뒤 잠시 동안 취소할 수 있습니다.",
-            "Note deleted": "노트를 삭제했습니다",
-            "%lld notes deleted": "노트 %lld개를 삭제했습니다",
-            "You can cancel for a few seconds after deleting.": "삭제한 뒤 잠시 동안 취소할 수 있습니다.",
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워져요. 삭제한 뒤 잠시 동안 취소할 수 있어요.",
+            "Note deleted": "노트를 삭제했어요",
+            "%lld notes deleted": "노트 %lld개를 삭제했어요",
+            "You can cancel for a few seconds after deleting.": "삭제한 뒤 잠시 동안 취소할 수 있어요.",
             "Show Less": "접기",
             "Could not delete summary.": "요약을 삭제하지 못했어요.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":
@@ -608,7 +608,7 @@ struct SettingsLocalizationTests {
                 "잠시 후 다시 만들기를 시도하거나, 회의 요약 설정에서 다른 모델을 선택하세요.",
             "Summary response could not be read": "요약 응답을 읽을 수 없음",
             "Retry Summary": "요약 재시도",
-            "Some evidence could not be verified.": "일부 근거를 확인하지 못했습니다.",
+            "Some evidence could not be verified.": "일부 근거를 확인하지 못했어요.",
             "Review the summary before sharing it.": "공유하기 전에 요약을 검토하세요.",
             "Summary language could not be determined": "요약 언어를 확인할 수 없어요",
             "The provider returned a response Quill could not use for the summary.":
