@@ -943,8 +943,11 @@ struct LocalizationResourceTests {
         let infoPlist = NSDictionary(contentsOf: root.appendingPathComponent("Info.plist")) as? [String: Any] ?? [:]
         for key in ["NSCalendarsFullAccessUsageDescription", "NSCalendarsUsageDescription"] {
             assert(infoPlist[key] as? String == valuesByLanguage["en"]?[key], "Info.plist \(key) differs from en.lproj")
-            assert(valuesByLanguage["en"]?[key]?.contains("iCloud sync") == true, "\(key) should say events can leave with iCloud sync")
-            assert(valuesByLanguage["ko"]?[key]?.contains("iCloud 동기화") == true, "\(key) should say events can leave with iCloud sync (ko)")
+            let english = valuesByLanguage["en"]?[key] ?? ""
+            let korean = valuesByLanguage["ko"]?[key] ?? ""
+            assert(english.contains("iCloud sync") && english.contains("AI tool"), "\(key) should name both ways events leave")
+            assert(korean.contains("iCloud 동기화") && korean.contains("AI 도구"), "\(key) should name both ways events leave (ko)")
+            assert(!english.contains("never leave") && !korean.contains("전송되지 않"), "\(key) must not say events never leave the Mac")
         }
     }
 
