@@ -675,7 +675,7 @@ struct LocalizationResourceTests {
         try assertBundledDynamicString(
             key: "Welcome to %@",
             arguments: ["Quill"],
-            expected: ["en": "Welcome to Quill", "ko": "Quill에 오신 것을 환영해요."],
+            expected: ["en": "Welcome to Quill", "ko": "Quill에 오신 걸 환영해요."],
             languageBundles: languageBundles
         )
 

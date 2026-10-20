@@ -3868,7 +3868,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 오신 것을 환영해요."
+            "value": "%@에 오신 걸 환영해요."
           }
         }
       }
@@ -5006,7 +5006,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빠른 로컬 받아쓰기. 약 %@."
+            "value": "빠른 로컬 전사. 약 %@."
           }
         }
       }
@@ -5070,7 +5070,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "받아쓰기 모델에 주는 힌트예요. 대부분의 사용자에게 자동 감지가 적합해요. 결과에 잘못된 문자 체계가 보이면 특정 언어를 선택하세요."
+            "value": "전사 모델에 주는 힌트예요. 대부분의 사용자에게 자동 감지가 적합해요. 결과에 잘못된 문자 체계가 보이면 특정 언어를 선택하세요."
           }
         }
       }
@@ -5651,7 +5651,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quill은 선택한 OpenAI 호환 제공업체와 구성된 받아쓰기 모델을 사용해요."
+            "value": "Quill은 선택한 OpenAI 호환 제공업체와 구성된 전사 모델을 사용해요."
           }
         }
       }
@@ -7562,7 +7562,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최종 출력 언어를 선택하려면 API 제공업체 받아쓰기를 사용하세요."
+            "value": "최종 출력 언어를 선택하려면 API 제공업체 전사를 사용하세요."
           }
         }
       }
@@ -7594,7 +7594,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "후처리를 위한 최종 받아쓰기 언어예요."
+            "value": "후처리를 위한 최종 전사문 언어예요."
           }
         }
       }
@@ -11663,7 +11663,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제공자가 Quill에서 사용할 수 없는 응답을 반환했어요."
+            "value": "제공자가 Quill에서 사용할 수 없는 응답을 보냈어요."
           }
         }
       }
@@ -19039,7 +19039,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "복구하지 못한 녹음 조각도 함께 삭제돼요. 되돌릴 수 없어요."
+            "value": "복구하지 못한 녹음 조각도 함께 삭제돼요. 이 작업은 되돌릴 수 없어요."
           }
         }
       }
