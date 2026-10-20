@@ -154,7 +154,7 @@ struct ModelsSettingsUIContractTests {
             "openai/gpt-oss-20b",
             "openai/gpt-oss-120b",
             "qwen/qwen3-32b",
-            "qwen/qwen3.6-27b",
+            "qwen/qwen3.8-27b",
             "whisper-large-v3",
             "whisper-large-v3-turbo"
         ] {

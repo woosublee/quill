@@ -119,11 +119,13 @@ struct AppStateTranscriptionConfigurationTests {
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
-        testQwen36ModelConfiguration()
+        testQwen38ModelConfiguration()
         testQwen36ContextReasoningIsStripped()
+        testGroqQwen36SelectionsMoveToQwen38()
+        testOtherProvidersKeepQwen36()
         testContextSummaryPreservesNonReasoningModelOutput()
-        testContextModelDefaultsToQwen36()
-        testDeprecatedDefaultContextModelMigratesToQwen36()
+        testContextModelDefaultsToQwen38()
+        testDeprecatedDefaultContextModelMigratesToQwen38()
         testCustomContextModelIsPreserved()
         testLLMTransportTimeoutNormalization()
         testPostProcessingCooldownDispositionDefaultsToProcessed()
@@ -863,11 +865,68 @@ struct AppStateTranscriptionConfigurationTests {
         assert(issue.record.context.modelID == "provider/model")
     }
 
-    private static func testQwen36ModelConfiguration() {
-        assert(ModelConfiguration.llmModels.contains("qwen/qwen3.6-27b"))
-        assert(ModelConfiguration.config(for: "qwen/qwen3.6-27b").reasoningEffort == "none")
-        assert(ModelConfiguration.config(for: "qwen/qwen3.6-27b").includeReasoning == false)
-        assert(ModelConfiguration.config(for: "qwen3.6-27b").shouldStripThinkTags)
+    private static func testQwen38ModelConfiguration() {
+        assert(ModelConfiguration.llmModels.contains("qwen/qwen3.8-27b"))
+        assert(!ModelConfiguration.llmModels.contains("qwen/qwen3.6-27b"))
+        assert(!ModelConfiguration.llmModels.contains("groq/compound"))
+        assert(!ModelConfiguration.llmModels.contains("groq/compound-mini"))
+        assert(ModelConfiguration.visionModels == ["qwen/qwen3.8-27b"])
+        for model in ["qwen/qwen3.8-27b", "qwen3.8-27b", "qwen/qwen3.6-27b", "qwen3.6-27b"] {
+            assert(ModelConfiguration.config(for: model).reasoningEffort == "none", model)
+            assert(ModelConfiguration.config(for: model).includeReasoning == false, model)
+            assert(ModelConfiguration.config(for: model).shouldStripThinkTags, model)
+            assert(ModelConfiguration.capabilities(for: model).supports(.contextCapture), model)
+        }
+    }
+
+    private static func testGroqQwen36SelectionsMoveToQwen38() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        for key in ["post_processing_model", "post_processing_fallback_model", "context_model", "meeting_summary_model", "meeting_summary_fallback_model"] {
+            defaults.set(" Qwen3.6-27b ", forKey: key)
+        }
+        defaults.set(true, forKey: "meeting_summary_settings_initialized")
+        for key in ["context_backend_choice", "post_processing_backend_choice", "meeting_summary_backend_choice"] {
+            AIProcessingBackendChoiceStore.save(.cloud(modelID: "qwen/qwen3.6-27b"), defaults: defaults, key: key)
+        }
+
+        let appState = makeAppState()
+
+        for key in ["post_processing_model", "post_processing_fallback_model", "context_model", "meeting_summary_model", "meeting_summary_fallback_model"] {
+            assert(defaults.string(forKey: key) == "qwen/qwen3.8-27b", "\(key): \(defaults.string(forKey: key) ?? "nil")")
+        }
+        for key in ["context_backend_choice", "post_processing_backend_choice", "meeting_summary_backend_choice"] {
+            assert(AIProcessingBackendChoiceStore.load(defaults: defaults, key: key, fallbackCloudModelID: "") == .cloud(modelID: "qwen/qwen3.8-27b"), key)
+        }
+        assert(appState.contextModel == "qwen/qwen3.8-27b")
+        for key in ["post_processing_model", "post_processing_fallback_model", "meeting_summary_model", "meeting_summary_fallback_model", "post_processing_backend_choice", "meeting_summary_backend_choice", "meeting_summary_settings_initialized"] {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private static func testOtherProvidersKeepQwen36() {
+        let suite = "app_state_transcription_test_groq_migration"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("qwen/qwen3.6-27b", forKey: "model")
+        AIProcessingBackendChoiceStore.save(.cloud(modelID: "qwen/qwen3.6-27b"), defaults: defaults, key: "choice")
+        AIProcessingBackendChoiceStore.save(.localAI(modelID: "qwen/qwen3.6-27b"), defaults: defaults, key: "local")
+
+        for baseURL in ["https://api.example.com/openai/v1", "http://api.groq.com/openai/v1", "https://api.groq.com/v2"] {
+            ModelConfiguration.migrateGroqSelection(key: "model", baseURL: baseURL, defaults: defaults)
+            AIProcessingBackendChoiceStore.migrateGroqSelection(key: "choice", baseURL: baseURL, defaults: defaults)
+        }
+        assert(defaults.string(forKey: "model") == "qwen/qwen3.6-27b")
+        assert(AIProcessingBackendChoiceStore.load(defaults: defaults, key: "choice", fallbackCloudModelID: "") == .cloud(modelID: "qwen/qwen3.6-27b"))
+
+        // Local models are never renamed, even on Groq.
+        AIProcessingBackendChoiceStore.migrateGroqSelection(key: "local", baseURL: "https://api.groq.com/openai/v1/", defaults: defaults)
+        assert(AIProcessingBackendChoiceStore.load(defaults: defaults, key: "local", fallbackCloudModelID: "") == .localAI(modelID: "qwen/qwen3.6-27b"))
+        // Other models on Groq stay as chosen.
+        defaults.set("openai/gpt-oss-120b", forKey: "model")
+        ModelConfiguration.migrateGroqSelection(key: "model", baseURL: "https://api.groq.com/openai/v1", defaults: defaults)
+        assert(defaults.string(forKey: "model") == "openai/gpt-oss-120b")
     }
 
     private static func testQwen36ContextReasoningIsStripped() {
@@ -892,23 +951,23 @@ struct AppStateTranscriptionConfigurationTests {
         assert(summary == output)
     }
 
-    private static func testContextModelDefaultsToQwen36() {
+    private static func testContextModelDefaultsToQwen38() {
         resetDefaults()
         let appState = makeAppState()
 
-        assert(AppState.defaultContextModel == "qwen/qwen3.6-27b")
-        assert(appState.contextModel == "qwen/qwen3.6-27b")
+        assert(AppState.defaultContextModel == "qwen/qwen3.8-27b")
+        assert(appState.contextModel == "qwen/qwen3.8-27b")
     }
 
-    private static func testDeprecatedDefaultContextModelMigratesToQwen36() {
+    private static func testDeprecatedDefaultContextModelMigratesToQwen38() {
         resetDefaults()
         let defaults = UserDefaults.standard
         defaults.set("meta-llama/llama-4-scout-17b-16e-instruct", forKey: "context_model")
 
         let appState = makeAppState()
 
-        assert(appState.contextModel == "qwen/qwen3.6-27b")
-        assert(defaults.string(forKey: "context_model") == "qwen/qwen3.6-27b")
+        assert(appState.contextModel == "qwen/qwen3.8-27b")
+        assert(defaults.string(forKey: "context_model") == "qwen/qwen3.8-27b")
     }
 
     private static func testCustomContextModelIsPreserved() {

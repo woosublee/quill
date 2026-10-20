@@ -525,7 +525,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let defaultTranscriptionModel = "whisper-large-v3"
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
     static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
-    static let defaultContextModel = "qwen/qwen3.6-27b"
+    static let defaultContextModel = ModelConfiguration.groqQwenModelID
     static let defaultMeetingSummaryModel = defaultPostProcessingModel
     static let defaultMeetingSummaryFallbackModel = defaultPostProcessingFallbackModel
     private static let deprecatedDefaultContextModel = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -3071,6 +3071,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
             account: "api_base_url",
             credentialStore: initialCredentialStore
         )
+        for key in [
+            postProcessingModelStorageKey,
+            postProcessingFallbackModelStorageKey,
+            contextModelStorageKey,
+            meetingSummaryModelStorageKey,
+            meetingSummaryFallbackModelStorageKey
+        ] {
+            ModelConfiguration.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+        }
+        for key in [
+            postProcessingBackendChoiceStorageKey,
+            contextBackendChoiceStorageKey,
+            meetingSummaryBackendChoiceStorageKey
+        ] {
+            AIProcessingBackendChoiceStore.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+        }
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(
             account: transcriptionAPIURLStorageKey,

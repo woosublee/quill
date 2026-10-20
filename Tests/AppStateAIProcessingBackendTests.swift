@@ -482,7 +482,7 @@ struct AppStateAIProcessingBackendTests {
                 )
             }
             let contextCloudDisplays = appState.aiProcessingChoiceDisplays(for: .context)
-                .filter { $0.choice == .cloud(modelID: "qwen/qwen3.6-27b") }
+                .filter { $0.choice == .cloud(modelID: "qwen/qwen3.8-27b") }
             precondition(
                 contextCloudDisplays.count == 1
                     && contextCloudDisplays[0].isAvailable,

@@ -16,17 +16,45 @@ public struct ModelConfiguration {
         "openai/gpt-oss-120b",
         "openai/gpt-oss-safeguard-20b",
         "qwen/qwen3-32b",
-        "qwen/qwen3.6-27b",
-        "groq/compound",
-        "groq/compound-mini"
+        "qwen/qwen3.8-27b"
     ]
 
     // MARK: - Vision-capable models
 
     /// Models that accept image input. The context model must support vision for screenshot analysis to work.
     public static let visionModels = [
-        "qwen/qwen3.6-27b"
+        "qwen/qwen3.8-27b"
     ]
+
+    /// Groq retired Qwen 3.6 and serves Qwen 3.8 in its place.
+    static let retiredGroqQwenModelID = "qwen/qwen3.6-27b"
+    static let groqQwenModelID = "qwen/qwen3.8-27b"
+
+    /// Only Groq's own endpoint is migrated. Other providers can still serve
+    /// Qwen 3.6 under the same model name.
+    static func isGroqBaseURL(_ baseURL: String) -> Bool {
+        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return false
+        }
+        return url.scheme?.lowercased() == "https"
+            && url.host?.lowercased() == "api.groq.com"
+            && url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "openai/v1"
+    }
+
+    /// The Groq replacement for a retired model ID, or nil when it is kept.
+    static func groqReplacement(for modelID: String, baseURL: String) -> String? {
+        guard isGroqBaseURL(baseURL),
+              AIModelIDNormalizer.normalizedCloudModelID(modelID) == retiredGroqQwenModelID else {
+            return nil
+        }
+        return groqQwenModelID
+    }
+
+    static func migrateGroqSelection(key: String, baseURL: String, defaults: UserDefaults) {
+        guard let stored = defaults.string(forKey: key),
+              let replacement = groqReplacement(for: stored, baseURL: baseURL) else { return }
+        defaults.set(replacement, forKey: key)
+    }
 
     static func capabilities(for modelID: String) -> AIModelCapabilities {
         AIModelCapabilityCatalog.capabilities(forCloudModelID: modelID)
@@ -69,7 +97,7 @@ public struct ModelConfiguration {
                 includeReasoning: nil,
                 shouldStripThinkTags: true
             )
-        } else if cleanModel == "qwen/qwen3.6-27b" {
+        } else if cleanModel == "qwen/qwen3.8-27b" || cleanModel == "qwen/qwen3.6-27b" {
             return ModelConfig(
                 maxCompletionTokens: nil,
                 reasoningEffort: "none",
