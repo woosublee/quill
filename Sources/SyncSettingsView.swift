@@ -94,7 +94,7 @@ private struct NoteSyncSettingsCard: View {
 
             // What goes to iCloud is said once, when turning on.
             if !controller.isEnabled, controller.unavailableReason == nil {
-                Text("Keeps your notes the same on your Macs with this iCloud account.")
+                Text("Keeps your notes the same on your devices with this iCloud account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -139,7 +139,7 @@ private struct NoteSyncSettingsCard: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.") + audioOnlyInICloudText
+            Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other devices. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every device, and each device keeps its notes.") + audioOnlyInICloudText
         }
         .alert("Couldn't turn on iCloud sync", isPresented: isShowingTurnOnFailure) {
             Button("OK", role: .cancel) {}
@@ -185,8 +185,8 @@ private struct NoteSyncSettingsCard: View {
 
     private var turnOnMessage: LocalizedStringKey {
         noteCount == 1
-            ? "Upload 1 note from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one."
-            : "Upload \(noteCount) notes from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one."
+            ? "Upload 1 note from this Mac to iCloud. Notes from your other devices download too, and the lists merge into one."
+            : "Upload \(noteCount) notes from this Mac to iCloud. Notes from your other devices download too, and the lists merge into one."
     }
 
     private var audioSizeText: Text {
@@ -293,7 +293,7 @@ private struct NoteSyncSettingsCard: View {
                 .font(.caption)
                 .foregroundStyle(.orange)
         case .paused(.deletedElsewhere):
-            Text("iCloud data was deleted from another Mac, so sync stopped")
+            Text("iCloud data was deleted from another device, so sync stopped")
                 .font(.caption)
                 .foregroundStyle(.orange)
         case .paused(.notesFailed(let count, _)):
