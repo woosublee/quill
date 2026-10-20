@@ -1324,7 +1324,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "녹음과 요약도 함께 삭제됩니다. 삭제한 뒤 잠시 동안 취소할 수 있습니다."
+            "value": "녹음과 요약도 함께 삭제돼요. 삭제한 뒤 잠시 동안 취소할 수 있어요."
           }
         }
       }
@@ -1516,7 +1516,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약을 삭제하지 못했습니다."
+            "value": "요약을 삭제하지 못했어요."
           }
         }
       }
@@ -1532,7 +1532,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "회의 요약이 꺼져 있습니다. 모델 설정에서 켜면 요약을 만들 수 있습니다."
+            "value": "회의 요약이 꺼져 있어요. 모델 설정에서 켜면 요약을 만들 수 있어요."
           }
         }
       }
@@ -1884,7 +1884,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "복사할 요약 텍스트가 없습니다."
+            "value": "복사할 요약 텍스트가 없어요."
           }
         }
       }
@@ -6378,7 +6378,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "받아쓰기 API 키"
+            "value": "전사 API 키"
           }
         }
       }
@@ -6394,7 +6394,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "받아쓰기 API URL"
+            "value": "전사 API URL"
           }
         }
       }
@@ -6410,7 +6410,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "받아쓰기 언어"
+            "value": "전사 언어"
           }
         }
       }
@@ -6874,7 +6874,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빠르고 정확한 로컬 받아쓰기. 추천."
+            "value": "빠르고 정확한 로컬 전사. 추천."
           }
         }
       }
@@ -7114,7 +7114,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "받아쓰기 모델"
+            "value": "전사 모델"
           }
         }
       }
@@ -7290,7 +7290,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quill이 이 회의 요약의 발화 언어를 확인할 수 없습니다."
+            "value": "Quill이 이 회의 요약의 발화 언어를 확인할 수 없어요."
           }
         }
       }
@@ -12911,7 +12911,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 제공자가 지금은 회의 요약을 만들지 못했습니다."
+            "value": "선택한 제공자가 지금은 회의 요약을 만들지 못했어요."
           }
         }
       }
@@ -13215,7 +13215,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약 언어를 확인할 수 없습니다"
+            "value": "요약 언어를 확인할 수 없어요"
           }
         }
       }
@@ -13231,7 +13231,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제공자가 Quill에서 요약에 사용할 수 없는 응답을 반환했습니다."
+            "value": "제공자가 Quill에서 요약에 사용할 수 없는 응답을 보냈어요."
           }
         }
       }
@@ -13967,7 +13967,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "준비가 완료되었습니다"
+            "value": "준비가 끝났어요"
           }
         }
       }
@@ -14639,7 +14639,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약을 저장했습니다."
+            "value": "요약을 저장했어요."
           }
         }
       }
@@ -14671,7 +14671,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약을 저장하지 못했습니다."
+            "value": "요약을 저장하지 못했어요."
           }
         }
       }
@@ -14911,7 +14911,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다운로드가 완료되면 이 모델이 활성화됩니다."
+            "value": "다운로드가 완료되면 이 모델로 바뀌어요."
           }
         }
       }
@@ -15439,7 +15439,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "완료된 전사문으로 검토 가능한 회의 요약을 만듭니다."
+            "value": "완료된 전사문으로 검토할 수 있는 회의 요약을 만들어요."
           }
         }
       }
@@ -15455,7 +15455,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "회의 요약이 꺼져 있습니다. 기존 요약은 유지됩니다."
+            "value": "회의 요약이 꺼져 있어요. 기존 요약은 그대로 남아요."
           }
         }
       }
@@ -15471,7 +15471,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "회의 요약이 켜져 있지만 API Key를 설정하기 전에는 클라우드 요약을 사용할 수 없습니다."
+            "value": "회의 요약이 켜져 있지만 API Key를 설정하기 전에는 클라우드 요약을 사용할 수 없어요."
           }
         }
       }
@@ -15567,7 +15567,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 요약을 생성한 뒤 전사문이 변경되었습니다."
+            "value": "이 요약을 만든 뒤 전사문이 바뀌었어요."
           }
         }
       }
@@ -15583,7 +15583,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "회의 요약이 꺼져 있습니다"
+            "value": "회의 요약이 꺼져 있어요"
           }
         }
       }
@@ -15599,7 +15599,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장된 요약은 계속 볼 수 있습니다. 다시 생성하려면 기능을 켜세요."
+            "value": "저장된 요약은 계속 볼 수 있어요. 다시 만들려면 기능을 켜세요."
           }
         }
       }
@@ -15615,7 +15615,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약 모델을 사용할 수 없습니다."
+            "value": "요약 모델을 사용할 수 없어요."
           }
         }
       }
@@ -15791,7 +15791,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 요약 생성에 실패했을 때 다시 시도할 모델입니다."
+            "value": "클라우드 요약 생성에 실패했을 때 다시 시도할 모델이에요."
           }
         }
       }
@@ -15807,7 +15807,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 fallback은 회의 요약에서 클라우드 모델을 사용할 때만 적용됩니다."
+            "value": "클라우드 fallback은 회의 요약에서 클라우드 모델을 사용할 때만 적용돼요."
           }
         }
       }
@@ -15823,7 +15823,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "생성되는 회의 요약에 사용할 언어입니다."
+            "value": "회의 요약을 만들 때 사용할 언어예요."
           }
         }
       }
@@ -15919,7 +15919,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장된 요약은 계속 검토하고 복사할 수 있습니다."
+            "value": "저장된 요약은 계속 검토하고 복사할 수 있어요."
           }
         }
       }
@@ -16063,7 +16063,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약을 만들려면 완료된 전사문이 필요합니다."
+            "value": "요약을 만들려면 완료된 전사문이 필요해요."
           }
         }
       }
@@ -16079,7 +16079,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사가 끝나면 요약을 만들 수 있습니다."
+            "value": "전사가 끝나면 요약을 만들 수 있어요."
           }
         }
       }
@@ -18063,7 +18063,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "삭제한 노트를 복원할 수 없음"
+            "value": "삭제한 노트를 복구할 수 없음"
           }
         }
       }
@@ -19167,7 +19167,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약을 삭제했습니다"
+            "value": "요약을 삭제했어요"
           }
         }
       }
@@ -19263,7 +19263,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "직접 고친 내용이 Quill이 만든 요약으로 바뀝니다. 완료한 할 일은 체크된 채로 남습니다."
+            "value": "직접 고친 내용이 Quill이 만든 요약으로 바뀌어요. 완료한 할 일은 체크된 채로 남아요."
           }
         }
       }
@@ -19407,7 +19407,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요약을 저장하지 못했습니다."
+            "value": "요약을 저장하지 못했어요."
           }
         }
       }
@@ -19535,7 +19535,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 요약을 만든 뒤 지금 요약과 나란히 보여 줍니다. 둘 중 하나를 고를 수 있습니다."
+            "value": "새 요약을 만든 뒤 지금 요약과 나란히 보여 줘요. 둘 중 하나를 고를 수 있어요."
           }
         }
       }
@@ -19567,7 +19567,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문이 바뀌어 새 요약을 적용하지 않았습니다."
+            "value": "전사문이 바뀌어 새 요약을 적용하지 않았어요."
           }
         }
       }
@@ -19615,7 +19615,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "고를 새 요약이 있습니다"
+            "value": "고를 새 요약이 있어요"
           }
         }
       }
@@ -19743,7 +19743,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문이 바뀌어 새 전사문을 적용하지 않았습니다."
+            "value": "전사문이 바뀌어 새 전사문을 적용하지 않았어요."
           }
         }
       }

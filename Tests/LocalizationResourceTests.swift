@@ -46,7 +46,7 @@ struct LocalizationResourceTests {
             "On this Mac": "이 Mac에서",
             "Allow Quill to work": "Quill이 작동하도록 허용하세요",
             "Choose your shortcut": "단축키를 선택하세요",
-            "You're ready": "준비가 완료되었습니다",
+            "You're ready": "준비가 끝났어요",
             "Processing": "처리",
             "Shortcut": "단축키",
             "Optional permissions": "선택 권한",
@@ -89,7 +89,7 @@ struct LocalizationResourceTests {
             "On This Mac": "이 Mac에서",
             "Recommended": "권장",
             "This model will become active when the download finishes.":
-                "다운로드가 완료되면 이 모델이 활성화됩니다.",
+                "다운로드가 완료되면 이 모델로 바뀌어요.",
             "This removes the downloaded Local AI model. You can download it again later.":
                 "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",

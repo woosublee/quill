@@ -57,7 +57,7 @@ struct SettingsLocalizationTests {
         assert(model.expectedFileName == "ggml-large-v3-turbo.bin")
         assert(model.downloadURL.absoluteString == "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin")
         assert(model.localizedDescription(language: "en", bundle: localizationBundle) == "Fast local transcription with high accuracy. Recommended.")
-        assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확한 로컬 받아쓰기. 추천.")
+        assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확한 로컬 전사. 추천.")
     }
 
     /// Every transcription choice lists by model name; the section shows Cloud
@@ -522,7 +522,7 @@ struct SettingsLocalizationTests {
             "Cloud": "클라우드",
             "On This Mac": "이 Mac에서",
             "Recommended": "권장",
-            "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델이 활성화됩니다.",
+            "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델로 바뀌어요.",
             "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
             "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
@@ -559,11 +559,11 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "Meeting Summary": "회의 요약",
             "Create a reviewable summary from completed transcripts.":
-                "완료된 전사문으로 검토 가능한 회의 요약을 만듭니다.",
+                "완료된 전사문으로 검토할 수 있는 회의 요약을 만들어요.",
             "Meeting Summary is off. Existing summaries are kept.":
-                "회의 요약이 꺼져 있습니다. 기존 요약은 유지됩니다.",
+                "회의 요약이 꺼져 있어요. 기존 요약은 그대로 남아요.",
             "Meeting Summary is on, but cloud summarization is unavailable until an API key is configured.":
-                "회의 요약이 켜져 있지만 API Key를 설정하기 전에는 클라우드 요약을 사용할 수 없습니다.",
+                "회의 요약이 켜져 있지만 API Key를 설정하기 전에는 클라우드 요약을 사용할 수 없어요.",
             "Transcript": "전사문",
             "Summary": "요약",
             "Create Summary": "요약 만들기",
@@ -572,12 +572,12 @@ struct SettingsLocalizationTests {
             "Generated from this transcript and calendar details. Review before sharing.":
                 "이 전사문과 캘린더 세부 정보로 생성했습니다. 공유하기 전에 검토하세요.",
             "Transcript changed after this summary was generated.":
-                "이 요약을 생성한 뒤 전사문이 변경되었습니다.",
-            "Meeting Summary is off": "회의 요약이 꺼져 있습니다",
+                "이 요약을 만든 뒤 전사문이 바뀌었어요.",
+            "Meeting Summary is off": "회의 요약이 꺼져 있어요",
             "This saved summary is still available. Turn the feature on to regenerate it.":
-                "저장된 요약은 계속 볼 수 있습니다. 다시 생성하려면 기능을 켜세요.",
-            "Summary model is unavailable.": "요약 모델을 사용할 수 없습니다.",
-            "No summary text to copy.": "복사할 요약 텍스트가 없습니다.",
+                "저장된 요약은 계속 볼 수 있어요. 다시 만들려면 기능을 켜세요.",
+            "Summary model is unavailable.": "요약 모델을 사용할 수 없어요.",
+            "No summary text to copy.": "복사할 요약 텍스트가 없어요.",
             "Open Model Settings": "모델 설정 열기",
             "Overview": "개요",
             "Key Points": "핵심 내용",
@@ -598,21 +598,21 @@ struct SettingsLocalizationTests {
             "%lld notes deleted": "노트 %lld개를 삭제했습니다",
             "You can cancel for a few seconds after deleting.": "삭제한 뒤 잠시 동안 취소할 수 있습니다.",
             "Show Less": "접기",
-            "Could not delete summary.": "요약을 삭제하지 못했습니다.",
+            "Could not delete summary.": "요약을 삭제하지 못했어요.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":
-                "회의 요약이 꺼져 있습니다. 모델 설정에서 켜면 요약을 만들 수 있습니다.",
+                "회의 요약이 꺼져 있어요. 모델 설정에서 켜면 요약을 만들 수 있어요.",
             "Summary service unavailable": "요약 서비스를 사용할 수 없음",
             "The selected provider could not create a meeting summary right now.":
-                "선택한 제공자가 지금은 회의 요약을 만들지 못했습니다.",
+                "선택한 제공자가 지금은 회의 요약을 만들지 못했어요.",
             "Try Regenerate again later, or choose another configured model in Meeting Summary settings.":
                 "잠시 후 다시 만들기를 시도하거나, 회의 요약 설정에서 다른 모델을 선택하세요.",
             "Summary response could not be read": "요약 응답을 읽을 수 없음",
             "Retry Summary": "요약 재시도",
             "Some evidence could not be verified.": "일부 근거를 확인하지 못했습니다.",
             "Review the summary before sharing it.": "공유하기 전에 요약을 검토하세요.",
-            "Summary language could not be determined": "요약 언어를 확인할 수 없습니다",
+            "Summary language could not be determined": "요약 언어를 확인할 수 없어요",
             "The provider returned a response Quill could not use for the summary.":
-                "제공자가 Quill에서 요약에 사용할 수 없는 응답을 반환했습니다.",
+                "제공자가 Quill에서 요약에 사용할 수 없는 응답을 보냈어요.",
             "Try Regenerate again. If it continues, check the provider configuration.":
                 "다시 만들기를 시도하세요. 계속되면 제공자 설정을 확인하세요."
         ]
