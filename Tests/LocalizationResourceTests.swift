@@ -937,6 +937,15 @@ struct LocalizationResourceTests {
         for key in requiredKeys {
             assert(valuesByLanguage["en"]?[key] != valuesByLanguage["ko"]?[key], "Expected distinct Korean InfoPlist translation for \(key)")
         }
+        // Events go out with their notes through iCloud sync or an allowed
+        // AI tool, so no calendar prompt may say they never leave the Mac,
+        // including the Info.plist text used when no localization loads.
+        let infoPlist = NSDictionary(contentsOf: root.appendingPathComponent("Info.plist")) as? [String: Any] ?? [:]
+        for key in ["NSCalendarsFullAccessUsageDescription", "NSCalendarsUsageDescription"] {
+            assert(infoPlist[key] as? String == valuesByLanguage["en"]?[key], "Info.plist \(key) differs from en.lproj")
+            assert(valuesByLanguage["en"]?[key]?.contains("iCloud sync") == true, "\(key) should say events can leave with iCloud sync")
+            assert(valuesByLanguage["ko"]?[key]?.contains("iCloud 동기화") == true, "\(key) should say events can leave with iCloud sync (ko)")
+        }
     }
 
     private static func assertCatalogTranslations(

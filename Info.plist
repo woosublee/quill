@@ -48,9 +48,9 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Quill needs speech recognition to convert your voice to text.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Quill reads your calendar events for meeting reminders and for note titles and attendees. Events never leave your Mac.</string>
+    <string>Quill reads your calendar events for meeting reminders and for note titles and attendees. An event leaves your Mac only with its note, when you turn on iCloud sync or allow an AI tool.</string>
     <key>NSCalendarsUsageDescription</key>
-    <string>Quill reads your calendar events for meeting reminders and for note titles and attendees. Events never leave your Mac.</string>
+    <string>Quill reads your calendar events for meeting reminders and for note titles and attendees. An event leaves your Mac only with its note, when you turn on iCloud sync or allow an AI tool.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Quill needs accessibility access to detect the text cursor position and paste transcribed text.</string>
 </dict>
