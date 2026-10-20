@@ -57,7 +57,7 @@ struct SettingsLocalizationTests {
         assert(model.expectedFileName == "ggml-large-v3-turbo.bin")
         assert(model.downloadURL.absoluteString == "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin")
         assert(model.localizedDescription(language: "en", bundle: localizationBundle) == "Fast local transcription with high accuracy. Recommended.")
-        assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확한 로컬 받아쓰기. 추천.")
+        assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확한 로컬 전사. 추천.")
     }
 
     /// Every transcription choice lists by model name; the section shows Cloud
@@ -186,7 +186,7 @@ struct SettingsLocalizationTests {
                 "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles.",
                 language: "ko",
                 bundle: bundle
-            ) == "Google Calendar를 다시 연결해야 합니다. 회의 알림과 캘린더 기반 노트 제목을 복원하려면 다시 연결하세요."
+            ) == "Google Calendar를 다시 연결해야 해요. 회의 알림과 캘린더 기반 노트 제목을 복원하려면 다시 연결하세요."
         )
         assert(
             localizedCatalogFormat(
@@ -194,7 +194,7 @@ struct SettingsLocalizationTests {
                 detail,
                 language: "ko",
                 bundle: bundle
-            ) == "Google Calendar를 새로 고치지 못했습니다: \(detail)"
+            ) == "Google Calendar를 새로 고치지 못했어요: \(detail)"
         )
     }
 
@@ -228,7 +228,7 @@ struct SettingsLocalizationTests {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
             "Calendar Connections": "캘린더 연결",
-            "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채웁니다. 일정은 노트와 함께일 때만 Mac 밖으로 나가요. iCloud 동기화를 켜면 본인 iCloud로, 설정 › AI 도구에서 허용하면 연결한 AI 도구로 전달됩니다.",
+            "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채워요. 일정은 노트와 함께일 때만 Mac 밖으로 나가요. iCloud 동기화를 켜면 본인 iCloud로, 설정 › AI 도구에서 허용하면 연결한 AI 도구로 전달돼요.",
             "Apple Calendar": "Apple 캘린더",
             "Use events from the Mac Calendar app": "Mac 캘린더 앱의 일정 사용",
             "Calendar access is off": "캘린더 접근이 꺼져 있어요",
@@ -239,14 +239,14 @@ struct SettingsLocalizationTests {
             "Reload Calendars": "캘린더 목록 다시 읽기",
             "Choose Google Calendars": "Google 캘린더 선택",
             "Choose Apple Calendars": "Apple 캘린더 선택",
-            "Calendars from accounts added to the Mac Calendar app. Quill only reads events from calendars you select.": "Mac 캘린더 앱에 추가된 계정의 캘린더입니다. Quill은 선택한 캘린더의 일정만 읽습니다.",
-            "Calendars from your Google account may also come through Google Calendar. Matching events are used once.": "Google 계정 캘린더는 Google 캘린더 연결에서도 읽을 수 있어요. 같은 일정은 한 번만 사용합니다.",
-            "No calendars found in the Mac Calendar app.": "Mac 캘린더 앱에 캘린더가 없습니다.",
+            "Calendars from accounts added to the Mac Calendar app. Quill only reads events from calendars you select.": "Mac 캘린더 앱에 추가된 계정의 캘린더예요. Quill은 선택한 캘린더의 일정만 읽어요.",
+            "Calendars from your Google account may also come through Google Calendar. Matching events are used once.": "Google 계정 캘린더는 Google 캘린더 연결에서도 읽을 수 있어요. 같은 일정은 한 번만 사용해요.",
+            "No calendars found in the Mac Calendar app.": "Mac 캘린더 앱에 캘린더가 없어요.",
             "Choose calendars to use": "사용할 캘린더를 선택하세요",
             "Connect a calendar first.": "먼저 캘린더를 연결하세요.",
             "Choose at least one calendar to use.": "사용할 캘린더를 하나 이상 선택하세요.",
             "Turn on the switch next to %@": "목록에서 %@ 옆 스위치를 켜 주세요",
-            "%@ connects as soon as it’s on.": "켜면 %@이(가) 바로 연결됩니다.",
+            "%@ connects as soon as it’s on.": "켜면 %@이(가) 바로 연결돼요.",
             "More": "더 보기",
             "Last checked %@": "마지막 확인 %@",
             "%@, %@ and %lld more": "%@, %@ 외 %lld개"
@@ -439,7 +439,7 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "Calendar Event": "캘린더 일정",
             "No event": "일정 없음",
-            "The title comes from the first line of the transcript": "전사문 첫 줄로 제목을 정합니다",
+            "The title comes from the first line of the transcript": "전사문 첫 줄로 제목을 정해요",
             "Suggested": "추천",
             "Loading events…": "일정을 불러오는 중…",
             "Some calendars couldn't be loaded.": "일부 캘린더를 불러오지 못했어요.",
@@ -483,69 +483,69 @@ struct SettingsLocalizationTests {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
             "Cloud Provider": "클라우드 공급자",
-            "Cloud models use this shared OpenAI-compatible provider.": "클라우드 모델은 이 공통 OpenAI-compatible 공급자를 사용합니다.",
+            "Cloud models use this shared OpenAI-compatible provider.": "클라우드 모델은 이 공통 OpenAI-compatible 공급자를 사용해요.",
             "API Key configured": "API Key가 설정됨",
-            "Convert speech to text.": "음성을 텍스트로 변환합니다.",
-            "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details.": "클라우드 전사를 사용하려면 API Key가 필요합니다. 클라우드 공급자에서 추가하거나 세부 설정의 전사 전용 설정을 사용하세요.",
+            "Convert speech to text.": "음성을 텍스트로 변환해요.",
+            "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details.": "클라우드 전사를 사용하려면 API Key가 필요해요. 클라우드 공급자에서 추가하거나 세부 설정의 전사 전용 설정을 사용하세요.",
             "Details": "세부 설정",
             "Model": "모델",
             "Custom Standard API Model": "사용자 지정 표준 API 모델",
             "e.g. custom-transcription-model": "예: custom-transcription-model",
-            "Add a custom model ID when it is not listed in the main Model menu.": "기본 모델 메뉴에 없는 사용자 지정 모델 ID를 추가합니다.",
+            "Add a custom model ID when it is not listed in the main Model menu.": "기본 모델 메뉴에 없는 사용자 지정 모델 ID를 추가해요.",
             "Custom API Model": "사용자 지정 API 모델",
             "e.g. provider/custom-model": "예: provider/custom-model",
             "Use Model": "모델 사용",
-            "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.": "위 목록에 없는 API 모델 ID를 입력합니다. 목록의 모델로 돌아가려면 위의 모델 메뉴에서 선택하세요.",
+            "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.": "위 목록에 없는 API 모델 ID를 입력해요. 목록의 모델로 돌아가려면 위의 모델 메뉴에서 선택하세요.",
             "Show Realtime transcription option": "실시간 전사 옵션 표시",
             "Download required": "다운로드 필요",
             "Downloading...": "다운로드 중...",
             "Local Whisper Download in Progress": "Local Whisper 다운로드 진행 중",
-            "Closing Settings will cancel the model download and remove the partial file.": "Settings를 닫으면 모델 다운로드가 취소되고 완료되지 않은 파일이 제거됩니다.",
+            "Closing Settings will cancel the model download and remove the partial file.": "Settings를 닫으면 모델 다운로드가 취소되고 완료되지 않은 파일이 제거돼요.",
             "Keep Settings Open": "Settings 열어 두기",
             "Close and Cancel Download": "닫고 다운로드 취소",
             "Post-processing": "후처리",
-            "Clean up wording, formatting, and language.": "문장 표현, 형식, 언어를 정리합니다.",
+            "Clean up wording, formatting, and language.": "문장 표현, 형식, 언어를 정리해요.",
             "Add an API key in Cloud Provider to enable Post-processing.": "후처리를 활성화하려면 클라우드 공급자에서 API Key를 추가하세요.",
-            "Post-processing is on, but cloud processing is unavailable until an API key is configured.": "후처리가 켜져 있지만 API Key를 설정하기 전에는 클라우드 처리를 사용할 수 없습니다.",
-            "Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.": "후처리가 꺼져 있으면 일반 받아쓰기는 원본 전사문을 사용합니다. Edit Mode는 계속 이 모델 설정을 사용합니다.",
+            "Post-processing is on, but cloud processing is unavailable until an API key is configured.": "후처리가 켜져 있지만 API Key를 설정하기 전에는 클라우드 처리를 사용할 수 없어요.",
+            "Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.": "후처리가 꺼져 있으면 일반 받아쓰기는 원본 전사문을 사용해요. Edit Mode는 계속 이 모델 설정을 사용해요.",
             "Context": "컨텍스트",
-            "Use the current app and screen to improve context.": "현재 앱과 화면을 사용해 맥락을 보완합니다.",
+            "Use the current app and screen to improve context.": "현재 앱과 화면을 사용해 맥락을 보완해요.",
             "Add an API key in Cloud Provider to enable Context.": "컨텍스트를 활성화하려면 클라우드 공급자에서 API Key를 추가하세요.",
-            "Context is on, but AI context analysis is unavailable until an API key is configured.": "컨텍스트가 켜져 있지만 API Key를 설정하기 전에는 AI 컨텍스트 분석을 사용할 수 없습니다.",
-            "Context capture is off. Quill skips app context and screenshots for normal dictation.": "컨텍스트 캡처가 꺼져 있습니다. Quill은 일반 받아쓰기에서 앱 맥락과 스크린샷을 건너뜁니다.",
-            "This model does not support screen Context.": "이 모델은 화면 컨텍스트를 지원하지 않습니다.",
+            "Context is on, but AI context analysis is unavailable until an API key is configured.": "컨텍스트가 켜져 있지만 API Key를 설정하기 전에는 AI 컨텍스트 분석을 사용할 수 없어요.",
+            "Context capture is off. Quill skips app context and screenshots for normal dictation.": "컨텍스트 캡처가 꺼져 있어요. Quill은 일반 받아쓰기에서 앱 맥락과 스크린샷을 건너뛰어요.",
+            "This model does not support screen Context.": "이 모델은 화면 컨텍스트를 지원하지 않아요.",
             "Choose an image-capable model to enable Context.": "Context를 활성화하려면 이미지를 지원하는 모델을 선택하세요.",
             "Paste Automatically": "자동으로 붙여넣기",
-            "When off, Quill copies the transcript to the clipboard so you can paste it manually.": "끄면 Quill이 전사문을 클립보드에 복사하며, 필요할 때 직접 붙여넣을 수 있습니다.",
-            "Used for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환에 사용합니다.",
-            "Used for context inference, with a text-only retry when screenshot analysis fails.": "컨텍스트 추론에 사용하며, 스크린샷 분석에 실패하면 텍스트 전용으로 다시 시도합니다.",
+            "When off, Quill copies the transcript to the clipboard so you can paste it manually.": "끄면 Quill이 전사문을 클립보드에 복사하며, 필요할 때 직접 붙여넣을 수 있어요.",
+            "Used for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환에 사용해요.",
+            "Used for context inference, with a text-only retry when screenshot analysis fails.": "컨텍스트 추론에 사용하며, 스크린샷 분석에 실패하면 텍스트 전용으로 다시 시도해요.",
             "Cloud": "클라우드",
             "On This Mac": "이 Mac에서",
             "Recommended": "권장",
-            "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델이 활성화됩니다.",
-            "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
+            "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델로 바뀌어요.",
+            "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제해요. 나중에 다시 다운로드할 수 있어요.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
-            "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
-            "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.": "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
-            "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
-            "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없습니다. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
-            "The previously selected on-device model is no longer available. Context requires an image-capable model.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없습니다. Context에는 이미지 지원 모델이 필요합니다.",
+            "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용돼요.",
+            "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.": "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석해요. 스크린샷은 이 Mac을 벗어나지 않아요.",
+            "Best quality. Needs more memory.": "최고 품질이에요. 더 많은 메모리가 필요해요.",
+            "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
+            "The previously selected on-device model is no longer available. Context requires an image-capable model.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. Context에는 이미지 지원 모델이 필요해요.",
             "Previously selected on-device model": "이전에 선택한 온디바이스 모델",
-            "This on-device model is no longer available and cannot be used.": "이 온디바이스 모델은 더 이상 제공되지 않으며 사용할 수 없습니다.",
+            "This on-device model is no longer available and cannot be used.": "이 온디바이스 모델은 더 이상 제공되지 않으며 사용할 수 없어요.",
             "Canceled": "취소됨",
             "Selected": "선택됨",
             "Not selected": "선택되지 않음",
             "Post-Processing Fallback Model": "후처리 대체 모델",
-            "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델입니다.",
-            "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용합니다. 실행 방식과 추가 보조 키는 단축키에 그대로 있습니다.",
-            "Output Language remains available for Edit Mode transforms.": "출력 언어는 Edit Mode 변환에서도 계속 사용할 수 있습니다.",
-            "Output Language is unavailable while Post-processing and Edit Mode are off.": "후처리와 Edit Mode가 모두 꺼져 있으면 출력 언어를 사용할 수 없습니다.",
-            "Final transcript language for post-processing and Edit Mode transforms.": "후처리와 Edit Mode 변환에 사용할 최종 전사문 언어입니다.",
-            "Spoken language hint for speech recognition. Auto Detect works for most users.": "음성 인식을 위한 발화 언어 힌트입니다. 대부분의 사용자는 자동 감지를 사용하면 됩니다.",
+            "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델이에요.",
+            "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용해요. 실행 방식과 추가 보조 키는 단축키에 그대로 있어요.",
+            "Output Language remains available for Edit Mode transforms.": "출력 언어는 Edit Mode 변환에서도 계속 사용할 수 있어요.",
+            "Output Language is unavailable while Post-processing and Edit Mode are off.": "후처리와 Edit Mode가 모두 꺼져 있으면 출력 언어를 사용할 수 없어요.",
+            "Final transcript language for post-processing and Edit Mode transforms.": "후처리와 Edit Mode 변환에 사용할 최종 전사문 언어예요.",
+            "Spoken language hint for speech recognition. Auto Detect works for most users.": "음성 인식을 위한 발화 언어 힌트예요. 대부분의 사용자는 자동 감지를 사용하면 돼요.",
             "Stream audio while recording (realtime)": "녹음 중 오디오 스트리밍(실시간)",
-            "Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.": "제공자의 OpenAI-compatible /v1/realtime WebSocket으로 오디오를 스트리밍하여 말하는 동안 전사를 실행합니다.",
+            "Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.": "제공자의 OpenAI-compatible /v1/realtime WebSocket으로 오디오를 스트리밍하여 말하는 동안 전사를 실행해요.",
             "Realtime Transcription Model": "실시간 전사 모델",
-            "Used only for realtime streaming. Leave empty for providers that supply a server default.": "실시간 스트리밍에만 사용합니다. 서버 기본값을 제공하는 공급자에서는 비워 두세요."
+            "Used only for realtime streaming. Leave empty for providers that supply a server default.": "실시간 스트리밍에만 사용해요. 서버 기본값을 제공하는 공급자에서는 비워 두세요."
         ]
 
         for (key, korean) in expected {
@@ -559,25 +559,25 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "Meeting Summary": "회의 요약",
             "Create a reviewable summary from completed transcripts.":
-                "완료된 전사문으로 검토 가능한 회의 요약을 만듭니다.",
+                "완료된 전사문으로 검토할 수 있는 회의 요약을 만들어요.",
             "Meeting Summary is off. Existing summaries are kept.":
-                "회의 요약이 꺼져 있습니다. 기존 요약은 유지됩니다.",
+                "회의 요약이 꺼져 있어요. 기존 요약은 그대로 남아요.",
             "Meeting Summary is on, but cloud summarization is unavailable until an API key is configured.":
-                "회의 요약이 켜져 있지만 API Key를 설정하기 전에는 클라우드 요약을 사용할 수 없습니다.",
+                "회의 요약이 켜져 있지만 API Key를 설정하기 전에는 클라우드 요약을 사용할 수 없어요.",
             "Transcript": "전사문",
             "Summary": "요약",
             "Create Summary": "요약 만들기",
             "Regenerate Summary": "요약 다시 만들기",
             "Quick review draft": "빠른 검토 초안",
             "Generated from this transcript and calendar details. Review before sharing.":
-                "이 전사문과 캘린더 세부 정보로 생성했습니다. 공유하기 전에 검토하세요.",
+                "이 전사문과 캘린더 세부 정보로 생성했어요. 공유하기 전에 검토하세요.",
             "Transcript changed after this summary was generated.":
-                "이 요약을 생성한 뒤 전사문이 변경되었습니다.",
-            "Meeting Summary is off": "회의 요약이 꺼져 있습니다",
+                "이 요약을 만든 뒤 전사문이 바뀌었어요.",
+            "Meeting Summary is off": "회의 요약이 꺼져 있어요",
             "This saved summary is still available. Turn the feature on to regenerate it.":
-                "저장된 요약은 계속 볼 수 있습니다. 다시 생성하려면 기능을 켜세요.",
-            "Summary model is unavailable.": "요약 모델을 사용할 수 없습니다.",
-            "No summary text to copy.": "복사할 요약 텍스트가 없습니다.",
+                "저장된 요약은 계속 볼 수 있어요. 다시 만들려면 기능을 켜세요.",
+            "Summary model is unavailable.": "요약 모델을 사용할 수 없어요.",
+            "No summary text to copy.": "복사할 요약 텍스트가 없어요.",
             "Open Model Settings": "모델 설정 열기",
             "Overview": "개요",
             "Key Points": "핵심 내용",
@@ -591,28 +591,28 @@ struct SettingsLocalizationTests {
             "Delete Summary Only": "요약만 삭제",
             "Delete Entire Note": "노트 전체 삭제",
             "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다.",
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지고 되돌릴 수 없어요.",
             "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워집니다. 삭제한 뒤 잠시 동안 취소할 수 있습니다.",
-            "Note deleted": "노트를 삭제했습니다",
-            "%lld notes deleted": "노트 %lld개를 삭제했습니다",
-            "You can cancel for a few seconds after deleting.": "삭제한 뒤 잠시 동안 취소할 수 있습니다.",
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워져요. 삭제한 뒤 잠시 동안 취소할 수 있어요.",
+            "Note deleted": "노트를 삭제했어요",
+            "%lld notes deleted": "노트 %lld개를 삭제했어요",
+            "You can cancel for a few seconds after deleting.": "삭제한 뒤 잠시 동안 취소할 수 있어요.",
             "Show Less": "접기",
-            "Could not delete summary.": "요약을 삭제하지 못했습니다.",
+            "Could not delete summary.": "요약을 삭제하지 못했어요.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":
-                "회의 요약이 꺼져 있습니다. 모델 설정에서 켜면 요약을 만들 수 있습니다.",
+                "회의 요약이 꺼져 있어요. 모델 설정에서 켜면 요약을 만들 수 있어요.",
             "Summary service unavailable": "요약 서비스를 사용할 수 없음",
             "The selected provider could not create a meeting summary right now.":
-                "선택한 제공자가 지금은 회의 요약을 만들지 못했습니다.",
+                "선택한 제공자가 지금은 회의 요약을 만들지 못했어요.",
             "Try Regenerate again later, or choose another configured model in Meeting Summary settings.":
                 "잠시 후 다시 만들기를 시도하거나, 회의 요약 설정에서 다른 모델을 선택하세요.",
             "Summary response could not be read": "요약 응답을 읽을 수 없음",
             "Retry Summary": "요약 재시도",
-            "Some evidence could not be verified.": "일부 근거를 확인하지 못했습니다.",
+            "Some evidence could not be verified.": "일부 근거를 확인하지 못했어요.",
             "Review the summary before sharing it.": "공유하기 전에 요약을 검토하세요.",
-            "Summary language could not be determined": "요약 언어를 확인할 수 없습니다",
+            "Summary language could not be determined": "요약 언어를 확인할 수 없어요",
             "The provider returned a response Quill could not use for the summary.":
-                "제공자가 Quill에서 요약에 사용할 수 없는 응답을 반환했습니다.",
+                "제공자가 Quill에서 요약에 사용할 수 없는 응답을 보냈어요.",
             "Try Regenerate again. If it continues, check the provider configuration.":
                 "다시 만들기를 시도하세요. 계속되면 제공자 설정을 확인하세요."
         ]
@@ -626,9 +626,9 @@ struct SettingsLocalizationTests {
     private static func testModelDownloadTerminationCopyLocalizes() throws {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
-            "Quit while models are downloading?": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?",
+            "Quit while models are downloading?": "모델 다운로드가 진행 중이에요. Quill을 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
-                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",
+                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제돼요.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
 
@@ -642,13 +642,13 @@ struct SettingsLocalizationTests {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
             "Realtime is unavailable with Microphone + System Audio":
-                "실시간은 마이크 + 시스템 오디오에서 사용할 수 없습니다",
+                "실시간은 마이크 + 시스템 오디오에서 사용할 수 없어요",
             "Apple Live is unavailable with Microphone + System Audio":
-                "Apple 라이브는 마이크 + 시스템 오디오에서 사용할 수 없습니다",
+                "Apple 라이브는 마이크 + 시스템 오디오에서 사용할 수 없어요",
             "Microphone + System Audio": "마이크 + 시스템 오디오",
             "%@ + System Audio": "%@ + 시스템 오디오",
             "Used for Microphone and Microphone + System Audio.":
-                "마이크 및 마이크 + 시스템 오디오에 사용됩니다."
+                "마이크 및 마이크 + 시스템 오디오에 사용돼요."
         ]
 
         for (key, korean) in expected {
