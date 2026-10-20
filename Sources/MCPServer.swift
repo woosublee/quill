@@ -310,7 +310,7 @@ final class MCPServer {
             ],
             [
                 "name": "list_notes",
-                "description": "List Quill notes in the Note Browser's order (newest first) as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
+                "description": "List Quill notes in the Note Browser's order (newest first) as JSON: id, title (the note's own or applied calendar title, else the transcript's first line, or a state name when there is no transcript), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
