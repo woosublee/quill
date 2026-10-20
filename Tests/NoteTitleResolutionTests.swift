@@ -261,8 +261,21 @@ struct NoteTitleResolutionTests {
         assert(NoteTitleResolver.toolTitle(for: note) == "Weekly sync")
         let titled = item(transcript: "Weekly sync", calendarMatch: nil, customTitle: "Planning")
         assert(NoteTitleResolver.toolTitle(for: titled) == "Planning")
+        // Without a transcript, tools keep the names they always got.
         let empty = item(transcript: "", calendarMatch: nil)
-        assert(NoteTitleResolver.toolTitle(for: empty) == NoteTitleResolver.displayTitle(for: empty))
+        assert(NoteTitleResolver.toolTitle(for: empty) == "(No content)")
+        let failed = item(transcript: "", calendarMatch: nil, postProcessingStatus: "Error: Previous failure")
+        assert(NoteTitleResolver.toolTitle(for: failed) == "New Recording")
+        let audioOnly = PipelineHistoryItem.audioOnly(
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: nil,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+        assert(NoteTitleResolver.toolTitle(for: audioOnly) == "Audio recording")
     }
 
     private static func testSuggestedCalendarTitleShownWhenItWouldChangeTheTitle() {
