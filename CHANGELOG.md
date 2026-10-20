@@ -8,6 +8,22 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.1.2] - 2026-10-20
+
+### Changed
+
+- **API keys are kept in the login Keychain.** Provider and transcription API keys move from Quill's settings file to the macOS Keychain the first time this version runs. If you go back to an earlier version, enter your API keys again there; the keys you enter there move to the Keychain when you update again.
+- Notes without a title are now named by when they were recorded, as the note itself already shows, instead of by the first line of their transcript. This applies in the note list, Recently Deleted, and delete and restore confirmations. A note still recording or importing is shown as "New Recording" or "Imported Audio" until it's done. AI tools still see the first line.
+- iCloud sync wording says "devices" instead of "Macs".
+- The calendar permission prompt now says when an event leaves your Mac: with its note, to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.
+- Korean text uses one consistent, friendlier speech level and the same words for transcription and for restoring deleted notes throughout the app.
+
+### Fixed
+
+- With iCloud sync on, Quill checks iCloud right before permanently removing a note from Recently Deleted, so a note restored on another device is kept instead of being deleted everywhere. A note waiting for that check shows 1 day left instead of 0.
+- Meeting reminders keep working while the Mac is offline for up to about a day: they use the last saved Google Calendar events and pick up Apple Calendar changes, and calendars are checked again soon after the network returns.
+- A dictation that pastes the original transcript because AI cleanup failed or its result wasn't used no longer shows a red failure mark.
+
 ## [1.1.1] - 2026-10-15
 
 ### Changed
