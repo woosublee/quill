@@ -592,11 +592,11 @@ struct SettingsLocalizationTests {
             "Delete Entire Note": "노트 전체 삭제",
             "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.":
                 "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지고 되돌릴 수 없어요.",
-            "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워져요. 삭제한 뒤 잠시 동안 취소할 수 있어요.",
+            "Deleting the entire note moves its recording, transcript, and summary to Recently Deleted. You can restore it for 30 days.":
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 최근 삭제된 노트로 옮겨져요. 30일 동안 복구할 수 있어요.",
             "Note deleted": "노트를 삭제했어요",
             "%lld notes deleted": "노트 %lld개를 삭제했어요",
-            "You can cancel for a few seconds after deleting.": "삭제한 뒤 잠시 동안 취소할 수 있어요.",
+            "You can restore it from Recently Deleted for 30 days.": "30일 동안 최근 삭제된 노트에서 복구할 수 있어요.",
             "Show Less": "접기",
             "Could not delete summary.": "요약을 삭제하지 못했어요.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":

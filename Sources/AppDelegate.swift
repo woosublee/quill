@@ -115,8 +115,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let selection = newSettingsModel?.selection, selection.wantsMCP != selection.mcpWasOn {
             UserDefaults.standard.set(selection.wantsMCP, forKey: AppState.mcpServerEnabledStorageKey)
         }
-        // Quitting ends the Cancel window of a just-deleted note.
-        appState.finalizePendingNoteDeletion()
+        // Quitting ends the Cancel window of a just-deleted summary.
+        appState.finalizePendingSummaryDeletion()
         appState.stopRecentlyDeletedPurgeSchedule()
         // Pieces of a deleted unrecovered recording are removed in the
         // background; let that finish so the note does not come back.
