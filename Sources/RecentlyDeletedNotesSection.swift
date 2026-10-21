@@ -6,6 +6,8 @@ struct RecentlyDeletedNotesSection: View {
     /// Notes restored from this section, in the order they were restored.
     @State private var restoredNotes: [PipelineHistoryItem] = []
     @State private var pendingDeleteNow: PipelineHistoryItem?
+    /// The notes listed when Delete All was pressed; only these are deleted.
+    @State private var pendingDeleteAllIDs: [UUID] = []
 
     /// Restored rows for notes that are still live: not deleted again, and
     /// not deleted for good since.
@@ -25,6 +27,9 @@ struct RecentlyDeletedNotesSection: View {
                     Text(verbatim: "\(appState.recentlyDeletedNotes.count)")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                    Button("Delete All", role: .destructive) {
+                        pendingDeleteAllIDs = appState.recentlyDeletedNotes.map(\.id)
+                    }
                 }
             }
             Text("Deleted notes stay here for 30 days, then they're removed for good.")
@@ -72,6 +77,22 @@ struct RecentlyDeletedNotesSection: View {
             Button("Cancel", role: .cancel) { pendingDeleteNow = nil }
         } message: {
             Text("Its audio and transcript are removed too. This can't be undone.")
+        }
+        .confirmationDialog(
+            "Delete all recently deleted notes now?",
+            isPresented: Binding(
+                get: { !pendingDeleteAllIDs.isEmpty },
+                set: { if !$0 { pendingDeleteAllIDs = [] } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete All", role: .destructive) {
+                appState.deleteRecentlyDeletedNotesNow(ids: pendingDeleteAllIDs)
+                pendingDeleteAllIDs = []
+            }
+            Button("Cancel", role: .cancel) { pendingDeleteAllIDs = [] }
+        } message: {
+            Text("Their audio and transcripts are removed too. This can't be undone.")
         }
     }
 

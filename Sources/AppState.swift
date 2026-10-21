@@ -454,6 +454,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let transcriptionAPIKeyStorageKey = CredentialStore.transcriptionAPIKeyAccount
     private let postProcessingModelStorageKey = "post_processing_model"
     private let postProcessingFallbackModelStorageKey = "post_processing_fallback_model"
+    private let droppedGroqModelsMigratedStorageKey = "groq_dropped_models_migrated"
     private let contextModelStorageKey = "context_model"
     private let meetingSummaryModelStorageKey = "meeting_summary_model"
     private let meetingSummaryFallbackModelStorageKey = "meeting_summary_fallback_model"
@@ -534,7 +535,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
     static let defaultTranscriptionModel = "whisper-large-v3"
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
-    static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
+    static let defaultPostProcessingFallbackModel = ModelConfiguration.groqQwenModelID
     static let defaultContextModel = ModelConfiguration.groqQwenModelID
     static let defaultMeetingSummaryModel = defaultPostProcessingModel
     static let defaultMeetingSummaryFallbackModel = defaultPostProcessingFallbackModel
@@ -2473,7 +2474,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// Drops banner state left by notes that no longer exist, for example
-    /// when the app was killed during a deletion's Cancel window.
+    /// when the app was killed while a note was being deleted.
     private func pruneWarningBannerState(keepingNoteIDs noteIDs: Set<UUID>) {
         let pruned = Self.warningBannerState(
             retryGenerations: noteRetryGenerationByID,
@@ -2565,12 +2566,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// opened later starts on the newest note anyway. An MCP start doesn't
     /// set it (#549).
     @Published private(set) var ownRecordingNoteToOpen: UUID?
-    /// A note deleted from the Note Browser whose files are kept until the
-    /// Cancel window ends. See `deleteHistoryEntryCancellably(id:)`.
-    @Published private(set) var pendingNoteDeletion: PendingNoteDeletion?
-    static let noteDeletionCancelWindow: TimeInterval = 5
-    /// Runs the end of the Cancel window. Tests replace it to skip waiting.
-    var scheduleNoteDeletionFinalization: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
+    /// How long a deleted summary can be put back (#440).
+    static let summaryDeletionCancelWindow: TimeInterval = 5
+    /// Runs the end of the summary deletion Cancel window. Tests replace it
+    /// to skip waiting.
+    var scheduleSummaryDeletionFinalization: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             MainActor.assumeIsolated { work() }
         }
@@ -2581,9 +2581,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
-    /// back (#440). Like a note deletion, only one waits at a time, and
-    /// `finalizePendingNoteDeletion()` (any deletion, clear, import, or quit)
-    /// ends its window.
+    /// back (#440). Only one waits at a time, and
+    /// `finalizePendingSummaryDeletion()` (any deletion, clear, import, or
+    /// quit) ends its window.
     @Published private(set) var pendingSummaryDeletion: PendingSummaryDeletion?
     private let meetingSummaryWorkflow: MeetingSummaryWorkflow
     private let transcriptionRetryWorkflow: TranscriptionRetryWorkflow
@@ -3107,6 +3107,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             account: "api_base_url",
             credentialStore: initialCredentialStore
         )
+        // Dropped models move once, on the first launch with this list, and
+        // only if that launch is on Groq; Groq still serves them, so one
+        // chosen afterwards, on any provider, stays (#577).
+        let migratesDroppedGroqModels = !UserDefaults.standard.bool(
+            forKey: droppedGroqModelsMigratedStorageKey
+        )
         for key in [
             postProcessingModelStorageKey,
             postProcessingFallbackModelStorageKey,
@@ -3114,7 +3120,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryModelStorageKey,
             meetingSummaryFallbackModelStorageKey
         ] {
-            ModelConfiguration.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+            ModelConfiguration.migrateGroqSelection(
+                key: key,
+                baseURL: apiBaseURL,
+                defaults: .standard,
+                includingDroppedModels: migratesDroppedGroqModels
+            )
         }
         // A `.cloud` fallback choice is encoded like a backend choice, so
         // the same migration moves it off a retired Groq model.
@@ -3125,7 +3136,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingFallbackChoiceStorageKey,
             meetingSummaryFallbackChoiceStorageKey
         ] {
-            AIProcessingBackendChoiceStore.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+            AIProcessingBackendChoiceStore.migrateGroqSelection(
+                key: key,
+                baseURL: apiBaseURL,
+                defaults: .standard,
+                includingDroppedModels: migratesDroppedGroqModels
+            )
+        }
+        if migratesDroppedGroqModels {
+            UserDefaults.standard.set(true, forKey: droppedGroqModelsMigratedStorageKey)
         }
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(
@@ -6000,9 +6019,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func applyHistoryRuntimeReplacement(
         _ replacement: HistoryRuntimeReplacement
     ) {
-        // The pending note belonged to the replaced store; its row is already
-        // gone, and the next launch's orphan sweep removes any leftover files.
-        pendingNoteDeletion = nil
         switch replacement {
         case .fresh(let runtime):
             transcriptionRetryWorkflow.forgetAll()
@@ -6140,7 +6156,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @discardableResult
     func importHistoryRecoverySnapshot(id: UUID) -> Bool {
         guard requireAvailableHistoryForMutation() else { return false }
-        finalizePendingNoteDeletion()
+        finalizePendingSummaryDeletion()
         return historyWorkflow.requestImport(
             snapshotID: id,
             context: historyWorkflowAdmissionContext(),
@@ -7908,7 +7924,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postAction: HistoryArchivePostAction = .startFresh
     ) -> Bool {
         synchronizeHistoryPersistenceState()
-        finalizePendingNoteDeletion()
+        finalizePendingSummaryDeletion()
         let result = historyWorkflow.requestArchive(
             context: historyWorkflowAdmissionContext(),
             currentStore: pipelineHistoryStore,
@@ -7934,7 +7950,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             return
         }
-        finalizePendingNoteDeletion()
+        finalizePendingSummaryDeletion()
         let historyIDs = pipelineHistory.map(\.id)
         let unrecoveredRecordingIDs = pipelineHistory
             .filter { $0.unrecoveredRecordingContext != nil }
@@ -7983,10 +7999,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func deleteHistoryEntry(id: UUID) {
         // A note being recovered again, or the note of the recording in
         // progress, can't be deleted yet. Refuse before ending an earlier
-        // deletion's Cancel window.
+        // summary deletion's Cancel window.
         guard !recoveringRecordingIDs.contains(id), !isRecordingInProgress(noteID: id) else { return }
-        // An earlier deletion's Cancel window ends here, like any new deletion.
-        finalizePendingNoteDeletion()
+        // An earlier summary deletion's Cancel window ends here, like any
+        // new deletion.
+        finalizePendingSummaryDeletion()
         // Mark the pieces first: if the app quits or stops before they are
         // removed, the next launch removes them instead of bringing the
         // note back.
@@ -8007,47 +8024,36 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Moves notes from the list to Recently Deleted. Their rows and files
-    /// stay for 30 days (until Delete Now or the purge), and for a short
-    /// window the Note Browser offers Cancel. When that window ends, when
-    /// more notes are deleted the same way, or when the app quits,
-    /// `finalizePendingNoteDeletion()` tears down the notes' in-memory state
-    /// (retry, cloud session, summary workflow, banners). Notes that are
-    /// still recording or processing are skipped: their running work would
-    /// outlive the note, so they use `deleteHistoryEntry(id:)` instead.
+    /// Moves notes from the list to Recently Deleted and tears down their
+    /// in-memory state (retry, cloud session, summary workflow, banners)
+    /// right away. Their rows and files stay for 30 days (until Restore,
+    /// Delete Now, or the purge). Notes that are still recording or
+    /// processing are skipped: their running work would outlive the note,
+    /// so they use `deleteHistoryEntry(id:)` instead.
     @MainActor
     @discardableResult
-    func deleteHistoryEntriesCancellably(ids: [UUID]) -> NoteBulkDeletionResult {
+    func moveHistoryEntriesToRecentlyDeleted(ids: [UUID]) -> NoteBulkDeletionResult {
         var result = NoteBulkDeletionResult()
-        finalizePendingNoteDeletion()
-        var entries: [PendingNoteDeletion.Entry] = []
+        // A new deletion ends an earlier summary deletion's Cancel window.
+        finalizePendingSummaryDeletion()
         for id in ids {
             guard pipelineHistory.contains(where: { $0.id == id }) else { continue }
-            guard canDeleteHistoryEntryCancellably(id: id) else {
+            guard canMoveHistoryEntryToRecentlyDeleted(id: id) else {
                 result.skippedIDs.append(id)
                 continue
             }
-            guard let removedItem = moveHistoryEntryToRecentlyDeleted(id: id) else {
+            guard markHistoryEntryDeleted(id: id) != nil else {
                 result.failedIDs.append(id)
                 continue
             }
-            // No assets: the files stay with the note in Recently Deleted.
-            entries.append(PendingNoteDeletion.Entry(item: removedItem, assets: nil))
             result.deletedIDs.append(id)
-        }
-        guard !entries.isEmpty else { return result }
-        let pending = PendingNoteDeletion(entries: entries)
-        pendingNoteDeletion = pending
-        scheduleNoteDeletionFinalization(Self.noteDeletionCancelWindow) { [weak self] in
-            guard let self, self.pendingNoteDeletion?.id == pending.id else { return }
-            self.finalizePendingNoteDeletion()
         }
         return result
     }
 
     /// Deletes notes the user confirmed in one dialog. Notes of recordings
-    /// that could not be recovered are deleted now, with their pieces; the
-    /// rest wait for the Cancel toast.
+    /// that could not be recovered are deleted for good, with their pieces;
+    /// the rest move to Recently Deleted.
     @MainActor
     @discardableResult
     func deleteConfirmedHistoryEntries(ids: [UUID]) -> NoteBulkDeletionResult {
@@ -8067,12 +8073,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 immediate.deletedIDs.append(id)
             }
         }
-        // Deleted last, so the Cancel window covers these notes. With none,
-        // an earlier deletion's Cancel window is left alone.
-        let cancellableIDs = ids.filter { !unrecoveredIDs.contains($0) }
-        var result = cancellableIDs.isEmpty
+        // With none, an earlier summary deletion's Cancel window is left
+        // alone.
+        let settledIDs = ids.filter { !unrecoveredIDs.contains($0) }
+        var result = settledIDs.isEmpty
             ? NoteBulkDeletionResult()
-            : deleteHistoryEntriesCancellably(ids: cancellableIDs)
+            : moveHistoryEntriesToRecentlyDeleted(ids: settledIDs)
         result.deletedIDs = immediate.deletedIDs + result.deletedIDs
         result.failedIDs = immediate.failedIDs + result.failedIDs
         result.skippedIDs = immediate.skippedIDs + result.skippedIDs
@@ -8080,75 +8086,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    func deleteHistoryEntryCancellably(id: UUID) {
-        guard canDeleteHistoryEntryCancellably(id: id) else { return }
-        deleteHistoryEntriesCancellably(ids: [id])
+    func moveHistoryEntryToRecentlyDeleted(id: UUID) {
+        guard canMoveHistoryEntryToRecentlyDeleted(id: id) else { return }
+        moveHistoryEntriesToRecentlyDeleted(ids: [id])
     }
 
-    /// Whether the note is settled, so deleting it can wait for Cancel.
+    /// Whether the note is settled, so it can move to Recently Deleted.
     @MainActor
-    func canDeleteHistoryEntryCancellably(id: UUID) -> Bool {
+    func canMoveHistoryEntryToRecentlyDeleted(id: UUID) -> Bool {
         guard let item = pipelineHistory.first(where: { $0.id == id }) else { return false }
         // An unrecovered recording's journal is removed with its note after
-        // a confirmation; a Cancel window would leave the note deleted while
-        // its journal can bring it back on the next launch.
+        // a confirmation; Recently Deleted would keep the note while its
+        // journal can bring it back on the next launch.
         guard item.unrecoveredRecordingContext == nil else { return false }
         return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs).isBulkSelectable
             && !meetingSummaryGeneratingNoteIDs.contains(id)
     }
 
-    /// Puts the pending notes back with their files, titles, summaries, and places.
+    /// Ends the Cancel window of a deleted summary. Safe to call at any time.
     @MainActor
-    func cancelPendingNoteDeletion() {
-        guard let pending = pendingNoteDeletion,
-              requireAvailableHistoryForMutation() else { return }
-        var unrestored: [PendingNoteDeletion.Entry] = []
-        var restoreError: Error?
-        for entry in pending.entries {
-            // A row with this ID came back some other way; never overwrite it
-            // or list it twice.
-            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
-            do {
-                let restored = try pipelineHistoryStore.setDeletedAt(nil, id: entry.item.id)
-                recentlyDeletedNotes.removeAll { $0.id == entry.item.id }
-                // The list is newest first, like the store; place the note by
-                // its time rather than a position that may have shifted.
-                let index = pipelineHistory.firstIndex {
-                    $0.timestamp < restored.timestamp
-                } ?? pipelineHistory.count
-                pipelineHistory.insert(restored, at: index)
-            } catch {
-                restoreError = restoreError ?? error
-                unrestored.append(entry)
-            }
-        }
-        // Notes that could not come back keep waiting for the window to end.
-        pendingNoteDeletion = unrestored.isEmpty ? nil : pending.keeping(unrestored)
-        if let restoreError {
-            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: restoreError.localizedDescription)
-        }
-    }
-
-    /// Removes the files of the pending notes now. Safe to call at any time.
-    @MainActor
-    func finalizePendingNoteDeletion() {
+    func finalizePendingSummaryDeletion() {
         pendingSummaryDeletion = nil
-        guard let pending = pendingNoteDeletion else { return }
-        pendingNoteDeletion = nil
-        for entry in pending.entries {
-            // The cleanup is keyed by note ID; skip it if that ID is listed again.
-            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
-            transcriptionRetryWorkflow.cancel(noteID: entry.item.id)
-            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
-                historyID: entry.item.id,
-                store: cloudTranscriptionJobStore
-            )
-            meetingSummaryWorkflow.forget(noteID: entry.item.id)
-            forgetWarningBannerState(for: entry.item.id)
-            if let assets = entry.assets {
-                cleanupDeletedPipelineHistoryAssets(assets)
-            }
-        }
     }
 
     /// Whether this note still belongs to a recording or its transcription:
@@ -8167,10 +8125,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         })
     }
 
-    /// Moves a settled note to Recently Deleted. Its row and files stay; the
-    /// in-memory teardown waits for `finalizePendingNoteDeletion()`.
+    /// Moves a settled note to Recently Deleted and tears down its in-memory
+    /// state (retry, cloud session, summary workflow, banners). Its row and
+    /// files stay.
     @MainActor
-    private func moveHistoryEntryToRecentlyDeleted(id: UUID) -> PipelineHistoryItem? {
+    private func markHistoryEntryDeleted(id: UUID) -> PipelineHistoryItem? {
         guard requireAvailableHistoryForMutation(),
               !recoveringRecordingIDs.contains(id),
               !isRecordingInProgress(noteID: id),
@@ -8180,6 +8139,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let deleted = try pipelineHistoryStore.setDeletedAt(Date(), id: id)
             pipelineHistory.remove(at: index)
             recentlyDeletedNotes.insert(deleted, at: 0)
+            transcriptionRetryWorkflow.cancel(noteID: id)
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: id,
+                store: cloudTranscriptionJobStore
+            )
+            meetingSummaryWorkflow.forget(noteID: id)
+            forgetWarningBannerState(for: id)
             return item
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
@@ -8691,14 +8657,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         meetingSummaryWorkflow.invalidate(noteID: noteID)
         // A new deletion ends any earlier Cancel window, then this summary
         // can be put back for a few seconds.
-        finalizePendingNoteDeletion()
+        finalizePendingSummaryDeletion()
         let pending = PendingSummaryDeletion(
             noteID: noteID,
             summary: existing.meetingSummary,
             attempt: existing.meetingSummaryAttempt
         )
         pendingSummaryDeletion = pending
-        scheduleNoteDeletionFinalization(Self.noteDeletionCancelWindow) { [weak self] in
+        scheduleSummaryDeletionFinalization(Self.summaryDeletionCancelWindow) { [weak self] in
             guard let self, self.pendingSummaryDeletion?.id == pending.id else { return }
             self.pendingSummaryDeletion = nil
         }
@@ -13767,13 +13733,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let restored = try pipelineHistoryStore.setDeletedAt(nil, id: id)
             recentlyDeletedNotes.removeAll { $0.id == id }
             insertPipelineHistoryItemInTimeOrder(restored)
-            // A note restored during its Cancel window leaves the toast too.
-            if let pending = pendingNoteDeletion {
-                let remaining = pending.entries.filter { $0.item.id != id }
-                if remaining.count != pending.entries.count {
-                    pendingNoteDeletion = remaining.isEmpty ? nil : pending.keeping(remaining)
-                }
-            }
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: error.localizedDescription)
         }
@@ -13853,8 +13812,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteRecentlyDeletedNoteNow(id: UUID) {
+        deleteRecentlyDeletedNotesNow(ids: [id])
+    }
+
+    /// Delete Now for the notes the person was shown, one or all of them
+    /// (Delete All, #579). The person asked for it, so it doesn't wait for
+    /// the iCloud check an automatic purge makes. A note that arrived after
+    /// the list was shown isn't in `ids`, so it stays.
+    @MainActor
+    func deleteRecentlyDeletedNotesNow(ids: [UUID]) {
         guard requireAvailableHistoryForMutation() else { return }
-        removeRecentlyDeletedNotes(ids: [id])
+        removeRecentlyDeletedNotes(ids: ids)
     }
 
     private var recentlyDeletedPurgeTimer: Timer?
@@ -13922,7 +13890,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// Deletes Recently Deleted rows, then their files once, against one
-    /// load of the surviving rows. A note in the Cancel window leaves it.
+    /// load of the surviving rows.
     @MainActor
     private func removeRecentlyDeletedNotes(ids: [UUID], reportsErrors: Bool = true) {
         let ids = ids.filter { id in recentlyDeletedNotes.contains { $0.id == id } }
@@ -13935,17 +13903,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     removedAssets.append(assets)
                 }
                 recentlyDeletedNotes.removeAll { $0.id == id }
-                // The same teardown as the end of the Cancel window, which
-                // this note may not reach now.
+                // The same teardown as moving a note here, for any state
+                // that came back since.
                 transcriptionRetryWorkflow.cancel(noteID: id)
                 meetingSummaryWorkflow.forget(noteID: id)
                 forgetWarningBannerState(for: id)
-                if let pending = pendingNoteDeletion {
-                    let remaining = pending.entries.filter { $0.item.id != id }
-                    if remaining.count != pending.entries.count {
-                        pendingNoteDeletion = remaining.isEmpty ? nil : pending.keeping(remaining)
-                    }
-                }
             } catch {
                 failure = failure ?? error
             }
@@ -15326,14 +15288,16 @@ private extension ShortcutBinding {
     }
 }
 
-/// Notes removed from the list whose files wait for the Cancel window.
 /// A deleted meeting summary, kept for its Cancel window (#440).
 struct PendingSummaryDeletion: Identifiable {
     let id: UUID
     let noteID: UUID
     let summary: MeetingSummaryEnvelope?
     let attempt: MeetingSummaryAttempt?
-    /// See `PendingNoteDeletion.startedUptime`.
+    /// When the Cancel window started, in system awake time; the toast's
+    /// countdown runs from here, so reopening the Note Browser doesn't restart
+    /// it. Like the timer that ends the window, it pauses while the Mac sleeps,
+    /// so the countdown still matches the time left after waking (#436).
     let startedUptime: TimeInterval
 
     init(
@@ -15348,36 +15312,5 @@ struct PendingSummaryDeletion: Identifiable {
         self.summary = summary
         self.attempt = attempt
         self.startedUptime = startedUptime
-    }
-}
-
-struct PendingNoteDeletion: Identifiable {
-    struct Entry {
-        let item: PipelineHistoryItem
-        let assets: DeletedPipelineHistoryAssets?
-    }
-
-    let id: UUID
-    let entries: [Entry]
-    /// When the Cancel window started, in system awake time; the toast's
-    /// countdown runs from here, so reopening the Note Browser doesn't restart
-    /// it. Like the timer that ends the window, it pauses while the Mac sleeps,
-    /// so the countdown still matches the time left after waking (#436).
-    let startedUptime: TimeInterval
-
-    init(
-        id: UUID = UUID(),
-        entries: [Entry],
-        startedUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
-    ) {
-        self.id = id
-        self.entries = entries
-        self.startedUptime = startedUptime
-    }
-
-    var noteCount: Int { entries.count }
-
-    func keeping(_ entries: [Entry]) -> PendingNoteDeletion {
-        PendingNoteDeletion(id: id, entries: entries, startedUptime: startedUptime)
     }
 }

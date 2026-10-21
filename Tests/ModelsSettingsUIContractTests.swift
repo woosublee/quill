@@ -148,12 +148,9 @@ struct ModelsSettingsUIContractTests {
 
     private static func testExistingModelCatalogRemains(_ source: String) {
         for model in [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
             "openai/gpt-oss-20b",
             "openai/gpt-oss-120b",
-            "qwen/qwen3-32b",
+            "openai/gpt-oss-safeguard-20b",
             "qwen/qwen3.8-27b",
             "whisper-large-v3",
             "whisper-large-v3-turbo"

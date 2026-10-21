@@ -40,7 +40,7 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
         let deletion = block(
             source,
             from: "func deleteHistoryEntry(id: UUID) {",
-            to: "func deleteHistoryEntryCancellably(id: UUID)"
+            to: "func moveHistoryEntriesToRecentlyDeleted(ids: [UUID])"
         )
         try expectOrdered(
             [
@@ -66,43 +66,29 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             in: record,
             label: "single delete record removal order"
         )
-        // Cancel takes the note back out of Recently Deleted; it never trims.
-        let restore = block(
+        // #581: moving a note to Recently Deleted tears down its in-memory
+        // state right away, like a permanent delete, but keeps its row and
+        // files for Restore. No Cancel window defers the teardown.
+        precondition(source.contains("markHistoryEntryDeleted(id: id)"))
+        precondition(!source.contains("pendingNoteDeletion"))
+        let move = block(
             source,
-            from: "func cancelPendingNoteDeletion() {",
-            to: "func finalizePendingNoteDeletion() {"
-        )
-        precondition(restore.contains("pipelineHistoryStore.setDeletedAt(nil, id: entry.item.id)"))
-        precondition(!restore.contains("maxPipelineHistoryCount"))
-        // #409: the Cancel window defers the same cleanup instead of duplicating it.
-        let finalize = block(
-            source,
-            from: "func finalizePendingNoteDeletion() {",
+            from: "private func markHistoryEntryDeleted(",
             to: "private func removeHistoryEntryRecord("
         )
         try expectOrdered(
             [
-                "pendingNoteDeletion = nil",
-                "transcriptionRetryWorkflow.cancel(noteID: entry.item.id)",
+                "pipelineHistoryStore.setDeletedAt(Date(), id: id)",
+                "transcriptionRetryWorkflow.cancel(noteID: id)",
                 "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
-                "meetingSummaryWorkflow.forget(noteID: entry.item.id)",
-                "forgetWarningBannerState(for: entry.item.id)",
-                "cleanupDeletedPipelineHistoryAssets(assets)"
+                "meetingSummaryWorkflow.forget(noteID: id)",
+                "forgetWarningBannerState(for: id)"
             ],
-            in: finalize,
-            label: "pending delete teardown and cleanup"
+            in: move,
+            label: "move to Recently Deleted and teardown"
         )
-        // Cancellable deletion moves the note to Recently Deleted and leaves
-        // its in-memory state for finalize.
-        precondition(source.contains("moveHistoryEntryToRecentlyDeleted(id: id)"))
-        let move = block(
-            source,
-            from: "private func moveHistoryEntryToRecentlyDeleted(",
-            to: "private func removeHistoryEntryRecord("
-        )
-        precondition(move.contains("pipelineHistoryStore.setDeletedAt(Date(), id: id)"))
-        precondition(!move.contains("meetingSummaryWorkflow.forget"))
         precondition(!move.contains("pipelineHistoryStore.delete("))
+        precondition(!move.contains("cleanupDeletedPipelineHistoryAssets("))
     }
 
     private static func verifiesClearUsesCommonCleanup(_ source: String) throws {

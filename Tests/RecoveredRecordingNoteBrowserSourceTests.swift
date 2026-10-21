@@ -34,7 +34,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(appStateSource.contains("func openProviderSettings()"))
         precondition(appStateSource.contains("selectedSettingsTab = .models"))
         precondition(appStateSource.contains("NotificationCenter.default.post(name: .showSettings, object: nil)"))
-        precondition(source.contains("appState.deleteHistoryEntryCancellably(id: id)"))
+        precondition(source.contains("appState.moveHistoryEntryToRecentlyDeleted(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
         precondition(source.contains(".foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
         precondition(source.contains("if isRecoveredRecording {"))
@@ -428,6 +428,12 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // metadata line keeps its layout when recording starts and stops.
         let indicator = block(source, from: "private var noteStateIndicator: some View {", to: "private var statusBadges: some View {")
         precondition(!indicator.contains("isLiveRecording"))
+        // #578: nor does work in progress, which the transcript overlay and
+        // the empty body show instead.
+        precondition(!indicator.contains("ProgressView"))
+        precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
+        precondition(source.contains("} else if isRecoveringRecording {\n                            retryingOverlay"))
+        precondition(source.contains("} else if isCloudTranscribing\n"))
         precondition(!source.contains("LiveRecordingBadge"))
 
         // Increase Contrast: row date, badges, and detail metadata strengthen.

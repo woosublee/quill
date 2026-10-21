@@ -1313,22 +1313,6 @@
         }
       }
     },
-    "Audio and summaries are deleted too. You can cancel for a few seconds after deleting.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio and summaries are deleted too. You can cancel for a few seconds after deleting."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음과 요약도 함께 삭제돼요. 삭제한 뒤 잠시 동안 취소할 수 있어요."
-          }
-        }
-      }
-    },
     "Notes that are recording or processing can't be selected.": {
       "localizations": {
         "en": {
@@ -1485,22 +1469,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "삭제한 노트는 복구할 수 없어요."
-          }
-        }
-      }
-    },
-    "You can cancel for a few seconds after deleting.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You can cancel for a few seconds after deleting."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "삭제한 뒤 잠시 동안 취소할 수 있어요."
           }
         }
       }
@@ -18020,22 +17988,6 @@
         }
       }
     },
-    "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워져요. 삭제한 뒤 잠시 동안 취소할 수 있어요."
-          }
-        }
-      }
-    },
     "Note deleted": {
       "localizations": {
         "en": {
@@ -21712,6 +21664,118 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 전사 URL과 키를 확인하지 못했어요. 둘이 맞지 않으면 전사가 실패해요."
+          }
+        }
+      }
+    },
+    "You can restore it from Recently Deleted for 30 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can restore it from Recently Deleted for 30 days."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30일 동안 최근 삭제된 노트에서 복구할 수 있어요."
+          }
+        }
+      }
+    },
+    "Their audio and summaries go with them. You can restore them from Recently Deleted for 30 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Their audio and summaries go with them. You can restore them from Recently Deleted for 30 days."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음과 요약도 함께 옮겨져요. 30일 동안 최근 삭제된 노트에서 복구할 수 있어요."
+          }
+        }
+      }
+    },
+    "Deleting the entire note moves its recording, transcript, and summary to Recently Deleted. You can restore it for 30 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting the entire note moves its recording, transcript, and summary to Recently Deleted. You can restore it for 30 days."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 최근 삭제된 노트로 옮겨져요. 30일 동안 복구할 수 있어요."
+          }
+        }
+      }
+    },
+    "Transcription URL and key checked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription URL and key checked"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 URL과 키를 확인했어요"
+          }
+        }
+      }
+    },
+    "Delete All": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 삭제"
+          }
+        }
+      }
+    },
+    "Delete all recently deleted notes now?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete all recently deleted notes now?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 삭제된 노트를 모두 바로 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Their audio and transcripts are removed too. This can't be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Their audio and transcripts are removed too. This can't be undone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오와 전사문도 함께 지워져요. 되돌릴 수 없어요."
           }
         }
       }
