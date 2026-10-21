@@ -8,6 +8,8 @@ struct PostProcessingBackendTests {
         try await testLocalRequestUsesLoopbackWithoutAuthorization()
         try await testCloudRequestOmitsLocalCompatibilityKey()
         try await testLegacyAutomaticOutputLanguageDoesNotPromptTranslation()
+        try await testCleanupPromptNamesTheDictationLanguage()
+        try testDefaultPromptKeepsShortRepliesOutOfEmpty()
         try await testShortTranscriptUsesShortCleanupInstructions()
         try await testLongTranscriptUsesLongCleanupInstructions()
         try await testCustomPromptKeepsMandatoryCleanupContract()
@@ -354,6 +356,66 @@ struct PostProcessingBackendTests {
         try expect(
             !systemPrompt.contains("Translate the final cleaned text into auto"),
             "legacy automatic output language does not prompt translation"
+        )
+    }
+
+    private static func testCleanupPromptNamesTheDictationLanguage() async throws {
+        func systemPrompt(
+            transcript: String,
+            outputLanguage: String = "",
+            spokenLanguage: SpokenLanguageResolution?
+        ) async throws -> String {
+            let recorder = PostProcessingRequestRecorder()
+            let service = makeLocalService { request in
+                recorder.record(request)
+                return try successResponse(request: request, content: transcript)
+            }
+            _ = try await service.postProcess(
+                transcript: transcript,
+                context: testContext,
+                customVocabulary: "",
+                outputLanguage: outputLanguage,
+                spokenLanguage: spokenLanguage
+            )
+            let body = try requestBody(try recorder.request())
+            guard let messages = body["messages"] as? [[String: Any]],
+                  let prompt = messages.first(where: { $0["role"] as? String == "system" })?["content"] as? String else {
+                throw PostProcessingBackendTestFailure("Missing cleanup system prompt")
+            }
+            return prompt
+        }
+
+        let korean = try await systemPrompt(
+            transcript: "내일 오후 세 시에 회의실에서 만나요.",
+            spokenLanguage: SpokenLanguageResolution(languageCode: "ko", source: .configured)
+        )
+        try expect(
+            korean.contains("IMPORTANT: The dictation is primarily in Korean. Write the cleaned text in Korean."),
+            "Korean dictation is named in the cleanup prompt"
+        )
+
+        let english = try await systemPrompt(
+            transcript: "Meet me in the conference room tomorrow at three.",
+            spokenLanguage: SpokenLanguageResolution(languageCode: "en", source: .configured)
+        )
+        try expect(!english.contains("The dictation is primarily in"), "English dictation adds nothing")
+
+        let translated = try await systemPrompt(
+            transcript: "내일 오후 세 시에 회의실에서 만나요.",
+            outputLanguage: "Korean",
+            spokenLanguage: SpokenLanguageResolution(languageCode: "en", source: .configured)
+        )
+        try expect(translated.contains("Translate the final cleaned text into Korean"), "explicit output language still translates")
+        try expect(!translated.contains("The dictation is primarily in"), "explicit output language wins")
+
+        try expect(PostProcessingService.dictationLanguageName(forCode: "ja") == "Japanese", "language code to English name")
+        try expect(PostProcessingService.dictationLanguageName(forCode: nil) == nil, "unknown language adds nothing")
+    }
+
+    private static func testDefaultPromptKeepsShortRepliesOutOfEmpty() throws {
+        try expect(
+            PostProcessingService.defaultSystemPrompt.contains(#"Example: "um uh so yeah" -> EMPTY. A standalone reply such as "yes""#),
+            "default prompt shows what filler-only means"
         )
     }
 

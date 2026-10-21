@@ -375,6 +375,7 @@ Developer syntax:
 Output hygiene:
 - Never prepend boilerplate such as "Here is the clean transcript".
 - If the transcript is empty or only filler, return exactly: EMPTY
+  - Filler-only means hesitation sounds and discourse particles with no content, in any language. Example: "um uh so yeah" -> EMPTY. A standalone reply such as "yes", "yeah", "ja" or "да" is content, not filler: keep it.
 """
     private static let preservationContract = """
 PRESERVATION CONTRACT:
@@ -401,7 +402,7 @@ REMINDER:
 - EMPTY is only for a transcript that is empty or contains only filler.
 - This transcript contains spoken content. Return the cleaned transcript instead of EMPTY.
 """
-    static let defaultSystemPromptDate = "2026-08-10"
+    static let defaultSystemPromptDate = "2026-10-21"
     static let commandModeSystemPrompt = """
 You transform highlighted text according to a spoken editing command.
 
@@ -943,7 +944,8 @@ Behavior:
         let staticSystemPrompt = postProcessingSystemPrompt(
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
-            cleanupMode: cleanupMode
+            cleanupMode: cleanupMode,
+            dictationLanguageCode: expectedSourceLanguage
         )
         let renderedPrompt = "[System]\n\(staticSystemPrompt)\n\n[User]\n\(staticUserMessage)"
         let budget = try await LocalAITokenBudgeter(
@@ -993,6 +995,7 @@ Behavior:
                     outputLanguage: outputLanguage,
                     cleanupMode: cleanupMode,
                     expectedSourceLanguage: chunkExpectedSourceLanguage,
+                    dictationLanguageCode: chunkExpectedSourceLanguage ?? expectedSourceLanguage,
                     localCompletionCeiling: localCompletionCeiling
                 )
             } catch PostProcessingError.emptyOutput
@@ -1008,6 +1011,7 @@ Behavior:
                     outputLanguage: outputLanguage,
                     cleanupMode: cleanupMode,
                     expectedSourceLanguage: chunkExpectedSourceLanguage,
+                    dictationLanguageCode: chunkExpectedSourceLanguage ?? expectedSourceLanguage,
                     localCompletionCeiling: localCompletionCeiling,
                     includesEmptyReplyReminder: true
                 )
@@ -1049,6 +1053,7 @@ Behavior:
         outputLanguage: String = "",
         cleanupMode: TranscriptCleanupMode,
         expectedSourceLanguage: String?,
+        dictationLanguageCode: String? = nil,
         localCompletionCeiling: Int?,
         includesEmptyReplyReminder: Bool = false
     ) async throws -> PostProcessingResult {
@@ -1065,10 +1070,12 @@ Behavior:
         request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
+        // A chunk too short to recognize falls back to the whole transcript's language.
         let baseSystemPrompt = postProcessingSystemPrompt(
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
-            cleanupMode: cleanupMode
+            cleanupMode: cleanupMode,
+            dictationLanguageCode: dictationLanguageCode ?? expectedSourceLanguage
         )
         let systemPrompt = includesEmptyReplyReminder
             ? baseSystemPrompt + "\n\n" + Self.emptyReplyReminder
@@ -1434,7 +1441,8 @@ Model: \(model)
     private func postProcessingSystemPrompt(
         customSystemPrompt: String,
         outputLanguage: String,
-        cleanupMode: TranscriptCleanupMode
+        cleanupMode: TranscriptCleanupMode,
+        dictationLanguageCode: String?
     ) -> String {
         let basePrompt = customSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? Self.defaultSystemPrompt
@@ -1453,8 +1461,31 @@ Model: \(model)
         let trimmedOutputLanguage = outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
         if !AIOutputLanguageValidator.isAutomaticOutputLanguage(outputLanguage) {
             systemPrompt = Self.applyOutputLanguage(systemPrompt, language: trimmedOutputLanguage)
+        } else if let language = Self.dictationLanguageName(forCode: dictationLanguageCode) {
+            systemPrompt = Self.applyDictationLanguage(systemPrompt, language: language)
         }
         return systemPrompt
+    }
+
+    /// English name of the language the cleaned text must stay in: the one
+    /// output validation also expects. Every example in the prompt is English,
+    /// and models follow the examples over the "no translation" rule, so other
+    /// languages are named. English needs nothing.
+    static func dictationLanguageName(forCode code: String?) -> String? {
+        guard let code = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !code.isEmpty,
+              code != "en",
+              let name = Locale(identifier: "en").localizedString(forLanguageCode: code),
+              name.lowercased() != code else {
+            return nil
+        }
+        return name
+    }
+
+    /// "Primarily" and the carve-out keep this consistent with the prompt's own
+    /// rule to preserve mixed-language text.
+    static func applyDictationLanguage(_ prompt: String, language: String) -> String {
+        prompt + "\n\nIMPORTANT: The dictation is primarily in \(language). Write the cleaned text in \(language). Preserve mixed-language words and spans in their original languages."
     }
 
     private func postProcessingUserMessage(
