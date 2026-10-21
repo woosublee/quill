@@ -3126,13 +3126,12 @@ private struct NoteDetailView: View {
     private var noteStateIndicator: some View {
         // A live recording adds nothing here (#537): the menu bar, the
         // overlay, the list row and the empty body's "Recording" title show
-        // it, and a badge with a timer would wrap the metadata line.
-        if isRetrying || isCloudTranscribing || isRecoveringRecording {
-            ProgressView()
-                .controlSize(.mini)
-                .help(isCloudTranscribing ? cloudProgressText : retryingStatusText)
-                .accessibilityLabel(Text(verbatim: isCloudTranscribing ? cloudProgressText : retryingStatusText))
-        } else if isRecoveredRecording {
+        // it, and a badge with a timer would wrap the metadata line. Work in
+        // progress adds nothing either (#578): the transcript's progress
+        // overlay (retranscribing, recovering), the Transcript tab's
+        // indicator while the Summary tab shows, and the empty body's
+        // progress (cloud transcription) show it.
+        if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))

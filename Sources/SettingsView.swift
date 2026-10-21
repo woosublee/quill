@@ -1669,6 +1669,7 @@ struct ModelsSettingsView: View {
     @State private var isValidatingKey = false
     @State private var keyValidationIssue: QuillUserIssueRecord?
     @State private var transcriptionPairCheckFailed = false
+    @State private var transcriptionPairCheckPassed = false
     @State private var transcriptionPairCheckID: UUID?
     @State private var customVocabularyInput: String = ""
     @FocusState private var customVocabularyFocused: Bool
@@ -3124,6 +3125,17 @@ struct ModelsSettingsView: View {
                     }
                     .font(.caption)
                 }
+                // Like the main key's Save and upstream's Save: the key field
+                // has no natural next field to move focus to (#576).
+                // A newer check replaces a running one, so Save stays enabled
+                // while one runs; with both fields empty there is nothing to check.
+                Button("Save") {
+                    saveTranscriptionProviderFields()
+                }
+                .disabled(
+                    transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        && transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
 
             if transcriptionPairCheckID != nil {
@@ -3142,6 +3154,10 @@ struct ModelsSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
+            } else if transcriptionPairCheckPassed && transcriptionInputsMatchSaved {
+                Label("Transcription URL and key checked", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
             }
         }
     }
@@ -3333,11 +3349,33 @@ struct ModelsSettingsView: View {
         appState.transcriptionAPIURL = trimmed
     }
 
+    /// Saves the transcription URL and key and checks them together. A
+    /// changed value re-checks through onChange; when nothing changed, the
+    /// saved pair is checked again here.
+    private func saveTranscriptionProviderFields() {
+        let savedURL = appState.transcriptionAPIURL
+        let savedKey = appState.transcriptionAPIKey
+        commitTranscriptionAPIURL()
+        commitTranscriptionAPIKey()
+        if appState.transcriptionAPIURL == savedURL, appState.transcriptionAPIKey == savedKey {
+            checkTranscriptionProviderPair()
+        }
+    }
+
     private func commitTranscriptionAPIKey() {
         let trimmed = transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         transcriptionAPIKeyInput = trimmed
         guard appState.transcriptionAPIKey != trimmed else { return }
         appState.transcriptionAPIKey = trimmed
+    }
+
+    /// The check result describes the saved pair, so it hides while the
+    /// fields hold unsaved edits.
+    private var transcriptionInputsMatchSaved: Bool {
+        transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            == appState.transcriptionAPIURL
+            && transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            == appState.transcriptionAPIKey
     }
 
     /// Checks the transcription URL and key as the pair transcription will
@@ -3347,6 +3385,7 @@ struct ModelsSettingsView: View {
     /// claiming the key is wrong.
     private func checkTranscriptionProviderPair() {
         transcriptionPairCheckFailed = false
+        transcriptionPairCheckPassed = false
         guard let pair = TranscriptionProviderPair(
             transcriptionAPIURL: appState.transcriptionAPIURL,
             transcriptionAPIKey: appState.transcriptionAPIKey,
@@ -3365,6 +3404,7 @@ struct ModelsSettingsView: View {
                 guard transcriptionPairCheckID == checkID else { return }
                 transcriptionPairCheckID = nil
                 transcriptionPairCheckFailed = !valid
+                transcriptionPairCheckPassed = valid
             }
         }
     }

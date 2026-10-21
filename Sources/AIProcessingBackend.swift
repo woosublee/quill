@@ -85,13 +85,22 @@ struct AIProcessingBackendChoiceStore {
         defaults.set(data, forKey: key)
     }
 
-    /// Moves a saved cloud choice off a model Groq retired. Local choices and
-    /// other providers are left alone.
-    static func migrateGroqSelection(key: String, baseURL: String, defaults: UserDefaults) {
+    /// Moves a saved cloud choice off a model Quill no longer lists for
+    /// Groq. Local choices and other providers are left alone.
+    static func migrateGroqSelection(
+        key: String,
+        baseURL: String,
+        defaults: UserDefaults,
+        includingDroppedModels: Bool = false
+    ) {
         guard let data = defaults.data(forKey: key),
               let choice = try? JSONDecoder().decode(AIProcessingBackendChoice.self, from: data),
               case .cloud(let modelID) = choice,
-              let replacement = ModelConfiguration.groqReplacement(for: modelID, baseURL: baseURL) else {
+              let replacement = ModelConfiguration.groqReplacement(
+                for: modelID,
+                baseURL: baseURL,
+                includingDroppedModels: includingDroppedModels
+              ) else {
             return
         }
         save(.cloud(modelID: replacement), defaults: defaults, key: key)

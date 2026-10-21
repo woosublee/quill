@@ -21747,6 +21747,22 @@
           }
         }
       }
+    },
+    "Transcription URL and key checked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription URL and key checked"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 URL과 키를 확인했어요"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
