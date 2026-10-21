@@ -32,7 +32,7 @@
     <main class="legal-main">
       <article class="wrap legal-card">
         <h1>Privacy Policy</h1>
-        <p><strong>Effective date:</strong> October 14, 2026</p>
+        <p><strong>Effective date:</strong> October 21, 2026</p>
         <p>Quill is a dictation and note-taking app for macOS and iPhone. This policy explains what Quill stores locally, what may leave your Mac when you choose to use provider integrations, iCloud sync, or the local MCP server for AI tools, and how the optional Google Calendar integration works.</p>
         <p>Quill for iPhone works differently from Quill for Mac: it has no AI provider, context capture, or Google Calendar features. See <a href="#iphone">Quill for iPhone</a> for how the iPhone app handles your data. Unless a section says otherwise, the other sections describe Quill for Mac.</p>
 
@@ -93,22 +93,42 @@
         <p>You can also revoke Quill's Google access from your Google Account permissions page.</p>
 
         <h2 id="iphone">Quill for iPhone</h2>
-        <p>Quill for iPhone records and transcribes audio on your iPhone. It has no accounts, advertising, analytics, or tracking, and it does not send your recordings or transcripts to Quill or to any transcription or AI provider.</p>
+        <p>Quill for iPhone records and transcribes audio on your iPhone. It has no accounts, advertising, analytics, or tracking, and Quill does not operate a server that receives your recordings, transcripts, or summaries. Your data leaves your iPhone only through features you turn on: iCloud sync to your own private iCloud, and cloud AI processing with a provider you choose and pay for with your own API key. Both are off unless you turn them on.</p>
 
         <h3>Data stored on your iPhone</h3>
         <ul>
-          <li>Audio recordings you start in the app, their transcripts, and your edits to those transcripts.</li>
-          <li>Transcription models you choose to download.</li>
-          <li>Settings such as the selected transcription model and transcription language.</li>
+          <li>Audio recordings you start in the app, their transcripts, your edits to those transcripts, and cleaned-up transcripts if you turn on post-processing.</li>
+          <li>Meeting summaries you create, and calendar events matched to your recordings if you turn on Calendar.</li>
+          <li>Transcription and summary models you choose to download.</li>
+          <li>Settings such as the selected models, transcription language, custom vocabulary, and reminder times.</li>
+          <li>API keys you enter for a cloud AI provider, stored in the iPhone Keychain for this device only. Keys are never synced or backed up.</li>
         </ul>
-        <p>Recordings, transcripts, and models are stored only inside the app on your iPhone and are excluded from iCloud and device backups, so they are not copied to Apple's servers or to another device. You can delete individual notes or models in the app. Deleting the app removes all of its data from your iPhone.</p>
+        <p>Recordings, transcripts, and models are stored inside the app and are excluded from device backups. You can delete individual notes or models in the app. Deleting the app removes its data from your iPhone; data you synced to iCloud stays in your iCloud until you delete it as described below.</p>
 
         <h3>Microphone and speech recognition</h3>
         <p>Quill uses the microphone only while a recording you started is in progress. Recording can continue in the background, and iOS shows that the microphone is in use.</p>
         <p>If you choose Apple Speech as the transcription model, Quill asks for Speech Recognition permission and requires Apple's on-device recognition, so your audio is not sent to Apple for that transcription. On recent iOS versions, iOS may download Apple's speech recognition assets for your language.</p>
 
-        <h3>Downloadable transcription models</h3>
-        <p>When you choose to download a transcription model, Quill downloads the model file from Hugging Face. The download request does not contain your recordings, transcripts, or settings. Like any website, Hugging Face receives standard connection information such as your IP address, and its own privacy policy applies to that request. Downloaded models then run entirely on your iPhone.</p>
+        <h3>Downloadable models</h3>
+        <p>When you choose to download a transcription or summary model, Quill downloads the model file from Hugging Face. The download request does not contain your recordings, transcripts, or settings. Like any website, Hugging Face receives standard connection information such as your IP address, and its own privacy policy applies to that request. Downloaded models then run entirely on your iPhone.</p>
+
+        <h3>Cloud AI providers (optional)</h3>
+        <p>You can connect an OpenAI-compatible AI provider, such as Groq or OpenAI, by entering your own API key. Quill then sends data directly from your iPhone to that provider for the features you choose:</p>
+        <ul>
+          <li><strong>Cloud transcription:</strong> the recording's audio, in parts.</li>
+          <li><strong>Realtime transcription:</strong> audio streamed while you record, if you turn on streaming.</li>
+          <li><strong>Post-processing:</strong> the transcript text, with your custom vocabulary and system prompt.</li>
+          <li><strong>Meeting summaries:</strong> the note's transcript. Calendar event details and attendees are not sent to cloud providers.</li>
+        </ul>
+        <p>Before Quill sends anything to a provider for the first time, it asks for your permission for that provider's address. You can withdraw that permission in Settings. Requests go only to the provider you configured; Quill does not receive or keep a copy. The provider's own terms and privacy policy apply to the data it receives, including how long it keeps it and whether it uses it for training. If you choose on-device models instead, nothing is sent.</p>
+
+        <h3>Calendar and recording reminders (optional)</h3>
+        <p>If you turn on Calendar, Quill asks for Calendar access and reads events from the calendars you select in the iPhone Calendar app, including accounts such as Google that you added in iOS Settings. Quill uses events on your iPhone to find the meeting that overlaps a recording, suggest a note title, and add context to on-device summaries. The matched event's title, time, and attendees are stored with the note. Quill does not change your calendars.</p>
+        <p>If you turn on meeting recording reminders, Quill asks for notification permission and schedules local notifications on your iPhone before events in your selected calendars. A reminder shows the event title and can start a recording when you tap it. Reminders are not sent through any server.</p>
+
+        <h3>iCloud sync (optional)</h3>
+        <p>If you turn on iCloud sync, Quill stores your notes in your own private iCloud database using Apple's CloudKit so they match between your iPhone and Mac signed in to the same iCloud account. Synced data includes the note title, transcript (including your edits), recording audio, recording time, language, transcription model, summaries, and matched calendar events with attendees. Quill cannot read your private iCloud data. Apple's privacy policy applies to iCloud.</p>
+        <p>You can turn sync off at any time. <strong>Turn Off Sync</strong> keeps your notes in iCloud for your other devices. <strong>Turn Off and Delete from iCloud</strong> deletes all Quill data from your iCloud; notes already on each device stay there.</p>
 
         <h3>Live Activities</h3>
         <p>While you record, Quill can show the recording status, elapsed time, and audio level on the Lock Screen and in the Dynamic Island. It does not show transcript text there.</p>
