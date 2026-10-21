@@ -13522,8 +13522,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteRecentlyDeletedNoteNow(id: UUID) {
+        deleteRecentlyDeletedNotesNow(ids: [id])
+    }
+
+    /// Delete Now for the notes the person was shown, one or all of them
+    /// (Delete All, #579). The person asked for it, so it doesn't wait for
+    /// the iCloud check an automatic purge makes. A note that arrived after
+    /// the list was shown isn't in `ids`, so it stays.
+    @MainActor
+    func deleteRecentlyDeletedNotesNow(ids: [UUID]) {
         guard requireAvailableHistoryForMutation() else { return }
-        removeRecentlyDeletedNotes(ids: [id])
+        removeRecentlyDeletedNotes(ids: ids)
     }
 
     private var recentlyDeletedPurgeTimer: Timer?
