@@ -124,6 +124,8 @@ struct AppStateTranscriptionConfigurationTests {
         testQwen36ContextReasoningIsStripped()
         testGroqQwen36SelectionsMoveToQwen38()
         testOtherProvidersKeepQwen36()
+        testGroqDroppedModelsMoveToQwen38()
+        testGroqDroppedModelsMoveOnlyOnce()
         testContextSummaryPreservesNonReasoningModelOutput()
         testContextModelDefaultsToQwen38()
         testDeprecatedDefaultContextModelMigratesToQwen38()
@@ -891,6 +893,15 @@ struct AppStateTranscriptionConfigurationTests {
         assert(!ModelConfiguration.llmModels.contains("groq/compound"))
         assert(!ModelConfiguration.llmModels.contains("groq/compound-mini"))
         assert(ModelConfiguration.visionModels == ["qwen/qwen3.8-27b"])
+        // Matches upstream's list (#577).
+        assert(ModelConfiguration.llmModels == [
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-safeguard-20b",
+            "qwen/qwen3.8-27b"
+        ])
+        assert(AppState.defaultPostProcessingFallbackModel == "qwen/qwen3.8-27b")
+        assert(AppState.defaultMeetingSummaryFallbackModel == "qwen/qwen3.8-27b")
         for model in ["qwen/qwen3.8-27b", "qwen3.8-27b", "qwen/qwen3.6-27b", "qwen3.6-27b"] {
             assert(ModelConfiguration.config(for: model).reasoningEffort == "none", model)
             assert(ModelConfiguration.config(for: model).includeReasoning == false, model)
@@ -947,6 +958,98 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.set("openai/gpt-oss-120b", forKey: "model")
         ModelConfiguration.migrateGroqSelection(key: "model", baseURL: "https://api.groq.com/openai/v1", defaults: defaults)
         assert(defaults.string(forKey: "model") == "openai/gpt-oss-120b")
+    }
+
+    private static func testGroqDroppedModelsMoveToQwen38() {
+        let suite = "app_state_transcription_test_groq_dropped_models"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let groq = "https://api.groq.com/openai/v1"
+
+        for model in [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "qwen/qwen3-32b",
+            "qwen3-32b"
+        ] {
+            defaults.set(model, forKey: "model")
+            AIProcessingBackendChoiceStore.save(.cloud(modelID: model), defaults: defaults, key: "choice")
+            // Without the one-time pass, Groq keeps them: it still serves them.
+            ModelConfiguration.migrateGroqSelection(key: "model", baseURL: groq, defaults: defaults)
+            assert(defaults.string(forKey: "model") == model, model)
+
+            ModelConfiguration.migrateGroqSelection(key: "model", baseURL: groq, defaults: defaults, includingDroppedModels: true)
+            AIProcessingBackendChoiceStore.migrateGroqSelection(key: "choice", baseURL: groq, defaults: defaults, includingDroppedModels: true)
+            assert(defaults.string(forKey: "model") == "qwen/qwen3.8-27b", model)
+            assert(AIProcessingBackendChoiceStore.load(defaults: defaults, key: "choice", fallbackCloudModelID: "") == .cloud(modelID: "qwen/qwen3.8-27b"), model)
+
+            // Another provider keeps the model it was given.
+            defaults.set(model, forKey: "model")
+            ModelConfiguration.migrateGroqSelection(key: "model", baseURL: "https://api.example.com/openai/v1", defaults: defaults, includingDroppedModels: true)
+            assert(defaults.string(forKey: "model") == model, model)
+            AIProcessingBackendChoiceStore.save(.cloud(modelID: model), defaults: defaults, key: "choice")
+            AIProcessingBackendChoiceStore.migrateGroqSelection(key: "choice", baseURL: "https://api.example.com/openai/v1", defaults: defaults, includingDroppedModels: true)
+            assert(AIProcessingBackendChoiceStore.load(defaults: defaults, key: "choice", fallbackCloudModelID: "") == .cloud(modelID: model), model)
+        }
+    }
+
+    private static func testGroqDroppedModelsMoveOnlyOnce() {
+        let modelKeys = ["post_processing_model", "post_processing_fallback_model", "context_model", "meeting_summary_model", "meeting_summary_fallback_model"]
+        let choiceKeys = ["post_processing_backend_choice", "context_backend_choice", "meeting_summary_backend_choice"]
+        let defaults = UserDefaults.standard
+        func cleanUp() {
+            for key in modelKeys + choiceKeys + ["meeting_summary_settings_initialized"] {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        func seed(_ model: String) {
+            for key in modelKeys { defaults.set(model, forKey: key) }
+            defaults.set(true, forKey: "meeting_summary_settings_initialized")
+            for key in choiceKeys {
+                AIProcessingBackendChoiceStore.save(.cloud(modelID: model), defaults: defaults, key: key)
+            }
+        }
+        func assertAll(_ model: String, _ message: String) {
+            for key in modelKeys {
+                assert(defaults.string(forKey: key) == model, "\(message) \(key): \(defaults.string(forKey: key) ?? "nil")")
+            }
+            for key in choiceKeys {
+                assert(AIProcessingBackendChoiceStore.load(defaults: defaults, key: key, fallbackCloudModelID: "") == .cloud(modelID: model), "\(message) \(key)")
+            }
+        }
+        defer { cleanUp() }
+
+        // First launch on Groq: every saved selection moves.
+        resetDefaults()
+        seed("llama-3.1-8b-instant")
+        _ = makeAppState()
+        assertAll("qwen/qwen3.8-27b", "first launch")
+        assert(defaults.bool(forKey: "groq_dropped_models_migrated"))
+
+        // Chosen again afterwards, it stays; Qwen 3.6 still moves every launch.
+        seed("llama-3.1-8b-instant")
+        _ = makeAppState()
+        assertAll("llama-3.1-8b-instant", "second launch")
+        seed("qwen/qwen3.6-27b")
+        _ = makeAppState()
+        assertAll("qwen/qwen3.8-27b", "retired model")
+
+        // First launch on another provider: nothing moves, and switching to
+        // Groq later doesn't move a model chosen there.
+        cleanUp()
+        resetDefaults()
+        let credentials = CredentialStore(layout: credentialStorageLayout)
+        try! credentials.save("https://api.example.com/openai/v1", account: "api_base_url")
+        seed("llama-3.1-8b-instant")
+        _ = makeAppState()
+        assertAll("llama-3.1-8b-instant", "other provider")
+        assert(defaults.bool(forKey: "groq_dropped_models_migrated"))
+        try! credentials.save("https://api.groq.com/openai/v1", account: "api_base_url")
+        _ = makeAppState()
+        assertAll("llama-3.1-8b-instant", "switched to Groq")
+        resetCredentialStore()
     }
 
     private static func testQwen36ContextReasoningIsStripped() {
@@ -5496,6 +5599,7 @@ struct AppStateTranscriptionConfigurationTests {
             defaults.removeObject(forKey: key)
         }
         defaults.removeObject(forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "groq_dropped_models_migrated")
         defaults.removeObject(forKey: "mcp_server_enabled")
         defaults.removeObject(forKey: "transcription_enabled")
         defaults.removeObject(forKey: "first_install_defaults_version")
