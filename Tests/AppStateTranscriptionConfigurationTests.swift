@@ -889,6 +889,8 @@ struct AppStateTranscriptionConfigurationTests {
         // A passing check says so, and a failing one clears that (#576).
         assert(source.contains("transcriptionPairCheckPassed = valid"))
         assert(source.contains("Label(\"Transcription URL and key checked\""))
+        // Unsaved edits hide the passing result, which describes the saved pair.
+        assert(source.contains("transcriptionPairCheckPassed && transcriptionInputsMatchSaved"))
         assert(source.contains("commitTranscriptionAPIURL()\n        commitTranscriptionAPIKey()\n        if appState.transcriptionAPIURL == savedURL, appState.transcriptionAPIKey == savedKey {\n            checkTranscriptionProviderPair()"))
     }
 

@@ -3154,7 +3154,7 @@ struct ModelsSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
-            } else if transcriptionPairCheckPassed {
+            } else if transcriptionPairCheckPassed && transcriptionInputsMatchSaved {
                 Label("Transcription URL and key checked", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
@@ -3367,6 +3367,15 @@ struct ModelsSettingsView: View {
         transcriptionAPIKeyInput = trimmed
         guard appState.transcriptionAPIKey != trimmed else { return }
         appState.transcriptionAPIKey = trimmed
+    }
+
+    /// The check result describes the saved pair, so it hides while the
+    /// fields hold unsaved edits.
+    private var transcriptionInputsMatchSaved: Bool {
+        transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            == appState.transcriptionAPIURL
+            && transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            == appState.transcriptionAPIKey
     }
 
     /// Checks the transcription URL and key as the pair transcription will
