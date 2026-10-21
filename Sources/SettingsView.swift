@@ -2824,7 +2824,7 @@ struct ModelsSettingsView: View {
             aiProcessingFallbackSetting(
                 for: .postProcessing,
                 title: "Post-Processing Fallback Model",
-                subtitle: "Tried once for transcript cleanup and Edit Mode when the model above fails, is rate-limited, or can't be reached.",
+                subtitle: "Tried once for transcript cleanup and Edit Mode when the model above fails or is rate-limited. A local fallback is also tried when the model above can't be reached.",
                 cloudWarning: "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.",
                 draft: $postProcessingFallbackModelDraft
             )
@@ -2876,7 +2876,7 @@ struct ModelsSettingsView: View {
             aiProcessingFallbackSetting(
                 for: .meetingSummary,
                 title: "Summary Fallback Model",
-                subtitle: "Tried once when the summary model above fails, is rate-limited, or can't be reached.",
+                subtitle: "Tried once when the summary model above fails or is rate-limited. A local fallback is also tried when the summary model above can't be reached.",
                 cloudWarning: "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.",
                 draft: $meetingSummaryFallbackModelDraft
             )

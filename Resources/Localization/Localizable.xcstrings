@@ -10612,18 +10612,18 @@
         }
       }
     },
-    "Tried once for transcript cleanup and Edit Mode when the model above fails, is rate-limited, or can't be reached.": {
+    "Tried once for transcript cleanup and Edit Mode when the model above fails or is rate-limited. A local fallback is also tried when the model above can't be reached.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tried once for transcript cleanup and Edit Mode when the model above fails, is rate-limited, or can't be reached."
+            "value": "Tried once for transcript cleanup and Edit Mode when the model above fails or is rate-limited. A local fallback is also tried when the model above can't be reached."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "위 모델이 실패하거나 요청 한도에 걸리거나 연결되지 않을 때, 전사문 정리와 Edit Mode에서 한 번 대신 사용해요."
+            "value": "위 모델이 실패하거나 요청 한도에 걸리면 전사문 정리와 Edit Mode에서 한 번 대신 사용해요. 로컬 대체 모델은 위 모델에 연결되지 않을 때도 사용해요."
           }
         }
       }
@@ -15780,18 +15780,18 @@
         }
       }
     },
-    "Tried once when the summary model above fails, is rate-limited, or can't be reached.": {
+    "Tried once when the summary model above fails or is rate-limited. A local fallback is also tried when the summary model above can't be reached.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tried once when the summary model above fails, is rate-limited, or can't be reached."
+            "value": "Tried once when the summary model above fails or is rate-limited. A local fallback is also tried when the summary model above can't be reached."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "위 요약 모델이 실패하거나 요청 한도에 걸리거나 연결되지 않을 때 한 번 대신 사용해요."
+            "value": "위 요약 모델이 실패하거나 요청 한도에 걸리면 한 번 대신 사용해요. 로컬 대체 모델은 위 요약 모델에 연결되지 않을 때도 사용해요."
           }
         }
       }
