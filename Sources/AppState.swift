@@ -525,7 +525,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let defaultTranscriptionModel = "whisper-large-v3"
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
     static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
-    static let defaultContextModel = "qwen/qwen3.6-27b"
+    static let defaultContextModel = ModelConfiguration.groqQwenModelID
     static let defaultMeetingSummaryModel = defaultPostProcessingModel
     static let defaultMeetingSummaryFallbackModel = defaultPostProcessingFallbackModel
     private static let deprecatedDefaultContextModel = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -831,6 +831,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 instructionExecutionGuardEnabled,
                 forKey: instructionExecutionGuardEnabledStorageKey
             )
+        }
+    }
+
+    @Published var desktopScreenshotFallbackEnabled: Bool {
+        didSet {
+            DesktopScreenshotFallbackPreference.save(desktopScreenshotFallbackEnabled, to: .standard)
+            rebuildContextService()
         }
     }
 
@@ -3071,6 +3078,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
             account: "api_base_url",
             credentialStore: initialCredentialStore
         )
+        for key in [
+            postProcessingModelStorageKey,
+            postProcessingFallbackModelStorageKey,
+            contextModelStorageKey,
+            meetingSummaryModelStorageKey,
+            meetingSummaryFallbackModelStorageKey
+        ] {
+            ModelConfiguration.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+        }
+        for key in [
+            postProcessingBackendChoiceStorageKey,
+            contextBackendChoiceStorageKey,
+            meetingSummaryBackendChoiceStorageKey
+        ] {
+            AIProcessingBackendChoiceStore.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+        }
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(
             account: transcriptionAPIURLStorageKey,
@@ -3236,6 +3259,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? UserDefaults.standard.integer(forKey: contextScreenshotMaxDimensionStorageKey)
             : Self.defaultContextScreenshotMaxDimension
         let contextScreenshotMaxDimension = Self.normalizedContextScreenshotMaxDimension(storedContextScreenshotMaxDimension)
+        let desktopScreenshotFallbackEnabled = DesktopScreenshotFallbackPreference.load(from: .standard)
         let shortcutStartDelay = max(0, UserDefaults.standard.double(forKey: shortcutStartDelayStorageKey))
         let isCommandModeEnabled = UserDefaults.standard.object(forKey: commandModeEnabledStorageKey) == nil
             ? false
@@ -3563,6 +3587,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
             contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            desktopScreenshotFallbackEnabled: desktopScreenshotFallbackEnabled,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()
         )
@@ -3598,6 +3623,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customSystemPrompt = customSystemPrompt
         self.customContextPrompt = customContextPrompt
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.desktopScreenshotFallbackEnabled = desktopScreenshotFallbackEnabled
         self.contextScreenshotMaxDimension = contextScreenshotMaxDimension
         self.customSystemPromptLastModified = customSystemPromptLastModified
         self.customContextPromptLastModified = customContextPromptLastModified
@@ -4821,6 +4847,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         baseURL: String,
         customContextPrompt: String,
         contextScreenshotMaxDimension: Int,
+        desktopScreenshotFallbackEnabled: Bool,
         localServerManager: LocalAIServerManager,
         localAIAvailability: LocalAIProcessingAvailability
     ) -> AppContextService {
@@ -4838,7 +4865,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 normalizedContextScreenshotMaxDimension(
                     contextScreenshotMaxDimension
                 )
-            )
+            ),
+            desktopScreenshotFallbackEnabled: desktopScreenshotFallbackEnabled
         )
     }
 
@@ -4851,6 +4879,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
             contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            desktopScreenshotFallbackEnabled: desktopScreenshotFallbackEnabled,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()
         )
@@ -14367,13 +14396,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    // Old notes may still carry the stop-time placeholder sentence in their
-    // stored contextSummary; both that literal and a genuinely empty summary
-    // count as "no usable context" rather than real captured activity.
+    // Old notes may still carry a placeholder or failure sentence in their
+    // stored contextSummary; those and a genuinely empty summary count as
+    // "no usable context" rather than real captured activity.
     private static func isPlaceholderContextSummary(_ summary: String) -> Bool {
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return true }
-        return trimmed == "Could not refresh app context at stop time; using text-only post-processing."
+        return trimmed.isEmpty || ContextInferenceFailure.isFailureSummary(trimmed)
     }
 
     // Context is only worth injecting into post-processing when it was

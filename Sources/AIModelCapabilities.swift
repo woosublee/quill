@@ -50,6 +50,8 @@ enum AIModelIDNormalizer {
             return "qwen/qwen3-32b"
         case "qwen3.6-27b":
             return "qwen/qwen3.6-27b"
+        case "qwen3.8-27b":
+            return "qwen/qwen3.8-27b"
         case "gpt-oss-20b":
             return "openai/gpt-oss-20b"
         case "gpt-oss-120b":
@@ -94,9 +96,11 @@ enum AIModelCapabilityCatalog {
         recommendedContextWindow: nil
     )
 
+    /// Qwen 3.6 stays here for providers other than Groq that still serve it.
+    static let cloudVisionModelIDs: Set<String> = ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b"]
+
     static func capabilities(forCloudModelID modelID: String) -> AIModelCapabilities {
-        AIModelIDNormalizer.normalizedCloudModelID(modelID)
-            == "qwen/qwen3.6-27b"
+        cloudVisionModelIDs.contains(AIModelIDNormalizer.normalizedCloudModelID(modelID))
             ? qwenCloudVisionCapabilities
             : cloudTextCapabilities
     }

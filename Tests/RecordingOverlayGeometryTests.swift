@@ -18,6 +18,7 @@ struct RecordingOverlayGeometryTests {
         try testNotchSideOverlayAvoidsContainerAudioLevelAnimation()
         try testHostingViewsUseFixedIntrinsicContentSize()
         testOverlayAccessibilityAnnouncementMessages()
+        try testElapsedTimeIsSpokenInWords()
         try testOverlayAccessibilitySourceContract()
         testMotionHelperWithInjectedReduceMotion()
         testContrastHelperWithInjectedIncreaseContrast()
@@ -246,6 +247,18 @@ struct RecordingOverlayGeometryTests {
         assert(sharedHostSource.contains("final class FixedIntrinsicHostingView"))
         assert(sharedHostSource.contains("override var intrinsicContentSize"))
         assert(source.contains("FixedIntrinsicHostingView(rootView:"))
+    }
+
+    private static func testElapsedTimeIsSpokenInWords() throws {
+        assert(ElapsedTimeView.formatted(65) == "01:05")
+        assert(ElapsedTimeView.spoken(65, language: "en") == "1 minute, 5 seconds", ElapsedTimeView.spoken(65, language: "en"))
+        assert(ElapsedTimeView.spoken(3_725.9, language: "ko") == "1시간 2분 5초", ElapsedTimeView.spoken(3_725.9, language: "ko"))
+        assert(ElapsedTimeView.spoken(-3, language: "en") == "0 seconds", ElapsedTimeView.spoken(-3, language: "en"))
+
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        assert(source.contains(".accessibilityLabel(localizedCatalogString(\"Recording time\"))"))
+        // The time sits under the waveform at opacity 0 until shown; VoiceOver skips it then.
+        assert(source.contains(".accessibilityHidden(!showsTime)"))
     }
 
     private static func testOverlayAccessibilityAnnouncementMessages() {

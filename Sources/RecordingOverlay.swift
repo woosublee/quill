@@ -1962,6 +1962,7 @@ struct InputSwitchMenu<Content: View>: View {
             if let recordingStartedAt {
                 ElapsedTimeView(startedAt: recordingStartedAt)
                     .opacity(showsTime ? 1 : 0)
+                    .accessibilityHidden(!showsTime)
             }
         }
         .animation(.easeInOut(duration: 0.12), value: showsTime)
@@ -1978,19 +1979,32 @@ struct InputSwitchMenu<Content: View>: View {
 }
 
 /// Shows the elapsed recording time, ticking each second, as M:SS (or H:MM:SS
-/// once it passes an hour).
-private struct ElapsedTimeView: View {
+/// once it passes an hour). VoiceOver reads it in words.
+struct ElapsedTimeView: View {
     let startedAt: Date
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(Self.formatted(context.date.timeIntervalSince(startedAt)))
+            let elapsed = context.date.timeIntervalSince(startedAt)
+            Text(Self.formatted(elapsed))
                 .font(.system(size: 13, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .fixedSize()
+                .accessibilityLabel(localizedCatalogString("Recording time"))
+                .accessibilityValue(Self.spoken(elapsed))
         }
+    }
+
+    static func spoken(_ interval: TimeInterval, language: String = preferredLocalizedStringLanguage()) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.unitsStyle = .full
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: language)
+        formatter.calendar = calendar
+        return formatter.string(from: max(0, interval.rounded(.down))) ?? formatted(interval)
     }
 
     static func formatted(_ interval: TimeInterval) -> String {

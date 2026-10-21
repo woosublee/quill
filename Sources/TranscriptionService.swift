@@ -53,6 +53,22 @@ struct CloudTranscriptionDependencies: Sendable {
     }
 }
 
+/// The URL and key transcription requests use when either override is set,
+/// each falling back to the main API value. Nil when both overrides are
+/// empty: transcription then uses the main pair, which is checked on its own.
+struct TranscriptionProviderPair: Equatable, Sendable {
+    let baseURL: String
+    let key: String
+
+    init?(transcriptionAPIURL: String, transcriptionAPIKey: String, apiBaseURL: String, apiKey: String) {
+        let url = transcriptionAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let overrideKey = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty || !overrideKey.isEmpty else { return nil }
+        baseURL = url.isEmpty ? apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines) : url
+        key = overrideKey.isEmpty ? apiKey.trimmingCharacters(in: .whitespacesAndNewlines) : overrideKey
+    }
+}
+
 class TranscriptionService {
     private static let modelsSupportingVerboseJSON: Set<String> = [
         "whisper-1",

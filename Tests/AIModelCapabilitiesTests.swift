@@ -59,10 +59,14 @@ struct AIModelCapabilitiesTests {
 
     private static func testCloudCapabilitiesAreExplicit() throws {
         try expect(
-            ModelConfiguration.capabilities(for: "qwen/qwen3.6-27b").supportsContextCapture,
+            ModelConfiguration.capabilities(for: "qwen/qwen3.8-27b").supportsContextCapture,
             "the declared Cloud Qwen vision model supports Context"
         )
-        for modelID in ModelConfiguration.llmModels where modelID != "qwen/qwen3.6-27b" {
+        try expect(
+            ModelConfiguration.capabilities(for: "qwen/qwen3.6-27b").supportsContextCapture,
+            "Qwen 3.6 stays Context-capable for providers that still serve it"
+        )
+        for modelID in ModelConfiguration.llmModels where modelID != "qwen/qwen3.8-27b" {
             try expect(
                 !ModelConfiguration.capabilities(for: modelID).supportsContextCapture,
                 "\(modelID) is not Context-capable until explicitly declared"
@@ -76,7 +80,10 @@ struct AIModelCapabilitiesTests {
             "canopylabs/orpheus-arabic-saudi",
             "canopylabs/orpheus-v1-english",
             "meta-llama/llama-prompt-guard-2-22m",
-            "meta-llama/llama-prompt-guard-2-86m"
+            "meta-llama/llama-prompt-guard-2-86m",
+            "qwen/qwen3.6-27b",
+            "groq/compound",
+            "groq/compound-mini"
         ] {
             try expect(
                 !ModelConfiguration.llmModels.contains(retiredModelID),
@@ -84,16 +91,16 @@ struct AIModelCapabilitiesTests {
             )
         }
         try expect(
-            ModelConfiguration.visionModels == ["qwen/qwen3.6-27b"],
+            ModelConfiguration.visionModels == ["qwen/qwen3.8-27b"],
             "the predefined Context model list contains only the declared Cloud vision model"
         )
     }
 
     private static func testProviderlessCloudVisionAliasIsCanonicalized() throws {
         let canonical = ModelConfiguration.capabilities(
-            for: "qwen/qwen3.6-27b"
+            for: "qwen/qwen3.8-27b"
         )
-        for alias in ["qwen3.6-27b", " QWEN3.6-27B "] {
+        for alias in ["qwen3.8-27b", " QWEN3.8-27B ", "qwen3.6-27b", " QWEN3.6-27B "] {
             try expect(
                 ModelConfiguration.capabilities(for: alias) == canonical,
                 "\(alias) shares the canonical Cloud vision capabilities"

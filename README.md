@@ -119,6 +119,10 @@ If you connect Google Calendar, Quill requests read-only access and uses selecte
 
 Quill is maintained as a fork of [`zachlatta/freeflow`](https://github.com/zachlatta/freeflow) and builds on the original FreeFlow project and its upstream contributors.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set up the project, build, test, and submit changes.
+
 ## License
 
 Licensed under the MIT license.
