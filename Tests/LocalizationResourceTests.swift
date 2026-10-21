@@ -93,8 +93,10 @@ struct LocalizationResourceTests {
             "This removes the downloaded Local AI model. You can download it again later.":
                 "다운로드한 로컬 AI 모델을 삭제해요. 나중에 다시 다운로드할 수 있어요.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
-            "Cloud fallback is only used when Post-processing uses a cloud model.":
-                "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용돼요.",
+            "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.":
+                "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 Edit Mode에서 선택한 글과 화면 문맥을 포함한 텍스트가 그 모델로 전송돼요.",
+            "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.":
+                "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 회의 전사문이 그 모델로 전송돼요.",
             "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.":
                 "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석해요. 스크린샷은 이 Mac을 벗어나지 않아요.",
             "Quit while models are downloading?": "모델 다운로드가 진행 중이에요. Quill을 종료할까요?",

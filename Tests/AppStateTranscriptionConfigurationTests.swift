@@ -124,6 +124,7 @@ struct AppStateTranscriptionConfigurationTests {
         testQwen36ContextReasoningIsStripped()
         testGroqQwen36SelectionsMoveToQwen38()
         testOtherProvidersKeepQwen36()
+        testGroqQwen36FallbackChoicesMoveToQwen38()
         testGroqDroppedModelsMoveToQwen38()
         testGroqDroppedModelsMoveOnlyOnce()
         testContextSummaryPreservesNonReasoningModelOutput()
@@ -967,6 +968,49 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.set("openai/gpt-oss-120b", forKey: "model")
         ModelConfiguration.migrateGroqSelection(key: "model", baseURL: "https://api.groq.com/openai/v1", defaults: defaults)
         assert(defaults.string(forKey: "model") == "openai/gpt-oss-120b")
+    }
+
+    private static func testGroqQwen36FallbackChoicesMoveToQwen38() {
+        let suite = "app_state_transcription_test_groq_fallback_migration"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        AIProcessingFallbackChoiceStore.save(
+            .init(choice: .cloud(modelID: "qwen/qwen3.6-27b"), isUserSelected: true),
+            defaults: defaults,
+            key: "cloud",
+            userSelectedKey: "cloud_user_selected",
+            cloudConsentKey: "cloud_consent"
+        )
+        AIProcessingFallbackChoiceStore.save(
+            .init(choice: .none, isUserSelected: true),
+            defaults: defaults,
+            key: "none",
+            userSelectedKey: "none_user_selected",
+            cloudConsentKey: "none_consent"
+        )
+
+        for key in ["cloud", "none"] {
+            AIProcessingBackendChoiceStore.migrateGroqSelection(
+                key: key,
+                baseURL: "https://api.groq.com/openai/v1",
+                defaults: defaults
+            )
+        }
+
+        func load(_ key: String) -> AIProcessingFallbackChoiceStore.Loaded {
+            AIProcessingFallbackChoiceStore.load(
+                defaults: defaults,
+                key: key,
+                userSelectedKey: "\(key)_user_selected",
+                cloudConsentKey: "\(key)_consent",
+                legacyModelKey: "unused",
+                primary: .cloud(modelID: "primary/model"),
+                defaultCloudModelID: "default/fallback"
+            )
+        }
+        assert(load("cloud") == .init(choice: .cloud(modelID: "qwen/qwen3.8-27b"), isUserSelected: true))
+        assert(load("none") == .init(choice: .none, isUserSelected: true))
     }
 
     private static func testGroqDroppedModelsMoveToQwen38() {
@@ -2455,7 +2499,10 @@ struct AppStateTranscriptionConfigurationTests {
             appState.transcriptionAPIURL = "https://transcription.example.com/v1"
             appState.transcriptionModel = "custom-transcription-model"
             appState.postProcessingModel = "custom-post-processing-model"
-            appState.postProcessingFallbackModel = "custom-fallback-model"
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: "custom-fallback-model"),
+                for: .postProcessing
+            )
             appState.contextModel = "custom-context-model"
             appState.customVocabulary = "preserve this"
             appState.holdShortcut = .disabled
@@ -2467,7 +2514,7 @@ struct AppStateTranscriptionConfigurationTests {
                 transcriptionAPIURL: appState.transcriptionAPIURL,
                 transcriptionModel: appState.transcriptionModel,
                 postProcessingModel: appState.postProcessingModel,
-                postProcessingFallbackModel: appState.postProcessingFallbackModel,
+                postProcessingFallbackChoice: appState.postProcessingFallbackChoice,
                 contextModel: appState.contextModel,
                 customVocabulary: appState.customVocabulary,
                 holdShortcut: appState.holdShortcut
@@ -2515,7 +2562,7 @@ struct AppStateTranscriptionConfigurationTests {
             transcriptionAPIURL: String,
             transcriptionModel: String,
             postProcessingModel: String,
-            postProcessingFallbackModel: String,
+            postProcessingFallbackChoice: AIProcessingFallbackChoice,
             contextModel: String,
             customVocabulary: String,
             holdShortcut: ShortcutBinding
@@ -2527,7 +2574,7 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(appState.transcriptionAPIURL == expected.transcriptionAPIURL)
         precondition(appState.transcriptionModel == expected.transcriptionModel)
         precondition(appState.postProcessingModel == expected.postProcessingModel)
-        precondition(appState.postProcessingFallbackModel == expected.postProcessingFallbackModel)
+        precondition(appState.postProcessingFallbackChoice == expected.postProcessingFallbackChoice)
         precondition(appState.contextModel == expected.contextModel)
         precondition(appState.customVocabulary == expected.customVocabulary)
         precondition(appState.holdShortcut == expected.holdShortcut)
@@ -5624,6 +5671,12 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "transcription_language")
         defaults.removeObject(forKey: "context_model")
         defaults.removeObject(forKey: "post_processing_backend_choice")
+        defaults.removeObject(forKey: "post_processing_fallback_choice")
+        defaults.removeObject(forKey: "post_processing_fallback_choice_user_selected")
+        defaults.removeObject(forKey: "post_processing_fallback_cloud_consent_scope")
+        defaults.removeObject(forKey: "meeting_summary_fallback_choice")
+        defaults.removeObject(forKey: "meeting_summary_fallback_choice_user_selected")
+        defaults.removeObject(forKey: "meeting_summary_fallback_cloud_consent_scope")
         defaults.removeObject(forKey: "context_backend_choice")
         defaults.removeObject(forKey: "preserve_exact_wording")
         defaults.removeObject(forKey: "note_browser_enabled")

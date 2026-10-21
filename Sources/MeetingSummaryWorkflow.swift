@@ -2,7 +2,7 @@ import Foundation
 
 struct MeetingSummaryGeneratorConfiguration: Sendable {
     let backendExecutor: AIProcessingBackendExecutor
-    let cloudFallbackModelID: String?
+    let fallbackExecutor: AIProcessingBackendExecutor?
 }
 
 struct MeetingSummaryWorkflowDependencies {
@@ -226,10 +226,11 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             outcome: .succeeded,
             backendKind: result.backendKind,
             modelID: result.modelID,
-            providerHost: Self.providerHost(
-                backendKind: result.backendKind,
-                configuredProviderHost: request.providerHost
-            ),
+            // The service reports the host it used, which for a cloud
+            // fallback of a local model isn't the configured one.
+            providerHost: result.backendKind == .cloud
+                ? result.providerHost ?? request.providerHost
+                : nil,
             language: source.languageContext,
             issue: nil,
             sourceFingerprint: source.fingerprint

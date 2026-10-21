@@ -22,6 +22,18 @@ struct PostProcessingBackendTests {
         try await testCleanupConvertsRealURLTimeout()
         try await testCommandTransformConvertsRealURLTimeout()
         try await testFallbackTimeoutReportsFallbackModel()
+        try await testCloudPrimaryFallsBackOnServerError()
+        try await testCloudNetworkFailureAndTimeoutRetryOnlyLocally()
+        try await testFailedFallbackReportsPrimaryError()
+        try await testLocalPrimaryCloudFallbackCooldownReportsLocalError()
+        try await testCooldownPassThroughWhenFallbackFails()
+        try await testCloudPrimaryFallsBackToLocalModel()
+        try await testLocalPrimaryFallsBackToCloudWhenRuntimeUnavailable()
+        try await testLocalCommandTransformFallsBackToCloudWhenRuntimeUnavailable()
+        try await testLocalPrimaryWithoutFallbackNeverCallsCloud()
+        try await testCancellationNeverFallsBack()
+        try await testFallbackEqualToPrimaryIsNotRetried()
+        try await testCloudClientErrorIsNotRetried()
         try await testTimeoutIssueDoesNotExposeRequestSourceData()
         try await testSequentialChunksUsePerRequestTimeout()
         try await testCommandFallbackUsesPerRequestTimeout()
@@ -304,7 +316,7 @@ struct PostProcessingBackendTests {
                 cloudBaseURL: "https://api.example.com/openai/v1",
                 cloudAPIKey: "cloud-secret"
             ),
-            cloudFallbackModelID: nil,
+            fallbackExecutor: nil,
             instructionExecutionGuardEnabled: false,
             transport: { request in
                 recorder.record(request)
@@ -761,7 +773,7 @@ struct PostProcessingBackendTests {
                 cloudBaseURL: "https://api.example.com/openai/v1/\(UUID().uuidString)",
                 cloudAPIKey: "cloud-secret"
             ),
-            cloudFallbackModelID: "fallback/model",
+            fallbackExecutor: cloudFallback("fallback/model"),
             instructionExecutionGuardEnabled: false,
             transport: { request in
                 let body = try requestBody(request)
@@ -772,6 +784,8 @@ struct PostProcessingBackendTests {
             }
         )
 
+        // A rate-limited cloud primary whose fallback times out reports the
+        // fallback's own error, as before local fallbacks.
         do {
             _ = try await service.postProcess(
                 transcript: "raw transcript",
@@ -796,6 +810,579 @@ struct PostProcessingBackendTests {
         }
     }
 
+    // MARK: - Fallback triggers (#580)
+
+    private static func uniqueCloudBaseURL() -> String {
+        "https://api.example.com/openai/v1/\(UUID().uuidString)"
+    }
+
+    private static func requestedModels(
+        _ recorder: PostProcessingRequestRecorder
+    ) throws -> [String] {
+        try recorder.capturedRequests().map {
+            try requestBody($0)["model"] as? String ?? ""
+        }
+    }
+
+    private static func serverErrorResponse(
+        request: URLRequest,
+        statusCode: Int = 503
+    ) -> (Data, URLResponse) {
+        (
+            Data(#"{"error":{"code":"service_unavailable"}}"#.utf8),
+            HTTPURLResponse(
+                url: request.url!,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+        )
+    }
+
+    private static func makeCloudPrimaryService(
+        fallbackExecutor: AIProcessingBackendExecutor?,
+        transport: @escaping PostProcessingService.Transport
+    ) -> PostProcessingService {
+        PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "primary/model"),
+                cloudBaseURL: uniqueCloudBaseURL(),
+                cloudAPIKey: "cloud-secret"
+            ),
+            fallbackExecutor: fallbackExecutor,
+            instructionExecutionGuardEnabled: false,
+            transport: transport
+        )
+    }
+
+    private static func assertCloudFallback(
+        label: String,
+        primaryFailure: @escaping @Sendable (URLRequest) throws -> (Data, URLResponse)
+    ) async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeCloudPrimaryService(
+            fallbackExecutor: cloudFallback("fallback/model")
+        ) { request in
+            recorder.record(request)
+            if try requestBody(request)["model"] as? String == "primary/model" {
+                return try primaryFailure(request)
+            }
+            return try successResponse(request: request, content: "Fallback result.")
+        }
+
+        let result = try await service.postProcess(
+            transcript: "clean this",
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        let models = try requestedModels(recorder)
+        try expect(result.transcript == "Fallback result.", "\(label): fallback result is used")
+        try expect(
+            models == ["primary/model", "fallback/model"],
+            "\(label): the fallback runs once after the primary"
+        )
+    }
+
+    private static func testCloudPrimaryFallsBackOnServerError() async throws {
+        try await assertCloudFallback(label: "5xx") { request in
+            serverErrorResponse(request: request)
+        }
+    }
+
+    /// An offline or timed-out cloud model isn't retried on another cloud
+    /// model from the same provider, only on a local one.
+    private static func testCloudNetworkFailureAndTimeoutRetryOnlyLocally() async throws {
+        for code in [
+            URLError.Code.notConnectedToInternet,
+            .networkConnectionLost,
+            .cannotFindHost,
+            .cannotConnectToHost,
+            .timedOut
+        ] {
+            let cloudRecorder = PostProcessingRequestRecorder()
+            let cloud = makeCloudPrimaryService(
+                fallbackExecutor: cloudFallback("fallback/model")
+            ) { request in
+                cloudRecorder.record(request)
+                throw URLError(code)
+            }
+            try await expectFailure("cloud \(code.rawValue) with a cloud fallback") {
+                _ = try await cloud.postProcess(
+                    transcript: "clean this",
+                    context: testContext,
+                    customVocabulary: ""
+                )
+            }
+            try expect(cloudRecorder.count() == 1, "\(code.rawValue): no cloud-to-cloud retry")
+
+            let localRecorder = PostProcessingRequestRecorder()
+            let local = makeCloudPrimaryService(
+                fallbackExecutor: makeLocalExecutor()
+            ) { request in
+                localRecorder.record(request)
+                if request.url?.host == "127.0.0.1" {
+                    return try successResponse(request: request, content: "Local result.")
+                }
+                throw URLError(code)
+            }
+            let result = try await local.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            try expect(result.transcript == "Local result.", "\(code.rawValue): local fallback result")
+            try expect(
+                localRecorder.capturedRequests().map { $0.url?.host }
+                    == ["api.example.com", "127.0.0.1"],
+                "\(code.rawValue): the local fallback runs once"
+            )
+        }
+    }
+
+    private static func testFailedFallbackReportsPrimaryError() async throws {
+        let local = makeLocalService(
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            ),
+            fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: uniqueCloudBaseURL())
+        ) { request in
+            serverErrorResponse(request: request)
+        }
+        do {
+            _ = try await local.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected both models to fail")
+        } catch let error as AIProcessingBackendError {
+            try expect(
+                error == .localRuntimeUnavailable(LocalAIModelCatalog.quality.id),
+                "the local primary's failure is reported, not the fallback's"
+            )
+        }
+
+        // A cloud primary with a server error reports its own error when
+        // the local fallback fails too.
+        let serverError = makeCloudPrimaryService(fallbackExecutor: makeLocalExecutor()) { request in
+            serverErrorResponse(request: request, statusCode: request.url?.host == "127.0.0.1" ? 500 : 503)
+        }
+        do {
+            _ = try await serverError.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected the primary's 503")
+        } catch let error as PostProcessingError {
+            guard case .requestFailed(503, _) = error else {
+                throw PostProcessingBackendTestFailure("Expected the primary's 503, got \(error)")
+            }
+        }
+    }
+
+    /// A cloud primary that was cooling down or rate-limited passes the
+    /// text through only when its fallback was rate-limited too or a local
+    /// fallback couldn't run; any other fallback failure is reported.
+    private static func testCooldownPassThroughWhenFallbackFails() async throws {
+        // The primary is cooling down and the cloud fallback is rate-limited.
+        let baseURL = uniqueCloudBaseURL()
+        await LLMCooldownManager.shared.setCooldown(
+            LLMCooldownIdentity(baseURL: baseURL, model: "primary/model"),
+            retryAfterSeconds: 600
+        )
+        let coolingRecorder = PostProcessingRequestRecorder()
+        let cooling = PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "primary/model"),
+                cloudBaseURL: baseURL,
+                cloudAPIKey: "cloud-secret"
+            ),
+            fallbackExecutor: cloudFallback("fallback/model", cloudBaseURL: baseURL),
+            instructionExecutionGuardEnabled: false,
+            transport: { request in
+                coolingRecorder.record(request)
+                return rateLimitedResponse(request: request)
+            }
+        )
+        let cooled = try await cooling.postProcess(
+            transcript: "clean this",
+            context: testContext,
+            customVocabulary: ""
+        )
+        try expect(cooled.skippedDueToCooldown, "a rate-limited fallback passes through")
+        try expect(cooled.transcript == "clean this", "the raw text is kept")
+        try expect(coolingRecorder.count() == 1, "only the fallback ran")
+
+        // The primary is rate-limited and the local fallback isn't installed.
+        let process = PostProcessingFakeProcess()
+        let missingLocal = AIProcessingBackendExecutor(
+            choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
+            cloudBaseURL: "https://api.example.com/openai/v1",
+            cloudAPIKey: "cloud-secret",
+            localServerManager: LocalAIServerManager(
+                launchProcess: { _, _, port, _ in (process, port) },
+                pollHealth: { _ in true },
+                readinessProbe: successfulReadinessProbe,
+                validateModel: { _ in .notInstalled }
+            ),
+            localAIAvailability: supportedLocalAIAvailability
+        )
+        let unavailable = makeCloudPrimaryService(fallbackExecutor: missingLocal) { request in
+            rateLimitedResponse(request: request)
+        }
+        let unavailableResult = try await unavailable.commandTransform(
+            selectedText: "Original text",
+            voiceCommand: "Make it concise",
+            context: testContext,
+            customVocabulary: ""
+        )
+        try expect(unavailableResult.skippedDueToCooldown, "a local fallback that can't run passes through")
+        try expect(unavailableResult.transcript == "Original text", "Edit Mode keeps the selection")
+
+        // The primary is rate-limited and the cloud fallback returns 404.
+        let notFound = makeCloudPrimaryService(
+            fallbackExecutor: cloudFallback("fallback/model", cloudBaseURL: uniqueCloudBaseURL())
+        ) { request in
+            if try requestBody(request)["model"] as? String == "primary/model" {
+                return rateLimitedResponse(request: request)
+            }
+            return serverErrorResponse(request: request, statusCode: 404)
+        }
+        do {
+            _ = try await notFound.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected the fallback's 404")
+        } catch let error as PostProcessingError {
+            guard case .requestFailed(404, _) = error else {
+                throw PostProcessingBackendTestFailure("Expected the fallback's 404, got \(error)")
+            }
+        }
+
+        // The primary is cooling down and the local fallback fails to answer.
+        let localBaseURL = uniqueCloudBaseURL()
+        await LLMCooldownManager.shared.setCooldown(
+            LLMCooldownIdentity(baseURL: localBaseURL, model: "primary/model"),
+            retryAfterSeconds: 600
+        )
+        let localFailure = PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "primary/model"),
+                cloudBaseURL: localBaseURL,
+                cloudAPIKey: "cloud-secret"
+            ),
+            fallbackExecutor: makeLocalExecutor(),
+            instructionExecutionGuardEnabled: false,
+            transport: { request in serverErrorResponse(request: request, statusCode: 500) }
+        )
+        do {
+            _ = try await localFailure.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected the local fallback's 500")
+        } catch let error as PostProcessingError {
+            guard case .requestFailed(500, _) = error else {
+                throw PostProcessingBackendTestFailure("Expected the local fallback's 500, got \(error)")
+            }
+        }
+    }
+
+    private static func testLocalPrimaryCloudFallbackCooldownReportsLocalError() async throws {
+        let rateLimitedBaseURL = uniqueCloudBaseURL()
+        let rateLimitedRecorder = PostProcessingRequestRecorder()
+        let rateLimited = makeLocalService(
+            cloudBaseURL: rateLimitedBaseURL,
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            ),
+            fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: rateLimitedBaseURL)
+        ) { request in
+            rateLimitedRecorder.record(request)
+            return rateLimitedResponse(request: request)
+        }
+        do {
+            _ = try await rateLimited.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected the local failure, not a passthrough")
+        } catch let error as AIProcessingBackendError {
+            try expect(
+                error == .localRuntimeUnavailable(LocalAIModelCatalog.quality.id),
+                "a rate-limited cloud fallback reports the local failure"
+            )
+        }
+        try expect(rateLimitedRecorder.count() == 1, "the cloud fallback was tried once")
+
+        // Now the fallback is cooling down: nothing is sent.
+        let coolingRecorder = PostProcessingRequestRecorder()
+        let cooling = makeLocalService(
+            cloudBaseURL: rateLimitedBaseURL,
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            ),
+            fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: rateLimitedBaseURL)
+        ) { request in
+            coolingRecorder.record(request)
+            return try successResponse(request: request, content: "Should not run.")
+        }
+        do {
+            _ = try await cooling.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected the local failure")
+        } catch let error as AIProcessingBackendError {
+            try expect(
+                error == .localRuntimeUnavailable(LocalAIModelCatalog.quality.id),
+                "a cooling cloud fallback reports the local failure"
+            )
+        }
+        try expect(coolingRecorder.count() == 0, "a cooling cloud fallback is not sent")
+    }
+
+    private static func testCloudPrimaryFallsBackToLocalModel() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeCloudPrimaryService(
+            fallbackExecutor: makeLocalExecutor()
+        ) { request in
+            recorder.record(request)
+            if request.url?.host == "127.0.0.1" {
+                return try successResponse(request: request, content: "Local result.")
+            }
+            throw URLError(.notConnectedToInternet)
+        }
+
+        let result = try await service.postProcess(
+            transcript: "clean this",
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        let requests = recorder.capturedRequests()
+        try expect(result.transcript == "Local result.", "offline cloud falls back to the local model")
+        try expect(requests.count == 2, "one cloud attempt and one local fallback")
+        try expect(requests[0].url?.host == "api.example.com", "the cloud primary runs first")
+        try expect(requests[1].url?.host == "127.0.0.1", "the local fallback runs on the local server")
+        try expect(
+            requests[1].value(forHTTPHeaderField: "Authorization") == nil,
+            "the local fallback sends no API key"
+        )
+        let fallbackModel = try requestBody(requests[1])["model"] as? String
+        try expect(fallbackModel == "local", "local fallback model")
+    }
+
+    private static func testLocalPrimaryFallsBackToCloudWhenRuntimeUnavailable() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService(
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            ),
+            fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: uniqueCloudBaseURL())
+        ) { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "Cloud result.")
+        }
+
+        let result = try await service.postProcess(
+            transcript: "clean this",
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        let request = try recorder.request()
+        try expect(result.transcript == "Cloud result.", "the cloud fallback result is used")
+        try expect(recorder.count() == 1, "only the cloud fallback reaches the transport")
+        try expect(request.url?.host == "api.example.com", "the fallback uses the cloud base URL")
+        try expect(
+            request.value(forHTTPHeaderField: "Authorization") == "Bearer cloud-secret",
+            "the fallback uses the cloud API key"
+        )
+        let fallbackModel = try requestBody(request)["model"] as? String
+        try expect(fallbackModel == "cloud/fallback", "cloud fallback model")
+    }
+
+    private static func testLocalCommandTransformFallsBackToCloudWhenRuntimeUnavailable() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService(
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            ),
+            fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: uniqueCloudBaseURL())
+        ) { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "Concise text.")
+        }
+
+        let result = try await service.commandTransform(
+            selectedText: "Original text",
+            voiceCommand: "Make it concise",
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        let models = try requestedModels(recorder)
+        try expect(result.transcript == "Concise text.", "Edit Mode uses the cloud fallback too")
+        try expect(models == ["cloud/fallback"], "Edit Mode runs the fallback once")
+    }
+
+    private static func testLocalPrimaryWithoutFallbackNeverCallsCloud() async throws {
+        let unavailableRecorder = PostProcessingRequestRecorder()
+        let unavailable = makeLocalService(
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            ),
+            fallbackExecutor: nil
+        ) { request in
+            unavailableRecorder.record(request)
+            return try successResponse(request: request, content: "Should not run.")
+        }
+        do {
+            _ = try await unavailable.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected the local runtime failure")
+        } catch let error as AIProcessingBackendError {
+            try expect(
+                error == .localRuntimeUnavailable(LocalAIModelCatalog.quality.id),
+                "the local failure is reported unchanged"
+            )
+        }
+        try expect(unavailableRecorder.count() == 0, "no request is made without a fallback")
+
+        let failingRecorder = PostProcessingRequestRecorder()
+        let failing = makeLocalService(fallbackExecutor: nil) { request in
+            failingRecorder.record(request)
+            if request.url?.host == "127.0.0.1" {
+                return serverErrorResponse(request: request, statusCode: 500)
+            }
+            throw PostProcessingBackendTestFailure("A cloud request was made")
+        }
+        try await expectFailure("local server error without fallback") {
+            _ = try await failing.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+        }
+        try await expectFailure("local command server error without fallback") {
+            _ = try await failing.commandTransform(
+                selectedText: "Original text",
+                voiceCommand: "Make it concise",
+                context: testContext,
+                customVocabulary: ""
+            )
+        }
+        let hosts = failingRecorder.capturedRequests().map { $0.url?.host }
+        try expect(hosts == ["127.0.0.1", "127.0.0.1"], "every request stays on this Mac")
+    }
+
+    private static func testCancellationNeverFallsBack() async throws {
+        for cancellation in [CancellationError() as Error, URLError(.cancelled)] {
+            let cloudRecorder = PostProcessingRequestRecorder()
+            let cloud = makeCloudPrimaryService(
+                fallbackExecutor: makeLocalExecutor()
+            ) { request in
+                cloudRecorder.record(request)
+                throw cancellation
+            }
+            try await expectFailure("cancelled cloud request") {
+                _ = try await cloud.postProcess(
+                    transcript: "clean this",
+                    context: testContext,
+                    customVocabulary: ""
+                )
+            }
+            try expect(cloudRecorder.count() == 1, "a cancelled cloud request is not retried")
+
+            let localRecorder = PostProcessingRequestRecorder()
+            let local = makeLocalService(
+                fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: uniqueCloudBaseURL())
+            ) { request in
+                localRecorder.record(request)
+                throw cancellation
+            }
+            try await expectFailure("cancelled local request") {
+                _ = try await local.commandTransform(
+                    selectedText: "Original text",
+                    voiceCommand: "Make it concise",
+                    context: testContext,
+                    customVocabulary: ""
+                )
+            }
+            try expect(
+                localRecorder.capturedRequests().map { $0.url?.host } == ["127.0.0.1"],
+                "a cancelled local request never reaches the cloud fallback"
+            )
+        }
+    }
+
+    private static func testFallbackEqualToPrimaryIsNotRetried() async throws {
+        let cloudRecorder = PostProcessingRequestRecorder()
+        let cloud = makeCloudPrimaryService(
+            fallbackExecutor: cloudFallback("primary/model")
+        ) { request in
+            cloudRecorder.record(request)
+            return serverErrorResponse(request: request)
+        }
+        try await expectFailure("cloud fallback equal to primary") {
+            _ = try await cloud.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+        }
+        try expect(cloudRecorder.count() == 1, "the same cloud model is not retried")
+
+        let localRecorder = PostProcessingRequestRecorder()
+        let local = makeLocalService(fallbackExecutor: makeLocalExecutor()) { request in
+            localRecorder.record(request)
+            return serverErrorResponse(request: request, statusCode: 500)
+        }
+        try await expectFailure("local fallback equal to primary") {
+            _ = try await local.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+        }
+        try expect(localRecorder.count() == 1, "the same local model is not retried")
+    }
+
+    private static func testCloudClientErrorIsNotRetried() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeCloudPrimaryService(
+            fallbackExecutor: cloudFallback("fallback/model")
+        ) { request in
+            recorder.record(request)
+            return serverErrorResponse(request: request, statusCode: 401)
+        }
+        try await expectFailure("cloud authentication failure") {
+            _ = try await service.postProcess(
+                transcript: "clean this",
+                context: testContext,
+                customVocabulary: ""
+            )
+        }
+        try expect(recorder.count() == 1, "a 401 is not a fallback trigger")
+    }
+
     private static func testTimeoutIssueDoesNotExposeRequestSourceData() async throws {
         let transcriptSentinel = "TRANSCRIPT_SENTINEL_7F1A"
         let promptSentinel = "PROMPT_SENTINEL_8B2C"
@@ -807,7 +1394,7 @@ struct PostProcessingBackendTests {
                 cloudBaseURL: "https://api.example.com/openai/v1",
                 cloudAPIKey: credentialSentinel
             ),
-            cloudFallbackModelID: nil,
+            fallbackExecutor: nil,
             instructionExecutionGuardEnabled: false,
             transport: { request in
                 guard request.value(forHTTPHeaderField: "Authorization")
@@ -893,7 +1480,7 @@ struct PostProcessingBackendTests {
                     cloudBaseURL: "https://api.example.com/openai/v1",
                     cloudAPIKey: "cloud-secret"
                 ),
-                cloudFallbackModelID: nil,
+                fallbackExecutor: nil,
                 instructionExecutionGuardEnabled: false,
                 transport: { request in
                     recorder.record(request)
@@ -936,7 +1523,7 @@ struct PostProcessingBackendTests {
                     cloudBaseURL: "https://api.example.com/openai/v1",
                     cloudAPIKey: "cloud-secret"
                 ),
-                cloudFallbackModelID: "fallback/model",
+                fallbackExecutor: cloudFallback("fallback/model"),
                 instructionExecutionGuardEnabled: false,
                 transport: { request in
                     recorder.record(request)
@@ -1364,7 +1951,7 @@ struct PostProcessingBackendTests {
                 cloudBaseURL: "https://api.example.com/openai/v1/\(UUID().uuidString)",
                 cloudAPIKey: "cloud-secret"
             ),
-            cloudFallbackModelID: "fallback/model",
+            fallbackExecutor: cloudFallback("fallback/model"),
             instructionExecutionGuardEnabled: false,
             transport: { request in
                 recorder.record(request)
@@ -1567,7 +2154,7 @@ struct PostProcessingBackendTests {
                 cloudBaseURL: "not a valid cloud URL",
                 cloudAPIKey: ""
             ),
-            cloudFallbackModelID: nil,
+            fallbackExecutor: nil,
             instructionExecutionGuardEnabled: true
         )
 
@@ -1598,7 +2185,7 @@ struct PostProcessingBackendTests {
                 cloudBaseURL: cloudBaseURL,
                 cloudAPIKey: "cloud-secret"
             ),
-            cloudFallbackModelID: nil,
+            fallbackExecutor: nil,
             instructionExecutionGuardEnabled: false,
             transport: transport
         )
@@ -1627,8 +2214,33 @@ struct PostProcessingBackendTests {
 
     private static func makeLocalService(
         cloudBaseURL: String = "https://api.example.com/openai/v1",
+        localAIAvailability: LocalAIProcessingAvailability = supportedLocalAIAvailability,
+        fallbackExecutor: AIProcessingBackendExecutor? = nil,
         transport: @escaping PostProcessingService.Transport
     ) -> PostProcessingService {
+        PostProcessingService(
+            backendExecutor: makeLocalExecutor(
+                cloudBaseURL: cloudBaseURL,
+                localAIAvailability: localAIAvailability
+            ),
+            fallbackExecutor: fallbackExecutor,
+            instructionExecutionGuardEnabled: false,
+            transport: transport
+        )
+    }
+
+    private static let supportedLocalAIAvailability = LocalAIProcessingAvailability(
+        isAppleSilicon: true,
+        runnerIsExecutable: true,
+        physicalMemory: 16 * 1024 * 1024 * 1024
+    )
+
+    /// A Local AI executor whose server is a fake process; requests still
+    /// go through the service's stubbed transport.
+    private static func makeLocalExecutor(
+        cloudBaseURL: String = "https://api.example.com/openai/v1",
+        localAIAvailability: LocalAIProcessingAvailability = supportedLocalAIAvailability
+    ) -> AIProcessingBackendExecutor {
         let process = PostProcessingFakeProcess()
         let manager = LocalAIServerManager(
             launchProcess: { _, _, port, _ in (process, port) },
@@ -1636,28 +2248,35 @@ struct PostProcessingBackendTests {
             readinessProbe: successfulReadinessProbe,
             validateModel: { _ in .ready }
         )
-        return PostProcessingService(
-            backendExecutor: AIProcessingBackendExecutor(
-                choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
-                cloudBaseURL: cloudBaseURL,
-                cloudAPIKey: "cloud-secret",
-                localServerManager: manager,
-                localAIAvailability: LocalAIProcessingAvailability(
-                    isAppleSilicon: true,
-                    runnerIsExecutable: true,
-                    physicalMemory: 16 * 1024 * 1024 * 1024
-                )
-            ),
-            cloudFallbackModelID: "cloud/fallback",
-            instructionExecutionGuardEnabled: false,
-            transport: transport
+        return AIProcessingBackendExecutor(
+            choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
+            cloudBaseURL: cloudBaseURL,
+            cloudAPIKey: "cloud-secret",
+            localServerManager: manager,
+            localAIAvailability: localAIAvailability
+        )
+    }
+
+    private static func cloudFallback(
+        _ modelID: String,
+        cloudBaseURL: String = "https://api.example.com/openai/v1"
+    ) -> AIProcessingBackendExecutor {
+        AIProcessingBackendExecutor(
+            choice: .cloud(modelID: modelID),
+            cloudBaseURL: cloudBaseURL,
+            cloudAPIKey: "cloud-secret"
         )
     }
 
     private static func makeRateLimitedLocalScenario() -> RateLimitedLocalScenario {
         let cloudBaseURL = "https://api.example.com/openai/v1/\(UUID().uuidString)"
         let recorder = PostProcessingRequestRecorder()
-        let service = makeLocalService(cloudBaseURL: cloudBaseURL) { request in
+        // A local 429 is not a runtime failure, so even a configured cloud
+        // fallback stays unused.
+        let service = makeLocalService(
+            cloudBaseURL: cloudBaseURL,
+            fallbackExecutor: cloudFallback("cloud/fallback", cloudBaseURL: cloudBaseURL)
+        ) { request in
             recorder.record(request)
             return rateLimitedResponse(request: request)
         }

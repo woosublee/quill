@@ -528,7 +528,8 @@ struct SettingsLocalizationTests {
             "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델로 바뀌어요.",
             "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제해요. 나중에 다시 다운로드할 수 있어요.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
-            "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용돼요.",
+            "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.": "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 Edit Mode에서 선택한 글과 화면 문맥을 포함한 텍스트가 그 모델로 전송돼요.",
+            "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.": "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 회의 전사문이 그 모델로 전송돼요.",
             "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.": "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석해요. 스크린샷은 이 Mac을 벗어나지 않아요.",
             "Best quality. Needs more memory.": "최고 품질이에요. 더 많은 메모리가 필요해요.",
             "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
@@ -539,7 +540,8 @@ struct SettingsLocalizationTests {
             "Selected": "선택됨",
             "Not selected": "선택되지 않음",
             "Post-Processing Fallback Model": "후처리 대체 모델",
-            "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델이에요.",
+            "Tried once for transcript cleanup and Edit Mode when the model above fails or is rate-limited. A local fallback is also tried when the model above can't be reached.": "위 모델이 실패하거나 요청 한도에 걸리면 전사문 정리와 Edit Mode에서 한 번 대신 사용해요. 로컬 대체 모델은 위 모델에 연결되지 않을 때도 사용해요.",
+            "Tried once when the summary model above fails or is rate-limited. A local fallback is also tried when the summary model above can't be reached.": "위 요약 모델이 실패하거나 요청 한도에 걸리면 한 번 대신 사용해요. 로컬 대체 모델은 위 요약 모델에 연결되지 않을 때도 사용해요.",
             "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용해요. 실행 방식과 추가 보조 키는 단축키에 그대로 있어요.",
             "Output Language remains available for Edit Mode transforms.": "출력 언어는 Edit Mode 변환에서도 계속 사용할 수 있어요.",
             "Output Language is unavailable while Post-processing and Edit Mode are off.": "후처리와 Edit Mode가 모두 꺼져 있으면 출력 언어를 사용할 수 없어요.",
@@ -555,6 +557,9 @@ struct SettingsLocalizationTests {
             assert(localizedCatalogString(key, language: "en", bundle: bundle) == key)
             assert(localizedCatalogString(key, language: "ko", bundle: bundle) == korean)
         }
+        // The fallback picker's None option (#580).
+        assert(localizedCatalogString("No Fallback Model", language: "en", bundle: bundle) == "None")
+        assert(localizedCatalogString("No Fallback Model", language: "ko", bundle: bundle) == "사용 안 함")
     }
 
     private static func testMeetingSummaryCopyLocalizes() throws {

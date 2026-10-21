@@ -17,7 +17,14 @@ struct MeetingSummaryServiceTests {
         try testOwnerAndDueDateMayBeNull()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
-        try await testFallbackTerminalFailureReportsFallbackModel()
+        try await testFallbackTerminalFailureReportsPrimaryModel()
+        try await testCloudFallbackRunsOnServerErrorButNotNetworkFailure()
+        try await testFailedSummaryFallbackReportsPrimaryError()
+        try await testCloudPrimaryFallsBackToLocalModel()
+        try await testLocalPrimaryFallsBackToCloudWithoutCalendar()
+        try await testLocalPrimaryWithoutFallbackNeverCallsCloud()
+        try await testCancelledSummaryNeverFallsBack()
+        try await testSummaryFallbackEqualToPrimaryIsNotRetried()
         try await testTraditionalChineseSameAsSpokenUsesTraditionalPromptAndValidator()
         try await testLongTranscriptExtractsEveryChunkThenMerges()
         try await testHierarchyUsesBoundedIntermediateMergesAndCompletionCeiling()
@@ -398,7 +405,7 @@ struct MeetingSummaryServiceTests {
                     physicalMemory: 16 * 1024 * 1024 * 1024
                 )
             ),
-            cloudFallbackModelID: "cloud/fallback",
+            fallbackExecutor: nil,
             transport: { request in
                 recorder.record(request)
                 return try successResponse(request: request, content: validJSON)
@@ -561,7 +568,7 @@ struct MeetingSummaryServiceTests {
         }
     }
 
-    private static func testFallbackTerminalFailureReportsFallbackModel() async throws {
+    private static func testFallbackTerminalFailureReportsPrimaryModel() async throws {
         let service = makeCloudService(fallbackModel: "fallback/model") { request in
             let model = try string(try requestBody(request)["model"])
             if model == "primary/model" {
@@ -591,9 +598,10 @@ struct MeetingSummaryServiceTests {
                 modelID: "primary/model",
                 localBackend: nil
             )
+            // When the fallback fails too, the primary's error is reported.
             try expect(
-                issue.context.modelID == "fallback/model",
-                "terminal fallback failure reports the model that returned it"
+                issue.context.modelID == "primary/model",
+                "terminal fallback failure reports the primary model's error"
             )
         }
     }
@@ -880,20 +888,255 @@ struct MeetingSummaryServiceTests {
         }
     }
 
+    // MARK: - Fallback triggers (#580)
+
+    private static let fallbackCalendar = MeetingSummaryCalendarContext(
+        title: "Roadmap Sync",
+        start: Date(timeIntervalSince1970: 1_000),
+        end: Date(timeIntervalSince1970: 2_800),
+        attendees: ["Ines Varga", "kofi@example.com"]
+    )
+
+    private static func fallbackSource(
+        calendar: MeetingSummaryCalendarContext? = nil
+    ) -> MeetingSummarySource {
+        MeetingSummarySource(
+            transcript: summaryTranscript,
+            calendar: calendar,
+            languageContext: summaryLanguage
+        )
+    }
+
+    private static func makeLocalExecutor(
+        localAIAvailability: LocalAIProcessingAvailability = LocalAIProcessingAvailability(
+            isAppleSilicon: true,
+            runnerIsExecutable: true,
+            physicalMemory: 16 * 1024 * 1024 * 1024
+        )
+    ) -> AIProcessingBackendExecutor {
+        let process = MeetingSummaryFakeProcess()
+        let manager = LocalAIServerManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in true },
+            readinessProbe: successfulReadinessProbe,
+            validateModel: { _ in .ready }
+        )
+        return AIProcessingBackendExecutor(
+            choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
+            cloudBaseURL: "https://api.example.com/openai/v1/\(UUID().uuidString)",
+            cloudAPIKey: "test-key",
+            localServerManager: manager,
+            localAIAvailability: localAIAvailability
+        )
+    }
+
+    private static func requestModels(_ recorder: MeetingSummaryRequestRecorder) throws -> [String] {
+        try recorder.requests().map { try string(try requestBody($0)["model"]) }
+    }
+
+    private static func testCloudFallbackRunsOnServerErrorButNotNetworkFailure() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = makeCloudService(fallbackModel: "fallback/model") { request in
+            recorder.record(request)
+            if try string(try requestBody(request)["model"]) == "primary/model" {
+                return try providerErrorResponse(request: request, statusCode: 502, code: "bad_gateway")
+            }
+            return try successResponse(request: request, content: validJSON)
+        }
+        let result = try await service.generate(source: fallbackSource())
+        let models = try requestModels(recorder)
+        try expect(models == ["primary/model", "fallback/model"], "5xx: fallback order")
+        try expect(result.modelID == "fallback/model", "5xx: fallback result model")
+
+        // Offline or timed out: no cloud-to-cloud retry, a local one runs.
+        let failures: [(String, @Sendable (URLRequest) throws -> (Data, URLResponse))] = [
+            ("offline", { _ in throw URLError(.notConnectedToInternet) }),
+            ("timeout", { _ in throw URLError(.timedOut) })
+        ]
+        for (label, failure) in failures {
+            let cloudRecorder = MeetingSummaryRequestRecorder()
+            let cloud = makeCloudService(fallbackModel: "fallback/model") { request in
+                cloudRecorder.record(request)
+                return try failure(request)
+            }
+            do {
+                _ = try await cloud.generate(source: fallbackSource())
+                throw MeetingSummaryServiceTestFailure("\(label): expected failure")
+            } catch let failure as MeetingSummaryServiceTestFailure {
+                throw failure
+            } catch {}
+            try expect(cloudRecorder.requests().count == 1, "\(label): no cloud-to-cloud retry")
+
+            let localRecorder = MeetingSummaryRequestRecorder()
+            let local = makeCloudService(fallbackExecutor: makeLocalExecutor()) { request in
+                localRecorder.record(request)
+                if request.url?.host == "127.0.0.1" {
+                    return try successResponse(request: request, content: validJSON)
+                }
+                return try failure(request)
+            }
+            let localResult = try await local.generate(source: fallbackSource())
+            try expect(localResult.backendKind == .local, "\(label): the local fallback runs")
+        }
+    }
+
+    private static func testFailedSummaryFallbackReportsPrimaryError() async throws {
+        let local = makeLocalExecutor(
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            )
+        )
+        let service = MeetingSummaryService(
+            backendExecutor: local,
+            fallbackExecutor: local.replacingChoice(.cloud(modelID: "cloud/fallback")),
+            transport: { request in
+                try providerErrorResponse(request: request, statusCode: 503, code: "unavailable")
+            }
+        )
+        do {
+            _ = try await service.generate(source: fallbackSource())
+            throw MeetingSummaryServiceTestFailure("Expected both models to fail")
+        } catch let error as AIProcessingBackendError {
+            try expect(
+                error == .localRuntimeUnavailable(LocalAIModelCatalog.quality.id),
+                "the local primary's failure is reported, not the fallback's"
+            )
+        }
+    }
+
+    private static func testCloudPrimaryFallsBackToLocalModel() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = makeCloudService(fallbackExecutor: makeLocalExecutor()) { request in
+            recorder.record(request)
+            if request.url?.host == "127.0.0.1" {
+                return try successResponse(request: request, content: validJSON)
+            }
+            throw URLError(.cannotConnectToHost)
+        }
+
+        let result = try await service.generate(source: fallbackSource(calendar: fallbackCalendar))
+
+        let hosts = recorder.requests().map { $0.url?.host }
+        try expect(hosts == ["api.example.com", "127.0.0.1"], "cloud first, then the local fallback")
+        try expect(result.backendKind == .local, "the summary comes from the local fallback")
+        try expect(result.providerHost == nil, "a local summary has no provider host")
+        try expect(result.modelID == LocalAIModelCatalog.quality.id, "local fallback model")
+        try expectNoCalendar(in: [recorder.requests()[0]], calendar: fallbackCalendar)
+    }
+
+    private static func testLocalPrimaryFallsBackToCloudWithoutCalendar() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let local = makeLocalExecutor(
+            localAIAvailability: LocalAIProcessingAvailability(
+                isAppleSilicon: false,
+                runnerIsExecutable: false
+            )
+        )
+        let service = MeetingSummaryService(
+            backendExecutor: local,
+            fallbackExecutor: local.replacingChoice(.cloud(modelID: "cloud/fallback")),
+            transport: { request in
+                recorder.record(request)
+                return try successResponse(request: request, content: validJSON)
+            }
+        )
+
+        let result = try await service.generate(source: fallbackSource(calendar: fallbackCalendar))
+
+        let models = try requestModels(recorder)
+        try expect(models == ["cloud/fallback"], "the cloud fallback runs once")
+        try expect(result.backendKind == .cloud, "the summary comes from the cloud fallback")
+        try expect(result.providerHost == "api.example.com", "the result names the fallback's host")
+        try expect(
+            recorder.requests().allSatisfy { $0.url?.host == "api.example.com" },
+            "the fallback uses the cloud base URL"
+        )
+        // #529: a cloud fallback never gets the calendar event either.
+        try expectNoCalendar(in: recorder.requests(), calendar: fallbackCalendar)
+    }
+
+    private static func testLocalPrimaryWithoutFallbackNeverCallsCloud() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = MeetingSummaryService(
+            backendExecutor: makeLocalExecutor(),
+            fallbackExecutor: nil,
+            transport: { request in
+                recorder.record(request)
+                if request.url?.host == "127.0.0.1" {
+                    throw URLError(.networkConnectionLost)
+                }
+                throw MeetingSummaryServiceTestFailure("A cloud request was made")
+            }
+        )
+
+        do {
+            _ = try await service.generate(source: fallbackSource(calendar: fallbackCalendar))
+            throw MeetingSummaryServiceTestFailure("Expected the local failure")
+        } catch let failure as MeetingSummaryServiceTestFailure {
+            throw failure
+        } catch {}
+        let hosts = recorder.requests().map { $0.url?.host }
+        try expect(hosts == ["127.0.0.1"], "a local summary without a fallback stays on this Mac")
+    }
+
+    private static func testCancelledSummaryNeverFallsBack() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let local = makeLocalExecutor()
+        let service = MeetingSummaryService(
+            backendExecutor: local,
+            fallbackExecutor: local.replacingChoice(.cloud(modelID: "cloud/fallback")),
+            transport: { request in
+                recorder.record(request)
+                throw CancellationError()
+            }
+        )
+
+        do {
+            _ = try await service.generate(source: fallbackSource())
+            throw MeetingSummaryServiceTestFailure("Expected cancellation")
+        } catch let failure as MeetingSummaryServiceTestFailure {
+            throw failure
+        } catch {
+            try expect(error is CancellationError, "the cancellation is reported as is")
+        }
+        let hosts = recorder.requests().map { $0.url?.host }
+        try expect(hosts == ["127.0.0.1"], "a cancelled summary is not retried")
+    }
+
+    private static func testSummaryFallbackEqualToPrimaryIsNotRetried() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = makeCloudService(fallbackModel: "primary/model") { request in
+            recorder.record(request)
+            return try providerErrorResponse(request: request, statusCode: 503, code: "unavailable")
+        }
+
+        do {
+            _ = try await service.generate(source: fallbackSource())
+            throw MeetingSummaryServiceTestFailure("Expected the server error")
+        } catch let failure as MeetingSummaryServiceTestFailure {
+            throw failure
+        } catch {}
+        try expect(recorder.requests().count == 1, "the same model is not retried")
+    }
+
     private static func makeCloudService(
         fallbackModel: String? = nil,
+        fallbackExecutor: AIProcessingBackendExecutor? = nil,
         chunker: MeetingSummaryTextChunker = MeetingSummaryTextChunker(),
         tokenBudgeter: LocalAITokenBudgeter? = nil,
         transport: @escaping MeetingSummaryService.Transport
     ) -> MeetingSummaryService {
         let baseURL = "https://api.example.com/openai/v1/\(UUID().uuidString)"
+        let primary = AIProcessingBackendExecutor(
+            choice: .cloud(modelID: "primary/model"),
+            cloudBaseURL: baseURL,
+            cloudAPIKey: "test-key"
+        )
         return MeetingSummaryService(
-            backendExecutor: AIProcessingBackendExecutor(
-                choice: .cloud(modelID: "primary/model"),
-                cloudBaseURL: baseURL,
-                cloudAPIKey: "test-key"
-            ),
-            cloudFallbackModelID: fallbackModel,
+            backendExecutor: primary,
+            fallbackExecutor: fallbackExecutor
+                ?? fallbackModel.map { primary.replacingChoice(.cloud(modelID: $0)) },
             chunker: chunker,
             tokenBudgeter: tokenBudgeter,
             transport: transport

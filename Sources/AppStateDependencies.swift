@@ -164,7 +164,7 @@ struct AppStateDependencies {
             makeMeetingSummaryGenerator: { configuration in
                 MeetingSummaryService(
                     backendExecutor: configuration.backendExecutor,
-                    cloudFallbackModelID: configuration.cloudFallbackModelID
+                    fallbackExecutor: configuration.fallbackExecutor
                 )
             },
             makeRetryCloudTranscriptionDependencies: { .live },
