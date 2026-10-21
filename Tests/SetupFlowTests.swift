@@ -650,7 +650,7 @@ struct SetupFlowTests {
         // A setup re-run closes New settings without applying it.
         let rerun = sourceBlock(in: delegate, from: "@objc func handleShowSetup()", to: "// Single wizard at a time")
         assert(rerun.contains("newSettingsModel = nil\n        newSettingsWindow?.close()"))
-        let terminate = sourceBlock(in: delegate, from: "func applicationWillTerminate(", to: "appState.finalizePendingNoteDeletion()")
+        let terminate = sourceBlock(in: delegate, from: "func applicationWillTerminate(", to: "appState.finalizePendingSummaryDeletion()")
         assert(terminate.contains("newSettingsModel?.selection"))
         assert(terminate.contains("UserDefaults.standard.set(selection.wantsMCP, forKey: AppState.mcpServerEnabledStorageKey)"))
         assert(apply.contains("if let failure, !controller.isEnabled {"))
