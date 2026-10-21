@@ -427,6 +427,9 @@ struct SettingsLocalizationTests {
         let section = try String(contentsOfFile: "Sources/RecentlyDeletedNotesSection.swift", encoding: .utf8)
         assert(section.contains("appState.restoreRecentlyDeletedNote(id:"))
         assert(section.contains("appState.deleteRecentlyDeletedNoteNow(id:"))
+        // Delete All deletes the notes listed when it was pressed (#579).
+        assert(section.contains("pendingDeleteAllIDs = appState.recentlyDeletedNotes.map(\\.id)"))
+        assert(section.contains("appState.deleteRecentlyDeletedNotesNow(ids: pendingDeleteAllIDs)"))
         assert(section.contains("appState.purgeExpiredRecentlyDeletedNotes()"))
         assert(section.contains("days == 1"), "one day left uses the singular string")
         assert(!section.contains("restoredIDs.values"), "restored rows keep their order")

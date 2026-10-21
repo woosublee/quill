@@ -15,6 +15,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesPendingDeletionMeetsLaterChanges()
         try await verifiesDeletedNoteMovesToRecentlyDeletedAndRestores()
         try await verifiesDeleteNowRemovesFiles()
+        try await verifiesDeleteAllRemovesOnlyRecentlyDeleted()
         try await verifiesExpiredNotesArePurged()
         try await verifiesRecentlyDeletedFilesSurviveStartupSweep()
         try await verifiesDeleteNowDuringCancelWindowEndsIt()
@@ -415,6 +416,32 @@ struct AppStateStorageSafetyTests {
             try expect(!FileManager.default.fileExists(atPath: audioURL.path), "Delete Now removes its audio")
             let reopened = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
             try expect(!reopened.loadAllHistory().contains { $0.id == item.id }, "Delete Now removes the row")
+        }
+    }
+
+    private static func verifiesDeleteAllRemovesOnlyRecentlyDeleted() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (first, firstURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 1_000))
+            let (second, secondURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let (live, liveURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 3_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            for item in [first, second, live] {
+                _ = try historyStore.append(item, maxCount: Int.max)
+            }
+            try historyStore.setDeletedAt(Date(), id: first.id)
+            try historyStore.setDeletedAt(Date(), id: second.id)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let shown = await MainActor.run { appState.recentlyDeletedNotes.map(\.id) }
+            await MainActor.run { appState.deleteRecentlyDeletedNotesNow(ids: shown) }
+            let state = await MainActor.run { (appState.recentlyDeletedNotes.isEmpty, appState.pipelineHistory.map(\.id)) }
+            try expect(state.0, "Delete All empties Recently Deleted")
+            try expect(state.1 == [live.id], "Delete All leaves live notes")
+            try expect(!FileManager.default.fileExists(atPath: firstURL.path), "Delete All removes each note's audio")
+            try expect(!FileManager.default.fileExists(atPath: secondURL.path), "Delete All removes each note's audio")
+            try expect(FileManager.default.fileExists(atPath: liveURL.path), "a live note keeps its audio")
+            let reopened = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            try expect(reopened.loadAllHistory().map(\.id) == [live.id], "Delete All removes the rows")
         }
     }
 
