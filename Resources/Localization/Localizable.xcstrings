@@ -21699,6 +21699,70 @@
           }
         }
       }
+    },
+    "Transcription URL and key checked": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription URL and key checked"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 URL과 키를 확인했어요"
+          }
+        }
+      }
+    },
+    "Delete All": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 삭제"
+          }
+        }
+      }
+    },
+    "Delete all recently deleted notes now?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete all recently deleted notes now?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 삭제된 노트를 모두 바로 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Their audio and transcripts are removed too. This can't be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Their audio and transcripts are removed too. This can't be undone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오와 전사문도 함께 지워져요. 되돌릴 수 없어요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -428,6 +428,12 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // metadata line keeps its layout when recording starts and stops.
         let indicator = block(source, from: "private var noteStateIndicator: some View {", to: "private var statusBadges: some View {")
         precondition(!indicator.contains("isLiveRecording"))
+        // #578: nor does work in progress, which the transcript overlay and
+        // the empty body show instead.
+        precondition(!indicator.contains("ProgressView"))
+        precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
+        precondition(source.contains("} else if isRecoveringRecording {\n                            retryingOverlay"))
+        precondition(source.contains("} else if isCloudTranscribing\n"))
         precondition(!source.contains("LiveRecordingBadge"))
 
         // Increase Contrast: row date, badges, and detail metadata strengthen.

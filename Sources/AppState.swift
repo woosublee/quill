@@ -454,6 +454,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let transcriptionAPIKeyStorageKey = CredentialStore.transcriptionAPIKeyAccount
     private let postProcessingModelStorageKey = "post_processing_model"
     private let postProcessingFallbackModelStorageKey = "post_processing_fallback_model"
+    private let droppedGroqModelsMigratedStorageKey = "groq_dropped_models_migrated"
     private let contextModelStorageKey = "context_model"
     private let meetingSummaryModelStorageKey = "meeting_summary_model"
     private let meetingSummaryFallbackModelStorageKey = "meeting_summary_fallback_model"
@@ -524,7 +525,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
     static let defaultTranscriptionModel = "whisper-large-v3"
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
-    static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
+    static let defaultPostProcessingFallbackModel = ModelConfiguration.groqQwenModelID
     static let defaultContextModel = ModelConfiguration.groqQwenModelID
     static let defaultMeetingSummaryModel = defaultPostProcessingModel
     static let defaultMeetingSummaryFallbackModel = defaultPostProcessingFallbackModel
@@ -3077,6 +3078,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             account: "api_base_url",
             credentialStore: initialCredentialStore
         )
+        // Dropped models move once, on the first launch with this list, and
+        // only if that launch is on Groq; Groq still serves them, so one
+        // chosen afterwards, on any provider, stays (#577).
+        let migratesDroppedGroqModels = !UserDefaults.standard.bool(
+            forKey: droppedGroqModelsMigratedStorageKey
+        )
         for key in [
             postProcessingModelStorageKey,
             postProcessingFallbackModelStorageKey,
@@ -3084,14 +3091,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryModelStorageKey,
             meetingSummaryFallbackModelStorageKey
         ] {
-            ModelConfiguration.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+            ModelConfiguration.migrateGroqSelection(
+                key: key,
+                baseURL: apiBaseURL,
+                defaults: .standard,
+                includingDroppedModels: migratesDroppedGroqModels
+            )
         }
         for key in [
             postProcessingBackendChoiceStorageKey,
             contextBackendChoiceStorageKey,
             meetingSummaryBackendChoiceStorageKey
         ] {
-            AIProcessingBackendChoiceStore.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
+            AIProcessingBackendChoiceStore.migrateGroqSelection(
+                key: key,
+                baseURL: apiBaseURL,
+                defaults: .standard,
+                includingDroppedModels: migratesDroppedGroqModels
+            )
+        }
+        if migratesDroppedGroqModels {
+            UserDefaults.standard.set(true, forKey: droppedGroqModelsMigratedStorageKey)
         }
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(
@@ -13441,8 +13461,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteRecentlyDeletedNoteNow(id: UUID) {
+        deleteRecentlyDeletedNotesNow(ids: [id])
+    }
+
+    /// Delete Now for the notes the person was shown, one or all of them
+    /// (Delete All, #579). The person asked for it, so it doesn't wait for
+    /// the iCloud check an automatic purge makes. A note that arrived after
+    /// the list was shown isn't in `ids`, so it stays.
+    @MainActor
+    func deleteRecentlyDeletedNotesNow(ids: [UUID]) {
         guard requireAvailableHistoryForMutation() else { return }
-        removeRecentlyDeletedNotes(ids: [id])
+        removeRecentlyDeletedNotes(ids: ids)
     }
 
     private var recentlyDeletedPurgeTimer: Timer?
