@@ -6,6 +6,8 @@ enum TemperatureCapability: String, Codable {
     case unsupported
 }
 
+/// Remembers, for 7 days and as SHA-256 digests only, which endpoint and
+/// model combinations reject `temperature`.
 final class TemperatureCapabilityCache: @unchecked Sendable {
     static let shared = TemperatureCapabilityCache()
     private struct Entry: Codable {
@@ -91,15 +93,13 @@ final class TemperatureCapabilityCache: @unchecked Sendable {
               let body = request.httpBody,
               let payload = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let temperature = payload["temperature"] else { return nil }
-        let excluded: Set<String> = ["messages", "prompt", "input"]
+        // The endpoint, model and options decide support. Prompt content and
+        // credentials are left out so nothing derived from them is stored, and
+        // per-request token limits are left out so one entry covers them all.
+        let excluded: Set<String> = ["messages", "prompt", "input", "max_completion_tokens", "max_tokens"]
         let options = payload.filter { !excluded.contains($0.key) }
-        let auth = request.allHTTPHeaderFields?
-            .filter { ["authorization", "api-key", "x-api-key"].contains($0.key.lowercased()) }
-            .map { [$0.key.lowercased(), $0.value] }
-            .sorted { ($0.first ?? "") < ($1.first ?? "") } ?? []
         let identity: [String: Any] = [
             "url": url.absoluteString,
-            "auth": auth,
             "options": options,
             "temperature": temperature
         ]
