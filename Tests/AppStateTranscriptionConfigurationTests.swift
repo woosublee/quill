@@ -883,6 +883,13 @@ struct AppStateTranscriptionConfigurationTests {
         }
         // Only the latest check may clear the progress indicator.
         assert(source.contains("guard transcriptionPairCheckID == checkID else { return }"))
+        // Save next to the transcription key saves both fields and checks
+        // them, even when nothing changed (#576).
+        assert(source.contains("saveTranscriptionProviderFields()"))
+        // A passing check says so, and a failing one clears that (#576).
+        assert(source.contains("transcriptionPairCheckPassed = valid"))
+        assert(source.contains("Label(\"Transcription URL and key checked\""))
+        assert(source.contains("commitTranscriptionAPIURL()\n        commitTranscriptionAPIKey()\n        if appState.transcriptionAPIURL == savedURL, appState.transcriptionAPIKey == savedKey {\n            checkTranscriptionProviderPair()"))
     }
 
     private static func testQwen38ModelConfiguration() {
