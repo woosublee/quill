@@ -427,11 +427,12 @@ Behavior:
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
     private let backendExecutor: AIProcessingBackendExecutor
-    private let cloudFallbackModelID: String?
+    /// The model to retry with once when the main model fails (#580). It
+    /// runs on its own backend: cloud or Local AI.
+    private let fallbackExecutor: AIProcessingBackendExecutor?
     private let instructionExecutionGuardEnabled: Bool
     private let transport: Transport
     private let defaultModel = AppState.defaultPostProcessingModel
-    private let defaultFallbackModel = AppState.defaultPostProcessingFallbackModel
     private let defaultModelReasoningEffort = "low"
     private let postProcessingMaxCompletionTokens = 4096
     private static let cloudPostProcessingTimeoutSeconds: TimeInterval = 20
@@ -449,33 +450,39 @@ Behavior:
     ) {
         let primary = preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallback = preferredFallbackModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.init(
-            backendExecutor: AIProcessingBackendExecutor(
-                choice: .cloud(
-                    modelID: primary.isEmpty ? AppState.defaultPostProcessingModel : primary
-                ),
-                cloudBaseURL: baseURL,
-                cloudAPIKey: apiKey
+        let executor = AIProcessingBackendExecutor(
+            choice: .cloud(
+                modelID: primary.isEmpty ? AppState.defaultPostProcessingModel : primary
             ),
-            cloudFallbackModelID: fallback.isEmpty ? nil : fallback,
+            cloudBaseURL: baseURL,
+            cloudAPIKey: apiKey
+        )
+        self.init(
+            backendExecutor: executor,
+            fallbackExecutor: fallback.isEmpty
+                ? nil
+                : executor.replacingChoice(.cloud(modelID: fallback)),
             instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
         )
     }
 
     init(
         backendExecutor: AIProcessingBackendExecutor,
-        cloudFallbackModelID: String?,
+        fallbackExecutor: AIProcessingBackendExecutor?,
         instructionExecutionGuardEnabled: Bool = true,
         transport: @escaping Transport = { request in
             try await LLMAPITransport.data(for: request)
         }
     ) {
         self.backendExecutor = backendExecutor
-        let trimmedFallback = cloudFallbackModelID?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.cloudFallbackModelID = trimmedFallback?.isEmpty == false
-            ? trimmedFallback
-            : nil
+        self.fallbackExecutor = fallbackExecutor.flatMap { executor in
+            if case .cloud(let modelID) = executor.choice {
+                let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return nil }
+                return executor.replacingChoice(.cloud(modelID: trimmed))
+            }
+            return executor
+        }
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
         self.transport = transport
     }
@@ -642,8 +649,11 @@ Behavior:
         outputLanguage: String = "",
         expectedSourceLanguage: String?
     ) async throws -> PostProcessingResult {
-        if isLocalBackend {
-            return try await backendExecutor.withEndpoint { [self] endpoint in
+        try await runWithFallback(
+            passthrough: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
+            retriesEmptyCloudOutput: false
+        ) { [self] executor in
+            try await executor.withEndpoint { [self] endpoint in
                 try await processTranscriptChunks(
                     transcript: transcript,
                     contextSummary: contextSummary,
@@ -655,113 +665,6 @@ Behavior:
                 )
             }
         }
-        return try await processCloudWithFallback(
-            transcript: transcript,
-            contextSummary: contextSummary,
-            customVocabulary: customVocabulary,
-            customSystemPrompt: customSystemPrompt,
-            outputLanguage: outputLanguage,
-            expectedSourceLanguage: expectedSourceLanguage
-        )
-    }
-
-    private func processCloudWithFallback(
-        transcript: String,
-        contextSummary: String,
-        customVocabulary: [String],
-        customSystemPrompt: String = "",
-        outputLanguage: String = "",
-        expectedSourceLanguage: String?
-    ) async throws -> PostProcessingResult {
-        var primaryModel = resolvedPrimaryModel()
-        let retryModel = resolvedRetryModel(for: primaryModel)
-        guard let availableModel = await LLMCooldownManager.shared.effectivePrimary(
-            baseURL: cloudBaseURL,
-            primary: primaryModel,
-            fallback: retryModel
-        ) else {
-            return PostProcessingResult(
-                transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
-                prompt: "",
-                skippedDueToCooldown: true
-            )
-        }
-        primaryModel = availableModel
-        do {
-            return try await process(
-                transcript: transcript,
-                contextSummary: contextSummary,
-                model: primaryModel,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage,
-                expectedSourceLanguage: expectedSourceLanguage
-            )
-        } catch let error as PostProcessingError {
-            let shouldFallback: Bool
-            switch error {
-            case .rateLimited:
-                shouldFallback = true
-            case .requestFailed(let statusCode, _):
-                shouldFallback = statusCode == 429
-            default:
-                shouldFallback = false
-            }
-
-            guard shouldFallback else {
-                throw error
-            }
-
-            if case .rateLimited = error,
-               await LLMCooldownManager.shared.effectivePrimary(
-                   baseURL: cloudBaseURL,
-                   primary: resolvedPrimaryModel(),
-                   fallback: retryModel
-               ) == nil {
-                return PostProcessingResult(
-                    transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
-                    prompt: "",
-                    skippedDueToCooldown: true
-                )
-            }
-
-            guard let retryModel, retryModel != primaryModel else {
-                throw error
-            }
-            guard await LLMCooldownManager.shared.effectivePrimary(
-                baseURL: cloudBaseURL,
-                primary: retryModel,
-                fallback: nil
-            ) != nil else {
-                throw error
-            }
-
-            do {
-                return try await process(
-                    transcript: transcript,
-                    contextSummary: contextSummary,
-                    model: retryModel,
-                    customVocabulary: customVocabulary,
-                    customSystemPrompt: customSystemPrompt,
-                    outputLanguage: outputLanguage,
-                    expectedSourceLanguage: expectedSourceLanguage
-                )
-            } catch let retryError as PostProcessingError {
-                if case .rateLimited = retryError,
-                   await LLMCooldownManager.shared.effectivePrimary(
-                       baseURL: cloudBaseURL,
-                       primary: resolvedPrimaryModel(),
-                       fallback: retryModel
-                   ) == nil {
-                    return PostProcessingResult(
-                        transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
-                        prompt: "",
-                        skippedDueToCooldown: true
-                    )
-                }
-                throw retryError
-            }
-        }
     }
 
     private func processCommandTransformWithFallback(
@@ -771,8 +674,11 @@ Behavior:
         customVocabulary: [String],
         outputLanguage: String = ""
     ) async throws -> PostProcessingResult {
-        if isLocalBackend {
-            return try await backendExecutor.withEndpoint { [self] endpoint in
+        try await runWithFallback(
+            passthrough: selectedText,
+            retriesEmptyCloudOutput: true
+        ) { [self] executor in
+            try await executor.withEndpoint { [self] endpoint in
                 try await processCommandTransform(
                     selectedText: selectedText,
                     voiceCommand: voiceCommand,
@@ -783,147 +689,263 @@ Behavior:
                 )
             }
         }
-        return try await processCommandTransformCloudWithFallback(
-            selectedText: selectedText,
-            voiceCommand: voiceCommand,
-            contextSummary: contextSummary,
-            customVocabulary: customVocabulary,
-            outputLanguage: outputLanguage
-        )
     }
 
-    private func processCommandTransformCloudWithFallback(
-        selectedText: String,
-        voiceCommand: String,
-        contextSummary: String,
-        customVocabulary: [String],
-        outputLanguage: String = ""
+    private typealias FallbackAttempt =
+        @Sendable (AIProcessingBackendExecutor) async throws -> PostProcessingResult
+
+    /// Runs the main model and, when it fails in a way a retry can help,
+    /// the fallback once on its own backend (#580). Transcript cleanup and
+    /// Edit Mode share this path.
+    private func runWithFallback(
+        passthrough: String,
+        retriesEmptyCloudOutput: Bool,
+        attempt: @escaping FallbackAttempt
     ) async throws -> PostProcessingResult {
-        var primaryModel = resolvedPrimaryModel()
-        let retryModel = resolvedRetryModel(for: primaryModel)
+        let skipped = PostProcessingResult(
+            transcript: passthrough,
+            prompt: "",
+            skippedDueToCooldown: true
+        )
+        let fallback = usableFallbackExecutor()
+
+        if isLocalBackend {
+            do {
+                return try await attempt(backendExecutor)
+            } catch {
+                guard let fallback,
+                      shouldFallBack(
+                          after: error,
+                          fromLocal: true,
+                          toLocal: fallback.choice.isLocal,
+                          retriesEmptyCloudOutput: retriesEmptyCloudOutput
+                      ) else {
+                    throw error
+                }
+                // A cloud fallback that is cooling down isn't sent; the local
+                // failure is what the person sees.
+                if case .cloud(let modelID) = fallback.choice,
+                   await LLMCooldownManager.shared.effectivePrimary(
+                       baseURL: cloudBaseURL,
+                       primary: modelID,
+                       fallback: nil
+                   ) == nil {
+                    throw error
+                }
+                return try await runFallback(
+                    fallback,
+                    afterPrimaryError: error,
+                    skipped: skipped,
+                    attempt: attempt
+                )
+            }
+        }
+
+        let primaryModel = resolvedPrimaryModel()
+        let cloudRetryModel: String?
+        if case .cloud(let modelID)? = fallback?.choice {
+            cloudRetryModel = modelID
+        } else {
+            cloudRetryModel = nil
+        }
         guard let availableModel = await LLMCooldownManager.shared.effectivePrimary(
             baseURL: cloudBaseURL,
             primary: primaryModel,
-            fallback: retryModel
+            fallback: cloudRetryModel
         ) else {
-            return PostProcessingResult(
-                transcript: selectedText,
-                prompt: "",
-                skippedDueToCooldown: true
+            // Every cloud model is cooling down; a local fallback still runs.
+            if let fallback, fallback.choice.isLocal {
+                return try await runFallback(
+                    fallback,
+                    afterPrimaryError: nil,
+                    skipped: skipped,
+                    attempt: attempt
+                )
+            }
+            return skipped
+        }
+        if availableModel != primaryModel, let fallback {
+            // The main model is cooling down, so the cloud fallback runs
+            // in its place, once.
+            return try await runFallback(
+                fallback,
+                afterPrimaryError: nil,
+                skipped: skipped,
+                attempt: attempt
             )
         }
-        primaryModel = availableModel
+
         do {
-            return try await processCommandTransform(
-                selectedText: selectedText,
-                voiceCommand: voiceCommand,
-                contextSummary: contextSummary,
-                model: primaryModel,
-                customVocabulary: customVocabulary,
-                outputLanguage: outputLanguage
+            return try await attempt(
+                backendExecutor.replacingChoice(.cloud(modelID: primaryModel))
             )
-        } catch let error as PostProcessingError {
-            let shouldFallback: Bool
-            switch error {
-            case .rateLimited:
-                shouldFallback = true
-            case .requestFailed(let statusCode, _):
-                shouldFallback = statusCode == 429
-            case .emptyOutput:
-                shouldFallback = true
-            default:
-                shouldFallback = false
-            }
-
-            guard shouldFallback else {
+        } catch {
+            guard shouldFallBack(
+                after: error,
+                fromLocal: false,
+                toLocal: fallback?.choice.isLocal == true,
+                retriesEmptyCloudOutput: retriesEmptyCloudOutput
+            ) else {
                 throw error
             }
-
-            if case .rateLimited = error,
-               await LLMCooldownManager.shared.effectivePrimary(
-                   baseURL: cloudBaseURL,
-                   primary: resolvedPrimaryModel(),
-                   fallback: retryModel
-               ) == nil {
-                return PostProcessingResult(
-                    transcript: selectedText,
-                    prompt: "",
-                    skippedDueToCooldown: true
-                )
-            }
-
-            guard let retryModel, retryModel != primaryModel else {
-                throw error
-            }
-            guard await LLMCooldownManager.shared.effectivePrimary(
-                baseURL: cloudBaseURL,
-                primary: retryModel,
-                fallback: nil
-            ) != nil else {
-                throw error
-            }
-
-            do {
-                return try await processCommandTransform(
-                    selectedText: selectedText,
-                    voiceCommand: voiceCommand,
-                    contextSummary: contextSummary,
-                    model: retryModel,
-                    customVocabulary: customVocabulary,
-                    outputLanguage: outputLanguage
-                )
-            } catch let retryError as PostProcessingError {
-                if case .rateLimited = retryError,
-                   await LLMCooldownManager.shared.effectivePrimary(
-                       baseURL: cloudBaseURL,
-                       primary: resolvedPrimaryModel(),
-                       fallback: retryModel
-                   ) == nil {
-                    return PostProcessingResult(
-                        transcript: selectedText,
-                        prompt: "",
-                        skippedDueToCooldown: true
-                    )
+            guard let fallback else {
+                if Self.isRateLimited(error),
+                   await allCloudModelsCoolingDown(fallbackModel: nil) {
+                    return skipped
                 }
-                throw retryError
+                throw error
+            }
+            if let cloudRetryModel {
+                if Self.isRateLimited(error),
+                   await allCloudModelsCoolingDown(fallbackModel: cloudRetryModel) {
+                    return skipped
+                }
+                guard await LLMCooldownManager.shared.effectivePrimary(
+                    baseURL: cloudBaseURL,
+                    primary: cloudRetryModel,
+                    fallback: nil
+                ) != nil else {
+                    throw error
+                }
+            }
+            return try await runFallback(
+                fallback,
+                afterPrimaryError: error,
+                skipped: skipped,
+                attempt: attempt
+            )
+        }
+    }
+
+    /// Runs the fallback once. Cancellation is always rethrown.
+    ///
+    /// When a cloud main model was cooling down or rate-limited (no primary
+    /// error, or a rate limit), the text passes through unchanged only if
+    /// the fallback was rate-limited too, every cloud model is now cooling
+    /// down, or a local fallback couldn't run at all, which is the same as
+    /// having none. Any other fallback failure is the fallback's own error,
+    /// as before local fallbacks. Otherwise the main model's error is
+    /// reported, since that is what the person chose; a local main model
+    /// always reports its own failure.
+    private func runFallback(
+        _ fallback: AIProcessingBackendExecutor,
+        afterPrimaryError primaryError: Error?,
+        skipped: PostProcessingResult,
+        attempt: FallbackAttempt
+    ) async throws -> PostProcessingResult {
+        do {
+            return try await attempt(fallback)
+        } catch {
+            if AIProcessingFallbackPolicy.isCancellation(error) { throw error }
+            let primaryCoolingOrRateLimited = !isLocalBackend
+                && (primaryError.map(Self.isRateLimitFailure) ?? true)
+            guard primaryCoolingOrRateLimited else { throw primaryError ?? error }
+            if Self.isRateLimitFailure(error) { return skipped }
+            if case .cloud(let modelID) = fallback.choice,
+               await allCloudModelsCoolingDown(fallbackModel: modelID) {
+                return skipped
+            }
+            if fallback.choice.isLocal, Self.isLocalUnavailability(error) {
+                return skipped
+            }
+            throw error
+        }
+    }
+
+    /// The local fallback never ran: unknown or unsupported model, not
+    /// installed, or the server couldn't start.
+    private static func isLocalUnavailability(_ error: Error) -> Bool {
+        if let backendError = error as? AIProcessingBackendError {
+            switch backendError {
+            case .unknownLocalModel, .localRuntimeUnavailable: return true
+            case .invalidCloudBaseURL: return false
             }
         }
+        if let managerError = error as? LocalAIServerManagerError {
+            switch managerError {
+            case .modelUnavailable, .modelCorrupt, .startFailed: return true
+            case .processExited: return false
+            }
+        }
+        return false
+    }
+
+    private static func isRateLimitFailure(_ error: Error) -> Bool {
+        if isRateLimited(error) { return true }
+        if case PostProcessingError.requestFailed(429, _) = error { return true }
+        return false
+    }
+
+    /// The fallback, unless there is none, it can't run, or it is the main
+    /// model itself.
+    private func usableFallbackExecutor() -> AIProcessingBackendExecutor? {
+        guard let fallbackExecutor, fallbackExecutor.isConfigured else { return nil }
+        let primary: AIProcessingBackendChoice = isLocalBackend
+            ? backendExecutor.choice
+            : .cloud(modelID: resolvedPrimaryModel())
+        guard fallbackExecutor.choice != primary else { return nil }
+        return fallbackExecutor
+    }
+
+    /// A cloud model that is offline or timed out is retried only on a local
+    /// fallback: a cloud fallback shares the same provider and would just
+    /// make the person wait twice.
+    private func shouldFallBack(
+        after error: Error,
+        fromLocal: Bool,
+        toLocal: Bool,
+        retriesEmptyCloudOutput: Bool
+    ) -> Bool {
+        if AIProcessingFallbackPolicy.isCancellation(error) { return false }
+        if fromLocal, AIProcessingFallbackPolicy.isLocalRuntimeFailure(error) {
+            return true
+        }
+        let reachesAnotherHost = fromLocal || toLocal
+        if AIProcessingFallbackPolicy.isNetworkFailure(error) { return reachesAnotherHost }
+        guard let error = error as? PostProcessingError else { return false }
+        switch error {
+        case .rateLimited:
+            return !fromLocal
+        case .requestFailed(let statusCode, _):
+            return (!fromLocal && statusCode == 429)
+                || AIProcessingFallbackPolicy.isServerError(statusCode: statusCode)
+        case .requestTimedOut:
+            return reachesAnotherHost
+        case .emptyOutput:
+            return fromLocal || retriesEmptyCloudOutput
+        case .invalidResponse:
+            return fromLocal
+        case .invalidInput, .contextBudgetExceeded,
+             .suspectedInstructionExecution, .outputRejected:
+            return false
+        }
+    }
+
+    private static func isRateLimited(_ error: Error) -> Bool {
+        if case PostProcessingError.rateLimited = error { return true }
+        return false
+    }
+
+    /// True when a rate-limited request leaves no cloud model to run now,
+    /// so the text is passed through unchanged.
+    private func allCloudModelsCoolingDown(fallbackModel: String?) async -> Bool {
+        if isLocalBackend {
+            guard let fallbackModel else { return false }
+            return await LLMCooldownManager.shared.effectivePrimary(
+                baseURL: cloudBaseURL,
+                primary: fallbackModel,
+                fallback: nil
+            ) == nil
+        }
+        return await LLMCooldownManager.shared.effectivePrimary(
+            baseURL: cloudBaseURL,
+            primary: resolvedPrimaryModel(),
+            fallback: fallbackModel
+        ) == nil
     }
 
     private func resolvedPrimaryModel() -> String {
         selectedModelID.isEmpty ? defaultModel : selectedModelID
-    }
-
-    private func resolvedRetryModel(for primaryModel: String) -> String? {
-        if let cloudFallbackModelID {
-            return cloudFallbackModelID == primaryModel ? nil : cloudFallbackModelID
-        }
-        if primaryModel == defaultModel { return defaultFallbackModel }
-        if primaryModel == defaultFallbackModel { return defaultModel }
-        return nil
-    }
-
-    private func process(
-        transcript: String,
-        contextSummary: String,
-        model: String,
-        customVocabulary: [String],
-        customSystemPrompt: String = "",
-        outputLanguage: String = "",
-        expectedSourceLanguage: String?
-    ) async throws -> PostProcessingResult {
-        let executor = backendExecutor.replacingChoice(.cloud(modelID: model))
-        return try await executor.withEndpoint { [self] endpoint in
-            try await processTranscriptChunks(
-                transcript: transcript,
-                contextSummary: contextSummary,
-                endpoint: endpoint,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage,
-                expectedSourceLanguage: expectedSourceLanguage
-            )
-        }
     }
 
     private func processTranscriptChunks(
@@ -1229,27 +1251,6 @@ Model: \(model)
         let safeCeiling = ceiling ?? postProcessingMaxCompletionTokens
         payload["max_completion_tokens"] = safeCeiling
         payload["max_tokens"] = safeCeiling
-    }
-
-    private func processCommandTransform(
-        selectedText: String,
-        voiceCommand: String,
-        contextSummary: String,
-        model: String,
-        customVocabulary: [String],
-        outputLanguage: String = ""
-    ) async throws -> PostProcessingResult {
-        let executor = backendExecutor.replacingChoice(.cloud(modelID: model))
-        return try await executor.withEndpoint { [self] endpoint in
-            try await processCommandTransform(
-                selectedText: selectedText,
-                voiceCommand: voiceCommand,
-                contextSummary: contextSummary,
-                endpoint: endpoint,
-                customVocabulary: customVocabulary,
-                outputLanguage: outputLanguage
-            )
-        }
     }
 
     private func processCommandTransform(

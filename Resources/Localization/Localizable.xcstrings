@@ -10612,18 +10612,18 @@
         }
       }
     },
-    "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": {
+    "Tried once for transcript cleanup and Edit Mode when the model above fails, is rate-limited, or can't be reached.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Used as the explicit retry model for transcript cleanup and Edit Mode transforms."
+            "value": "Tried once for transcript cleanup and Edit Mode when the model above fails, is rate-limited, or can't be reached."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델이에요."
+            "value": "위 모델이 실패하거나 요청 한도에 걸리거나 연결되지 않을 때, 전사문 정리와 Edit Mode에서 한 번 대신 사용해요."
           }
         }
       }
@@ -14948,18 +14948,18 @@
         }
       }
     },
-    "Cloud fallback is only used when Post-processing uses a cloud model.": {
+    "No Fallback Model": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud fallback is only used when Post-processing uses a cloud model."
+            "value": "None"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용돼요."
+            "value": "사용 안 함"
           }
         }
       }
@@ -15780,34 +15780,50 @@
         }
       }
     },
-    "Used as the explicit retry model when cloud summary generation fails.": {
+    "Tried once when the summary model above fails, is rate-limited, or can't be reached.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Used as the explicit retry model when cloud summary generation fails."
+            "value": "Tried once when the summary model above fails, is rate-limited, or can't be reached."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 요약 생성에 실패했을 때 다시 시도할 모델이에요."
+            "value": "위 요약 모델이 실패하거나 요청 한도에 걸리거나 연결되지 않을 때 한 번 대신 사용해요."
           }
         }
       }
     },
-    "Cloud fallback is only used when Meeting Summary uses a cloud model.": {
+    "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud fallback is only used when Meeting Summary uses a cloud model."
+            "value": "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 fallback은 회의 요약에서 클라우드 모델을 사용할 때만 적용돼요."
+            "value": "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 Edit Mode에서 선택한 글과 화면 문맥을 포함한 텍스트가 그 모델로 전송돼요."
+          }
+        }
+      }
+    },
+    "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choosing a cloud model sends the meeting transcript to it when the on-device model fails."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 회의 전사문이 그 모델로 전송돼요."
           }
         }
       }

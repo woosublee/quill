@@ -718,7 +718,7 @@ struct ModelsSettingsUIContractTests {
             ".toggleStyle(.switch)",
             ".accessibilityLabel(\"Post-processing\")",
             "customAIProcessingModelSetting(",
-            "defaultModel: AppState.defaultPostProcessingFallbackModel",
+            "aiProcessingFallbackSetting(",
             "selection: $appState.outputLanguage",
             "vocabularySection"
         ] {
@@ -963,10 +963,13 @@ struct ModelsSettingsUIContractTests {
         precondition(postProcessingDetails.contains("customAIProcessingModelSetting("))
         precondition(postProcessingDetails.contains("draft: $postProcessingModelDraft"))
         precondition(postProcessingDetails.contains("feature: .postProcessing"))
-        precondition(postProcessingDetails.components(separatedBy: "ModelDropdownView(").count == 2)
-        precondition(postProcessingDetails.contains("textDraft: $postProcessingFallbackModelDraft"))
-        precondition(postProcessingDetails.contains(".disabled(postProcessingUsesLocal)"))
-        precondition(postProcessingDetails.contains("Cloud fallback is only used when Post-processing uses a cloud model."))
+        // #580: the fallback picker works for local primaries too.
+        precondition(!postProcessingDetails.contains("ModelDropdownView("))
+        precondition(postProcessingDetails.contains("aiProcessingFallbackSetting("))
+        precondition(postProcessingDetails.contains("for: .postProcessing"))
+        precondition(postProcessingDetails.contains("draft: $postProcessingFallbackModelDraft"))
+        precondition(!postProcessingDetails.contains(".disabled(postProcessingUsesLocal)"))
+        precondition(!postProcessingDetails.contains("Cloud fallback is only used when"))
         precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
         precondition(contextDetails.contains("customAIProcessingModelSetting("))
         precondition(contextDetails.contains("draft: $contextModelDraft"))
@@ -1029,9 +1032,11 @@ struct ModelsSettingsUIContractTests {
         precondition(!models.contains("retiredLocalAIManagementModel"))
         precondition(!models.contains("retiredLocalAIModel(for:"))
         precondition(!localAIModelRow.contains("RetiredLocalAIModelRowView"))
-        precondition(models.contains("settingsUsesActiveLocalAI(for: .postProcessing)"))
+        // #580: the fallback pickers no longer turn off for local primaries,
+        // so only Context still asks whether its local model is active.
         precondition(models.contains("settingsUsesActiveLocalAI(for: .context)"))
-        precondition(models.contains("settingsUsesActiveLocalAI(for: .meetingSummary)"))
+        precondition(!models.contains(".disabled(postProcessingUsesLocal)"))
+        precondition(!models.contains(".disabled(meetingSummaryUsesLocal)"))
     }
 
     private static func testAutoPasteLivesInShortcutsClipboard(_ source: String) throws {

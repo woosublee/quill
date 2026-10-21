@@ -132,10 +132,10 @@ struct MeetingSummaryAppStateTests {
             return appState
         }
         let firstExpectedFallbackModelID = await MainActor.run {
-            firstState.meetingSummaryFallbackModel
+            firstState.meetingSummaryFallbackChoice.modelID
         }
         let secondExpectedFallbackModelID = await MainActor.run {
-            secondState.meetingSummaryFallbackModel
+            secondState.meetingSummaryFallbackChoice.modelID
         }
 
         try await firstState.generateMeetingSummary(id: firstItem.id)
@@ -1804,7 +1804,7 @@ private final class MeetingSummaryGeneratorConfigurationRecorder:
 
     func record(_ configuration: MeetingSummaryGeneratorConfiguration) {
         lock.withLock {
-            fallbackModelIDs.append(configuration.cloudFallbackModelID)
+            fallbackModelIDs.append(configuration.fallbackExecutor?.choice.modelID)
         }
     }
 

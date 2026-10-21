@@ -8,6 +8,7 @@ struct MeetingSummaryWorkflowTests {
         try await testStateAndInvalidationCommands()
         try await testVerifiedSuccessPersistsBeforeEventAndPreservesCompletion()
         try await testUnverifiedSuccessPersistsWarningAndAttempt()
+        try await testCloudFallbackOfLocalPrimaryRecordsItsHost()
         try await testCandidateSuccessSavesNothingUntilChosen()
         try await testExplicitLanguageOverridesSpokenLanguage()
         try await testEngineDetectedLanguageRequiresNoPreliminaryWrite()
@@ -153,6 +154,43 @@ struct MeetingSummaryWorkflowTests {
 
         workflow.invalidate(noteID: initial.id)
         try expect(workflow.state.candidates[initial.id] == nil, "invalidating the note drops its candidate")
+    }
+
+    /// A local primary that fell back to the cloud records the host the
+    /// fallback used (#580).
+    @MainActor
+    private static func testCloudFallbackOfLocalPrimaryRecordsItsHost() async throws {
+        let initial = makeWorkflowItem()
+        let history = MeetingSummaryWorkflowHistoryRecorder(item: initial)
+        let workflow = MeetingSummaryWorkflow(
+            dependencies: .init(
+                makeGenerator: { _ in
+                    MeetingSummaryWorkflowGeneratorStub { _ in
+                        var result = makeWorkflowGenerationResult()
+                        result.providerHost = "fallback.example.com"
+                        return result
+                    }
+                },
+                now: { Date(timeIntervalSince1970: 2_000) }
+            )
+        )
+        var request = makeWorkflowRequest(item: initial)
+        request = MeetingSummaryWorkflowRequest(
+            noteID: request.noteID,
+            initialItem: request.initialItem,
+            requestedOutputLanguage: request.requestedOutputLanguage,
+            configuredBackendKind: .local,
+            configuredModelID: "local-model",
+            providerHost: nil,
+            generatorConfiguration: request.generatorConfiguration
+        )
+
+        _ = await workflow.generate(request: request, history: history.access)
+
+        try expect(
+            history.storedItem?.meetingSummaryAttempt?.providerHost == "fallback.example.com",
+            "the cloud fallback's host is recorded"
+        )
     }
 
     @MainActor
@@ -1071,13 +1109,14 @@ private func makeWorkflowAttempt(
 private func makeWorkflowGeneratorConfiguration()
     -> MeetingSummaryGeneratorConfiguration
 {
-    MeetingSummaryGeneratorConfiguration(
-        backendExecutor: AIProcessingBackendExecutor(
-            choice: .cloud(modelID: "summary/model"),
-            cloudBaseURL: "https://api.example.com/openai/v1",
-            cloudAPIKey: "test-key"
-        ),
-        cloudFallbackModelID: "summary/fallback"
+    let primary = AIProcessingBackendExecutor(
+        choice: .cloud(modelID: "summary/model"),
+        cloudBaseURL: "https://api.example.com/openai/v1",
+        cloudAPIKey: "test-key"
+    )
+    return MeetingSummaryGeneratorConfiguration(
+        backendExecutor: primary,
+        fallbackExecutor: primary.replacingChoice(.cloud(modelID: "summary/fallback"))
     )
 }
 

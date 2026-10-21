@@ -98,9 +98,16 @@ struct UpstreamMergeBehaviorTests {
 
         let postProcessingService = try read("Sources/PostProcessingService.swift")
         checkContains(postProcessingService, "UserDefaults.standard.double(forKey: \"post_processing_timeout_seconds\")", "PostProcessingService should support post-processing timeout overrides")
+        // Cleanup and Edit Mode share one fallback path since #580, so one
+        // cooldown check guards the remaining cloud fallback retry.
         check(
-            postProcessingService.components(separatedBy: "guard await LLMCooldownManager.shared.effectivePrimary(").count >= 3,
+            postProcessingService.components(separatedBy: "guard await LLMCooldownManager.shared.effectivePrimary(").count >= 2,
             "PostProcessingService should check cooldown before each remaining fallback retry"
+        )
+        checkContains(
+            postProcessingService,
+            "private func runWithFallback(",
+            "Cleanup and Edit Mode should share one fallback path"
         )
 
         let recordingOverlay = try read("Sources/RecordingOverlay.swift")

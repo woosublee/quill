@@ -457,6 +457,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let contextModelStorageKey = "context_model"
     private let meetingSummaryModelStorageKey = "meeting_summary_model"
     private let meetingSummaryFallbackModelStorageKey = "meeting_summary_fallback_model"
+    private let postProcessingFallbackChoiceStorageKey = "post_processing_fallback_choice"
+    private let postProcessingFallbackChoiceUserSelectedStorageKey =
+        "post_processing_fallback_choice_user_selected"
+    private let meetingSummaryFallbackChoiceStorageKey = "meeting_summary_fallback_choice"
+    private let meetingSummaryFallbackChoiceUserSelectedStorageKey =
+        "meeting_summary_fallback_choice_user_selected"
+    private let postProcessingFallbackCloudConsentStorageKey =
+        "post_processing_fallback_cloud_consent_scope"
+    private let meetingSummaryFallbackCloudConsentStorageKey =
+        "meeting_summary_fallback_cloud_consent_scope"
     private let meetingSummaryBackendChoiceStorageKey = "meeting_summary_backend_choice"
     private let meetingSummaryOutputLanguageStorageKey = "meeting_summary_output_language"
     private let meetingSummarySettingsInitializedStorageKey = "meeting_summary_settings_initialized"
@@ -643,6 +653,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIBaseURL(apiBaseURL)
             rebuildContextService()
+            // Consent to a cloud fallback covers only the provider it was
+            // given for.
+            reconcileFallbackState(for: .postProcessing)
+            reconcileFallbackState(for: .meetingSummary)
         }
     }
 
@@ -678,10 +692,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var postProcessingFallbackModel: String {
-        didSet {
-            UserDefaults.standard.set(postProcessingFallbackModel, forKey: postProcessingFallbackModelStorageKey)
-        }
+    /// What post-processing retries with when its model fails (#580).
+    @Published private(set) var postProcessingFallbackState: AIProcessingFallbackState {
+        didSet { persistFallbackState(for: .postProcessing) }
+    }
+
+    var postProcessingFallbackChoice: AIProcessingFallbackChoice {
+        postProcessingFallbackState.choice
+    }
+
+    /// True once the person picks the post-processing fallback themselves;
+    /// until then it follows the primary model's backend.
+    var postProcessingFallbackChoiceIsUserSelected: Bool {
+        postProcessingFallbackState.isUserSelected
     }
 
     @Published var contextModel: String {
@@ -715,13 +738,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var meetingSummaryFallbackModel: String {
-        didSet {
-            UserDefaults.standard.set(
-                meetingSummaryFallbackModel,
-                forKey: meetingSummaryFallbackModelStorageKey
-            )
-        }
+    /// What meeting summary retries with when its model fails (#580).
+    @Published private(set) var meetingSummaryFallbackState: AIProcessingFallbackState {
+        didSet { persistFallbackState(for: .meetingSummary) }
+    }
+
+    var meetingSummaryFallbackChoice: AIProcessingFallbackChoice {
+        meetingSummaryFallbackState.choice
+    }
+
+    var meetingSummaryFallbackChoiceIsUserSelected: Bool {
+        meetingSummaryFallbackState.isUserSelected
     }
 
     @Published var meetingSummaryOutputLanguage: String {
@@ -2870,6 +2897,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                    postProcessingModel != modelID {
                     postProcessingModel = modelID
                 }
+                reconcileFallbackState(for: .postProcessing)
             }
         }
     }
@@ -2917,6 +2945,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                    meetingSummaryModel != modelID {
                     meetingSummaryModel = modelID
                 }
+                reconcileFallbackState(for: .meetingSummary)
             }
         }
     }
@@ -3087,10 +3116,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         ] {
             ModelConfiguration.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
         }
+        // A `.cloud` fallback choice is encoded like a backend choice, so
+        // the same migration moves it off a retired Groq model.
         for key in [
             postProcessingBackendChoiceStorageKey,
             contextBackendChoiceStorageKey,
-            meetingSummaryBackendChoiceStorageKey
+            meetingSummaryBackendChoiceStorageKey,
+            postProcessingFallbackChoiceStorageKey,
+            meetingSummaryFallbackChoiceStorageKey
         ] {
             AIProcessingBackendChoiceStore.migrateGroqSelection(key: key, baseURL: apiBaseURL, defaults: .standard)
         }
@@ -3110,9 +3143,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? "",
             defaultModelID: Self.defaultPostProcessingModel
         )
-        let postProcessingFallbackModel = UserDefaults.standard.string(
-            forKey: postProcessingFallbackModelStorageKey
-        ) ?? Self.defaultPostProcessingFallbackModel
         let rememberedContextModel = Self.normalizedCloudModelID(
             Self.loadStoredContextModel(key: contextModelStorageKey),
             defaultModelID: Self.defaultContextModel
@@ -3143,8 +3173,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .cloud(let modelID): modelID
         case .localAI: rememberedContextModel
         }
+        let postProcessingFallback = Self.loadFallbackChoice(
+            key: postProcessingFallbackChoiceStorageKey,
+            userSelectedKey: postProcessingFallbackChoiceUserSelectedStorageKey,
+            cloudConsentKey: postProcessingFallbackCloudConsentStorageKey,
+            legacyModelKey: postProcessingFallbackModelStorageKey,
+            primary: postProcessingBackendChoice,
+            apiBaseURL: apiBaseURL,
+            defaultCloudModelID: Self.defaultPostProcessingFallbackModel
+        )
         let rememberedMeetingSummaryModel: String
-        let meetingSummaryFallbackModel: String
+        let meetingSummaryFallback: AIProcessingFallbackChoiceStore.Loaded
         let meetingSummaryBackendChoice: AIProcessingBackendChoice
         if meetingSummarySettingsInitialized {
             rememberedMeetingSummaryModel = Self.normalizedCloudModelID(
@@ -3153,9 +3192,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ) ?? "",
                 defaultModelID: Self.defaultMeetingSummaryModel
             )
-            meetingSummaryFallbackModel = UserDefaults.standard.string(
-                forKey: meetingSummaryFallbackModelStorageKey
-            ) ?? Self.defaultMeetingSummaryFallbackModel
             meetingSummaryBackendChoice = Self.normalizedAIProcessingBackendChoice(
                 AIProcessingBackendChoiceStore.load(
                     defaults: .standard,
@@ -3165,9 +3201,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 fallbackCloudModelID: rememberedMeetingSummaryModel,
                 defaultCloudModelID: Self.defaultMeetingSummaryModel
             )
+            meetingSummaryFallback = Self.loadFallbackChoice(
+                key: meetingSummaryFallbackChoiceStorageKey,
+                userSelectedKey: meetingSummaryFallbackChoiceUserSelectedStorageKey,
+                cloudConsentKey: meetingSummaryFallbackCloudConsentStorageKey,
+                legacyModelKey: meetingSummaryFallbackModelStorageKey,
+                primary: meetingSummaryBackendChoice,
+                apiBaseURL: apiBaseURL,
+                defaultCloudModelID: Self.defaultMeetingSummaryFallbackModel
+            )
         } else {
             rememberedMeetingSummaryModel = postProcessingModel
-            meetingSummaryFallbackModel = postProcessingFallbackModel
+            // Consent given for post-processing doesn't carry over: a cloud
+            // fallback on a local summary primary becomes None.
+            meetingSummaryFallback = AIProcessingFallbackState(
+                choice: postProcessingFallback.choice,
+                isUserSelected: postProcessingFallback.isUserSelected
+            ).reconciled(
+                primary: postProcessingBackendChoice,
+                apiBaseURL: apiBaseURL,
+                defaultCloudModelID: Self.defaultMeetingSummaryFallbackModel
+            )
             meetingSummaryBackendChoice = postProcessingBackendChoice
         }
         let meetingSummaryModel = switch meetingSummaryBackendChoice {
@@ -3192,9 +3246,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryModel,
             forKey: meetingSummaryModelStorageKey
         )
-        UserDefaults.standard.set(
-            meetingSummaryFallbackModel,
-            forKey: meetingSummaryFallbackModelStorageKey
+        AIProcessingFallbackChoiceStore.save(
+            postProcessingFallback,
+            defaults: .standard,
+            key: postProcessingFallbackChoiceStorageKey,
+            userSelectedKey: postProcessingFallbackChoiceUserSelectedStorageKey,
+            cloudConsentKey: postProcessingFallbackCloudConsentStorageKey
+        )
+        AIProcessingFallbackChoiceStore.save(
+            meetingSummaryFallback,
+            defaults: .standard,
+            key: meetingSummaryFallbackChoiceStorageKey,
+            userSelectedKey: meetingSummaryFallbackChoiceUserSelectedStorageKey,
+            cloudConsentKey: meetingSummaryFallbackCloudConsentStorageKey
         )
         UserDefaults.standard.set(
             meetingSummaryOutputLanguage,
@@ -3599,10 +3663,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.transcriptionAPIKey = transcriptionAPIKey
         self.transcriptionModel = transcriptionModel
         self.postProcessingModel = postProcessingModel
-        self.postProcessingFallbackModel = postProcessingFallbackModel
+        self.postProcessingFallbackState = postProcessingFallback
         self.contextModel = contextModel
         self.meetingSummaryModel = meetingSummaryModel
-        self.meetingSummaryFallbackModel = meetingSummaryFallbackModel
+        self.meetingSummaryFallbackState = meetingSummaryFallback
         self.meetingSummaryOutputLanguage = meetingSummaryOutputLanguage
         self.postProcessingBackendChoice = postProcessingBackendChoice
         self.contextBackendChoice = contextBackendChoice
@@ -4377,6 +4441,220 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return cloudDisplays + unavailableLocalDisplays + localDisplays
     }
 
+    static func loadFallbackChoice(
+        key: String,
+        userSelectedKey: String,
+        cloudConsentKey: String,
+        legacyModelKey: String,
+        primary: AIProcessingBackendChoice,
+        apiBaseURL: String,
+        defaultCloudModelID: String,
+        defaults: UserDefaults = .standard
+    ) -> AIProcessingFallbackState {
+        AIProcessingFallbackChoiceStore.load(
+            defaults: defaults,
+            key: key,
+            userSelectedKey: userSelectedKey,
+            cloudConsentKey: cloudConsentKey,
+            legacyModelKey: legacyModelKey,
+            primary: primary,
+            defaultCloudModelID: defaultCloudModelID
+        ).reconciled(
+            primary: primary,
+            apiBaseURL: apiBaseURL,
+            defaultCloudModelID: defaultCloudModelID
+        )
+    }
+
+    func currentAIProcessingFallbackChoice(
+        for feature: AIProcessingFeature
+    ) -> AIProcessingFallbackChoice {
+        currentAIProcessingFallbackState(for: feature).choice
+    }
+
+    func currentAIProcessingFallbackState(
+        for feature: AIProcessingFeature
+    ) -> AIProcessingFallbackState {
+        switch feature {
+        case .postProcessing: postProcessingFallbackState
+        case .meetingSummary: meetingSummaryFallbackState
+        case .context: AIProcessingFallbackState(choice: .none, isUserSelected: false)
+        }
+    }
+
+    /// The fallback the person picked in Settings, judged against the
+    /// primary Settings shows (`shownPrimary`), which can be a local model
+    /// still downloading. Picking a cloud fallback while that primary is
+    /// local is the consent that lets a local primary fall back to the
+    /// cloud. The fallback can't be the shown primary's own local model.
+    @MainActor
+    func selectAIProcessingFallbackChoice(
+        _ choice: AIProcessingFallbackChoice,
+        for feature: AIProcessingFeature,
+        shownPrimary: AIProcessingBackendChoice? = nil
+    ) {
+        guard feature != .context else { return }
+        let shownPrimary = shownPrimary ?? currentAIProcessingChoice(for: feature)
+        var choice = choice
+        if case .cloud(let modelID) = choice {
+            let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            choice = .cloud(modelID: trimmed)
+        }
+        if case .localAI(let modelID) = choice {
+            guard LocalAIModelCatalog.model(id: modelID) != nil,
+                  choice.backendChoice != shownPrimary,
+                  choice.backendChoice != currentAIProcessingChoice(for: feature) else {
+                return
+            }
+        }
+        let state = AIProcessingFallbackState(
+            choice: choice,
+            isUserSelected: true,
+            cloudConsent: shownPrimary.isLocal
+                ? AIProcessingCloudConsent(
+                    localModelID: shownPrimary.modelID,
+                    apiBaseURL: apiBaseURL
+                )
+                : nil
+        )
+        switch feature {
+        case .postProcessing:
+            if postProcessingFallbackState == state {
+                persistFallbackState(for: feature)
+            } else {
+                postProcessingFallbackState = state
+            }
+        case .meetingSummary:
+            if meetingSummaryFallbackState == state {
+                persistFallbackState(for: feature)
+            } else {
+                meetingSummaryFallbackState = state
+            }
+        case .context:
+            return
+        }
+    }
+
+    /// The fallback that would actually run for the primary Settings shows:
+    /// None for a local primary whose stored cloud fallback has no consent
+    /// for it, or whose local fallback is that same model.
+    @MainActor
+    func effectiveAIProcessingFallbackChoice(
+        for feature: AIProcessingFeature,
+        shownPrimary: AIProcessingBackendChoice? = nil
+    ) -> AIProcessingFallbackChoice {
+        let primary = shownPrimary ?? currentAIProcessingChoice(for: feature)
+        let state = currentAIProcessingFallbackState(for: feature)
+        guard primary.isLocal, state.choice != .none else { return state.choice }
+        return state.choice.mayRun(
+            for: primary,
+            cloudConsent: state.cloudConsent,
+            apiBaseURL: apiBaseURL
+        ) ? state.choice : .none
+    }
+
+    /// Cloud and local models the fallback picker offers, without the
+    /// shown primary's own local model. A current fallback that isn't
+    /// available stays listed so the picker's selection always matches.
+    @MainActor
+    func aiProcessingFallbackChoiceDisplays(
+        for feature: AIProcessingFeature,
+        shownPrimary: AIProcessingBackendChoice? = nil
+    ) -> [AIProcessingChoiceDisplay] {
+        let primary = shownPrimary ?? currentAIProcessingChoice(for: feature)
+        let current = currentAIProcessingFallbackChoice(for: feature)
+        var displays = aiProcessingChoiceDisplays(for: feature).filter { display in
+            guard display.isAvailable else { return false }
+            guard display.choice.isLocal else { return true }
+            // Only installed local models, never the primary's own model.
+            return display.choice != primary
+                && (isAIProcessingChoiceReady(display.choice, for: feature)
+                    || AIProcessingFallbackChoice(display.choice) == current)
+        }
+        if case .localAI(let modelID) = current,
+           !displays.contains(where: { $0.choice == .localAI(modelID: modelID) }) {
+            let reason = localizedCatalogString(
+                "This on-device model is unavailable and cannot be used on this Mac."
+            )
+            displays.append(
+                AIProcessingChoiceDisplay(
+                    choice: .localAI(modelID: modelID),
+                    section: "On This Mac",
+                    title: LocalAIModelCatalog.model(id: modelID)?.displayName ?? modelID,
+                    subtitle: reason,
+                    isAvailable: false,
+                    unavailableReason: reason,
+                    isRecommended: false
+                )
+            )
+        }
+        if case .cloud(let modelID) = current,
+           !displays.contains(where: { $0.choice == .cloud(modelID: modelID) }) {
+            let custom = AIProcessingChoiceDisplay(
+                choice: .cloud(modelID: modelID),
+                section: "Cloud",
+                title: modelID,
+                subtitle: nil,
+                isAvailable: true,
+                unavailableReason: nil,
+                isRecommended: false
+            )
+            let firstLocal = displays.firstIndex { $0.section != "Cloud" }
+            displays.insert(custom, at: firstLocal ?? displays.endIndex)
+        }
+        return displays
+    }
+
+    private func persistFallbackState(for feature: AIProcessingFeature) {
+        switch feature {
+        case .postProcessing:
+            AIProcessingFallbackChoiceStore.save(
+                postProcessingFallbackState,
+                defaults: .standard,
+                key: postProcessingFallbackChoiceStorageKey,
+                userSelectedKey: postProcessingFallbackChoiceUserSelectedStorageKey,
+                cloudConsentKey: postProcessingFallbackCloudConsentStorageKey
+            )
+        case .meetingSummary:
+            AIProcessingFallbackChoiceStore.save(
+                meetingSummaryFallbackState,
+                defaults: .standard,
+                key: meetingSummaryFallbackChoiceStorageKey,
+                userSelectedKey: meetingSummaryFallbackChoiceUserSelectedStorageKey,
+                cloudConsentKey: meetingSummaryFallbackCloudConsentStorageKey
+            )
+        case .context:
+            return
+        }
+    }
+
+    /// Follows a primary change: see `AIProcessingFallbackState.reconciled`.
+    private func reconcileFallbackState(for feature: AIProcessingFeature) {
+        switch feature {
+        case .postProcessing:
+            let reconciled = postProcessingFallbackState.reconciled(
+                primary: postProcessingBackendChoice,
+                apiBaseURL: apiBaseURL,
+                defaultCloudModelID: Self.defaultPostProcessingFallbackModel
+            )
+            if reconciled != postProcessingFallbackState {
+                postProcessingFallbackState = reconciled
+            }
+        case .meetingSummary:
+            let reconciled = meetingSummaryFallbackState.reconciled(
+                primary: meetingSummaryBackendChoice,
+                apiBaseURL: apiBaseURL,
+                defaultCloudModelID: Self.defaultMeetingSummaryFallbackModel
+            )
+            if reconciled != meetingSummaryFallbackState {
+                meetingSummaryFallbackState = reconciled
+            }
+        case .context:
+            return
+        }
+    }
+
     @MainActor
     func selectAIProcessingBackendChoice(
         _ choice: AIProcessingBackendChoice,
@@ -4557,6 +4835,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func deleteLocalAIModel(_ model: LocalAIModel) {
         guard localAIWorkflow.deleteModel(model) else { return }
         clearPendingLocalAISelections(forModelID: model.id)
+        clearFallbacks(usingLocalModelID: model.id)
+    }
+
+    /// A fallback can't run on a deleted local model, so it becomes None.
+    /// It is no longer the person's pick either, so the fallback follows
+    /// the primary again on its next change.
+    private func clearFallbacks(usingLocalModelID modelID: String) {
+        let deleted = AIProcessingFallbackChoice.localAI(modelID: modelID)
+        let cleared = AIProcessingFallbackState(choice: .none, isUserSelected: false)
+        if postProcessingFallbackChoice == deleted {
+            postProcessingFallbackState = cleared
+        }
+        if meetingSummaryFallbackChoice == deleted {
+            meetingSummaryFallbackState = cleared
+        }
+        // A cloud primary gets its default cloud fallback back right away.
+        reconcileFallbackState(for: .postProcessing)
+        reconcileFallbackState(for: .meetingSummary)
     }
 
     private func removeAudioDeviceObservers() {
@@ -4798,9 +5094,55 @@ final class AppState: ObservableObject, @unchecked Sendable {
             backendExecutor: makeAIProcessingBackendExecutor(
                 choice: meetingSummaryBackendChoice
             ),
-            cloudFallbackModelID: meetingSummaryBackendChoice.isLocal
-                ? nil
-                : meetingSummaryFallbackModel
+            fallbackExecutor: makeAIProcessingFallbackExecutor(
+                meetingSummaryFallbackState,
+                primary: meetingSummaryBackendChoice
+            )
+        )
+    }
+
+    /// A separate executor for the fallback on its own backend, or nil when
+    /// there is no fallback or it is the primary itself (#580).
+    ///
+    /// This is the privacy guarantee: a local primary gets a cloud fallback
+    /// only with the consent recorded when the person picked it for a local
+    /// primary, whatever the stored choice says.
+    static func makeAIProcessingFallbackExecutor(
+        _ fallback: AIProcessingFallbackState,
+        primary: AIProcessingBackendChoice,
+        apiKey: String,
+        baseURL: String,
+        localServerManager: LocalAIServerManager,
+        localAIAvailability: LocalAIProcessingAvailability
+    ) -> AIProcessingBackendExecutor? {
+        guard fallback.choice.mayRun(
+                  for: primary,
+                  cloudConsent: fallback.cloudConsent,
+                  apiBaseURL: baseURL
+              ),
+              let choice = fallback.choice.backendChoice else {
+            return nil
+        }
+        return makeAIProcessingBackendExecutor(
+            choice: choice,
+            apiKey: apiKey,
+            baseURL: baseURL,
+            localServerManager: localServerManager,
+            localAIAvailability: localAIAvailability
+        )
+    }
+
+    func makeAIProcessingFallbackExecutor(
+        _ fallback: AIProcessingFallbackState,
+        primary: AIProcessingBackendChoice
+    ) -> AIProcessingBackendExecutor? {
+        Self.makeAIProcessingFallbackExecutor(
+            fallback,
+            primary: primary,
+            apiKey: apiKey,
+            baseURL: apiBaseURL,
+            localServerManager: localAIServerManager,
+            localAIAvailability: dependencies.localAI.processingAvailability()
         )
     }
 
@@ -4808,7 +5150,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         choice: AIProcessingBackendChoice,
         apiKey: String,
         baseURL: String,
-        cloudFallbackModelID: String,
+        fallback: AIProcessingFallbackState,
         instructionExecutionGuardEnabled: Bool,
         localServerManager: LocalAIServerManager,
         localAIAvailability: LocalAIProcessingAvailability
@@ -4821,7 +5163,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 localServerManager: localServerManager,
                 localAIAvailability: localAIAvailability
             ),
-            cloudFallbackModelID: choice.isLocal ? nil : cloudFallbackModelID,
+            fallbackExecutor: makeAIProcessingFallbackExecutor(
+                fallback,
+                primary: choice,
+                apiKey: apiKey,
+                baseURL: baseURL,
+                localServerManager: localServerManager,
+                localAIAvailability: localAIAvailability
+            ),
             instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
             transport: postProcessingTransport
         )
@@ -4834,7 +5183,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             choice: choice ?? postProcessingBackendChoice,
             apiKey: apiKey,
             baseURL: apiBaseURL,
-            cloudFallbackModelID: postProcessingFallbackModel,
+            fallback: postProcessingFallbackState,
             instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()
@@ -7106,7 +7455,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             processing: RecordingProcessingSnapshot(
                 postProcessingEnabled: shouldTranscribeActiveRecording && !disablePostProcessing,
                 preferredModelID: postProcessingModel,
-                fallbackModelID: postProcessingFallbackModel,
+                // Recovery treats this as a cloud model ID; a local
+                // fallback is not recorded here.
+                fallbackModelID: postProcessingFallbackChoice.cloudModelID,
                 outputLanguage: outputLanguage,
                 contextCaptureEnabled: shouldTranscribeActiveRecording && !disableContextCapture,
                 instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,

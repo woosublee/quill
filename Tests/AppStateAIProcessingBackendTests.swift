@@ -23,6 +23,17 @@ struct AppStateAIProcessingBackendTests {
         try await testSettingsDraftCommittersFlushBeforeRecordingStart()
         await testRetiredCloudChoiceRemainsVisibleForReplacement()
         await testStoredLocalChoicesPreserveRememberedCloudModels()
+        await testLegacyFallbackModelMigratesForCloudPrimary()
+        await testLocalPrimaryMigratesFallbackToNone()
+        await testAutomaticFallbackFollowsPrimaryBackend()
+        await testUserSelectedFallbackSurvivesPrimaryChange()
+        await testFallbackPickedForPendingLocalPrimaryKeepsConsent()
+        await testCloudConsentDoesNotSurviveProviderChange()
+        try await testServiceForLocalPrimaryNeedsCloudConsent()
+        await testMeetingSummaryCopyDropsCloudConsent()
+        await testDeletingLocalModelClearsFallbacksUsingIt()
+        await testFallbackPickerKeepsUnavailableCurrentChoiceAndSnapshotStoresCloudOnly()
+        testFallbackExecutorIsSeparateAndSkipsNoneOrPrimary()
         await testIncompatibleLegacyContextSelectionIsPreservedAndDisabled()
         await testProviderlessQwenVisionCloudChoiceSupportsContext()
         await testLegacyUninstalledContextDownloadDoesNotQueueOrActivateIt()
@@ -281,6 +292,534 @@ struct AppStateAIProcessingBackendTests {
         }
         assert(defaults.string(forKey: "post_processing_model") == "remembered/post")
         assert(defaults.string(forKey: "context_model") == "remembered/context")
+    }
+
+    private static func storedFallbackChoice(forKey key: String) -> AIProcessingFallbackChoice? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(AIProcessingFallbackChoice.self, from: data)
+    }
+
+    private static func testLegacyFallbackModelMigratesForCloudPrimary() async {
+        resetAIProcessingDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set("custom/post-fallback", forKey: "post_processing_fallback_model")
+        defaults.set(true, forKey: "meeting_summary_settings_initialized")
+        // No old meeting summary key: the default fallback model applies.
+
+        let appState = await makeRefreshedAppState()
+
+        await MainActor.run {
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: "custom/post-fallback")
+            )
+            precondition(appState.postProcessingFallbackChoiceIsUserSelected)
+            precondition(
+                appState.meetingSummaryFallbackChoice
+                    == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
+            )
+            precondition(!appState.meetingSummaryFallbackChoiceIsUserSelected)
+        }
+        precondition(
+            storedFallbackChoice(forKey: "post_processing_fallback_choice")
+                == .cloud(modelID: "custom/post-fallback")
+        )
+        precondition(
+            storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
+                == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
+        )
+        // The saved choice wins over the old key from now on.
+        defaults.set("other/fallback", forKey: "post_processing_fallback_model")
+        let reloaded = await makeRefreshedAppState()
+        await MainActor.run {
+            precondition(
+                reloaded.postProcessingFallbackChoice
+                    == .cloud(modelID: "custom/post-fallback")
+            )
+            // Privacy: even a migrated custom cloud fallback doesn't follow
+            // the primary to a local model.
+            reloaded.postProcessingBackendChoice = .localAI(
+                modelID: LocalAIModelCatalog.quality.id
+            )
+            precondition(reloaded.postProcessingFallbackChoice == .none)
+        }
+        precondition(
+            storedFallbackChoice(forKey: "post_processing_fallback_choice")
+                == AIProcessingFallbackChoice.none
+        )
+    }
+
+    private static func testLocalPrimaryMigratesFallbackToNone() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .ready)
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { statusHarness.status(for: $0) }
+        let defaults = UserDefaults.standard
+        let localChoice = AIProcessingBackendChoice.localAI(
+            modelID: LocalAIModelCatalog.quality.id
+        )
+        storeChoice(localChoice, forKey: "post_processing_backend_choice")
+        storeChoice(localChoice, forKey: "meeting_summary_backend_choice")
+        defaults.set(true, forKey: "meeting_summary_settings_initialized")
+        defaults.set("custom/post-fallback", forKey: "post_processing_fallback_model")
+        defaults.set("custom/summary-fallback", forKey: "meeting_summary_fallback_model")
+
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+
+        await MainActor.run {
+            precondition(appState.postProcessingBackendChoice == localChoice)
+            precondition(appState.postProcessingFallbackChoice == .none)
+            precondition(appState.meetingSummaryFallbackChoice == .none)
+            precondition(
+                appState.makeAIProcessingFallbackExecutor(
+                    appState.postProcessingFallbackState,
+                    primary: appState.postProcessingBackendChoice
+                ) == nil,
+                "a local primary with no fallback builds no cloud executor"
+            )
+            precondition(
+                !appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+                    .contains { $0.choice == localChoice },
+                "the fallback picker never offers the primary's own local model"
+            )
+        }
+        precondition(storedFallbackChoice(forKey: "post_processing_fallback_choice") == AIProcessingFallbackChoice.none)
+        precondition(storedFallbackChoice(forKey: "meeting_summary_fallback_choice") == AIProcessingFallbackChoice.none)
+    }
+
+    private static func testAutomaticFallbackFollowsPrimaryBackend() async {
+        resetAIProcessingDefaults()
+        let appState = await makeRefreshedAppState()
+        let localChoice = AIProcessingBackendChoice.localAI(
+            modelID: LocalAIModelCatalog.quality.id
+        )
+        await MainActor.run {
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel)
+            )
+            precondition(!appState.postProcessingFallbackChoiceIsUserSelected)
+
+            appState.postProcessingBackendChoice = localChoice
+            appState.meetingSummaryBackendChoice = localChoice
+            precondition(appState.postProcessingFallbackChoice == .none)
+            precondition(appState.meetingSummaryFallbackChoice == .none)
+
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel)
+            )
+        }
+        precondition(
+            storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
+                == AIProcessingFallbackChoice.none
+        )
+    }
+
+    private static func testUserSelectedFallbackSurvivesPrimaryChange() async {
+        resetAIProcessingDefaults()
+        let appState = await makeRefreshedAppState()
+        let localChoice = AIProcessingBackendChoice.localAI(
+            modelID: LocalAIModelCatalog.quality.id
+        )
+        await MainActor.run {
+            // A cloud fallback picked under a cloud primary has no consent:
+            // it becomes None on a local primary, and the default cloud
+            // fallback returns when the primary goes back to the cloud.
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: "custom/fallback"),
+                for: .postProcessing
+            )
+            precondition(appState.postProcessingFallbackChoiceIsUserSelected)
+            precondition(appState.postProcessingFallbackState.cloudConsent == nil)
+            appState.postProcessingBackendChoice = localChoice
+            precondition(appState.postProcessingFallbackChoice == .none)
+            precondition(!appState.postProcessingFallbackChoiceIsUserSelected)
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel)
+            )
+
+            // Re-picking the default on a cloud primary is no consent either.
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: AppState.defaultPostProcessingFallbackModel),
+                for: .postProcessing
+            )
+            appState.postProcessingBackendChoice = localChoice
+            precondition(appState.postProcessingFallbackChoice == .none)
+
+            // Picked while the primary is local: consent, and it survives.
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: " custom/fallback "),
+                for: .postProcessing
+            )
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "custom/fallback"))
+            precondition(
+                appState.postProcessingFallbackState.cloudConsent
+                    == AIProcessingCloudConsent(
+                        localModelID: localChoice.modelID,
+                        apiBaseURL: appState.apiBaseURL
+                    )
+            )
+            // Consent for this local model and provider: the fallback runs,
+            // and survives a trip to the cloud and back.
+            precondition(
+                appState.makeAIProcessingFallbackExecutor(
+                    appState.postProcessingFallbackState,
+                    primary: localChoice
+                )?.choice == .cloud(modelID: "custom/fallback"),
+                "a consented cloud fallback runs for its local model"
+            )
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            appState.postProcessingBackendChoice = localChoice
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "custom/fallback"))
+
+            // A local fallback can't be the primary's own model.
+            appState.selectAIProcessingFallbackChoice(.init(localChoice), for: .postProcessing)
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "custom/fallback"))
+
+            // Consent for one local model doesn't carry to another.
+            appState.postProcessingBackendChoice = .localAI(modelID: LocalAIModelCatalog.gemma4E4B.id)
+            precondition(appState.postProcessingFallbackChoice == .none)
+            precondition(appState.postProcessingFallbackState.cloudConsent == nil)
+
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            appState.selectAIProcessingFallbackChoice(.init(localChoice), for: .postProcessing)
+            precondition(appState.postProcessingFallbackChoice == .init(localChoice))
+            appState.postProcessingBackendChoice = localChoice
+            precondition(
+                appState.postProcessingFallbackChoice == .none,
+                "a primary that becomes the fallback's model drops the fallback"
+            )
+            precondition(
+                !appState.postProcessingFallbackChoiceIsUserSelected,
+                "the dropped local fallback is no longer the person's pick"
+            )
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel),
+                "a later cloud primary gets the default fallback back"
+            )
+
+            appState.selectAIProcessingFallbackChoice(.none, for: .meetingSummary)
+            appState.meetingSummaryBackendChoice = .cloud(modelID: "summary/model")
+            precondition(appState.meetingSummaryFallbackChoice == .none)
+        }
+        precondition(UserDefaults.standard.bool(forKey: "meeting_summary_fallback_choice_user_selected"))
+    }
+
+    /// Settings judges consent against the primary it shows, which can be a
+    /// local model still downloading while the stored primary is cloud.
+    private static func testFallbackPickedForPendingLocalPrimaryKeepsConsent() async {
+        resetAIProcessingDefaults()
+        let appState = await makeRefreshedAppState()
+        let localChoice = AIProcessingBackendChoice.localAI(
+            modelID: LocalAIModelCatalog.quality.id
+        )
+        await MainActor.run {
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: "custom/fallback"),
+                for: .postProcessing,
+                shownPrimary: localChoice
+            )
+            precondition(appState.postProcessingFallbackState.cloudConsent?.localModelID == localChoice.modelID)
+            // Settings shows the effective value for the pending local model.
+            precondition(
+                appState.effectiveAIProcessingFallbackChoice(
+                    for: .postProcessing,
+                    shownPrimary: localChoice
+                ) == .cloud(modelID: "custom/fallback")
+            )
+            // The download finishes and the primary becomes local.
+            appState.postProcessingBackendChoice = localChoice
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "custom/fallback"))
+
+            // A stored cloud fallback without consent shows as None for a
+            // local primary, before any primary change.
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: "custom/fallback"),
+                for: .postProcessing
+            )
+            precondition(
+                appState.effectiveAIProcessingFallbackChoice(
+                    for: .postProcessing,
+                    shownPrimary: localChoice
+                ) == .none
+            )
+            precondition(
+                appState.effectiveAIProcessingFallbackChoice(for: .postProcessing)
+                    == .cloud(modelID: "custom/fallback")
+            )
+        }
+        precondition(UserDefaults.standard.data(forKey: "post_processing_fallback_cloud_consent_scope") == nil)
+    }
+
+    /// Consent covers only the cloud provider it was given for.
+    private static func testCloudConsentDoesNotSurviveProviderChange() async {
+        resetAIProcessingDefaults()
+        let appState = await makeRefreshedAppState()
+        let localChoice = AIProcessingBackendChoice.localAI(
+            modelID: LocalAIModelCatalog.quality.id
+        )
+        await MainActor.run {
+            appState.apiBaseURL = "https://first.example.com/v1"
+            appState.postProcessingBackendChoice = localChoice
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: "custom/fallback"),
+                for: .postProcessing
+            )
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "custom/fallback"))
+            // The same provider, written differently, still matches.
+            appState.apiBaseURL = "https://FIRST.example.com/v1/"
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "custom/fallback"))
+            let staleState = appState.postProcessingFallbackState
+            appState.apiBaseURL = "https://second.example.com/v1"
+            precondition(appState.postProcessingFallbackChoice == .none)
+            precondition(appState.postProcessingFallbackState.cloudConsent == nil)
+            // Even an executor built from the old state refuses it.
+            precondition(
+                appState.makeAIProcessingFallbackExecutor(staleState, primary: localChoice) == nil
+            )
+        }
+    }
+
+    /// Building a service is where the privacy rule is guaranteed: without
+    /// consent, a local primary never reaches the cloud.
+    private static func testServiceForLocalPrimaryNeedsCloudConsent() async throws {
+        let recorder = AIProcessingCloudRequestCounter()
+        let originalTransport = AppState.postProcessingTransport
+        defer { AppState.postProcessingTransport = originalTransport }
+        AppState.postProcessingTransport = { request in
+            recorder.record(request)
+            let data = try JSONSerialization.data(withJSONObject: [
+                "choices": [["message": ["content": "Cloud result."]]]
+            ])
+            return (
+                data,
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            )
+        }
+        let manager = LocalAIServerManager(
+            launchProcess: { _, _, port, _ in (TestLocalAIServerProcess(), port) },
+            pollHealth: { _ in true },
+            readinessProbe: successfulReadinessProbe,
+            validateModel: { _ in .ready }
+        )
+        func service(consentFor localModelID: String?) -> PostProcessingService {
+            let baseURL = "https://api.example.com/openai/v1/\(UUID().uuidString)"
+            return AppState.makePostProcessingService(
+                choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
+                apiKey: "test-key",
+                baseURL: baseURL,
+                fallback: AIProcessingFallbackState(
+                    choice: .cloud(modelID: "cloud/fallback"),
+                    isUserSelected: true,
+                    cloudConsent: localModelID.map {
+                        AIProcessingCloudConsent(localModelID: $0, apiBaseURL: baseURL)
+                    }
+                ),
+                instructionExecutionGuardEnabled: false,
+                localServerManager: manager,
+                localAIAvailability: unsupportedLocalAIAvailability()
+            )
+        }
+        let context = AppContext(
+            appName: "Test",
+            bundleIdentifier: "test.bundle",
+            windowTitle: "Window",
+            selectedText: nil,
+            currentActivity: "Testing",
+            contextSystemPrompt: nil,
+            contextPrompt: nil,
+            screenshotDataURL: nil,
+            screenshotMimeType: nil,
+            screenshotError: nil
+        )
+
+        // No consent, or consent for another local model.
+        for consent in [nil, LocalAIModelCatalog.gemma4E4B.id] {
+            do {
+                _ = try await service(consentFor: consent).postProcess(
+                    transcript: "clean this",
+                    context: context,
+                    customVocabulary: ""
+                )
+                preconditionFailure("Expected the local runtime failure")
+            } catch {
+                precondition(error is AIProcessingBackendError)
+            }
+        }
+        precondition(recorder.count == 0, "no cloud request without consent for this model")
+
+        let result = try await service(consentFor: LocalAIModelCatalog.quality.id).postProcess(
+            transcript: "clean this",
+            context: context,
+            customVocabulary: ""
+        )
+        precondition(result.transcript == "Cloud result.")
+        precondition(recorder.count == 1, "with consent the cloud fallback runs once")
+    }
+
+    /// Consent given for post-processing doesn't carry to an uninitialized
+    /// meeting summary that copies its settings.
+    private static func testMeetingSummaryCopyDropsCloudConsent() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .ready)
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { statusHarness.status(for: $0) }
+        let localChoice = AIProcessingBackendChoice.localAI(
+            modelID: LocalAIModelCatalog.quality.id
+        )
+        storeChoice(localChoice, forKey: "post_processing_backend_choice")
+        AIProcessingFallbackChoiceStore.save(
+            .init(
+                choice: .cloud(modelID: "cloud/fallback"),
+                isUserSelected: true,
+                cloudConsent: AIProcessingCloudConsent(
+                    localModelID: localChoice.modelID,
+                    apiBaseURL: AppState.defaultAPIBaseURL
+                )
+            ),
+            defaults: .standard,
+            key: "post_processing_fallback_choice",
+            userSelectedKey: "post_processing_fallback_choice_user_selected",
+            cloudConsentKey: "post_processing_fallback_cloud_consent_scope"
+        )
+
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+
+        await MainActor.run {
+            precondition(appState.postProcessingFallbackChoice == .cloud(modelID: "cloud/fallback"))
+            precondition(appState.meetingSummaryBackendChoice == localChoice)
+            precondition(appState.meetingSummaryFallbackChoice == .none)
+            precondition(appState.meetingSummaryFallbackState.cloudConsent == nil)
+        }
+    }
+
+    private static func testDeletingLocalModelClearsFallbacksUsingIt() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(
+            statuses: [LocalAIModelCatalog.quality.id: .ready],
+            defaultStatus: .notInstalled
+        )
+        let deletionHarness = LocalAIDeletionHarness()
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { statusHarness.status(for: $0) }
+        dependencies.localAI.deleteModel = { model in
+            deletionHarness.record(modelID: model.id, managerWasStopped: true)
+            statusHarness.set(.notInstalled, for: model)
+        }
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+        let local = AIProcessingFallbackChoice.localAI(modelID: LocalAIModelCatalog.quality.id)
+        await MainActor.run {
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            appState.meetingSummaryBackendChoice = .cloud(modelID: "summary/model")
+            appState.selectAIProcessingFallbackChoice(local, for: .postProcessing)
+            appState.selectAIProcessingFallbackChoice(local, for: .meetingSummary)
+            precondition(appState.postProcessingFallbackChoice == local)
+            precondition(appState.meetingSummaryFallbackChoice == local)
+            appState.deleteLocalAIModel(LocalAIModelCatalog.quality)
+            // No longer the person's pick: a cloud primary gets its default
+            // cloud fallback back right away.
+            precondition(!appState.postProcessingFallbackChoiceIsUserSelected)
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel)
+            )
+            precondition(
+                appState.meetingSummaryFallbackChoice
+                    == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
+            )
+        }
+        await waitUntil { deletionHarness.callCount == 1 }
+        precondition(
+            storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
+                == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
+        )
+    }
+
+    private static func testFallbackPickerKeepsUnavailableCurrentChoiceAndSnapshotStoresCloudOnly() async {
+        resetAIProcessingDefaults()
+        let local = AIProcessingFallbackChoice.localAI(modelID: LocalAIModelCatalog.quality.id)
+        AIProcessingFallbackChoiceStore.save(
+            .init(choice: local, isUserSelected: true),
+            defaults: .standard,
+            key: "post_processing_fallback_choice",
+            userSelectedKey: "post_processing_fallback_choice_user_selected",
+            cloudConsentKey: "post_processing_fallback_cloud_consent_scope"
+        )
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.processingAvailability = unsupportedLocalAIAvailability
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+        await MainActor.run {
+            precondition(appState.postProcessingFallbackChoice == local)
+            let displays = appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+            precondition(
+                displays.contains { AIProcessingFallbackChoice($0.choice) == local && !$0.isAvailable },
+                "an unavailable current fallback stays in the picker"
+            )
+        }
+        // Recovery reads the snapshot's fallback as a cloud model ID.
+        precondition(local.cloudModelID == nil)
+        precondition(AIProcessingFallbackChoice.cloud(modelID: "c/m").cloudModelID == "c/m")
+    }
+
+    private static func testFallbackExecutorIsSeparateAndSkipsNoneOrPrimary() {
+        let manager = LocalAIServerManager(
+            launchProcess: { _, _, port, _ in (TestLocalAIServerProcess(), port) },
+            pollHealth: { _ in true },
+            readinessProbe: successfulReadinessProbe,
+            validateModel: { _ in .ready }
+        )
+        let availability = supportedLocalAIAvailability()
+        func executor(
+            _ fallback: AIProcessingFallbackChoice,
+            primary: AIProcessingBackendChoice,
+            consent: Bool = false
+        ) -> AIProcessingBackendExecutor? {
+            AppState.makeAIProcessingFallbackExecutor(
+                AIProcessingFallbackState(
+                    choice: fallback,
+                    isUserSelected: true,
+                    cloudConsent: consent
+                        ? AIProcessingCloudConsent(
+                            localModelID: primary.modelID,
+                            apiBaseURL: "https://api.example.com/openai/v1/"
+                        )
+                        : nil
+                ),
+                primary: primary,
+                apiKey: "test-key",
+                baseURL: "https://api.example.com/openai/v1",
+                localServerManager: manager,
+                localAIAvailability: availability
+            )
+        }
+        let local = AIProcessingBackendChoice.localAI(modelID: LocalAIModelCatalog.quality.id)
+        precondition(executor(.none, primary: local) == nil)
+        precondition(executor(.none, primary: .cloud(modelID: "primary/model")) == nil)
+        precondition(executor(.init(local), primary: local) == nil)
+        precondition(executor(.cloud(modelID: "primary/model"), primary: .cloud(modelID: "primary/model")) == nil)
+
+        // Privacy guarantee: no cloud fallback for a local primary without
+        // the consent given when it was picked for a local primary.
+        precondition(executor(.cloud(modelID: "fallback/model"), primary: local) == nil)
+        precondition(
+            executor(.cloud(modelID: "fallback/model"), primary: .cloud(modelID: "primary/model"))?.choice
+                == .cloud(modelID: "fallback/model")
+        )
+        let cloudFallback = executor(.cloud(modelID: "fallback/model"), primary: local, consent: true)
+        precondition(cloudFallback?.choice == .cloud(modelID: "fallback/model"))
+        precondition(cloudFallback?.cloudAPIKey == "test-key")
+        precondition(cloudFallback?.cloudBaseURL == "https://api.example.com/openai/v1")
+        let localFallback = executor(.init(local), primary: .cloud(modelID: "primary/model"))
+        precondition(localFallback?.choice == local)
+        precondition(localFallback?.isConfigured == true)
     }
 
     private static func testIncompatibleLegacyContextSelectionIsPreservedAndDisabled() async {
@@ -2523,6 +3062,13 @@ struct AppStateAIProcessingBackendTests {
             "context_backend_choice",
             "meeting_summary_model",
             "meeting_summary_fallback_model",
+            "post_processing_fallback_model",
+            "post_processing_fallback_choice",
+            "post_processing_fallback_choice_user_selected",
+            "meeting_summary_fallback_choice",
+            "meeting_summary_fallback_choice_user_selected",
+            "post_processing_fallback_cloud_consent_scope",
+            "meeting_summary_fallback_cloud_consent_scope",
             "meeting_summary_backend_choice",
             "disable_post_processing",
             "disable_context_capture",
@@ -2994,5 +3540,18 @@ private extension NSLock {
 private extension Array {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private final class AIProcessingCloudRequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var requests = 0
+
+    func record(_ request: URLRequest) {
+        lock.withLock { requests += 1 }
+    }
+
+    var count: Int {
+        lock.withLock { requests }
     }
 }

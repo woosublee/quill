@@ -1730,7 +1730,9 @@ struct ModelsSettingsView: View {
             postProcessingEnabledDraft = !appState.disablePostProcessing
             postProcessingChoiceDraft = appState.postProcessingBackendChoice
             postProcessingModelDraft = customAIProcessingModelDraft(for: appState.postProcessingModel)
-            postProcessingFallbackModelDraft = appState.postProcessingFallbackModel
+            postProcessingFallbackModelDraft = customFallbackModelDraft(
+                for: appState.postProcessingFallbackChoice
+            )
             contextEnabledDraft = !appState.disableContextCapture
             contextChoiceDraft = appState.contextBackendChoice
             contextModelDraft = customAIProcessingModelDraft(for: appState.contextModel)
@@ -1739,7 +1741,9 @@ struct ModelsSettingsView: View {
             meetingSummaryModelDraft = customAIProcessingModelDraft(
                 for: appState.meetingSummaryModel
             )
-            meetingSummaryFallbackModelDraft = appState.meetingSummaryFallbackModel
+            meetingSummaryFallbackModelDraft = customFallbackModelDraft(
+                for: appState.meetingSummaryFallbackChoice
+            )
             customVocabularyInput = appState.customVocabulary
             registerVocabularyDraftCommit()
             initializeManagedNativeModel()
@@ -1805,10 +1809,11 @@ struct ModelsSettingsView: View {
                 meetingSummaryModelDraft = customAIProcessingModelDraft(for: value)
             }
         }
-        .onChange(of: appState.meetingSummaryFallbackModel) { value in
-            if meetingSummaryFallbackModelDraft != value {
-                meetingSummaryFallbackModelDraft = value
-            }
+        .onChange(of: appState.postProcessingFallbackChoice) { value in
+            postProcessingFallbackModelDraft = customFallbackModelDraft(for: value)
+        }
+        .onChange(of: appState.meetingSummaryFallbackChoice) { value in
+            meetingSummaryFallbackModelDraft = customFallbackModelDraft(for: value)
         }
         .onChange(of: managedLocalAIReconciliationInputs) { _ in
             reconcileRetainedLocalAIModels()
@@ -2566,10 +2571,6 @@ struct ModelsSettingsView: View {
         return false
     }
 
-    private var postProcessingUsesLocal: Bool {
-        settingsUsesActiveLocalAI(for: .postProcessing)
-    }
-
     private var postProcessingFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -2762,10 +2763,6 @@ struct ModelsSettingsView: View {
         return false
     }
 
-    private var meetingSummaryUsesLocal: Bool {
-        settingsUsesActiveLocalAI(for: .meetingSummary)
-    }
-
     private var meetingSummaryFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -2824,25 +2821,13 @@ struct ModelsSettingsView: View {
             Divider()
             outputLanguageSetting
             Divider()
-            ModelDropdownView(
+            aiProcessingFallbackSetting(
+                for: .postProcessing,
                 title: "Post-Processing Fallback Model",
-                subtitle: "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultPostProcessingFallbackModel,
-                textDraft: $postProcessingFallbackModelDraft,
-                onCommit: commitPostProcessingFallbackModel,
-                onReset: {
-                    postProcessingFallbackModelDraft = AppState.defaultPostProcessingFallbackModel
-                    appState.postProcessingFallbackModel = AppState.defaultPostProcessingFallbackModel
-                }
+                subtitle: "Tried once for transcript cleanup and Edit Mode when the model above fails, is rate-limited, or can't be reached.",
+                cloudWarning: "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.",
+                draft: $postProcessingFallbackModelDraft
             )
-            .disabled(postProcessingUsesLocal)
-
-            if postProcessingUsesLocal {
-                Text("Cloud fallback is only used when Post-processing uses a cloud model.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
 
             Divider()
             vocabularySection
@@ -2888,27 +2873,13 @@ struct ModelsSettingsView: View {
             Divider()
             meetingSummaryOutputLanguageSetting
             Divider()
-            ModelDropdownView(
+            aiProcessingFallbackSetting(
+                for: .meetingSummary,
                 title: "Summary Fallback Model",
-                subtitle: "Used as the explicit retry model when cloud summary generation fails.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultMeetingSummaryFallbackModel,
-                textDraft: $meetingSummaryFallbackModelDraft,
-                onCommit: commitMeetingSummaryFallbackModel,
-                onReset: {
-                    meetingSummaryFallbackModelDraft =
-                        AppState.defaultMeetingSummaryFallbackModel
-                    appState.meetingSummaryFallbackModel =
-                        AppState.defaultMeetingSummaryFallbackModel
-                }
+                subtitle: "Tried once when the summary model above fails, is rate-limited, or can't be reached.",
+                cloudWarning: "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.",
+                draft: $meetingSummaryFallbackModelDraft
             )
-            .disabled(meetingSummaryUsesLocal)
-
-            if meetingSummaryUsesLocal {
-                Text("Cloud fallback is only used when Meeting Summary uses a cloud model.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -2998,6 +2969,109 @@ struct ModelsSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// The fallback picker (#580): None, a cloud model, or a local model
+    /// other than the primary's, plus a custom cloud model ID.
+    @ViewBuilder
+    private func aiProcessingFallbackSetting(
+        for feature: AIProcessingFeature,
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey,
+        cloudWarning: String,
+        draft: Binding<String>
+    ) -> some View {
+        // Judge consent, the warning and the list against the primary shown
+        // here, which can be a local model still downloading.
+        let shownPrimary = settingsAIProcessingChoice(for: feature)
+        let displays = appState.aiProcessingFallbackChoiceDisplays(
+            for: feature,
+            shownPrimary: shownPrimary
+        )
+        // Show what would actually run: None when a stored cloud fallback
+        // has no consent for the local primary shown here.
+        let selection = Binding<AIProcessingFallbackChoice>(
+            get: {
+                appState.effectiveAIProcessingFallbackChoice(
+                    for: feature,
+                    shownPrimary: settingsAIProcessingChoice(for: feature)
+                )
+            },
+            set: {
+                appState.selectAIProcessingFallbackChoice(
+                    $0,
+                    for: feature,
+                    shownPrimary: settingsAIProcessingChoice(for: feature)
+                )
+            }
+        )
+        let trimmedDraft = draft.wrappedValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+
+            Picker(title, selection: selection) {
+                Text("No Fallback Model").tag(AIProcessingFallbackChoice.none)
+                ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                    let sectionDisplays = displays.filter { $0.section == section }
+                    if !sectionDisplays.isEmpty {
+                        Section(localizedCatalogString(section)) {
+                            ForEach(sectionDisplays) { display in
+                                Text(aiProcessingChoiceMenuLabel(display))
+                                    .tag(AIProcessingFallbackChoice(display.choice))
+                            }
+                        }
+                    }
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+
+            HStack(spacing: 8) {
+                TextField("e.g. provider/custom-model", text: draft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .onSubmit { applyCustomFallbackModel(draft, for: feature) }
+
+                Button("Use Model") {
+                    applyCustomFallbackModel(draft, for: feature)
+                }
+                .font(.caption)
+                .disabled(trimmedDraft.isEmpty)
+            }
+
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Said before any cloud model is picked for a local primary.
+            if shownPrimary.isLocal {
+                providerConfigurationWarning(cloudWarning)
+            }
+        }
+    }
+
+    private func applyCustomFallbackModel(
+        _ draft: Binding<String>,
+        for feature: AIProcessingFeature
+    ) {
+        let modelID = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelID.isEmpty else { return }
+        draft.wrappedValue = modelID
+        appState.selectAIProcessingFallbackChoice(
+            .cloud(modelID: modelID),
+            for: feature,
+            shownPrimary: settingsAIProcessingChoice(for: feature)
+        )
+    }
+
+    private func customFallbackModelDraft(for choice: AIProcessingFallbackChoice) -> String {
+        guard case .cloud(let modelID) = choice else { return "" }
+        return customAIProcessingModelDraft(for: modelID)
     }
 
     private func applyCustomAIProcessingModel(
@@ -3302,28 +3376,6 @@ struct ModelsSettingsView: View {
         realtimeStreamingModelDraft = trimmed
         guard appState.realtimeStreamingModel != trimmed else { return }
         appState.realtimeStreamingModel = trimmed
-    }
-
-    private func commitPostProcessingFallbackModel() {
-        let trimmed = postProcessingFallbackModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingFallbackModel : trimmed
-        postProcessingFallbackModelDraft = resolved
-        if appState.postProcessingFallbackModel != resolved {
-            appState.postProcessingFallbackModel = resolved
-        }
-    }
-
-    private func commitMeetingSummaryFallbackModel() {
-        let trimmed = meetingSummaryFallbackModelDraft.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        let resolved = trimmed.isEmpty
-            ? AppState.defaultMeetingSummaryFallbackModel
-            : trimmed
-        meetingSummaryFallbackModelDraft = resolved
-        if appState.meetingSummaryFallbackModel != resolved {
-            appState.meetingSummaryFallbackModel = resolved
-        }
     }
 
     private func commitTranscriptionAPIURL() {

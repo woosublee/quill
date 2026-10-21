@@ -6,19 +6,24 @@ struct MeetingSummaryGenerationResult: Equatable, Sendable {
     let modelID: String
     let backendKind: MeetingSummaryBackendKind
     let evidenceVerification: MeetingSummaryEvidenceVerification
+    /// The cloud host that produced the summary, set by the service so a
+    /// cloud fallback for a local model is recorded with its host (#580).
+    var providerHost: String?
 
     init(
         draft: MeetingSummaryDraftContentV2,
         promptVersion: Int,
         modelID: String,
         backendKind: MeetingSummaryBackendKind,
-        evidenceVerification: MeetingSummaryEvidenceVerification = .verified
+        evidenceVerification: MeetingSummaryEvidenceVerification = .verified,
+        providerHost: String? = nil
     ) {
         self.draft = draft
         self.promptVersion = promptVersion
         self.modelID = modelID
         self.backendKind = backendKind
         self.evidenceVerification = evidenceVerification
+        self.providerHost = providerHost
     }
 }
 
@@ -338,20 +343,23 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     }
 
     private let backendExecutor: AIProcessingBackendExecutor
-    private let cloudFallbackModelID: String?
+    /// The model to retry with when the main model fails (#580). A cloud
+    /// fallback for a cloud model retries each failed request; any other
+    /// pairing reruns the whole summary once on the fallback's backend.
+    private let fallbackExecutor: AIProcessingBackendExecutor?
     private let chunker: MeetingSummaryTextChunker
     private let tokenBudgeter: LocalAITokenBudgeter
     private let transport: Transport
 
     init(
         backendExecutor: AIProcessingBackendExecutor,
-        cloudFallbackModelID: String?,
+        fallbackExecutor: AIProcessingBackendExecutor?,
         chunker: MeetingSummaryTextChunker = MeetingSummaryTextChunker(),
         tokenBudgeter: LocalAITokenBudgeter? = nil,
         transport: @escaping Transport = MeetingSummaryService.defaultTransport
     ) {
         self.backendExecutor = backendExecutor
-        self.cloudFallbackModelID = cloudFallbackModelID
+        self.fallbackExecutor = fallbackExecutor
         self.chunker = chunker
         self.tokenBudgeter = tokenBudgeter ?? LocalAITokenBudgeter(
             contextWindow: Self.contextWindow,
@@ -361,6 +369,50 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     }
 
     func generate(
+        source: MeetingSummarySource
+    ) async throws -> MeetingSummaryGenerationResult {
+        do {
+            return try await generateWithPrimary(source: source)
+        } catch {
+            guard let fallback = wholeSummaryFallbackExecutor(),
+                  Self.isFallbackEligible(
+                      error,
+                      primaryIsLocal: backendExecutor.choice.isLocal,
+                      fallbackIsLocal: fallback.choice.isLocal
+                  ) else {
+                throw error
+            }
+            // The fallback service applies its own calendar rule: a cloud
+            // fallback never gets the calendar event (#529).
+            do {
+                return try await MeetingSummaryService(
+                    backendExecutor: fallback,
+                    fallbackExecutor: nil,
+                    chunker: chunker,
+                    tokenBudgeter: tokenBudgeter,
+                    transport: transport
+                ).generateWithPrimary(source: source)
+            } catch let fallbackError {
+                // When both fail, report the model the person chose.
+                if AIProcessingFallbackPolicy.isCancellation(fallbackError) {
+                    throw fallbackError
+                }
+                throw error
+            }
+        }
+    }
+
+    private func generateWithPrimary(
+        source: MeetingSummarySource
+    ) async throws -> MeetingSummaryGenerationResult {
+        var result = try await generateDraftSummary(source: source)
+        if result.backendKind == .cloud {
+            result.providerHost = URL(string: backendExecutor.cloudBaseURL)?.host
+        }
+        return result
+    }
+
+    private func generateDraftSummary(
         source: MeetingSummarySource
     ) async throws -> MeetingSummaryGenerationResult {
         // The matched calendar event, Google Calendar's included, goes only
@@ -683,6 +735,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         }
 
         var lastError: Error?
+        var primaryError: Error?
         for (index, modelID) in models.enumerated() {
             do {
                 return try await requestDraft(
@@ -703,10 +756,21 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                     )
                 }
                 let canRetry = index + 1 < models.count
-                    && isFallbackEligible(error)
-                if canRetry { continue }
-                throw error
+                    && Self.isFallbackEligible(
+                        error,
+                        primaryIsLocal: false,
+                        fallbackIsLocal: false
+                    )
+                if canRetry {
+                    primaryError = error
+                    continue
+                }
+                // When the fallback fails too, report the primary's error.
+                throw primaryError ?? error
             } catch {
+                if let primaryError, !AIProcessingFallbackPolicy.isCancellation(error) {
+                    throw primaryError
+                }
                 lastError = error
                 throw error
             }
@@ -730,6 +794,11 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                     modelID: endpoint.selectedModelID
                 )
             } catch {
+                // A cancelled request stays a cancellation so it is never
+                // retried with the fallback.
+                if AIProcessingFallbackPolicy.isCancellation(error) {
+                    throw error
+                }
                 throw MeetingSummaryError.requestFailed(
                     statusCode: 0,
                     providerCode: nil,
@@ -834,21 +903,67 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         return request
     }
 
-    private func normalizedFallback(primary: String) -> String? {
-        guard let cloudFallbackModelID else { return nil }
-        let trimmed = cloudFallbackModelID.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        guard !trimmed.isEmpty, trimmed != primary else { return nil }
-        return trimmed
+    /// The configured fallback, unless there is none, it can't run, or it
+    /// is the main model itself.
+    private func usableFallbackExecutor() -> AIProcessingBackendExecutor? {
+        guard let fallbackExecutor, fallbackExecutor.isConfigured else { return nil }
+        if case .cloud(let modelID) = fallbackExecutor.choice {
+            let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let fallback = fallbackExecutor.replacingChoice(.cloud(modelID: trimmed))
+            return fallback.choice == backendExecutor.choice ? nil : fallback
+        }
+        return fallbackExecutor.choice == backendExecutor.choice ? nil : fallbackExecutor
     }
 
-    private func isFallbackEligible(_ error: MeetingSummaryError) -> Bool {
-        switch error {
-        case .rateLimited, .invalidResponse, .outputRejected, .emptyOutput:
+    /// A cloud fallback for a cloud model, retried per request.
+    private func normalizedFallback(primary: String) -> String? {
+        guard !backendExecutor.choice.isLocal,
+              case .cloud(let modelID)? = usableFallbackExecutor()?.choice,
+              modelID != primary else {
+            return nil
+        }
+        return modelID
+    }
+
+    /// A fallback that reruns the whole summary: any fallback for a local
+    /// model, or a local fallback for a cloud model.
+    private func wholeSummaryFallbackExecutor() -> AIProcessingBackendExecutor? {
+        guard let fallback = usableFallbackExecutor() else { return nil }
+        guard backendExecutor.choice.isLocal || fallback.choice.isLocal else {
+            return nil
+        }
+        return fallback
+    }
+
+    /// A cloud model that is offline or timed out is retried only on a local
+    /// fallback; a cloud fallback shares the same provider.
+    static func isFallbackEligible(
+        _ error: Error,
+        primaryIsLocal: Bool,
+        fallbackIsLocal: Bool
+    ) -> Bool {
+        if AIProcessingFallbackPolicy.isCancellation(error) { return false }
+        if primaryIsLocal, AIProcessingFallbackPolicy.isLocalRuntimeFailure(error) {
             return true
-        case .invalidInput, .requestFailed, .requestTimedOut,
-             .allModelsCoolingDown, .sourceChanged:
+        }
+        let reachesAnotherHost = primaryIsLocal || fallbackIsLocal
+        guard let error = error as? MeetingSummaryError else { return false }
+        switch error {
+        case .rateLimited, .allModelsCoolingDown:
+            return !primaryIsLocal
+        case .invalidResponse(let subtype, _):
+            // A prompt that doesn't fit the budget won't fit the fallback.
+            return subtype != .contextBudget && subtype != .mergeBudget
+        case .outputRejected, .emptyOutput:
+            return true
+        case .requestTimedOut:
+            return reachesAnotherHost
+        case .requestFailed(let statusCode, _, _):
+            // Status 0 is a transport failure such as a lost connection.
+            return (statusCode == 0 && reachesAnotherHost)
+                || AIProcessingFallbackPolicy.isServerError(statusCode: statusCode)
+        case .invalidInput, .sourceChanged:
             return false
         }
     }
