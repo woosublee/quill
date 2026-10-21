@@ -9,13 +9,9 @@ public struct ModelConfig {
 
 public struct ModelConfiguration {
     public static let llmModels = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "meta-llama/llama-4-scout-17b-16e-instruct",
         "openai/gpt-oss-20b",
         "openai/gpt-oss-120b",
         "openai/gpt-oss-safeguard-20b",
-        "qwen/qwen3-32b",
         "qwen/qwen3.8-27b"
     ]
 
@@ -29,9 +25,18 @@ public struct ModelConfiguration {
     /// Groq retired Qwen 3.6 and serves Qwen 3.8 in its place.
     static let retiredGroqQwenModelID = "qwen/qwen3.6-27b"
     static let groqQwenModelID = "qwen/qwen3.8-27b"
+    /// Models upstream dropped from the list in v1.2.0 (#577). Groq still
+    /// serves them, so saved selections move to Qwen 3.8 only once; a model
+    /// typed in later stays.
+    static let droppedGroqModelIDs: Set<String> = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3-32b"
+    ]
 
     /// Only Groq's own endpoint is migrated. Other providers can still serve
-    /// Qwen 3.6 under the same model name.
+    /// these models under the same names.
     static func isGroqBaseURL(_ baseURL: String) -> Bool {
         guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return false
@@ -42,17 +47,33 @@ public struct ModelConfiguration {
     }
 
     /// The Groq replacement for a retired model ID, or nil when it is kept.
-    static func groqReplacement(for modelID: String, baseURL: String) -> String? {
+    /// Dropped models are replaced only when `includingDroppedModels`.
+    static func groqReplacement(
+        for modelID: String,
+        baseURL: String,
+        includingDroppedModels: Bool = false
+    ) -> String? {
+        let normalized = AIModelIDNormalizer.normalizedCloudModelID(modelID)
         guard isGroqBaseURL(baseURL),
-              AIModelIDNormalizer.normalizedCloudModelID(modelID) == retiredGroqQwenModelID else {
+              normalized == retiredGroqQwenModelID
+                || (includingDroppedModels && droppedGroqModelIDs.contains(normalized)) else {
             return nil
         }
         return groqQwenModelID
     }
 
-    static func migrateGroqSelection(key: String, baseURL: String, defaults: UserDefaults) {
+    static func migrateGroqSelection(
+        key: String,
+        baseURL: String,
+        defaults: UserDefaults,
+        includingDroppedModels: Bool = false
+    ) {
         guard let stored = defaults.string(forKey: key),
-              let replacement = groqReplacement(for: stored, baseURL: baseURL) else { return }
+              let replacement = groqReplacement(
+                for: stored,
+                baseURL: baseURL,
+                includingDroppedModels: includingDroppedModels
+              ) else { return }
         defaults.set(replacement, forKey: key)
     }
 
