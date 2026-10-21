@@ -12,6 +12,10 @@ struct AppContextBackendTests {
         try await testCloudRepeatedTransportFailureRecordsStructuredIssue()
         try await testCloudUnusableResponseRecordsStructuredIssue()
         try await testCloudHTTPStatusPreservesSpecificClassification()
+        try await testScreenshotRemovalRetriesOnlyStatusesItCanFix()
+        try testContextRequestKeepsASmallCloudCompletionBudget()
+        try testFailedContextSummaryStaysOutOfPrompts()
+        try testDesktopFallbackFollowsTheSetting()
         try await testCloudMissingKeySkipsTransportAndRecordsProviderIssue()
         try testContextFallbackCarriesProviderIssue()
         try testConfiguredContextCollectionPreservesInferenceIssue()
@@ -309,6 +313,128 @@ struct AppContextBackendTests {
             issues.last()?.record.code == .authenticationFailed,
             "HTTP 401 keeps its specific classification instead of collapsing into invalidProviderResponse"
         )
+    }
+
+    private static func testScreenshotRemovalRetriesOnlyStatusesItCanFix() async throws {
+        for (status, expectedRequests) in [(401, 1), (403, 1), (404, 1), (429, 1), (400, 2), (500, 2)] {
+            let recorder = ContextRequestRecorder()
+            let service = AppContextService(
+                backendExecutor: AIProcessingBackendExecutor(
+                    choice: .cloud(modelID: "qwen/qwen3.8-27b"),
+                    cloudBaseURL: "https://api.example.com/openai/v1",
+                    cloudAPIKey: "cloud-key"
+                ),
+                customContextPrompt: "",
+                contextModel: "qwen/qwen3.8-27b",
+                transport: { request in
+                    recorder.record(request)
+                    return (
+                        Data(),
+                        HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+                    )
+                },
+                issueSink: { _ in }
+            )
+
+            let result = await service.inferActivityWithLLM(
+                appName: "Editor",
+                bundleIdentifier: "test.editor",
+                windowTitle: "Document",
+                selectedText: nil,
+                screenshotDataURL: "data:image/jpeg;base64,IMAGE",
+                contextSystemPrompt: AppContextService.defaultContextPrompt
+            )
+
+            try expect(result == nil, "HTTP \(status) returns fallback signal")
+            try expect(recorder.count() == expectedRequests, "HTTP \(status) sends \(expectedRequests) request(s)")
+        }
+    }
+
+    private static func testContextRequestKeepsASmallCloudCompletionBudget() throws {
+        let cloud = AppContextService.inferenceRequestOptions(for: "qwen/qwen3.8-27b", isLocal: false)
+        try expect(cloud["max_completion_tokens"] as? Int == 512, "cloud context completion budget")
+        try expect(cloud["reasoning_effort"] as? String == "none", "cloud context keeps reasoning effort")
+        try expect(cloud["include_reasoning"] as? Bool == false, "cloud context keeps include_reasoning")
+
+        for reasoningModel in ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3-32b"] {
+            let options = AppContextService.inferenceRequestOptions(for: reasoningModel, isLocal: false)
+            try expect(options["max_completion_tokens"] as? Int == 2_048, "\(reasoningModel) leaves room to reason")
+        }
+        try expect(
+            AppContextService.inferenceRequestOptions(for: "custom/model", isLocal: false)["max_completion_tokens"] as? Int == 512,
+            "other cloud models keep the small budget"
+        )
+
+        let local = AppContextService.inferenceRequestOptions(for: LocalAIModelCatalog.quality.id, isLocal: true)
+        try expect(local["max_completion_tokens"] == nil, "local context keeps the runtime's own budget")
+    }
+
+    private static func testFailedContextSummaryStaysOutOfPrompts() throws {
+        func context(_ activity: String) -> AppContext {
+            AppContext(
+                appName: "Editor",
+                bundleIdentifier: "test.editor",
+                windowTitle: "Document",
+                selectedText: nil,
+                currentActivity: activity,
+                contextSystemPrompt: "",
+                contextPrompt: nil,
+                screenshotDataURL: nil,
+                screenshotMimeType: nil,
+                screenshotError: nil
+            )
+        }
+
+        for failure in [
+            "Could not reliably infer a two-sentence summary for Editor from the visible metadata.",
+            "Could not refresh app context at stop time; using text-only post-processing.",
+            "You are dictating in an unrecognized context.",
+            "Context summary failed: Provider request timed out."
+        ] {
+            try expect(context(failure).summaryForPostProcessing.isEmpty, "failure summary dropped: \(failure)")
+            try expect(ContextInferenceFailure.promptSection(for: failure).isEmpty, "no CONTEXT line: \(failure)")
+        }
+
+        let real = "The user is replying to an email. They likely want to confirm a date."
+        try expect(context(real).summaryForPostProcessing == real, "real summary kept")
+        try expect(
+            ContextInferenceFailure.promptSection(for: real) == "CONTEXT: \"\(real)\"\n",
+            "real summary keeps its CONTEXT line"
+        )
+
+        let source = try String(contentsOfFile: "Sources/PostProcessingService.swift", encoding: .utf8)
+        try expect(
+            source.components(separatedBy: "contextSummary: context.summaryForPostProcessing,").count == 3,
+            "cleanup and command transform both use the usable summary"
+        )
+        try expect(!source.contains("CONTEXT: \"\\(contextSummary)\""), "command prompt has no unconditional CONTEXT line")
+    }
+
+    private static func testDesktopFallbackFollowsTheSetting() throws {
+        let suite = "app_context_backend_tests_desktop_fallback"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try expect(DesktopScreenshotFallbackPreference.load(from: defaults), "fallback is on by default")
+        DesktopScreenshotFallbackPreference.save(false, to: defaults)
+        try expect(!DesktopScreenshotFallbackPreference.load(from: defaults), "fallback can be turned off")
+
+        func service(_ enabled: Bool) -> AppContextService {
+            AppContextService(apiKey: "", desktopScreenshotFallbackEnabled: enabled)
+        }
+        var captures = 0
+        let off = service(false).captureDesktopFallback {
+            captures += 1
+            return ("data:image/jpeg;base64,DESKTOP", "image/jpeg", nil)
+        }
+        try expect(captures == 0, "turned-off fallback never captures the screen")
+        try expect(off.dataURL == nil && off.error != nil, "turned-off fallback reports why there is no screenshot")
+
+        let on = service(true).captureDesktopFallback {
+            captures += 1
+            return ("data:image/jpeg;base64,DESKTOP", "image/jpeg", nil)
+        }
+        try expect(captures == 1 && on.dataURL != nil, "fallback captures when on")
     }
 
     private static func testCloudMissingKeySkipsTransportAndRecordsProviderIssue() async throws {
@@ -661,7 +787,11 @@ struct AppContextBackendTests {
         let placeholderBody = String(source[placeholderStart.lowerBound..<placeholderEnd.lowerBound])
         try expect(placeholderBody.contains("trimmed.isEmpty"), "empty activity counts as placeholder")
         try expect(
-            placeholderBody.contains(
+            placeholderBody.contains("ContextInferenceFailure.isFailureSummary(trimmed)"),
+            "stored summaries use the same failure check as prompts"
+        )
+        try expect(
+            ContextInferenceFailure.isFailureSummary(
                 "Could not refresh app context at stop time; using text-only post-processing."
             ),
             "the stop-time fallback wording is a known placeholder"

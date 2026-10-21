@@ -51,6 +51,28 @@ struct AppContext {
     var contextSummary: String {
         currentActivity
     }
+
+    /// The summary cleanup may use: empty when inference failed, so a fallback
+    /// note such as "Could not reliably infer…" never reaches the prompt.
+    var summaryForPostProcessing: String {
+        ContextInferenceFailure.usableSummary(currentActivity)
+    }
+}
+
+/// Whether context capture may send the whole screen when the active window
+/// can't be captured. On unless turned off in Settings.
+enum DesktopScreenshotFallbackPreference {
+    static let storageKey = "context_desktop_screenshot_fallback_enabled"
+
+    static func load(from defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: storageKey) == nil
+            ? true
+            : defaults.bool(forKey: storageKey)
+    }
+
+    static func save(_ enabled: Bool, to defaults: UserDefaults) {
+        defaults.set(enabled, forKey: storageKey)
+    }
 }
 
 final class AppContextService: @unchecked Sendable {
@@ -79,6 +101,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
     private let maxScreenshotDataURILength = 500_000
     private let screenshotCompressionPrimary = 0.5
     private let screenshotMaxDimension: CGFloat
+    private let desktopScreenshotFallbackEnabled: Bool
     private var contextRequestTimeoutSeconds: TimeInterval {
         let override = UserDefaults.standard.double(forKey: "context_request_timeout_seconds")
         return override > 0 ? override : 20
@@ -90,6 +113,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         customContextPrompt: String = "",
         contextModel: String = AppState.defaultContextModel,
         screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension,
+        desktopScreenshotFallbackEnabled: Bool = true,
         transport: @escaping Transport = { request in
             try await LLMAPITransport.data(for: request)
         }
@@ -105,6 +129,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         self.screenshotMaxDimension = screenshotMaxDimension > 0
             ? screenshotMaxDimension
             : AppContextService.defaultScreenshotMaxDimension
+        self.desktopScreenshotFallbackEnabled = desktopScreenshotFallbackEnabled
         self.transport = transport
         self.issueSink = { _ in }
     }
@@ -114,6 +139,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         customContextPrompt: String = "",
         contextModel: String,
         screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension,
+        desktopScreenshotFallbackEnabled: Bool = true,
         transport: @escaping Transport = { request in
             try await LLMAPITransport.data(for: request)
         },
@@ -124,6 +150,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         self.screenshotMaxDimension = screenshotMaxDimension > 0
             ? screenshotMaxDimension
             : AppContextService.defaultScreenshotMaxDimension
+        self.desktopScreenshotFallbackEnabled = desktopScreenshotFallbackEnabled
         self.transport = transport
         self.issueSink = issueSink
     }
@@ -312,6 +339,12 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                         if endpoint.kind == .local, error is LocalAIServerManagerError {
                             throw error
                         }
+                        // Removing the screenshot cannot repair auth, a missing
+                        // model or throttling, so don't send the request twice.
+                        if case .httpStatus(let status) = error as? AppContextBackendError,
+                           Self.statusesNotRetriedWithoutScreenshot.contains(status) {
+                            throw error
+                        }
                         lastError = error
                     }
                 }
@@ -401,13 +434,10 @@ Selected text: \(selectedText ?? "None")
                 ["role": "user", "content": userMessage]
             ]
         ]
-        let config = ModelConfiguration.config(for: endpoint.selectedModelID)
-        if let reasoningEffort = config.reasoningEffort {
-            payload["reasoning_effort"] = reasoningEffort
-        }
-        if let includeReasoning = config.includeReasoning {
-            payload["include_reasoning"] = includeReasoning
-        }
+        payload.merge(Self.inferenceRequestOptions(
+            for: endpoint.selectedModelID,
+            isLocal: endpoint.kind == .local
+        )) { _, option in option }
 
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         let (data, response) = try await transport(urlRequest)
@@ -429,6 +459,36 @@ Selected text: \(selectedText ?? "None")
             return nil
         }
         return (activity: activity, prompt: fullPrompt)
+    }
+
+    static let statusesNotRetriedWithoutScreenshot: Set<Int> = [401, 403, 404, 429]
+
+    static func inferenceRequestOptions(for model: String, isLocal: Bool) -> [String: Any] {
+        var options: [String: Any] = [:]
+        let config = ModelConfiguration.config(for: model)
+        // Two sentences need a small completion budget. Leaving it unset can
+        // reserve more output tokens than a free plan's per-minute limit.
+        if !isLocal {
+            options["max_completion_tokens"] = contextCompletionBudget(for: model, config: config)
+        }
+        if let reasoningEffort = config.reasoningEffort {
+            options["reasoning_effort"] = reasoningEffort
+        }
+        if let includeReasoning = config.includeReasoning {
+            options["include_reasoning"] = includeReasoning
+        }
+        return options
+    }
+
+    static let contextMaxCompletionTokens = 512
+    static let reasoningContextMaxCompletionTokens = 2_048
+
+    /// Models that reason before answering spend completion tokens on it, so
+    /// the two-sentence budget alone could leave no room for the summary.
+    private static func contextCompletionBudget(for model: String, config: ModelConfig) -> Int {
+        let reasons = AIModelIDNormalizer.normalizedCloudModelID(model).hasPrefix("openai/gpt-oss")
+            || (config.shouldStripThinkTags && config.reasoningEffort != "none")
+        return reasons ? reasoningContextMaxCompletionTokens : contextMaxCompletionTokens
     }
 
     private static func isCancellation(_ error: Error) -> Bool {
@@ -748,6 +808,23 @@ Selected text: \(selectedText ?? "None")
             }
         }
 
+        return captureDesktopFallback {
+            captureDesktopScreenshot()
+        }
+    }
+
+    /// Checks the setting before any desktop capture or image work. The
+    /// injected capture lets tests check this without Screen Recording.
+    func captureDesktopFallback(
+        using capture: () -> (dataURL: String?, mimeType: String?, error: String?)
+    ) -> (dataURL: String?, mimeType: String?, error: String?) {
+        guard desktopScreenshotFallbackEnabled else {
+            return (nil, nil, "Active-window screenshot unavailable; full-screen fallback is turned off in Settings")
+        }
+        return capture()
+    }
+
+    private func captureDesktopScreenshot() -> (dataURL: String?, mimeType: String?, error: String?) {
         guard let fullScreenImage = CGWindowListCreateImage(
             CGRect.infinite,
             .optionOnScreenOnly,

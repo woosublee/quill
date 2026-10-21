@@ -834,6 +834,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published var desktopScreenshotFallbackEnabled: Bool {
+        didSet {
+            DesktopScreenshotFallbackPreference.save(desktopScreenshotFallbackEnabled, to: .standard)
+            rebuildContextService()
+        }
+    }
+
     @Published var contextScreenshotMaxDimension: Int {
         didSet {
             let normalizedDimension = Self.normalizedContextScreenshotMaxDimension(contextScreenshotMaxDimension)
@@ -3252,6 +3259,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? UserDefaults.standard.integer(forKey: contextScreenshotMaxDimensionStorageKey)
             : Self.defaultContextScreenshotMaxDimension
         let contextScreenshotMaxDimension = Self.normalizedContextScreenshotMaxDimension(storedContextScreenshotMaxDimension)
+        let desktopScreenshotFallbackEnabled = DesktopScreenshotFallbackPreference.load(from: .standard)
         let shortcutStartDelay = max(0, UserDefaults.standard.double(forKey: shortcutStartDelayStorageKey))
         let isCommandModeEnabled = UserDefaults.standard.object(forKey: commandModeEnabledStorageKey) == nil
             ? false
@@ -3579,6 +3587,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
             contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            desktopScreenshotFallbackEnabled: desktopScreenshotFallbackEnabled,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()
         )
@@ -3614,6 +3623,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customSystemPrompt = customSystemPrompt
         self.customContextPrompt = customContextPrompt
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.desktopScreenshotFallbackEnabled = desktopScreenshotFallbackEnabled
         self.contextScreenshotMaxDimension = contextScreenshotMaxDimension
         self.customSystemPromptLastModified = customSystemPromptLastModified
         self.customContextPromptLastModified = customContextPromptLastModified
@@ -4837,6 +4847,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         baseURL: String,
         customContextPrompt: String,
         contextScreenshotMaxDimension: Int,
+        desktopScreenshotFallbackEnabled: Bool,
         localServerManager: LocalAIServerManager,
         localAIAvailability: LocalAIProcessingAvailability
     ) -> AppContextService {
@@ -4854,7 +4865,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 normalizedContextScreenshotMaxDimension(
                     contextScreenshotMaxDimension
                 )
-            )
+            ),
+            desktopScreenshotFallbackEnabled: desktopScreenshotFallbackEnabled
         )
     }
 
@@ -4867,6 +4879,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
             contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            desktopScreenshotFallbackEnabled: desktopScreenshotFallbackEnabled,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()
         )
@@ -14383,13 +14396,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    // Old notes may still carry the stop-time placeholder sentence in their
-    // stored contextSummary; both that literal and a genuinely empty summary
-    // count as "no usable context" rather than real captured activity.
+    // Old notes may still carry a placeholder or failure sentence in their
+    // stored contextSummary; those and a genuinely empty summary count as
+    // "no usable context" rather than real captured activity.
     private static func isPlaceholderContextSummary(_ summary: String) -> Bool {
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return true }
-        return trimmed == "Could not refresh app context at stop time; using text-only post-processing."
+        return trimmed.isEmpty || ContextInferenceFailure.isFailureSummary(trimmed)
     }
 
     // Context is only worth injecting into post-processing when it was

@@ -2853,6 +2853,21 @@ struct ModelsSettingsView: View {
             )
             Divider()
             contextScreenshotResolutionSection
+            Divider()
+            desktopScreenshotFallbackSetting
+        }
+    }
+
+    private var desktopScreenshotFallbackSetting: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(
+                "Capture the whole screen when the active window can't be captured",
+                isOn: $appState.desktopScreenshotFallbackEnabled
+            )
+            Text("The whole screen can include other windows. When off, Context uses only app and window details in that case.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

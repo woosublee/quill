@@ -21635,6 +21635,38 @@
           }
         }
       }
+    },
+    "Capture the whole screen when the active window can't be captured": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture the whole screen when the active window can't be captured"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 창을 캡처할 수 없으면 전체 화면 캡처하기"
+          }
+        }
+      }
+    },
+    "The whole screen can include other windows. When off, Context uses only app and window details in that case.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The whole screen can include other windows. When off, Context uses only app and window details in that case."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면에는 다른 창도 찍힐 수 있어요. 끄면 이때는 앱과 창 정보만 문맥으로 써요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

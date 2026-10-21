@@ -599,7 +599,7 @@ Behavior:
 
         return try await processWithFallback(
             transcript: transcript,
-            contextSummary: context.contextSummary,
+            contextSummary: context.summaryForPostProcessing,
             customVocabulary: vocabularyTerms,
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
@@ -627,7 +627,7 @@ Behavior:
         return try await processCommandTransformWithFallback(
             selectedText: selectedText,
             voiceCommand: voiceCommand,
-            contextSummary: context.contextSummary,
+            contextSummary: context.summaryForPostProcessing,
             customVocabulary: vocabularyTerms,
             outputLanguage: outputLanguage
         )
@@ -1296,8 +1296,7 @@ Use these spellings exactly in the output when relevant:
         let userMessage = """
 Transform SELECTED_TEXT according to VOICE_COMMAND and return only the replacement text.
 
-CONTEXT: "\(contextSummary)"
-
+\(ContextInferenceFailure.promptSection(for: contextSummary))
 VOICE_COMMAND: "\(voiceCommand)"
 
 SELECTED_TEXT: "\(selectedText)"
