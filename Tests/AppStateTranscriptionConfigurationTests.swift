@@ -120,6 +120,7 @@ struct AppStateTranscriptionConfigurationTests {
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
         testQwen38ModelConfiguration()
+        testTranscriptionProviderPairFallsBackToTheMainAPI()
         testQwen36ContextReasoningIsStripped()
         testGroqQwen36SelectionsMoveToQwen38()
         testOtherProvidersKeepQwen36()
@@ -863,6 +864,25 @@ struct AppStateTranscriptionConfigurationTests {
         assert(issue.record.context.httpStatus == 400)
         assert(issue.record.context.providerHost == "api.example.com")
         assert(issue.record.context.modelID == "provider/model")
+    }
+
+    private static func testTranscriptionProviderPairFallsBackToTheMainAPI() {
+        let main = (url: "https://api.example.com/openai/v1", key: "main-key")
+        assert(TranscriptionProviderPair(transcriptionAPIURL: " ", transcriptionAPIKey: "", apiBaseURL: main.url, apiKey: main.key) == nil)
+
+        let urlOnly = TranscriptionProviderPair(transcriptionAPIURL: " https://speech.example.com/v1 ", transcriptionAPIKey: "", apiBaseURL: main.url, apiKey: main.key)
+        assert(urlOnly?.baseURL == "https://speech.example.com/v1" && urlOnly?.key == "main-key")
+
+        let keyOnly = TranscriptionProviderPair(transcriptionAPIURL: "", transcriptionAPIKey: " speech-key ", apiBaseURL: main.url, apiKey: main.key)
+        assert(keyOnly?.baseURL == main.url && keyOnly?.key == "speech-key")
+
+        let source = try! String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        // Every change to either pair re-checks, including Clear and the main key or URL.
+        for value in ["transcriptionAPIURL", "transcriptionAPIKey", "apiBaseURL", "apiKey"] {
+            assert(source.contains(".onChange(of: appState.\(value))"), value)
+        }
+        // Only the latest check may clear the progress indicator.
+        assert(source.contains("guard transcriptionPairCheckID == checkID else { return }"))
     }
 
     private static func testQwen38ModelConfiguration() {

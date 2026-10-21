@@ -1668,6 +1668,8 @@ struct ModelsSettingsView: View {
     @FocusState private var transcriptionAPIKeyFocused: Bool
     @State private var isValidatingKey = false
     @State private var keyValidationIssue: QuillUserIssueRecord?
+    @State private var transcriptionPairCheckFailed = false
+    @State private var transcriptionPairCheckID: UUID?
     @State private var customVocabularyInput: String = ""
     @FocusState private var customVocabularyFocused: Bool
     @State private var settingsDraftCommitRegistrationID: UUID?
@@ -1773,10 +1775,16 @@ struct ModelsSettingsView: View {
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
+            checkTranscriptionProviderPair()
         }
         .onChange(of: appState.transcriptionAPIKey) { value in
             if transcriptionAPIKeyInput != value { transcriptionAPIKeyInput = value }
+            checkTranscriptionProviderPair()
         }
+        // The transcription pair falls back to the main URL and key, so a
+        // change there changes what transcription uses too.
+        .onChange(of: appState.apiBaseURL) { _ in checkTranscriptionProviderPair() }
+        .onChange(of: appState.apiKey) { _ in checkTranscriptionProviderPair() }
         .onChange(of: appState.transcriptionModel) { value in
             guard !isEditingTranscriptionModel else { return }
             let draft = customStandardAPIModelDraft(for: value)
@@ -3117,6 +3125,24 @@ struct ModelsSettingsView: View {
                     .font(.caption)
                 }
             }
+
+            if transcriptionPairCheckID != nil {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking the transcription URL and key...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if transcriptionPairCheckFailed {
+                Label(
+                    "Couldn't verify this transcription URL and key. If they don't match, transcription will fail.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -3312,6 +3338,35 @@ struct ModelsSettingsView: View {
         transcriptionAPIKeyInput = trimmed
         guard appState.transcriptionAPIKey != trimmed else { return }
         appState.transcriptionAPIKey = trimmed
+    }
+
+    /// Checks the transcription URL and key as the pair transcription will
+    /// use, each falling back to the main API value when empty. The fields
+    /// stay saved either way: some transcription-only servers have no models
+    /// endpoint to check against, so a failed check only warns, without
+    /// claiming the key is wrong.
+    private func checkTranscriptionProviderPair() {
+        transcriptionPairCheckFailed = false
+        guard let pair = TranscriptionProviderPair(
+            transcriptionAPIURL: appState.transcriptionAPIURL,
+            transcriptionAPIKey: appState.transcriptionAPIKey,
+            apiBaseURL: appState.apiBaseURL,
+            apiKey: appState.apiKey
+        ) else {
+            transcriptionPairCheckID = nil
+            return
+        }
+        let checkID = UUID()
+        transcriptionPairCheckID = checkID
+        Task {
+            let valid = await TranscriptionService.validateAPIKey(pair.key, baseURL: pair.baseURL)
+            await MainActor.run {
+                // Only the latest check reports; a newer one replaced this.
+                guard transcriptionPairCheckID == checkID else { return }
+                transcriptionPairCheckID = nil
+                transcriptionPairCheckFailed = !valid
+            }
+        }
     }
 
     private func validateAndSaveKey() {
