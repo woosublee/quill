@@ -3790,7 +3790,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if let cloudReconciliation {
             let cloudDependenciesFactory = dependencies
                 .makeRetryCloudTranscriptionDependencies
-            let postProcessingService = makePostProcessingService()
+            // The install cache isn't loaded at launch, so this resume uses
+            // the fallback as stored; one not downloaded fails like its primary.
+            let postProcessingService = Self.makePostProcessingService(
+                choice: postProcessingBackendChoice,
+                apiKey: apiKey,
+                baseURL: apiBaseURL,
+                fallback: postProcessingFallbackState,
+                instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+                localServerManager: localAIServerManager,
+                localAIAvailability: dependencies.localAI.processingAvailability()
+            )
             let capturedVoiceMacros = initialMacros
             Task { @MainActor [weak self] in
                 self?.scheduleCloudTranscriptionAutoResume(
@@ -5180,6 +5190,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    @MainActor
     func makeAIProcessingFallbackExecutor(
         _ fallback: AIProcessingFallbackState,
         primary: AIProcessingBackendChoice
@@ -5196,10 +5207,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// A local fallback picked before its download finished runs only once
     /// downloaded; until then the primary has no fallback.
+    /// Reads the cached install state; checking the files would hash
+    /// gigabytes on every dictation.
+    @MainActor
     func downloadedFallbackState(_ state: AIProcessingFallbackState) -> AIProcessingFallbackState {
         guard case .localAI(let modelID) = state.choice,
               let model = LocalAIModelCatalog.model(id: modelID),
-              dependencies.localAI.installStatus(model) != .ready else {
+              localAIInstallState(for: model).status != .ready else {
             return state
         }
         return AIProcessingFallbackState(choice: .none, isUserSelected: state.isUserSelected)
@@ -5235,6 +5249,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    @MainActor
     func makePostProcessingService(
         choice: AIProcessingBackendChoice? = nil
     ) -> PostProcessingService {

@@ -328,7 +328,8 @@ struct ModelRowDescription: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 4) {
+            // Wraps to another line when the row is narrow.
+            FlowLayout(spacing: 4) {
                 ForEach(featureNames, id: \.self) { name in
                     // The capsule the "+N" notice pill uses.
                     Text(name)

@@ -840,6 +840,11 @@ struct AppStateAIProcessingBackendTests {
             )
         }
         await waitUntil { deletionHarness.callCount == 1 }
+        // The deletion callback marks the model not installed after it
+        // counts the call; wait for the cached state to follow.
+        await waitUntil {
+            appState.localAIInstallState(for: LocalAIModelCatalog.quality).status != .ready
+        }
         await MainActor.run {
             // A model not downloaded can be picked, as in every model
             // picker (#596), but it doesn't run until it is downloaded.
@@ -2877,7 +2882,7 @@ struct AppStateAIProcessingBackendTests {
             to: "speechRecognitionAuthorizationStatus ="
         )
         let serviceSnapshot = requiredRange(
-            of: "let postProcessingService = makePostProcessingService()",
+            of: "let postProcessingService = Self.makePostProcessingService(",
             in: scheduling
         )
         let schedulingTask = requiredRange(
