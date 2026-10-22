@@ -17,6 +17,7 @@ struct ModelsSettingsUIContractTests {
         let catalog = try source("Resources/Localization/Localizable.xcstrings")
 
         testUIOnlyBoundary(appState: appState)
+        testModelPickersShareOneLook(localAIModelRow: localAIModelRow)
         testExistingProviderRoutingRemains(postProcessing: postProcessing, context: context)
         testExistingModelCatalogRemains(modelConfiguration)
         testLiveContextPickerRequiresVisionModels(settings)
@@ -857,7 +858,9 @@ struct ModelsSettingsUIContractTests {
         precondition(processingPicker.contains("appState.aiProcessingChoiceDisplays(for: feature)"))
         precondition(localAIModelRow.contains("localizedCatalogString(\"Post-processing\")"))
         precondition(localAIModelRow.contains("localizedCatalogString(\"Meeting Summary\")"))
-        precondition(localAIModelRow.contains("joined(separator: \" · \")"))
+        // #596: supported features show as tags in Settings order.
+        precondition(localAIModelRow.contains("AIModelFeature.transcription,\n            .postProcessing,\n            .contextCapture,\n            .meetingSummary"))
+        precondition(localAIModelRow.contains("struct ModelRowDescription: View"))
         let cloudChoiceSelection = block(
             in: choiceSelection,
             from: "case .cloud(let modelID):",
@@ -1262,6 +1265,30 @@ struct ModelsSettingsUIContractTests {
             )
         )
         precondition(displaysBody.contains("noteBrowserTranscriptionDisplay(for: apiRealtimeChoice)"))
+    }
+
+    /// #596: every model picker labels, picks, and downloads on-device
+    /// models the same way.
+    private static func testModelPickersShareOneLook(localAIModelRow: String) {
+        let settings = (try? source("Sources/SettingsView.swift")) ?? ""
+        // One label shape: "Name · size — tag · tag".
+        precondition(settings.contains("private func modelMenuLabel(_ name: String, bytes: Int64?, tags: [String]) -> String"))
+        precondition(settings.contains("tags: [localModelDownloadStatus(model)].compactMap { $0 }"), "Transcription's Local AI rows")
+        precondition(settings.contains("let status = localModelDownloadStatus(model) {\n            tags.append(status)"), "the AI pickers' Local AI rows")
+        // The download row is tinted for the picker's current choice everywhere.
+        precondition(settings.contains("isSelected: settingsTranscriptionChoice == .localAI(modelID: model.id)"))
+        precondition(settings.contains("// choice, with or without its own selection control.\n        .background(isSelected ? Color.accentColor.opacity(0.08)"), "the Whisper row is tinted like the others")
+        // The Whisper row shares the description layout and its tags.
+        precondition(settings.contains("featureNames: [localizedCatalogString(\"Transcription\")]"))
+        // The fallback picker: macOS 13 disables instead of hiding, and its
+        // download row leaves the primary alone.
+        precondition(settings.contains("private func fallbackChoiceMenuItem("))
+        precondition(!settings.contains("hidden there, as before"))
+        precondition(settings.contains("isSelected: true,\n                    selectsOnDownload: false"))
+        precondition(settings.contains("let model = LocalAIModelCatalog.model(id: modelID),\n               appState.isLocalAIModelAvailable(model) {"), "no download row for a model this Mac can't run")
+        precondition(settings.contains("Text(transcriptionChoiceMenuLabel(currentTranscriptionDisplay))"), "macOS 13's closed label matches")
+        precondition(localAIModelRow.contains("guard selectsOnDownload else { return state.status != .ready }"), "a fallback says it runs once downloaded")
+        precondition(localAIModelRow.contains("} else if selectsOnDownload {\n                appState.installLocalAIModel(model, autoSelectFor: feature)\n            } else {\n                appState.installLocalAIModel(model)"))
     }
 
     private static func source(_ path: String) throws -> String {

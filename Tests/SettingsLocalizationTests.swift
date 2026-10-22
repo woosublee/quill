@@ -56,8 +56,8 @@ struct SettingsLocalizationTests {
         assert(model.id == "whisper-large-v3-turbo")
         assert(model.expectedFileName == "ggml-large-v3-turbo.bin")
         assert(model.downloadURL.absoluteString == "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin")
-        assert(model.localizedDescription(language: "en", bundle: localizationBundle) == "Fast local transcription with high accuracy. Recommended.")
-        assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확한 로컬 전사. 추천.")
+        assert(model.localizedDescription(language: "en", bundle: localizationBundle) == "Fast, accurate transcription on this Mac.")
+        assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확하게 이 Mac에서 전사해요.")
     }
 
     /// Every transcription choice lists by model name; the section shows Cloud
@@ -532,7 +532,7 @@ struct SettingsLocalizationTests {
             "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.": "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 Edit Mode에서 선택한 글과 화면 문맥을 포함한 텍스트가 그 모델로 전송돼요.",
             "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.": "클라우드 모델을 고르면 온디바이스 모델이 실패할 때 회의 전사문이 그 모델로 전송돼요.",
             "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.": "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석해요. 스크린샷은 이 Mac을 벗어나지 않아요.",
-            "Best quality. Needs more memory.": "최고 품질이에요. 더 많은 메모리가 필요해요.",
+            "The best text quality, but uses more memory.": "글 정리 품질이 가장 좋지만 메모리를 더 많이 써요.",
             "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
             "The previously selected on-device model is no longer available. Context requires an image-capable model.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. Context에는 이미지 지원 모델이 필요해요.",
             "Previously selected on-device model": "이전에 선택한 온디바이스 모델",

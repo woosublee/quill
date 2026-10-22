@@ -70,7 +70,7 @@ struct LocalAIModelCatalog {
     static let quality = LocalAIModel(
         id: "qwen2.5-7b-instruct",
         displayName: "Qwen2.5 7B Instruct",
-        description: "Best quality. Needs more memory.",
+        description: "The best text quality, but uses more memory.",
         artifacts: [
             LocalAIModelArtifact(
                 downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf")!,
@@ -94,7 +94,7 @@ struct LocalAIModelCatalog {
     static let gemma4E4B = LocalAIModel(
         id: "gemma-4-e4b-it",
         displayName: "Gemma 4 E4B",
-        description: "Also reads screen context. One download covers every local feature it supports.",
+        description: "Also reads the screen, so one download covers every feature it supports.",
         artifacts: [
             LocalAIModelArtifact(
                 downloadURL: URL(string: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf")!,
@@ -126,7 +126,7 @@ struct LocalAIModelCatalog {
     static let qwen3ASR06B = LocalAIModel(
         id: "qwen3-asr-0.6b",
         displayName: "Qwen3-ASR 0.6B",
-        description: "Transcription only. Light and fast, and leaves silence empty.",
+        description: "Light, fast transcription that leaves silence empty.",
         artifacts: [
             LocalAIModelArtifact(
                 downloadURL: URL(string: "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf")!,

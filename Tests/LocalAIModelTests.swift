@@ -185,7 +185,7 @@ struct LocalAIModelTests {
             LocalAIModelCatalog.quality.localizedDescription(
                 language: "ko",
                 bundle: bundle
-            ) == "최고 품질이에요. 더 많은 메모리가 필요해요."
+            ) == "글 정리 품질이 가장 좋지만 메모리를 더 많이 써요."
         )
         assert(
             LocalAIDownloadProgress(

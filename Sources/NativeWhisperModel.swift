@@ -20,7 +20,7 @@ struct NativeWhisperModel: Identifiable, Hashable, Codable {
     ) -> String {
         guard id == "whisper-large-v3-turbo" else { return description }
         return localizedCatalogString(
-            "Fast local transcription with high accuracy. Recommended.",
+            "Fast, accurate transcription on this Mac.",
             language: language,
             bundle: bundle
         )
@@ -31,7 +31,7 @@ struct NativeWhisperModelCatalog {
     static let recommended = NativeWhisperModel(
         id: "whisper-large-v3-turbo",
         displayName: "Whisper Large v3 Turbo",
-        description: "Fast local transcription with high accuracy. Recommended.",
+        description: "Fast, accurate transcription on this Mac.",
         downloadURL: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin")!,
         expectedFileName: "ggml-large-v3-turbo.bin",
         approximateBytes: 1_624_555_275,
