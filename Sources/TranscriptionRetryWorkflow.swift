@@ -145,6 +145,9 @@ struct TranscriptionRetryCompletion: Equatable, Sendable {
     let interactiveTranscript: String?
     let transcriptAssetPersisted: Bool
     let cleanupFailureDescription: String?
+    /// A retry meant for comparison gave the same transcript, so it was
+    /// saved without asking, and without making the summary stale.
+    var transcriptUnchanged = false
 }
 
 struct TranscriptionRetryFailure: Equatable, Sendable {
@@ -448,6 +451,14 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         }
     }
 
+    /// Whether `transcript` is the transcript the note shows now, apart
+    /// from surrounding whitespace. An empty one is never the same.
+    static func isSameTranscript(_ transcript: String, as item: PipelineHistoryItem) -> Bool {
+        let shown = item.displayedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !shown.isEmpty
+            && transcript.trimmingCharacters(in: .whitespacesAndNewlines) == shown
+    }
+
     static func hasTranscriptText(_ item: PipelineHistoryItem) -> Bool {
         !item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -707,7 +718,16 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             return
         }
 
-        if request.deliversCandidate {
+        // The same text leaves nothing to choose: it is saved directly, so
+        // the run's model, raw transcript and status are kept, and a summary
+        // made from that text stays current.
+        // Only when the note is still what the retry started from; a change
+        // made meanwhile goes through the comparison, which drops it as stale.
+        let transcriptUnchanged = request.deliversCandidate
+            && currentItem.rawTranscript == request.initialItem.rawTranscript
+            && currentItem.postProcessedTranscript == request.initialItem.postProcessedTranscript
+            && Self.isSameTranscript(processing.finalTranscript, as: currentItem)
+        if request.deliversCandidate, !transcriptUnchanged {
             // Nothing is saved until the person chooses the new transcript.
             let cleanupFailureDescription = deleteCompletedSidecarIfPresent(
                 noteID: noteID,
@@ -792,6 +812,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 TranscriptionRetryPersistedEffects(
                     advancesWarningGeneration: true,
                     invalidatesMeetingSummary: request.origin == .manual
+                        && !transcriptUnchanged
                 )
             )
         )
@@ -802,11 +823,14 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             revision: revision
         )
         let completion = TranscriptionRetryCompletion(
-            interactiveTranscript: request.deliveryPolicy == .interactive
+            // Nothing was chosen, so the clipboard is left alone, as when
+            // the person keeps the current transcript.
+            interactiveTranscript: request.deliveryPolicy == .interactive && !transcriptUnchanged
                 ? processing.finalTranscript
                 : nil,
             transcriptAssetPersisted: transcriptFileName != nil,
-            cleanupFailureDescription: cleanupFailureDescription
+            cleanupFailureDescription: cleanupFailureDescription,
+            transcriptUnchanged: transcriptUnchanged
         )
         let outcome: TranscriptionRetryWorkflowOutcome
         switch processing.disposition {
