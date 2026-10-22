@@ -4522,15 +4522,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         // A cloud fallback equal to the shown primary would never run.
         if choice.isCloud, choice.backendChoice == shownPrimary { return }
-        if case .localAI(let modelID) = choice {
-            // Listed but not pickable until downloaded (macOS 13 menus
-            // can't disable a picker row).
-            guard LocalAIModelCatalog.model(id: modelID) != nil,
-                  choice.backendChoice != shownPrimary,
-                  choice.backendChoice != currentAIProcessingChoice(for: feature),
-                  let backendChoice = choice.backendChoice,
-                  isAIProcessingChoiceReady(backendChoice, for: feature)
-                    || choice == currentAIProcessingFallbackChoice(for: feature) else {
+        // A local model must be one the picker offers as pickable: not the
+        // primary's own model, and downloaded.
+        if choice.isLocal {
+            guard aiProcessingFallbackChoiceDisplays(for: feature, shownPrimary: shownPrimary)
+                .contains(where: { AIProcessingFallbackChoice($0.choice) == choice && $0.isAvailable }) else {
                 return
             }
         }
@@ -4591,16 +4587,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> [AIProcessingChoiceDisplay] {
         let primary = shownPrimary ?? currentAIProcessingChoice(for: feature)
         let current = currentAIProcessingFallbackChoice(for: feature)
+        let storedPrimary = currentAIProcessingChoice(for: feature)
         var displays = aiProcessingChoiceDisplays(for: feature).compactMap {
             display -> AIProcessingChoiceDisplay? in
             guard display.isAvailable else { return nil }
             let reason: String
-            if display.choice == primary {
+            if display.choice == primary
+                || (display.choice.isLocal && display.choice == storedPrimary) {
                 reason = localizedCatalogString("Used as the model above")
-            } else if display.choice.isLocal,
+            } else if case .localAI(let modelID) = display.choice,
                       !isAIProcessingChoiceReady(display.choice, for: feature),
                       AIProcessingFallbackChoice(display.choice) != current {
-                reason = localizedCatalogString("Download required")
+                let isDownloading = LocalAIModelCatalog.model(id: modelID)
+                    .map { localAIInstallState(for: $0).isInstalling } ?? false
+                reason = localizedCatalogString(
+                    isDownloading ? "Downloading..." : "Download required"
+                )
             } else {
                 return display
             }
@@ -4608,10 +4610,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 choice: display.choice,
                 section: display.section,
                 title: display.title,
-                subtitle: reason,
+                subtitle: display.subtitle.map { "\($0) · \(reason)" } ?? reason,
                 isAvailable: false,
                 unavailableReason: reason,
-                isRecommended: false
+                isRecommended: display.isRecommended
             )
         }
         if case .localAI(let modelID) = current,
