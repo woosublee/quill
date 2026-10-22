@@ -3021,8 +3021,7 @@ struct ModelsSettingsView: View {
                     if !sectionDisplays.isEmpty {
                         Section(localizedCatalogString(section)) {
                             ForEach(sectionDisplays) { display in
-                                Text(aiProcessingChoiceMenuLabel(display))
-                                    .tag(AIProcessingFallbackChoice(display.choice))
+                                fallbackChoiceRow(display)
                             }
                         }
                     }
@@ -3053,6 +3052,17 @@ struct ModelsSettingsView: View {
             if shownPrimary.isLocal {
                 providerConfigurationWarning(cloudWarning)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func fallbackChoiceRow(_ display: AIProcessingChoiceDisplay) -> some View {
+        let row = Text(aiProcessingChoiceMenuLabel(display))
+            .tag(AIProcessingFallbackChoice(display.choice))
+        if #available(macOS 14.0, *) {
+            row.selectionDisabled(!display.isAvailable)
+        } else {
+            row
         }
     }
 

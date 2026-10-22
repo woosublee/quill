@@ -4523,9 +4523,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // A cloud fallback equal to the shown primary would never run.
         if choice.isCloud, choice.backendChoice == shownPrimary { return }
         if case .localAI(let modelID) = choice {
+            // Listed but not pickable until downloaded (macOS 13 menus
+            // can't disable a picker row).
             guard LocalAIModelCatalog.model(id: modelID) != nil,
                   choice.backendChoice != shownPrimary,
-                  choice.backendChoice != currentAIProcessingChoice(for: feature) else {
+                  choice.backendChoice != currentAIProcessingChoice(for: feature),
+                  let backendChoice = choice.backendChoice,
+                  isAIProcessingChoiceReady(backendChoice, for: feature)
+                    || choice == currentAIProcessingFallbackChoice(for: feature) else {
                 return
             }
         }
@@ -4575,9 +4580,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         ) ? state.choice : .none
     }
 
-    /// Cloud and local models the fallback picker offers, without the
-    /// shown primary's own model. A current fallback that isn't
-    /// available stays listed so the picker's selection always matches.
+    /// The same cloud and local models as the primary picker. The shown
+    /// primary's own model and local models not yet downloaded are listed
+    /// but can't be picked. A current fallback that isn't available stays
+    /// listed so the picker's selection always matches.
     @MainActor
     func aiProcessingFallbackChoiceDisplays(
         for feature: AIProcessingFeature,
@@ -4585,13 +4591,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> [AIProcessingChoiceDisplay] {
         let primary = shownPrimary ?? currentAIProcessingChoice(for: feature)
         let current = currentAIProcessingFallbackChoice(for: feature)
-        var displays = aiProcessingChoiceDisplays(for: feature).filter { display in
-            // Never the primary's own model, cloud or local.
-            guard display.isAvailable, display.choice != primary else { return false }
-            guard display.choice.isLocal else { return true }
-            // Only installed local models.
-            return isAIProcessingChoiceReady(display.choice, for: feature)
-                || AIProcessingFallbackChoice(display.choice) == current
+        var displays = aiProcessingChoiceDisplays(for: feature).compactMap {
+            display -> AIProcessingChoiceDisplay? in
+            guard display.isAvailable else { return nil }
+            let reason: String
+            if display.choice == primary {
+                reason = localizedCatalogString("Used as the model above")
+            } else if display.choice.isLocal,
+                      !isAIProcessingChoiceReady(display.choice, for: feature),
+                      AIProcessingFallbackChoice(display.choice) != current {
+                reason = localizedCatalogString("Download required")
+            } else {
+                return display
+            }
+            return AIProcessingChoiceDisplay(
+                choice: display.choice,
+                section: display.section,
+                title: display.title,
+                subtitle: reason,
+                isAvailable: false,
+                unavailableReason: reason,
+                isRecommended: false
+            )
         }
         if case .localAI(let modelID) = current,
            !displays.contains(where: { $0.choice == .localAI(modelID: modelID) }) {

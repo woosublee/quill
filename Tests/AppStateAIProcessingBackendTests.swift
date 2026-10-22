@@ -380,9 +380,9 @@ struct AppStateAIProcessingBackendTests {
                 "a local primary with no fallback builds no cloud executor"
             )
             precondition(
-                !appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
-                    .contains { $0.choice == localChoice },
-                "the fallback picker never offers the primary's own local model"
+                appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+                    .contains { $0.choice == localChoice && !$0.isAvailable },
+                "the fallback picker lists the primary's own local model as unavailable"
             )
         }
         precondition(storedFallbackChoice(forKey: "post_processing_fallback_choice") == AIProcessingFallbackChoice.none)
@@ -445,10 +445,10 @@ struct AppStateAIProcessingBackendTests {
                 ) != nil,
                 "a primary on the default fallback model still has a fallback"
             )
-            // The picker doesn't offer the primary, and picking it is ignored.
+            // The picker lists the primary as unavailable, and picking it is ignored.
             precondition(
-                !appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
-                    .contains { $0.choice == .cloud(modelID: fallbackDefault) }
+                appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+                    .contains { $0.choice == .cloud(modelID: fallbackDefault) && !$0.isAvailable }
             )
             appState.selectAIProcessingFallbackChoice(
                 .cloud(modelID: fallbackDefault),
@@ -510,7 +510,11 @@ struct AppStateAIProcessingBackendTests {
 
     private static func testUserSelectedFallbackSurvivesPrimaryChange() async {
         resetAIProcessingDefaults()
-        let appState = await makeRefreshedAppState()
+        // Local models are downloaded, so they can be picked as fallbacks.
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .ready)
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { statusHarness.status(for: $0) }
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
         let localChoice = AIProcessingBackendChoice.localAI(
             modelID: LocalAIModelCatalog.quality.id
         )
@@ -825,6 +829,17 @@ struct AppStateAIProcessingBackendTests {
             precondition(
                 appState.meetingSummaryFallbackChoice
                     == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
+            )
+            // A model not downloaded is still listed, but can't be picked.
+            precondition(
+                appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+                    .contains { $0.choice == local.backendChoice && !$0.isAvailable },
+                "the fallback picker lists a local model that isn't downloaded"
+            )
+            appState.selectAIProcessingFallbackChoice(local, for: .postProcessing)
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel)
             )
         }
         await waitUntil { deletionHarness.callCount == 1 }
