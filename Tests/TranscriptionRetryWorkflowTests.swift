@@ -467,11 +467,28 @@ struct TranscriptionRetryWorkflowTests {
 
         try expect(workflow.startManual(request: request, runtime: runtime), "manual workflow started")
         try await waitUntil { events.outcomes.count == 1 }
-        try expectEqual(events.outcomes.last, .unchanged, "same text has nothing to compare")
-        try expect(history.persistedItems.isEmpty, "nothing is saved")
-        try expect(events.persistedEvents.isEmpty, "the summary isn't invalidated")
+        let completion = try requireSuccessCompletion(events.outcomes.last)
+        try expect(completion.transcriptUnchanged, "same text has nothing to compare")
         try expect(!workflow.state.candidateNoteIDs.contains(item.id), "no candidate waits")
         try expect(!workflow.state.retryingNoteIDs.contains(item.id), "retrying finished")
+        // Saved directly, so the run's raw transcript and status are kept,
+        // and old warnings clear; the summary made from that text stays.
+        let saved = try require(history.persistedItems.last, "saved without a choice")
+        try expectEqual(saved.rawTranscript, "new raw", "the run's raw transcript is kept")
+        try expectEqual(
+            events.persistedEvents.last?.effects,
+            TranscriptionRetryPersistedEffects(
+                advancesWarningGeneration: true,
+                invalidatesMeetingSummary: false
+            ),
+            "the summary stays current"
+        )
+
+        // An empty transcript is never the same one.
+        try expect(
+            !TranscriptionRetryWorkflow.isSameTranscript(" ", as: makeHistoryItem(postProcessedTranscript: "")),
+            "nothing shown is never the same"
+        )
     }
 
     /// #457: a retry of a note that has a transcript waits as a candidate;

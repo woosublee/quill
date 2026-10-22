@@ -2432,7 +2432,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func dismissUnchangedRetranscriptionNotice(noteID: UUID) {
-        unchangedRetranscriptionNoteIDs.remove(noteID)
+        unchangedRetranscriptions.removeValue(forKey: noteID)
     }
 
     @MainActor
@@ -2583,9 +2583,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
     /// New transcripts from a retry, waiting to be compared (#457).
     @Published private(set) var transcriptionCandidates: [UUID: String] = [:]
-    /// Notes whose retry gave the same transcript, so nothing was compared
-    /// or saved; the Note Browser says so until dismissed or retried.
-    @Published private(set) var unchangedRetranscriptionNoteIDs: Set<UUID> = []
+    /// Notes whose retry gave the same transcript and was saved without a
+    /// comparison, with the transcript it saved. The Note Browser says so
+    /// while the note still shows that transcript, until dismissed or retried.
+    @Published private(set) var unchangedRetranscriptions: [UUID: String] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
@@ -5891,6 +5892,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .completed(let noteID, let outcome):
             switch outcome {
             case .succeeded(let completion), .fallback(let completion):
+                if completion.transcriptUnchanged,
+                   let item = pipelineHistory.first(where: { $0.id == noteID }) {
+                    unchangedRetranscriptions[noteID] = item.postProcessedTranscript
+                }
                 if let transcript = completion.interactiveTranscript {
                     copyRetryTranscriptToPasteboardIfNeeded(transcript)
                 }
@@ -5919,9 +5924,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
             case .stale:
                 markStoppedCloudTranscriptions(among: [noteID])
-
-            case .unchanged:
-                unchangedRetranscriptionNoteIDs.insert(noteID)
 
             case .cancelled, .candidateReady:
                 break
@@ -9237,7 +9239,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .persistenceFailed(let issue):
             errorMessage = issue.presentation().compactMessage
             return .failed
-        case .failed, .cancelled, .candidateReady, .unchanged:
+        case .failed, .cancelled, .candidateReady:
             return .failed
         }
     }
@@ -9274,7 +9276,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         do {
             var request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
-            unchangedRetranscriptionNoteIDs.remove(item.id)
             // A note that already has a transcript compares the new one
             // before replacing it (#457); a first transcript is just saved.
             request.deliversCandidate = comparesFirst && Self.hasTranscriptText(item)
@@ -9282,6 +9283,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
             ) {
+                unchangedRetranscriptions.removeValue(forKey: item.id)
                 cloudTranscriptionProgressByHistoryID.removeValue(
                     forKey: item.id
                 )
