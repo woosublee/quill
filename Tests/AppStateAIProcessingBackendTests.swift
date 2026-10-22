@@ -838,19 +838,26 @@ struct AppStateAIProcessingBackendTests {
                 appState.meetingSummaryFallbackChoice
                     == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
             )
-            // A model not downloaded is still listed, but can't be picked.
-            precondition(
-                appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
-                    .contains { $0.choice == local.backendChoice && !$0.isAvailable },
-                "the fallback picker lists a local model that isn't downloaded"
-            )
-            appState.selectAIProcessingFallbackChoice(local, for: .postProcessing)
-            precondition(
-                appState.postProcessingFallbackChoice
-                    == .cloud(modelID: AppState.defaultPostProcessingFallbackModel)
-            )
         }
         await waitUntil { deletionHarness.callCount == 1 }
+        await MainActor.run {
+            // A model not downloaded can be picked, as in every model
+            // picker (#596), but it doesn't run until it is downloaded.
+            precondition(
+                appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+                    .contains { $0.choice == local.backendChoice && $0.isAvailable },
+                "the fallback picker offers a local model that isn't downloaded"
+            )
+            appState.selectAIProcessingFallbackChoice(local, for: .postProcessing)
+            precondition(appState.postProcessingFallbackChoice == local)
+            precondition(
+                appState.makeAIProcessingFallbackExecutor(
+                    appState.postProcessingFallbackState,
+                    primary: appState.postProcessingBackendChoice
+                ) == nil,
+                "a local fallback that isn't downloaded doesn't run"
+            )
+        }
         precondition(
             storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
                 == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)

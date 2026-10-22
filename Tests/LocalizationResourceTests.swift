@@ -103,7 +103,7 @@ struct LocalizationResourceTests {
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
                 "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제돼요.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소",
-            "Best quality. Needs more memory.": "최고 품질이에요. 더 많은 메모리가 필요해요.",
+            "The best text quality, but uses more memory.": "글 정리 품질이 가장 좋지만 메모리를 더 많이 써요.",
             "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.":
                 "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없어요. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
             "The previously selected on-device model is no longer available. Context requires an image-capable model.":

@@ -67,6 +67,9 @@ struct LocalAIModelRowView: View {
     let model: LocalAIModel
     let isSelected: Bool
     let presentation: LocalAIModelRowPresentation
+    /// False under a fallback picker: downloading doesn't change the
+    /// feature's primary model.
+    let selectsOnDownload: Bool
 
     @State private var showDeleteConfirmation = false
     @State private var isHoveringProgress = false
@@ -76,12 +79,14 @@ struct LocalAIModelRowView: View {
         feature: AIProcessingFeature?,
         model: LocalAIModel,
         isSelected: Bool,
-        presentation: LocalAIModelRowPresentation = .managed
+        presentation: LocalAIModelRowPresentation = .managed,
+        selectsOnDownload: Bool = true
     ) {
         self.feature = feature
         self.model = model
         self.isSelected = isSelected
         self.presentation = presentation
+        self.selectsOnDownload = selectsOnDownload
     }
 
     private var state: LocalAIModelInstallViewState {
@@ -162,39 +167,28 @@ struct LocalAIModelRowView: View {
         }
     }
 
-    private var supportedFeatureDescription: String {
+    /// In the order Settings lists the features.
+    private var supportedFeatureNames: [String] {
         [
-            AIModelFeature.postProcessing,
+            AIModelFeature.transcription,
+            .postProcessing,
             .contextCapture,
-            .meetingSummary,
-            .transcription
+            .meetingSummary
         ].compactMap { feature in
             model.capabilities.supports(feature)
                 ? localizedFeatureName(feature)
                 : nil
-        }.joined(separator: " · ")
+        }
     }
 
     private var modelDescription: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: model.displayName)
-                .font(.caption.weight(isSelected ? .semibold : .regular))
-            Text(
-                localizedCatalogFormat(
-                    "%@. About %@.",
-                    model.localizedDescription(),
-                    ByteCountFormatter.string(
-                        fromByteCount: model.approximateBytes,
-                        countStyle: .file
-                    )
-                )
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            Text(supportedFeatureDescription)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
+        ModelRowDescription(
+            name: model.displayName,
+            approximateBytes: model.approximateBytes,
+            description: model.localizedDescription(),
+            featureNames: supportedFeatureNames,
+            isSelected: isSelected
+        )
     }
 
     @ViewBuilder
@@ -238,6 +232,7 @@ struct LocalAIModelRowView: View {
     }
 
     private var isPendingSelection: Bool {
+        guard selectsOnDownload else { return false }
         if let feature {
             return appState.pendingLocalAIModelID(for: feature) == model.id
         }
@@ -248,8 +243,10 @@ struct LocalAIModelRowView: View {
         Button("Download") {
             if feature == nil {
                 appState.selectLocalAITranscriptionModel(model.id)
-            } else {
+            } else if selectsOnDownload {
                 appState.installLocalAIModel(model, autoSelectFor: feature)
+            } else {
+                appState.installLocalAIModel(model)
             }
         }
         .font(.caption)
@@ -298,6 +295,49 @@ struct LocalAIModelRowView: View {
             .frame(width: 24, height: 24)
             .contentShape(Circle())
             .onHover { isHoveringProgress = $0 }
+        }
+    }
+}
+
+/// A downloadable model's name with its size beside it, a one-sentence
+/// description, and the features it supports as tags. Every model row in
+/// Settings uses it.
+struct ModelRowDescription: View {
+    let name: String
+    let approximateBytes: Int64
+    let description: String
+    let featureNames: [String]
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: name)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                Text(
+                    ByteCountFormatter.string(
+                        fromByteCount: approximateBytes,
+                        countStyle: .file
+                    )
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            Text(description)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 4) {
+                ForEach(featureNames, id: \.self) { name in
+                    // The capsule the "+N" notice pill uses.
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                }
+            }
         }
     }
 }

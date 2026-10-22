@@ -4532,7 +4532,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // A cloud fallback equal to the shown primary would never run.
         if choice.isCloud, choice.backendChoice == shownPrimary { return }
         // A local model must be one the picker offers as pickable: not the
-        // primary's own model, and downloaded.
+        // primary's own model, and one this Mac can run.
         if choice.isLocal {
             guard aiProcessingFallbackChoiceDisplays(for: feature, shownPrimary: shownPrimary)
                 .contains(where: { AIProcessingFallbackChoice($0.choice) == choice && $0.isAvailable }) else {
@@ -4586,9 +4586,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// The same cloud and local models as the primary picker. The shown
-    /// primary's own model and local models not yet downloaded are listed
-    /// but can't be picked. A current fallback that isn't available stays
-    /// listed so the picker's selection always matches.
+    /// primary's own model is listed but can't be picked. A current
+    /// fallback that isn't available stays listed so the picker's
+    /// selection always matches.
     @MainActor
     func aiProcessingFallbackChoiceDisplays(
         for feature: AIProcessingFeature,
@@ -4604,25 +4604,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // An unavailable row is the primary's own retired model: listed
             // like any primary, never pickable.
             guard display.isAvailable || isPrimary else { return nil }
-            let reason: String
-            if isPrimary {
-                reason = localizedCatalogString("Used as the model above")
-            } else if case .localAI(let modelID) = display.choice,
-                      !isAIProcessingChoiceReady(display.choice, for: feature) {
-                // The current fallback stays listed (and selected) too.
-                let isDownloading = LocalAIModelCatalog.model(id: modelID)
-                    .map { localAIInstallState(for: $0).isInstalling } ?? false
-                reason = localizedCatalogString(
-                    isDownloading ? "Downloading..." : "Download required"
-                )
-            } else {
-                return display
-            }
+            // A local model not downloaded yet can be picked, as in every
+            // model picker; it runs once downloaded.
+            guard isPrimary else { return display }
+            let reason = localizedCatalogString("Used as the model above")
             return AIProcessingChoiceDisplay(
                 choice: display.choice,
                 section: display.section,
                 title: display.title,
-                subtitle: display.subtitle.map { "\($0) · \(reason)" } ?? reason,
+                subtitle: display.subtitle,
                 isAvailable: false,
                 unavailableReason: reason,
                 isRecommended: display.isRecommended
@@ -4653,7 +4643,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 choice: .cloud(modelID: modelID),
                 section: "Cloud",
                 title: modelID,
-                subtitle: reason,
+                subtitle: nil,
                 isAvailable: !isPrimary,
                 unavailableReason: reason,
                 isRecommended: false
@@ -5195,13 +5185,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         primary: AIProcessingBackendChoice
     ) -> AIProcessingBackendExecutor? {
         Self.makeAIProcessingFallbackExecutor(
-            fallback,
+            downloadedFallbackState(fallback),
             primary: primary,
             apiKey: apiKey,
             baseURL: apiBaseURL,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()
         )
+    }
+
+    /// A local fallback picked before its download finished runs only once
+    /// downloaded; until then the primary has no fallback.
+    func downloadedFallbackState(_ state: AIProcessingFallbackState) -> AIProcessingFallbackState {
+        guard case .localAI(let modelID) = state.choice,
+              let model = LocalAIModelCatalog.model(id: modelID),
+              dependencies.localAI.installStatus(model) != .ready else {
+            return state
+        }
+        return AIProcessingFallbackState(choice: .none, isUserSelected: state.isUserSelected)
     }
 
     static func makePostProcessingService(
@@ -5241,7 +5242,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             choice: choice ?? postProcessingBackendChoice,
             apiKey: apiKey,
             baseURL: apiBaseURL,
-            fallback: postProcessingFallbackState,
+            fallback: downloadedFallbackState(postProcessingFallbackState),
             instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
             localServerManager: localAIServerManager,
             localAIAvailability: dependencies.localAI.processingAvailability()

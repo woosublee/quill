@@ -2041,26 +2041,48 @@ struct ModelsSettingsView: View {
     }
 
     private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String {
-        guard !display.isAvailable else {
-            return display.localizedCompactLabel()
-        }
-        let isDownloading: Bool
+        let label = display.localizedCompactLabel()
         switch display.choice {
-        case .nativeWhisper:
-            isDownloading = appState.isInstallingNativeWhisper
-        case .localAI(let modelID):
-            // Only a missing download gets the suffix; an unsupported model
-            // keeps its plain label and shows its reason below the picker.
-            guard let model = LocalAIModelCatalog.model(id: modelID),
-                  appState.isLocalAIModelAvailable(model) else {
-                return display.localizedCompactLabel()
+        case .nativeWhisper(let modelID):
+            guard let model = NativeWhisperModelCatalog.all.first(where: { $0.id == modelID }) else {
+                return label
             }
-            isDownloading = appState.localAIInstallState(for: model).isInstalling
+            let status = display.isAvailable
+                ? nil
+                : localizedCatalogString(
+                    appState.isInstallingNativeWhisper ? "Downloading..." : "Download required"
+                )
+            return modelMenuLabel(label, bytes: model.approximateBytes, tags: [status].compactMap { $0 })
+        case .localAI(let modelID):
+            guard let model = LocalAIModelCatalog.model(id: modelID) else { return label }
+            return modelMenuLabel(
+                label,
+                bytes: model.approximateBytes,
+                tags: [localModelDownloadStatus(model)].compactMap { $0 }
+            )
         case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
-            return display.localizedCompactLabel()
+            return label
         }
-        let status = isDownloading ? "Downloading..." : "Download required"
-        return "\(display.localizedCompactLabel()) — \(localizedCatalogString(status))"
+    }
+
+    /// "Name · size — tag · tag", the way every model picker labels an
+    /// on-device model.
+    private func modelMenuLabel(_ name: String, bytes: Int64?, tags: [String]) -> String {
+        var label = name
+        if let bytes {
+            label += " · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
+        }
+        return tags.isEmpty ? label : "\(label) — \(tags.joined(separator: " · "))"
+    }
+
+    /// "Downloading..." or "Download required" for a local model this Mac
+    /// can run that isn't ready yet; nil otherwise. An unsupported model
+    /// keeps its plain label and shows its reason below the picker.
+    private func localModelDownloadStatus(_ model: LocalAIModel) -> String? {
+        guard appState.isLocalAIModelAvailable(model) else { return nil }
+        let state = appState.localAIInstallState(for: model)
+        guard state.status != .ready else { return nil }
+        return localizedCatalogString(state.isInstalling ? "Downloading..." : "Download required")
     }
 
     private var managedLocalAITranscriptionModel: LocalAIModel? {
@@ -2351,12 +2373,23 @@ struct ModelsSettingsView: View {
     private func aiProcessingChoiceMenuLabel(
         _ display: AIProcessingChoiceDisplay
     ) -> String {
-        let base = display.subtitle.map {
-            "\(display.title) · \($0)"
-        } ?? display.title
-        return display.isRecommended
-            ? "\(base) — \(localizedCatalogString("Recommended"))"
-            : base
+        var tags: [String] = []
+        if display.isRecommended {
+            tags.append(localizedCatalogString("Recommended"))
+        }
+        if case .localAI(let modelID) = display.choice,
+           let model = LocalAIModelCatalog.model(id: modelID),
+           let status = localModelDownloadStatus(model) {
+            tags.append(status)
+        }
+        // A reason the subtitle doesn't already give, such as a fallback
+        // that is the primary's own model.
+        if !display.isAvailable, let reason = display.unavailableReason,
+           reason != display.subtitle {
+            tags.append(reason)
+        }
+        let base = display.subtitle.map { "\(display.title) · \($0)" } ?? display.title
+        return tags.isEmpty ? base : "\(base) — \(tags.joined(separator: " · "))"
     }
 
     private func aiProcessingChoiceMenuItem(
@@ -2484,6 +2517,7 @@ struct ModelsSettingsView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 transcriptionChoicePicker
+                localAIModelReloadHint()
 
                 if let model = managedNativeModel {
                     NativeWhisperModelRowView(
@@ -2504,11 +2538,9 @@ struct ModelsSettingsView: View {
                     LocalAIModelRowView(
                         feature: nil,
                         model: model,
-                        isSelected: appState.localAITranscriptionModelID == model.id
+                        isSelected: settingsTranscriptionChoice == .localAI(modelID: model.id)
                     )
                 }
-
-                localAIModelReloadHint()
 
                 if transcriptionEnabledDraft,
                    currentTranscriptionUsesAPI,
@@ -3014,22 +3046,74 @@ struct ModelsSettingsView: View {
             Text(title)
                 .font(.caption.weight(.semibold))
 
-            Picker(title, selection: selection) {
-                Text("No Fallback Model").tag(AIProcessingFallbackChoice.none)
-                ForEach(["Cloud", "On This Mac"], id: \.self) { section in
-                    let sectionDisplays = displays.filter { $0.section == section }
-                    if !sectionDisplays.isEmpty {
-                        Section(localizedCatalogString(section)) {
-                            ForEach(sectionDisplays) { display in
-                                fallbackChoiceRow(display, for: feature)
+            // Built like the primary model picker: a menu Picker on macOS
+            // 14, a Menu of toggles on macOS 13 where rows can't be disabled.
+            Group {
+                if #available(macOS 14.0, *) {
+                    Picker(title, selection: selection) {
+                        Text("No Fallback Model").tag(AIProcessingFallbackChoice.none)
+                        ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                            let sectionDisplays = displays.filter { $0.section == section }
+                            if !sectionDisplays.isEmpty {
+                                Section(localizedCatalogString(section)) {
+                                    ForEach(sectionDisplays) { display in
+                                        Text(aiProcessingChoiceMenuLabel(display))
+                                            .tag(AIProcessingFallbackChoice(display.choice))
+                                            .selectionDisabled(!display.isAvailable)
+                                    }
+                                }
                             }
                         }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                } else {
+                    Menu {
+                        fallbackChoiceMenuItem(
+                            AIProcessingFallbackChoice.none,
+                            label: localizedCatalogString("No Fallback Model"),
+                            isAvailable: true,
+                            selection: selection
+                        )
+                        ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                            let sectionDisplays = displays.filter { $0.section == section }
+                            if !sectionDisplays.isEmpty {
+                                Section(localizedCatalogString(section)) {
+                                    ForEach(sectionDisplays) { display in
+                                        fallbackChoiceMenuItem(
+                                            AIProcessingFallbackChoice(display.choice),
+                                            label: aiProcessingChoiceMenuLabel(display),
+                                            isAvailable: display.isAvailable,
+                                            selection: selection
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(
+                            displays.first { AIProcessingFallbackChoice($0.choice) == selection.wrappedValue }
+                                .map(aiProcessingChoiceMenuLabel)
+                                ?? localizedCatalogString("No Fallback Model")
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .menuStyle(.borderlessButton)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
             .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+
+            // The same download row as under the primary picker. Its
+            // download leaves the primary as it is.
+            if case .localAI(let modelID) = selection.wrappedValue,
+               let model = LocalAIModelCatalog.model(id: modelID) {
+                LocalAIModelRowView(
+                    feature: feature,
+                    model: model,
+                    isSelected: true,
+                    selectsOnDownload: false
+                )
+            }
 
             HStack(spacing: 8) {
                 TextField("e.g. provider/custom-model", text: draft)
@@ -3055,22 +3139,21 @@ struct ModelsSettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private func fallbackChoiceRow(
-        _ display: AIProcessingChoiceDisplay,
-        for feature: AIProcessingFeature
+    private func fallbackChoiceMenuItem(
+        _ choice: AIProcessingFallbackChoice,
+        label: String,
+        isAvailable: Bool,
+        selection: Binding<AIProcessingFallbackChoice>
     ) -> some View {
-        let row = Text(aiProcessingChoiceMenuLabel(display))
-            .tag(AIProcessingFallbackChoice(display.choice))
-        if #available(macOS 14.0, *) {
-            row.selectionDisabled(!display.isAvailable)
-        } else if display.isAvailable
-                    || AIProcessingFallbackChoice(display.choice)
-                        == appState.currentAIProcessingFallbackChoice(for: feature) {
-            // macOS 13 menus can't disable a row, so unpickable ones stay
-            // hidden there, as before.
-            row
+        Toggle(isOn: Binding(
+            get: { selection.wrappedValue == choice },
+            set: { isSelected in
+                if isSelected { selection.wrappedValue = choice }
+            }
+        )) {
+            Text(label)
         }
+        .disabled(!isAvailable)
     }
 
     private func applyCustomFallbackModel(
@@ -5564,8 +5647,10 @@ struct NativeWhisperModelRowView: View {
         appState.nativeWhisperInstallStatus == .ready
     }
 
+    /// Tinted like every model row when it is the picker's current
+    /// choice, with or without its own selection control.
     private var showsSelectedAppearance: Bool {
-        showsSelectionControl && isSelected
+        isSelected
     }
 
     var body: some View {
@@ -5638,13 +5723,13 @@ struct NativeWhisperModelRowView: View {
     }
 
     private var modelDescription: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: model.displayName)
-                .font(.caption.weight(showsSelectionControl && isSelected ? .semibold : .regular))
-            Text(localizedCatalogFormat("%@. About %@.", model.localizedDescription(), ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
+        ModelRowDescription(
+            name: model.displayName,
+            approximateBytes: model.approximateBytes,
+            description: model.localizedDescription(),
+            featureNames: [localizedCatalogString("Transcription")],
+            isSelected: isSelected
+        )
     }
 
     @ViewBuilder

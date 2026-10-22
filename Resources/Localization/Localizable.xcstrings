@@ -513,22 +513,6 @@
         }
       }
     },
-    "Transcription only. Light and fast, and leaves silence empty.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transcription only. Light and fast, and leaves silence empty."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사 전용이에요. 가볍고 빠르며 무음 구간을 비워 둬요."
-          }
-        }
-      }
-    },
     "On this Mac · Apple Speech · %@ is downloading and will become active when ready.": {
       "localizations": {
         "en": {
@@ -6831,22 +6815,6 @@
         }
       }
     },
-    "Fast local transcription with high accuracy. Recommended.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fast local transcription with high accuracy. Recommended."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "빠르고 정확한 로컬 전사. 추천."
-          }
-        }
-      }
-    },
     "Korean": {
       "localizations": {
         "en": {
@@ -7307,22 +7275,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "포르투갈어"
-          }
-        }
-      }
-    },
-    "%@. About %@.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@. About %@."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@. 약 %@."
           }
         }
       }
@@ -14948,38 +14900,6 @@
         }
       }
     },
-    "Also reads screen context. One download covers every local feature it supports.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Also reads screen context. One download covers every local feature it supports."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "화면 맥락도 읽을 수 있어요. 한 번 내려받으면 지원하는 모든 로컬 기능에 사용돼요."
-          }
-        }
-      }
-    },
-    "Best quality. Needs more memory.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Best quality. Needs more memory."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최고 품질이에요. 더 많은 메모리가 필요해요."
-          }
-        }
-      }
-    },
     "Canceled": {
       "localizations": {
         "en": {
@@ -21824,6 +21744,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "전사문 내용은 그대로예요."
+          }
+        }
+      }
+    },
+    "Fast, accurate transcription on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast, accurate transcription on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠르고 정확하게 이 Mac에서 전사해요."
+          }
+        }
+      }
+    },
+    "The best text quality, but uses more memory.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The best text quality, but uses more memory."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글 정리 품질이 가장 좋지만 메모리를 더 많이 써요."
+          }
+        }
+      }
+    },
+    "Also reads the screen, so one download covers every feature it supports.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also reads the screen, so one download covers every feature it supports."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면도 읽을 수 있어서, 한 번 받으면 지원하는 기능 모두에 써요."
+          }
+        }
+      }
+    },
+    "Light, fast transcription that leaves silence empty.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light, fast transcription that leaves silence empty."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가볍고 빠르게 전사하고, 말이 없는 구간은 비워 둬요."
           }
         }
       }
