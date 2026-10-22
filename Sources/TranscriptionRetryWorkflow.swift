@@ -161,6 +161,9 @@ enum TranscriptionRetryWorkflowOutcome: Equatable, Sendable {
     case persistenceFailed(QuillUserIssueRecord)
     /// The new transcript waits to be compared; nothing was saved.
     case candidateReady
+    /// The new transcript matched the current one, so there was nothing to
+    /// compare and nothing was saved.
+    case unchanged
 }
 
 enum TranscriptionRetryWorkflowEvent {
@@ -448,6 +451,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         }
     }
 
+    static func isSameTranscript(_ transcript: String, as item: PipelineHistoryItem) -> Bool {
+        transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            == item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func hasTranscriptText(_ item: PipelineHistoryItem) -> Bool {
         !item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -714,6 +722,17 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 token: token,
                 revision: revision
             )
+            // The same text leaves nothing to choose: keep the note as it is,
+            // so a summary made from it stays current.
+            if Self.isSameTranscript(processing.finalTranscript, as: currentItem) {
+                finishAttempt(
+                    noteID: noteID,
+                    token: token,
+                    revision: revision,
+                    outcome: .unchanged
+                )
+                return
+            }
             candidates[noteID] = TranscriptionRetryCandidate(
                 request: request,
                 processing: processing,

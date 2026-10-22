@@ -290,6 +290,12 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("TranscriptComparisonView(\n                current: displayContent,"))
         precondition(noteBrowser.contains("private var transcriptTabIndicator: some View"))
         precondition(noteBrowser.contains("!(showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
+        // A retry with the same text skips the comparison and says so with the
+        // Summary tab's status banner; other notices wait behind its "+1".
+        precondition(noteBrowser.contains("let showsUnchangedNotice = appState.unchangedRetranscriptionNoteIDs.contains(item.id)"))
+        precondition(noteBrowser.contains("title: localizedCatalogString(\"The new transcript is the same as the current one.\")"))
+        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   isNothingToPostProcess,"))
+        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   !isWarningBannerDismissed,"))
 
         for unexpected in [
             "Quick review draft",

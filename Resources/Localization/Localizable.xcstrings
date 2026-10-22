@@ -21779,6 +21779,38 @@
           }
         }
       }
+    },
+    "The new transcript is the same as the current one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The new transcript is the same as the current one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 전사문이 지금과 같아요."
+          }
+        }
+      }
+    },
+    "Nothing changed, so the note was left as it was.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing changed, so the note was left as it was."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "바뀐 내용이 없어 그대로 두었어요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

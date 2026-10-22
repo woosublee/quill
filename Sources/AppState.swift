@@ -2431,6 +2431,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func dismissUnchangedRetranscriptionNotice(noteID: UUID) {
+        unchangedRetranscriptionNoteIDs.remove(noteID)
+    }
+
+    @MainActor
     func dismissWarningBanner(noteID: UUID, code: QuillUserIssueCode) {
         let key = Self.dismissalKey(noteID: noteID, code: code)
         dismissedWarningBannerGeneration[key] = noteRetryGeneration(for: noteID)
@@ -2578,6 +2583,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
     /// New transcripts from a retry, waiting to be compared (#457).
     @Published private(set) var transcriptionCandidates: [UUID: String] = [:]
+    /// Notes whose retry gave the same transcript, so nothing was compared
+    /// or saved; the Note Browser says so until dismissed or retried.
+    @Published private(set) var unchangedRetranscriptionNoteIDs: Set<UUID> = []
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
@@ -5912,6 +5920,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .stale:
                 markStoppedCloudTranscriptions(among: [noteID])
 
+            case .unchanged:
+                unchangedRetranscriptionNoteIDs.insert(noteID)
+
             case .cancelled, .candidateReady:
                 break
             }
@@ -9226,7 +9237,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .persistenceFailed(let issue):
             errorMessage = issue.presentation().compactMessage
             return .failed
-        case .failed, .cancelled, .candidateReady:
+        case .failed, .cancelled, .candidateReady, .unchanged:
             return .failed
         }
     }
@@ -9263,6 +9274,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         do {
             var request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
+            unchangedRetranscriptionNoteIDs.remove(item.id)
             // A note that already has a transcript compares the new one
             // before replacing it (#457); a first transcript is just saved.
             request.deliversCandidate = comparesFirst && Self.hasTranscriptText(item)

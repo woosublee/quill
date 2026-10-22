@@ -16,6 +16,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testManualSuccessPersistsBeforeEffectsAndDelivery()
         try await testManualFallbackUsesFallbackOutcome()
         try await testCandidateRetryWaitsUntilChosen()
+        try await testSameTranscriptSkipsTheComparison()
         try await testCandidateIsDroppedByKeepNewAttemptOrInvalidate()
         try await testCandidateNeverOverwritesATranscriptChangedMeanwhile()
         try await testRetryWritesANewTranscriptFileAndRemovesTheOldOne()
@@ -442,6 +443,35 @@ struct TranscriptionRetryWorkflowTests {
             ],
             "manual success event order"
         )
+    }
+
+    @MainActor
+    private static func testSameTranscriptSkipsTheComparison() async throws {
+        let operationLog = TranscriptionRetryOperationLog()
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item, operationLog: operationLog)
+        let assets = TranscriptionRetryAssetRecorder(operationLog: operationLog)
+        let events = TranscriptionRetryEventRecorder(operationLog: operationLog)
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: assets.access())
+        // Only whitespace differs from the current "old final".
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: " old final\n"))
+        )
+        request.deliversCandidate = true
+
+        try expect(workflow.startManual(request: request, runtime: runtime), "manual workflow started")
+        try await waitUntil { events.outcomes.count == 1 }
+        try expectEqual(events.outcomes.last, .unchanged, "same text has nothing to compare")
+        try expect(history.persistedItems.isEmpty, "nothing is saved")
+        try expect(events.persistedEvents.isEmpty, "the summary isn't invalidated")
+        try expect(!workflow.state.candidateNoteIDs.contains(item.id), "no candidate waits")
+        try expect(!workflow.state.retryingNoteIDs.contains(item.id), "retrying finished")
     }
 
     /// #457: a retry of a note that has a transcript waits as a candidate;

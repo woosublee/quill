@@ -2553,6 +2553,7 @@ private struct NoteDetailView: View {
     @State private var dismissedSummaryAttemptAt: Date?
     @State private var dismissedSummaryNoticeKeys: Set<String> = []
     @State private var areSummaryNoticesExpanded = false
+    @State private var areTranscriptNoticesExpanded = false
     @State private var highlightedSourceQuote: String?
 
     private var isError: Bool {
@@ -3353,7 +3354,38 @@ private struct NoteDetailView: View {
         } else {
             VStack(spacing: 0) {
                 // Notices stay while retranscribing, under the progress layer.
-                if isNothingToPostProcess,
+                // A same-result retry notice leads, grouped like the
+                // Summary tab's notices: the others wait behind "+1".
+                let showsUnchangedNotice = appState.unchangedRetranscriptionNoteIDs.contains(item.id)
+                let hasOtherNotice = !isWarningBannerDismissed
+                    && (isNothingToPostProcess || warningPresentation != nil)
+                if showsUnchangedNotice {
+                    QuillStatusBanner(
+                        systemImage: "info.circle",
+                        tint: .secondary,
+                        title: localizedCatalogString("The new transcript is the same as the current one."),
+                        detail: localizedCatalogString("Nothing changed, so the note was left as it was."),
+                        expansion: hasOtherNotice
+                            ? QuillBannerExpansion(
+                                hiddenCount: 1,
+                                isExpanded: areTranscriptNoticesExpanded,
+                                toggle: {
+                                    withAnimation(.easeOut(duration: 0.16)) {
+                                        areTranscriptNoticesExpanded.toggle()
+                                    }
+                                }
+                            )
+                            : nil,
+                        onDismiss: {
+                            areTranscriptNoticesExpanded = false
+                            appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
+                        }
+                    )
+                    .padding(.horizontal, 40)
+                    .padding(.top, 14)
+                }
+                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
+                   isNothingToPostProcess,
                    !isWarningBannerDismissed {
                     QuillInfoNotice(
                         text: localizedCatalogString(
@@ -3371,7 +3403,8 @@ private struct NoteDetailView: View {
                     .padding(.horizontal, 40)
                     .padding(.top, 14)
                 }
-                if !isWarningBannerDismissed,
+                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
+                   !isWarningBannerDismissed,
                    let warningPresentation {
                     QuillUserIssueView(
                         presentation: warningPresentation,
