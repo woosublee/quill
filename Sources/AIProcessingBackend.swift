@@ -173,19 +173,9 @@ struct AIProcessingFallbackState: Equatable, Sendable {
         if choice.isCloud, primary.isLocal, consent == nil {
             return AIProcessingFallbackState(choice: .none, isUserSelected: false)
         }
-        // A cloud fallback equal to the primary never runs; follow the
-        // primary instead. One consented to for a local primary still
-        // downloading stays until that primary takes over.
-        if choice.isCloud, choice.backendChoice == primary, consent == nil {
-            return AIProcessingFallbackState(
-                choice: AIProcessingFallbackChoice.automatic(
-                    for: primary,
-                    defaultCloudModelID: defaultCloudModelID
-                ),
-                isUserSelected: false
-            )
-        }
-        guard isUserSelected else {
+        // A cloud fallback equal to the primary never runs; it follows the
+        // primary like one nobody picked.
+        guard isUserSelected, choice.backendChoice != primary else {
             return AIProcessingFallbackState(
                 choice: AIProcessingFallbackChoice.automatic(
                     for: primary,
