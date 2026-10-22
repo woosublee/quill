@@ -13898,13 +13898,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let ids = ids.filter { id in recentlyDeletedNotes.contains { $0.id == id } }
         guard !ids.isEmpty else { return }
         var removedAssets: [DeletedPipelineHistoryAssets] = []
+        var removedIDs: Set<UUID> = []
         var failure: Error?
         for id in ids {
             do {
                 if let assets = try pipelineHistoryStore.delete(id: id, requiresDurableStore: true) {
                     removedAssets.append(assets)
                 }
-                recentlyDeletedNotes.removeAll { $0.id == id }
+                removedIDs.insert(id)
                 // The same teardown as moving a note here, for any state
                 // that came back since.
                 transcriptionRetryWorkflow.cancel(noteID: id)
@@ -13913,6 +13914,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } catch {
                 failure = failure ?? error
             }
+        }
+        // One list update for the whole batch.
+        if !removedIDs.isEmpty {
+            recentlyDeletedNotes.removeAll { removedIDs.contains($0.id) }
         }
         if !removedAssets.isEmpty {
             // Survivors come from the store, so files another row still uses
