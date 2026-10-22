@@ -27,6 +27,8 @@ struct AppStateAIProcessingBackendTests {
         await testLocalPrimaryMigratesFallbackToNone()
         await testAutomaticFallbackFollowsPrimaryBackend()
         await testUserSelectedFallbackSurvivesPrimaryChange()
+        await testFallbackNeverMatchesCloudPrimary()
+        testConsentedCloudFallbackSurvivesMatchingPrimary()
         await testFallbackPickedForPendingLocalPrimaryKeepsConsent()
         await testCloudConsentDoesNotSurviveProviderChange()
         try await testServiceForLocalPrimaryNeedsCloudConsent()
@@ -414,6 +416,91 @@ struct AppStateAIProcessingBackendTests {
         precondition(
             storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
                 == AIProcessingFallbackChoice.none
+        )
+    }
+
+    private static func testFallbackNeverMatchesCloudPrimary() async {
+        // The swap target is the default primary, as before #580.
+        precondition(ModelConfiguration.defaultLLMModelID == AppState.defaultPostProcessingModel)
+        resetAIProcessingDefaults()
+        let fallbackDefault = AppState.defaultPostProcessingFallbackModel
+        // Where the one-time Groq move leaves a dropped primary and the old
+        // default fallback: both on the default fallback model.
+        UserDefaults.standard.set(fallbackDefault, forKey: "post_processing_model")
+        storeChoice(.cloud(modelID: fallbackDefault), forKey: "post_processing_backend_choice")
+        UserDefaults.standard.set(fallbackDefault, forKey: "post_processing_fallback_model")
+
+        let appState = await makeRefreshedAppState()
+        await MainActor.run {
+            precondition(appState.postProcessingBackendChoice == .cloud(modelID: fallbackDefault))
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: ModelConfiguration.defaultLLMModelID)
+            )
+            precondition(!appState.postProcessingFallbackChoiceIsUserSelected)
+            precondition(
+                appState.makeAIProcessingFallbackExecutor(
+                    appState.postProcessingFallbackState,
+                    primary: appState.postProcessingBackendChoice
+                ) != nil,
+                "a primary on the default fallback model still has a fallback"
+            )
+            // The picker doesn't offer the primary, and picking it is ignored.
+            precondition(
+                !appState.aiProcessingFallbackChoiceDisplays(for: .postProcessing)
+                    .contains { $0.choice == .cloud(modelID: fallbackDefault) }
+            )
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: fallbackDefault),
+                for: .postProcessing
+            )
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: ModelConfiguration.defaultLLMModelID)
+            )
+
+            // A picked fallback that becomes the primary follows the primary.
+            appState.postProcessingBackendChoice = .cloud(modelID: "direct/post")
+            appState.selectAIProcessingFallbackChoice(
+                .cloud(modelID: "custom/fallback"),
+                for: .postProcessing
+            )
+            precondition(appState.postProcessingFallbackChoiceIsUserSelected)
+            appState.postProcessingBackendChoice = .cloud(modelID: "custom/fallback")
+            precondition(
+                appState.postProcessingFallbackChoice
+                    == .cloud(modelID: fallbackDefault)
+            )
+            precondition(!appState.postProcessingFallbackChoiceIsUserSelected)
+        }
+        resetAIProcessingDefaults()
+    }
+
+    private static func testConsentedCloudFallbackSurvivesMatchingPrimary() {
+        // Picked for a local primary still downloading: the stored primary
+        // can still be that cloud model, and the pick and consent stay.
+        let consent = AIProcessingCloudConsent(
+            localModelID: LocalAIModelCatalog.quality.id,
+            apiBaseURL: "https://api.example.com/v1"
+        )
+        let picked = AIProcessingFallbackState(
+            choice: .cloud(modelID: "cloud/x"),
+            isUserSelected: true,
+            cloudConsent: consent
+        )
+        let kept = picked.reconciled(
+            primary: .cloud(modelID: "cloud/x"),
+            apiBaseURL: "https://api.example.com/v1",
+            defaultCloudModelID: "default/fallback"
+        )
+        precondition(kept == picked)
+        precondition(
+            !kept.choice.mayRun(
+                for: .cloud(modelID: "cloud/x"),
+                cloudConsent: kept.cloudConsent,
+                apiBaseURL: "https://api.example.com/v1"
+            ),
+            "it still never runs as the primary's own fallback"
         )
     }
 

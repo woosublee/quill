@@ -25,6 +25,8 @@ public struct ModelConfiguration {
     /// Groq retired Qwen 3.6 and serves Qwen 3.8 in its place.
     static let retiredGroqQwenModelID = "qwen/qwen3.6-27b"
     static let groqQwenModelID = "qwen/qwen3.8-27b"
+    /// The default primary model for post-processing and meeting summaries.
+    static let defaultLLMModelID = "openai/gpt-oss-20b"
     /// Models upstream dropped from the list in v1.2.0 (#577). Groq still
     /// serves them, so saved selections move to Qwen 3.8 only once; a model
     /// typed in later stays.
