@@ -232,7 +232,8 @@ struct LocalAIModelRowView: View {
     }
 
     private var isPendingSelection: Bool {
-        guard selectsOnDownload else { return false }
+        // A fallback picked before its download runs once downloaded.
+        guard selectsOnDownload else { return state.status != .ready }
         if let feature {
             return appState.pendingLocalAIModelID(for: feature) == model.id
         }
@@ -333,6 +334,8 @@ struct ModelRowDescription: View {
                     Text(name)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
                         .padding(.horizontal, 7)
                         .padding(.vertical, 1)
                         .background(Capsule().fill(Color.primary.opacity(0.08)))

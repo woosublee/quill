@@ -1277,7 +1277,7 @@ struct ModelsSettingsUIContractTests {
         precondition(settings.contains("let status = localModelDownloadStatus(model) {\n            tags.append(status)"), "the AI pickers' Local AI rows")
         // The download row is tinted for the picker's current choice everywhere.
         precondition(settings.contains("isSelected: settingsTranscriptionChoice == .localAI(modelID: model.id)"))
-        precondition(settings.contains("private var showsSelectedAppearance: Bool {\n        isSelected\n    }"))
+        precondition(settings.contains("// choice, with or without its own selection control.\n        .background(isSelected ? Color.accentColor.opacity(0.08)"), "the Whisper row is tinted like the others")
         // The Whisper row shares the description layout and its tags.
         precondition(settings.contains("featureNames: [localizedCatalogString(\"Transcription\")]"))
         // The fallback picker: macOS 13 disables instead of hiding, and its
@@ -1285,6 +1285,9 @@ struct ModelsSettingsUIContractTests {
         precondition(settings.contains("private func fallbackChoiceMenuItem("))
         precondition(!settings.contains("hidden there, as before"))
         precondition(settings.contains("isSelected: true,\n                    selectsOnDownload: false"))
+        precondition(settings.contains("let model = LocalAIModelCatalog.model(id: modelID),\n               appState.isLocalAIModelAvailable(model) {"), "no download row for a model this Mac can't run")
+        precondition(settings.contains("Text(transcriptionChoiceMenuLabel(currentTranscriptionDisplay))"), "macOS 13's closed label matches")
+        precondition(localAIModelRow.contains("guard selectsOnDownload else { return state.status != .ready }"), "a fallback says it runs once downloaded")
         precondition(localAIModelRow.contains("} else if selectsOnDownload {\n                appState.installLocalAIModel(model, autoSelectFor: feature)\n            } else {\n                appState.installLocalAIModel(model)"))
     }
 

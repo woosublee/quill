@@ -2138,7 +2138,7 @@ struct ModelsSettingsView: View {
                     }
                 }
             } label: {
-                Text(currentTranscriptionDisplay.localizedCompactLabel())
+                Text(transcriptionChoiceMenuLabel(currentTranscriptionDisplay))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .menuStyle(.borderlessButton)
@@ -2377,7 +2377,9 @@ struct ModelsSettingsView: View {
         if display.isRecommended {
             tags.append(localizedCatalogString("Recommended"))
         }
-        if case .localAI(let modelID) = display.choice,
+        // A row that can't be picked doesn't invite a download.
+        if display.isAvailable,
+           case .localAI(let modelID) = display.choice,
            let model = LocalAIModelCatalog.model(id: modelID),
            let status = localModelDownloadStatus(model) {
             tags.append(status)
@@ -3106,7 +3108,8 @@ struct ModelsSettingsView: View {
             // The same download row as under the primary picker. Its
             // download leaves the primary as it is.
             if case .localAI(let modelID) = selection.wrappedValue,
-               let model = LocalAIModelCatalog.model(id: modelID) {
+               let model = LocalAIModelCatalog.model(id: modelID),
+               appState.isLocalAIModelAvailable(model) {
                 LocalAIModelRowView(
                     feature: feature,
                     model: model,
@@ -5647,12 +5650,6 @@ struct NativeWhisperModelRowView: View {
         appState.nativeWhisperInstallStatus == .ready
     }
 
-    /// Tinted like every model row when it is the picker's current
-    /// choice, with or without its own selection control.
-    private var showsSelectedAppearance: Bool {
-        isSelected
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
@@ -5702,11 +5699,13 @@ struct NativeWhisperModelRowView: View {
             }
         }
         .padding(8)
-        .background(showsSelectedAppearance ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
+        // Tinted like every model row when it is the picker's current
+        // choice, with or without its own selection control.
+        .background(isSelected ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(showsSelectedAppearance ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .confirmationDialog(
             "Delete model?",
