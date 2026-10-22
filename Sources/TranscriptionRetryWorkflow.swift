@@ -454,7 +454,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
     /// Whether `transcript` is the transcript the note shows now, apart
     /// from surrounding whitespace. An empty one is never the same.
     static func isSameTranscript(_ transcript: String, as item: PipelineHistoryItem) -> Bool {
-        let shown = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shown = item.displayedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         return !shown.isEmpty
             && transcript.trimmingCharacters(in: .whitespacesAndNewlines) == shown
     }
@@ -721,7 +721,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         // The same text leaves nothing to choose: it is saved directly, so
         // the run's model, raw transcript and status are kept, and a summary
         // made from that text stays current.
+        // Only when the note is still what the retry started from; a change
+        // made meanwhile goes through the comparison, which drops it as stale.
         let transcriptUnchanged = request.deliversCandidate
+            && currentItem.rawTranscript == request.initialItem.rawTranscript
+            && currentItem.postProcessedTranscript == request.initialItem.postProcessedTranscript
             && Self.isSameTranscript(processing.finalTranscript, as: currentItem)
         if request.deliversCandidate, !transcriptUnchanged {
             // Nothing is saved until the person chooses the new transcript.
@@ -819,7 +823,9 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             revision: revision
         )
         let completion = TranscriptionRetryCompletion(
-            interactiveTranscript: request.deliveryPolicy == .interactive
+            // Nothing was chosen, so the clipboard is left alone, as when
+            // the person keeps the current transcript.
+            interactiveTranscript: request.deliveryPolicy == .interactive && !transcriptUnchanged
                 ? processing.finalTranscript
                 : nil,
             transcriptAssetPersisted: transcriptFileName != nil,

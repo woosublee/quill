@@ -5894,7 +5894,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .succeeded(let completion), .fallback(let completion):
                 if completion.transcriptUnchanged,
                    let item = pipelineHistory.first(where: { $0.id == noteID }) {
-                    unchangedRetranscriptions[noteID] = item.postProcessedTranscript
+                    unchangedRetranscriptions[noteID] = item.displayedTranscript
                 }
                 if let transcript = completion.interactiveTranscript {
                     copyRetryTranscriptToPasteboardIfNeeded(transcript)

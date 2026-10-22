@@ -17,6 +17,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testManualFallbackUsesFallbackOutcome()
         try await testCandidateRetryWaitsUntilChosen()
         try await testSameTranscriptSkipsTheComparison()
+        try await testSameTranscriptAfterAChangeStillCompares()
         try await testCandidateIsDroppedByKeepNewAttemptOrInvalidate()
         try await testCandidateNeverOverwritesATranscriptChangedMeanwhile()
         try await testRetryWritesANewTranscriptFileAndRemovesTheOldOne()
@@ -469,6 +470,7 @@ struct TranscriptionRetryWorkflowTests {
         try await waitUntil { events.outcomes.count == 1 }
         let completion = try requireSuccessCompletion(events.outcomes.last)
         try expect(completion.transcriptUnchanged, "same text has nothing to compare")
+        try expect(completion.interactiveTranscript == nil, "nothing chosen, so nothing goes to the clipboard")
         try expect(!workflow.state.candidateNoteIDs.contains(item.id), "no candidate waits")
         try expect(!workflow.state.retryingNoteIDs.contains(item.id), "retrying finished")
         // Saved directly, so the run's raw transcript and status are kept,
@@ -484,11 +486,44 @@ struct TranscriptionRetryWorkflowTests {
             "the summary stays current"
         )
 
+        // A note showing its raw transcript compares against it.
+        try expect(
+            TranscriptionRetryWorkflow.isSameTranscript("raw only", as: makeHistoryItem(rawTranscript: "raw only", postProcessedTranscript: "")),
+            "the raw transcript is what a note without a processed one shows"
+        )
         // An empty transcript is never the same one.
         try expect(
             !TranscriptionRetryWorkflow.isSameTranscript(" ", as: makeHistoryItem(postProcessedTranscript: "")),
             "nothing shown is never the same"
         )
+    }
+
+    @MainActor
+    private static func testSameTranscriptAfterAChangeStillCompares() async throws {
+        let operationLog = TranscriptionRetryOperationLog()
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        // The retry started from "older"; the note was edited to "old final"
+        // meanwhile, which the retry happens to return.
+        let current = makeHistoryItem()
+        let started = makeHistoryItem(id: current.id, postProcessedTranscript: "older")
+        let history = TranscriptionRetryHistoryRecorder(item: current, operationLog: operationLog)
+        let assets = TranscriptionRetryAssetRecorder(operationLog: operationLog)
+        let events = TranscriptionRetryEventRecorder(operationLog: operationLog)
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: assets.access())
+        var request = try makeRequest(
+            item: started,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "old final"))
+        )
+        request.deliversCandidate = true
+
+        try expect(workflow.startManual(request: request, runtime: runtime), "manual workflow started")
+        try await waitUntil { events.outcomes.count == 1 }
+        try expectEqual(events.outcomes.last, .candidateReady, "a change meanwhile isn't saved without a choice")
+        try expect(history.persistedItems.isEmpty, "nothing is saved")
     }
 
     /// #457: a retry of a note that has a transcript waits as a candidate;

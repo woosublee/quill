@@ -21796,18 +21796,18 @@
         }
       }
     },
-    "Nothing changed, so the note was left as it was.": {
+    "The transcript text didn't change.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing changed, so the note was left as it was."
+            "value": "The transcript text didn't change."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "바뀐 내용이 없어 그대로 두었어요."
+            "value": "전사문 내용은 그대로예요."
           }
         }
       }

@@ -3357,7 +3357,7 @@ private struct NoteDetailView: View {
                 // A same-result retry notice leads, grouped like the
                 // Summary tab's notices: the others wait behind "+1".
                 let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]
-                    == item.postProcessedTranscript
+                    == item.displayedTranscript
                 let hasOtherNotice = !isWarningBannerDismissed
                     && (isNothingToPostProcess || warningPresentation != nil)
                 if showsUnchangedNotice {
@@ -3365,7 +3365,7 @@ private struct NoteDetailView: View {
                         systemImage: "info.circle",
                         tint: .secondary,
                         title: localizedCatalogString("The new transcript is the same as the current one."),
-                        detail: localizedCatalogString("Nothing changed, so the note was left as it was."),
+                        detail: localizedCatalogString("The transcript text didn't change."),
                         expansion: hasOtherNotice
                             ? QuillBannerExpansion(
                                 hiddenCount: 1,
