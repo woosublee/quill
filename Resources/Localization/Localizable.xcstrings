@@ -21780,6 +21780,22 @@
         }
       }
     },
+    "Used as the model above": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used as the model above"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위 모델로 사용 중"
+          }
+        }
+      }
+    },
     "The new transcript is the same as the current one.": {
       "localizations": {
         "en": {

@@ -501,6 +501,7 @@ struct SettingsLocalizationTests {
             "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.": "위 목록에 없는 API 모델 ID를 입력해요. 목록의 모델로 돌아가려면 위의 모델 메뉴에서 선택하세요.",
             "Show Realtime transcription option": "실시간 전사 옵션 표시",
             "Download required": "다운로드 필요",
+            "Used as the model above": "위 모델로 사용 중",
             "Downloading...": "다운로드 중...",
             "Local Whisper Download in Progress": "Local Whisper 다운로드 진행 중",
             "Closing Settings will cancel the model download and remove the partial file.": "Settings를 닫으면 모델 다운로드가 취소되고 완료되지 않은 파일이 제거돼요.",

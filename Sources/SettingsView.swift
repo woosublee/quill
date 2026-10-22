@@ -3021,8 +3021,7 @@ struct ModelsSettingsView: View {
                     if !sectionDisplays.isEmpty {
                         Section(localizedCatalogString(section)) {
                             ForEach(sectionDisplays) { display in
-                                Text(aiProcessingChoiceMenuLabel(display))
-                                    .tag(AIProcessingFallbackChoice(display.choice))
+                                fallbackChoiceRow(display, for: feature)
                             }
                         }
                     }
@@ -3053,6 +3052,24 @@ struct ModelsSettingsView: View {
             if shownPrimary.isLocal {
                 providerConfigurationWarning(cloudWarning)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func fallbackChoiceRow(
+        _ display: AIProcessingChoiceDisplay,
+        for feature: AIProcessingFeature
+    ) -> some View {
+        let row = Text(aiProcessingChoiceMenuLabel(display))
+            .tag(AIProcessingFallbackChoice(display.choice))
+        if #available(macOS 14.0, *) {
+            row.selectionDisabled(!display.isAvailable)
+        } else if display.isAvailable
+                    || AIProcessingFallbackChoice(display.choice)
+                        == appState.currentAIProcessingFallbackChoice(for: feature) {
+            // macOS 13 menus can't disable a row, so unpickable ones stay
+            // hidden there, as before.
+            row
         }
     }
 
