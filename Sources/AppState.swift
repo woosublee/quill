@@ -4590,14 +4590,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let storedPrimary = currentAIProcessingChoice(for: feature)
         var displays = aiProcessingChoiceDisplays(for: feature).compactMap {
             display -> AIProcessingChoiceDisplay? in
-            guard display.isAvailable else { return nil }
+            let isPrimary = display.choice == primary
+                || (display.choice.isLocal && display.choice == storedPrimary)
+            // An unavailable row is the primary's own retired model: listed
+            // like any primary, never pickable.
+            guard display.isAvailable || isPrimary else { return nil }
             let reason: String
-            if display.choice == primary
-                || (display.choice.isLocal && display.choice == storedPrimary) {
+            if isPrimary {
                 reason = localizedCatalogString("Used as the model above")
             } else if case .localAI(let modelID) = display.choice,
-                      !isAIProcessingChoiceReady(display.choice, for: feature),
-                      AIProcessingFallbackChoice(display.choice) != current {
+                      !isAIProcessingChoiceReady(display.choice, for: feature) {
+                // The current fallback stays listed (and selected) too.
                 let isDownloading = LocalAIModelCatalog.model(id: modelID)
                     .map { localAIInstallState(for: $0).isInstalling } ?? false
                 reason = localizedCatalogString(
@@ -4635,13 +4638,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         if case .cloud(let modelID) = current,
            !displays.contains(where: { $0.choice == .cloud(modelID: modelID) }) {
+            let isPrimary = AIProcessingBackendChoice.cloud(modelID: modelID) == primary
+            let reason = isPrimary ? localizedCatalogString("Used as the model above") : nil
             let custom = AIProcessingChoiceDisplay(
                 choice: .cloud(modelID: modelID),
                 section: "Cloud",
                 title: modelID,
-                subtitle: nil,
-                isAvailable: true,
-                unavailableReason: nil,
+                subtitle: reason,
+                isAvailable: !isPrimary,
+                unavailableReason: reason,
                 isRecommended: false
             )
             let firstLocal = displays.firstIndex { $0.section != "Cloud" }

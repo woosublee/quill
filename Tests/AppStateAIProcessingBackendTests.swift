@@ -466,6 +466,14 @@ struct AppStateAIProcessingBackendTests {
                 for: .postProcessing
             )
             precondition(appState.postProcessingFallbackChoiceIsUserSelected)
+            // A custom fallback the shown primary also uses is listed but
+            // not pickable, like any primary.
+            precondition(
+                appState.aiProcessingFallbackChoiceDisplays(
+                    for: .postProcessing,
+                    shownPrimary: .cloud(modelID: "custom/fallback")
+                ).contains { $0.choice == .cloud(modelID: "custom/fallback") && !$0.isAvailable }
+            )
             appState.postProcessingBackendChoice = .cloud(modelID: "custom/fallback")
             precondition(
                 appState.postProcessingFallbackChoice
