@@ -72,12 +72,18 @@ enum AIProcessingFallbackChoice: Codable, Hashable, Sendable {
     }
 
     /// The fallback a primary starts with when the person hasn't picked one:
-    /// a local primary never sends text to the cloud on its own.
+    /// a local primary never sends text to the cloud on its own, and a
+    /// cloud primary never gets its own model.
     static func automatic(
         for primary: AIProcessingBackendChoice,
         defaultCloudModelID: String
     ) -> AIProcessingFallbackChoice {
-        primary.isLocal ? .none : .cloud(modelID: defaultCloudModelID)
+        if primary.isLocal { return .none }
+        if primary == .cloud(modelID: defaultCloudModelID) {
+            // The default primary and fallback swap, as before #580.
+            return .cloud(modelID: ModelConfiguration.defaultLLMModelID)
+        }
+        return .cloud(modelID: defaultCloudModelID)
     }
 
     /// Whether this fallback may run for `primary`. A cloud fallback for a
@@ -143,7 +149,7 @@ struct AIProcessingFallbackState: Equatable, Sendable {
     }
 
     /// Keeps a fallback the person picked, follows the primary otherwise,
-    /// and never keeps the primary's own local model as its fallback.
+    /// and never keeps the primary's own model as its fallback.
     ///
     /// Privacy: consent that no longer matches (another local model, or
     /// another cloud provider) is dropped, and a cloud fallback without
@@ -167,7 +173,9 @@ struct AIProcessingFallbackState: Equatable, Sendable {
         if choice.isCloud, primary.isLocal, consent == nil {
             return AIProcessingFallbackState(choice: .none, isUserSelected: false)
         }
-        guard isUserSelected else {
+        // A cloud fallback equal to the primary never runs; it follows the
+        // primary like one nobody picked.
+        guard isUserSelected, choice.backendChoice != primary else {
             return AIProcessingFallbackState(
                 choice: AIProcessingFallbackChoice.automatic(
                     for: primary,

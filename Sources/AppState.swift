@@ -534,7 +534,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let defaultContextScreenshotMaxDimension = Int(AppContextService.defaultScreenshotMaxDimension)
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
     static let defaultTranscriptionModel = "whisper-large-v3"
-    static let defaultPostProcessingModel = "openai/gpt-oss-20b"
+    static let defaultPostProcessingModel = ModelConfiguration.defaultLLMModelID
     static let defaultPostProcessingFallbackModel = ModelConfiguration.groqQwenModelID
     static let defaultContextModel = ModelConfiguration.groqQwenModelID
     static let defaultMeetingSummaryModel = defaultPostProcessingModel
@@ -4520,6 +4520,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard !trimmed.isEmpty else { return }
             choice = .cloud(modelID: trimmed)
         }
+        // A cloud fallback equal to the shown primary would never run.
+        if choice.isCloud, choice.backendChoice == shownPrimary { return }
         if case .localAI(let modelID) = choice {
             guard LocalAIModelCatalog.model(id: modelID) != nil,
                   choice.backendChoice != shownPrimary,
@@ -4574,7 +4576,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// Cloud and local models the fallback picker offers, without the
-    /// shown primary's own local model. A current fallback that isn't
+    /// shown primary's own model. A current fallback that isn't
     /// available stays listed so the picker's selection always matches.
     @MainActor
     func aiProcessingFallbackChoiceDisplays(
@@ -4584,12 +4586,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let primary = shownPrimary ?? currentAIProcessingChoice(for: feature)
         let current = currentAIProcessingFallbackChoice(for: feature)
         var displays = aiProcessingChoiceDisplays(for: feature).filter { display in
-            guard display.isAvailable else { return false }
+            // Never the primary's own model, cloud or local.
+            guard display.isAvailable, display.choice != primary else { return false }
             guard display.choice.isLocal else { return true }
-            // Only installed local models, never the primary's own model.
-            return display.choice != primary
-                && (isAIProcessingChoiceReady(display.choice, for: feature)
-                    || AIProcessingFallbackChoice(display.choice) == current)
+            // Only installed local models.
+            return isAIProcessingChoiceReady(display.choice, for: feature)
+                || AIProcessingFallbackChoice(display.choice) == current
         }
         if case .localAI(let modelID) = current,
            !displays.contains(where: { $0.choice == .localAI(modelID: modelID) }) {
@@ -13896,13 +13898,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let ids = ids.filter { id in recentlyDeletedNotes.contains { $0.id == id } }
         guard !ids.isEmpty else { return }
         var removedAssets: [DeletedPipelineHistoryAssets] = []
+        var removedIDs: Set<UUID> = []
         var failure: Error?
         for id in ids {
             do {
                 if let assets = try pipelineHistoryStore.delete(id: id, requiresDurableStore: true) {
                     removedAssets.append(assets)
                 }
-                recentlyDeletedNotes.removeAll { $0.id == id }
+                removedIDs.insert(id)
                 // The same teardown as moving a note here, for any state
                 // that came back since.
                 transcriptionRetryWorkflow.cancel(noteID: id)
@@ -13911,6 +13914,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } catch {
                 failure = failure ?? error
             }
+        }
+        // One list update for the whole batch.
+        if !removedIDs.isEmpty {
+            recentlyDeletedNotes.removeAll { removedIDs.contains($0.id) }
         }
         if !removedAssets.isEmpty {
             // Survivors come from the store, so files another row still uses

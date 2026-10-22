@@ -1,3 +1,4 @@
+import Combine
 import Darwin
 import Foundation
 
@@ -425,7 +426,13 @@ struct AppStateStorageSafetyTests {
             try historyStore.setDeletedAt(Date(), id: second.id)
             let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
             let shown = await MainActor.run { appState.recentlyDeletedNotes.map(\.id) }
-            await MainActor.run { appState.deleteRecentlyDeletedNotesNow(ids: shown) }
+            let publishes = await MainActor.run { () -> (Int, AnyCancellable) in
+                var count = 0
+                let subscription = appState.$recentlyDeletedNotes.dropFirst().sink { _ in count += 1 }
+                appState.deleteRecentlyDeletedNotesNow(ids: shown)
+                return (count, subscription)
+            }
+            try expect(publishes.0 == 1, "Delete All updates the list once")
             let state = await MainActor.run { (appState.recentlyDeletedNotes.isEmpty, appState.pipelineHistory.map(\.id)) }
             try expect(state.0, "Delete All empties Recently Deleted")
             try expect(state.1 == [live.id], "Delete All leaves live notes")
