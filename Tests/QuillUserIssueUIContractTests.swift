@@ -221,7 +221,7 @@ struct QuillUserIssueUIContractTests {
         )
         let warningBannerUsage = block(
             noteBrowser,
-            from: "if !isWarningBannerDismissed,",
+            from: "!isWarningBannerDismissed,\n                   let warningPresentation",
             to: "NoteTextView("
         )
         // #457: notices stay as they are while retranscribing, under the

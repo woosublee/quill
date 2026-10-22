@@ -2431,6 +2431,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func dismissUnchangedRetranscriptionNotice(noteID: UUID) {
+        unchangedRetranscriptions.removeValue(forKey: noteID)
+    }
+
+    @MainActor
     func dismissWarningBanner(noteID: UUID, code: QuillUserIssueCode) {
         let key = Self.dismissalKey(noteID: noteID, code: code)
         dismissedWarningBannerGeneration[key] = noteRetryGeneration(for: noteID)
@@ -2578,6 +2583,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
     /// New transcripts from a retry, waiting to be compared (#457).
     @Published private(set) var transcriptionCandidates: [UUID: String] = [:]
+    /// Notes whose retry gave the same transcript and was saved without a
+    /// comparison, with the transcript it saved. The Note Browser says so
+    /// while the note still shows that transcript, until dismissed or retried.
+    @Published private(set) var unchangedRetranscriptions: [UUID: String] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
@@ -5911,6 +5920,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .completed(let noteID, let outcome):
             switch outcome {
             case .succeeded(let completion), .fallback(let completion):
+                if completion.transcriptUnchanged,
+                   let item = pipelineHistory.first(where: { $0.id == noteID }) {
+                    unchangedRetranscriptions[noteID] = item.displayedTranscript
+                }
                 if let transcript = completion.interactiveTranscript {
                     copyRetryTranscriptToPasteboardIfNeeded(transcript)
                 }
@@ -9298,6 +9311,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
             ) {
+                unchangedRetranscriptions.removeValue(forKey: item.id)
                 cloudTranscriptionProgressByHistoryID.removeValue(
                     forKey: item.id
                 )
