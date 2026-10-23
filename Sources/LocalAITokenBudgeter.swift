@@ -15,12 +15,16 @@ enum LocalAITokenBudgetRole: Sendable {
     case summaryIntermediateMerge
     case summaryFinalMerge
 
+    /// Room for a Summary response. Every point carries a verbatim source
+    /// quote, so a full chunk's JSON outgrows 1,024 tokens (#609).
+    static let summaryCompletionTokens = 4_096
+
     fileprivate var maxCompletionTokens: Int {
         switch self {
         case let .postProcessing(inputReservation):
             return min(max(inputReservation, 0) + 512, 6_144)
         case .summaryExtraction, .summaryIntermediateMerge, .summaryFinalMerge:
-            return 1_024
+            return Self.summaryCompletionTokens
         }
     }
 }

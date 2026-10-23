@@ -21,9 +21,9 @@ struct LocalAITokenBudgeterTests {
         )
 
         try expect(budget == LocalAITokenBudget(
-            sourceTokenLimit: 11_848,
-            maxCompletionTokens: 1_024
-        ), "summary extraction reserves 1,024 completion and 512 safety tokens")
+            sourceTokenLimit: 8_776,
+            maxCompletionTokens: 4_096
+        ), "summary extraction reserves 4,096 completion and 512 safety tokens")
         let prompts = await counter.prompts
         try expect(prompts == ["rendered prompt"], "budgeter counts the rendered prompt")
     }
@@ -58,8 +58,8 @@ struct LocalAITokenBudgeterTests {
                 forRenderedChatPrompt: "rendered prompt",
                 role: role
             )
-            try expect(budget?.maxCompletionTokens == 1_024, "summary stage reserves 1,024 completion tokens")
-            try expect(budget?.sourceTokenLimit == 12_848, "summary stage retains the 512-token safety margin")
+            try expect(budget?.maxCompletionTokens == 4_096, "summary stage reserves 4,096 completion tokens")
+            try expect(budget?.sourceTokenLimit == 9_776, "summary stage retains the 512-token safety margin")
         }
     }
 

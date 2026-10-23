@@ -34,6 +34,8 @@ struct MeetingSummaryServiceTests {
         try await testNullPointCitationReturnsUnverifiedSummary()
         try await testNullOverviewCitationReturnsUnverifiedSummary()
         try await testChunkFailureDoesNotReturnPartialSummary()
+        try await testTruncatedResponseReportsOutputTruncated()
+        try await testLocalSummaryCountsTokensWithLocalServer()
         try testUserIssueMapsToSummaryDomainCodes()
         try testInvalidResponseUsesSafeResponseEnvelopeSubtype()
         try testSafeFailureSubtypeMappingsCoverSummaryValidation()
@@ -125,6 +127,7 @@ struct MeetingSummaryServiceTests {
     private static func testSafeFailureSubtypeMappingsCoverSummaryValidation() throws {
         let cases: [(MeetingSummaryError, MeetingSummaryFailureSubtype)] = [
             (.invalidResponse(.jsonSchema), .jsonSchema),
+            (.invalidResponse(.outputTruncated), .outputTruncated),
             (.invalidResponse(.contextBudget), .contextBudget),
             (.invalidResponse(.mergeBudget), .mergeBudget),
             (.emptyOutput(), .emptyOutput),
@@ -382,6 +385,10 @@ struct MeetingSummaryServiceTests {
         guard let calendar = source.calendar else { throw MeetingSummaryServiceTestFailure("Missing calendar") }
         try expectNoCalendar(in: recorder.requests(), calendar: calendar)
         try expect(body["max_tokens"] == nil, "cloud Summary omits the local legacy completion key")
+        try expect(
+            body["max_completion_tokens"] as? Int == 8_192,
+            "cloud Summary keeps the cloud completion default"
+        )
     }
 
     private static func testLocalRequestUsesLoopbackWithoutAuthorization() async throws {
@@ -440,14 +447,9 @@ struct MeetingSummaryServiceTests {
             "local authorization omitted"
         )
         try expect(body["model"] as? String == "local", "local request model")
-        try expect(
-            body["max_completion_tokens"] as? Int == 1_024,
-            "local Summary retains the 1,024-token completion ceiling"
-        )
-        try expect(
-            body["max_tokens"] as? Int == 1_024,
-            "local Summary sends the legacy 1,024-token completion ceiling"
-        )
+        let ceiling = try int(body["max_completion_tokens"])
+        try expect(ceiling >= 4_096, "local Summary leaves at least 4,096 tokens for the response")
+        try expect(body["max_tokens"] as? Int == ceiling, "local Summary sends the legacy completion key too")
     }
 
     private static func testUnknownTopLevelKeyIsRejected() throws {
@@ -687,7 +689,7 @@ struct MeetingSummaryServiceTests {
         let recorder = MeetingSummaryRequestRecorder()
         let tokenCounter = MeetingSummaryRecordingTokenCounter()
         let budgeter = LocalAITokenBudgeter(
-            contextWindow: 5_200,
+            contextWindow: 8_272,
             tokenCounter: tokenCounter
         )
         let service = makeCloudService(
@@ -715,8 +717,8 @@ struct MeetingSummaryServiceTests {
         for request in requests {
             let body = try requestBody(request)
             try expect(
-                body["max_completion_tokens"] as? Int == 1_024,
-                "every Summary request reserves the 1,024-token completion ceiling"
+                body["max_completion_tokens"] as? Int == 8_192,
+                "every cloud Summary request keeps the cloud completion default"
             )
         }
         for request in requests {
@@ -725,7 +727,7 @@ struct MeetingSummaryServiceTests {
             let user = try string(try dictionary(messages[1])["content"])
             let rendered = "[System]\n\(system)\n\n[User]\n\(user)"
             try expect(
-                rendered.utf8.count + 1_024 + 512 <= 5_200,
+                rendered.utf8.count + 4_096 + 512 <= 8_272,
                 "every generated Summary request stays inside the injected context budget"
             )
         }
@@ -736,7 +738,7 @@ struct MeetingSummaryServiceTests {
         let service = makeCloudService(
             chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16),
             tokenBudgeter: LocalAITokenBudgeter(
-                contextWindow: 2_000,
+                contextWindow: 5_072,
                 tokenCounter: SingletonTailTokenCounter()
             )
         ) { request in
@@ -886,6 +888,75 @@ struct MeetingSummaryServiceTests {
         } catch {
             try expect(requestCount.requests().count == 2, "merge not attempted after chunk failure")
         }
+    }
+
+    /// A response cut off at the token limit is not reported as a bad
+    /// format (#609).
+    private static func testTruncatedResponseReportsOutputTruncated() async throws {
+        let service = makeCloudService { request in
+            let data = try JSONSerialization.data(withJSONObject: [
+                "choices": [[
+                    "message": ["content": String(validJSON.prefix(40))],
+                    "finish_reason": "length"
+                ]]
+            ])
+            return (
+                data,
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            )
+        }
+
+        do {
+            _ = try await service.generate(source: fallbackSource())
+            throw MeetingSummaryServiceTestFailure("Expected truncated response failure")
+        } catch let failure as MeetingSummaryServiceTestFailure {
+            throw failure
+        } catch MeetingSummaryError.invalidResponse(let subtype, _) {
+            try expect(subtype == .outputTruncated, "a length-limited response reports outputTruncated")
+        }
+    }
+
+    /// A local model's prompt is counted by its own tokenizer, and the
+    /// response gets all the context the prompt leaves (#609).
+    private static func testLocalSummaryCountsTokensWithLocalServer() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = MeetingSummaryService(
+            backendExecutor: makeLocalExecutor(),
+            fallbackExecutor: nil,
+            transport: { request in
+                recorder.record(request)
+                if request.url?.path == "/tokenize" {
+                    // Four bytes to a token, as for a Korean transcript.
+                    let body = try requestBody(request)
+                    let content = try string(body["content"])
+                    let tokens = Array(repeating: 1, count: content.utf8.count / 4)
+                    return (
+                        try JSONSerialization.data(withJSONObject: ["tokens": tokens]),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                    )
+                }
+                return try successResponse(request: request, content: validJSON)
+            }
+        )
+
+        _ = try await service.generate(source: fallbackSource())
+
+        let tokenize = recorder.allRequests().filter { $0.url?.path == "/tokenize" }
+        try expect(!tokenize.isEmpty, "the local server counts the prompt's tokens")
+        try expect(
+            tokenize.allSatisfy { $0.url?.host == "127.0.0.1" },
+            "token counting stays on this Mac"
+        )
+        let request = try recorder.requests().only()
+        let body = try requestBody(request)
+        let messages = try array(body["messages"])
+        let system = try string(try dictionary(messages[0])["content"])
+        let user = try string(try dictionary(messages[1])["content"])
+        let promptTokens = "[System]\n\(system)\n\n[User]\n\(user)".utf8.count / 4
+        try expect(
+            body["max_completion_tokens"] as? Int == 16_384 - promptTokens - 512,
+            "the response may use all the context the prompt leaves"
+        )
     }
 
     // MARK: - Fallback triggers (#580)
@@ -1100,8 +1171,11 @@ struct MeetingSummaryServiceTests {
         } catch {
             try expect(error is CancellationError, "the cancellation is reported as is")
         }
-        let hosts = recorder.requests().map { $0.url?.host }
-        try expect(hosts == ["127.0.0.1"], "a cancelled summary is not retried")
+        let hosts = recorder.allRequests().map { $0.url?.host }
+        try expect(
+            !hosts.isEmpty && hosts.allSatisfy { $0 == "127.0.0.1" },
+            "a cancelled summary is not retried"
+        )
     }
 
     private static func testSummaryFallbackEqualToPrimaryIsNotRetried() async throws {
@@ -1258,6 +1332,13 @@ struct MeetingSummaryServiceTests {
         return value
     }
 
+    private static func int(_ value: Any?) throws -> Int {
+        guard let value = value as? Int else {
+            throw MeetingSummaryServiceTestFailure("Expected integer")
+        }
+        return value
+    }
+
     private static func string(_ value: Any?) throws -> String {
         guard let value = value as? String else {
             throw MeetingSummaryServiceTestFailure("Expected string")
@@ -1301,7 +1382,12 @@ private final class MeetingSummaryRequestRecorder: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Summary requests, without a local model's token counting.
     func requests() -> [URLRequest] {
+        allRequests().filter { $0.url?.path != "/tokenize" }
+    }
+
+    func allRequests() -> [URLRequest] {
         lock.lock()
         defer { lock.unlock() }
         return storedRequests

@@ -53,6 +53,7 @@ enum MeetingSummaryFailureSubtype: String, Codable, Equatable, Sendable {
     case emptyOutput
     case responseEnvelope
     case jsonSchema
+    case outputTruncated
     case contextBudget
     case mergeBudget
     case sourceEvidenceMissing
@@ -866,6 +867,8 @@ private extension MeetingSummaryFailureSubtype {
             key = "Response envelope"
         case .jsonSchema:
             key = "Summary format"
+        case .outputTruncated:
+            key = "Response cut off"
         case .contextBudget:
             key = "Context budget"
         case .mergeBudget:

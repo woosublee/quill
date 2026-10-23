@@ -617,6 +617,7 @@ struct SettingsLocalizationTests {
             "Try Regenerate again later, or choose another configured model in Meeting Summary settings.":
                 "잠시 후 다시 만들기를 시도하거나, 회의 요약 설정에서 다른 모델을 선택하세요.",
             "Summary response could not be read": "요약 응답을 읽을 수 없음",
+            "Response cut off": "응답 잘림",
             "Retry Summary": "요약 재시도",
             "Some evidence could not be verified.": "일부 근거를 확인하지 못했어요.",
             "Review the summary before sharing it.": "공유하기 전에 요약을 검토하세요.",
