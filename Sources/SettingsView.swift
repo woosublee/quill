@@ -3153,9 +3153,13 @@ struct ModelsSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // Said before any cloud model is picked for a local primary.
+            // Said before any cloud model is picked for a local primary. A
+            // disclosure, not a problem: an info note, not an orange warning.
             if shownPrimary.isLocal {
-                providerConfigurationWarning(cloudWarning)
+                Label(localizedCatalogString(cloudWarning), systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
