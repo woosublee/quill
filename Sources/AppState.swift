@@ -4157,6 +4157,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingLocalAISelections[feature]
     }
 
+    /// A model this Mac can run that isn't downloaded, isn't downloading
+    /// (a cancel still finishing counts as stopped) or being deleted, and
+    /// shows no error, so Download applies it. False until the install
+    /// states are known.
+    @MainActor
+    func localAIModelNeedsDownload(_ model: LocalAIModel) -> Bool {
+        guard localAIWorkflow.state.hasCompletedInitialStatusRefresh,
+              isLocalAIModelAvailable(model),
+              !localAIWorkflow.isDeletionRequested(model.id) else {
+            return false
+        }
+        let state = localAIInstallState(for: model)
+        guard !state.isInstalling || state.progress.isCancelled,
+              state.issue == nil else {
+            return false
+        }
+        switch state.status {
+        case .notInstalled, .partial: return true
+        case .ready, .corrupt: return false
+        }
+    }
+
+    /// Native Whisper's counterpart of `localAIModelNeedsDownload`.
+    @MainActor
+    var nativeWhisperNeedsDownload: Bool {
+        guard !isInstallingNativeWhisper || nativeWhisperInstallProgress.isCancelled,
+              nativeWhisperInstallIssue == nil,
+              nativeWhisperInstallError == nil else {
+            return false
+        }
+        switch nativeWhisperInstallStatus {
+        case .notInstalled, .partial: return true
+        case .ready, .corrupt: return false
+        }
+    }
+
     @MainActor
     func discardPendingLocalAISelection(for feature: AIProcessingFeature) {
         setPendingLocalAIModelID(nil, for: feature)

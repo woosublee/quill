@@ -2561,13 +2561,19 @@ struct AppStateTranscriptionConfigurationTests {
 
         await MainActor.run {
             fixture.appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            precondition(fixture.appState.nativeWhisperNeedsDownload, "before the download")
             fixture.appState.installNativeWhisperModel(autoSelectWhenReady: true)
             precondition(fixture.appState.willAutoSelectNativeWhisperWhenReady)
+            precondition(!fixture.appState.nativeWhisperNeedsDownload, "downloading shows progress")
 
             fixture.appState.cancelNativeWhisperInstall()
 
             precondition(!fixture.appState.willAutoSelectNativeWhisperWhenReady)
             precondition(fixture.appState.nativeWhisperInstallProgress.isCancelled)
+            precondition(
+                fixture.appState.nativeWhisperNeedsDownload,
+                "a cancel still finishing already reads as stopped, so the note doesn't blink"
+            )
         }
     }
 

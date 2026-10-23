@@ -5713,13 +5713,15 @@ struct NativeWhisperModelRowView: View {
             }
 
             if !showsSelectionControl, isSelected, !isInstalled,
-               appState.willAutoSelectNativeWhisperWhenReady {
-                // Settings words a pending pick like every other model row.
+               appState.willAutoSelectNativeWhisperWhenReady || appState.nativeWhisperNeedsDownload {
+                // Settings words a pick that runs once downloaded like every
+                // other model row, also after a cancelled download.
                 Text("This model will become active when the download finishes.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if appState.isInstallingNativeWhisper {
+            } else if appState.isInstallingNativeWhisper,
+                      !appState.nativeWhisperInstallProgress.isCancelled {
                 Text(
                     appState.willAutoSelectNativeWhisperWhenReady
                         ? localizedCatalogString("Whisper will become active when the download finishes.")
