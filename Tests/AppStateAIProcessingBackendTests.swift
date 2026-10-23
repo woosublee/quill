@@ -34,6 +34,7 @@ struct AppStateAIProcessingBackendTests {
         try await testServiceForLocalPrimaryNeedsCloudConsent()
         await testMeetingSummaryCopyDropsCloudConsent()
         await testDeletingLocalModelClearsFallbacksUsingIt()
+        await testOnlyTheShownPrimaryIsTheModelAbove()
         await testFallbackPickerKeepsUnavailableCurrentChoiceAndSnapshotStoresCloudOnly()
         testFallbackExecutorIsSeparateAndSkipsNoneOrPrimary()
         await testIncompatibleLegacyContextSelectionIsPreservedAndDisabled()
@@ -867,6 +868,72 @@ struct AppStateAIProcessingBackendTests {
             storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
                 == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
         )
+    }
+
+    private static func testOnlyTheShownPrimaryIsTheModelAbove() async {
+        resetAIProcessingDefaults()
+        let status = LocalAIStatusHarness(
+            statuses: [LocalAIModelCatalog.quality.id: .ready],
+            defaultStatus: .notInstalled
+        )
+        let installs = LocalAIInstallHarness()
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { status.status(for: $0) }
+        dependencies.localAI.startInstall = installs.start
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+        let running = AIProcessingBackendChoice.localAI(modelID: LocalAIModelCatalog.quality.id)
+        let pending = AIProcessingBackendChoice.localAI(modelID: LocalAIModelCatalog.gemma4E4B.id)
+        let fallback = AIProcessingFallbackChoice.localAI(modelID: running.modelID)
+        await MainActor.run {
+            appState.selectAIProcessingBackendChoice(running, for: .postProcessing)
+            appState.installLocalAIModel(LocalAIModelCatalog.gemma4E4B, autoSelectFor: .postProcessing)
+            precondition(appState.pendingLocalAIModelID(for: .postProcessing) == pending.modelID)
+            let displays = appState.aiProcessingFallbackChoiceDisplays(
+                for: .postProcessing,
+                shownPrimary: pending
+            )
+            precondition(
+                displays.contains { $0.choice == pending && !$0.isAvailable },
+                "the pick Settings shows is the model above"
+            )
+            precondition(
+                displays.contains { $0.choice == running && $0.isAvailable },
+                "the model it replaces can be its fallback"
+            )
+            appState.selectAIProcessingFallbackChoice(
+                fallback,
+                for: .postProcessing,
+                shownPrimary: pending
+            )
+            precondition(
+                appState.effectiveAIProcessingFallbackChoice(
+                    for: .postProcessing,
+                    shownPrimary: pending
+                ) == fallback,
+                "the picker shows the fallback it stored"
+            )
+            // Until the pick applies, the running model never falls back to
+            // itself.
+            precondition(
+                appState.effectiveAIProcessingFallbackChoice(for: .postProcessing) == .none
+            )
+            precondition(
+                appState.makeAIProcessingFallbackExecutor(
+                    appState.postProcessingFallbackState,
+                    primary: appState.postProcessingBackendChoice
+                ) == nil
+            )
+        }
+        status.set(.ready, for: LocalAIModelCatalog.gemma4E4B)
+        installs.complete(model: LocalAIModelCatalog.gemma4E4B, with: .success(()))
+        await waitUntil { appState.postProcessingBackendChoice == pending }
+        await MainActor.run {
+            precondition(
+                appState.postProcessingFallbackChoice == fallback,
+                "once downloaded, the pick runs with the fallback picked for it"
+            )
+        }
+        resetAIProcessingDefaults()
     }
 
     private static func testFallbackPickerKeepsUnavailableCurrentChoiceAndSnapshotStoresCloudOnly() async {

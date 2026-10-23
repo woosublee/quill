@@ -4647,11 +4647,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> [AIProcessingChoiceDisplay] {
         let primary = shownPrimary ?? currentAIProcessingChoice(for: feature)
         let current = currentAIProcessingFallbackChoice(for: feature)
-        let storedPrimary = currentAIProcessingChoice(for: feature)
         var displays = aiProcessingChoiceDisplays(for: feature).compactMap {
             display -> AIProcessingChoiceDisplay? in
+            // Only the primary Settings shows is "the model above", even a
+            // pick still waiting for its download. A fallback equal to the
+            // model that actually runs never runs (`mayRun`), so the picker
+            // shows None for it until that primary changes.
             let isPrimary = display.choice == primary
-                || (display.choice.isLocal && display.choice == storedPrimary)
             // An unavailable row is the primary's own retired model: listed
             // like any primary, never pickable.
             guard display.isAvailable || isPrimary else { return nil }
