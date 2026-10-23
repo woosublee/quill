@@ -13,25 +13,28 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 ### Added
 
 - **Fallbacks can use on-device models.** The post-processing and meeting summary fallbacks can now be None, a cloud model, or a local model such as Gemma. A local fallback also covers network failures and timeouts, and a local primary can fall back when its run fails. A local primary only falls back to a cloud model if you pick one for it in Settings; the picker explains what that model is sent.
-- **Delete All in Recently Deleted.** Settings › Recovery › Recently Deleted Notes has a Delete All button that permanently removes every listed note after you confirm.
+- **Delete All in Recently Deleted.** Settings › Recovery › Recently Deleted Notes has a Delete All button that permanently removes every listed note after you confirm. Like Delete Now, it doesn't check iCloud first, so with iCloud sync on, a note restored on another device in the meantime is deleted everywhere.
 - **Full-screen fallback for Context.** A new Context setting, on by default, captures the whole screen when the active window can't be captured. Turn it off to use only app and window details in that case.
 - **Save for the transcription API key.** A Save button next to the transcription API key saves and checks the transcription URL and key, and shows when they work.
 
 ### Changed
 
-- Settings model pickers all look and work the same way: each shows the model's size and whether it needs a download, any model can be picked, and a model picked before it's downloaded becomes active when the download finishes. The fallback pickers list every model and disable only the one already used above.
-- The cloud post-processing model list matches upstream: `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `llama-4-scout` and `qwen3-32b` are removed. On Groq, a saved selection of one of them moves to `qwen3.8-27b` once, and the default fallback is now `qwen3.8-27b`.
+- Settings model pickers all look and work the same way: each shows the model's size and whether it needs a download, any model can be picked, and a model picked before it's downloaded becomes active when the download finishes. If you close Settings without starting that download, the pick is dropped. The fallback pickers list every model and disable only the one already used above.
+- The cloud model list matches upstream: `openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `openai/gpt-oss-safeguard-20b` and `qwen/qwen3.8-27b`. On Groq:
+  - Saved selections of `qwen/qwen3.6-27b`, which Groq retired, move to `qwen/qwen3.8-27b`.
+  - Saved selections of `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `meta-llama/llama-4-scout-17b-16e-instruct` and `qwen/qwen3-32b` move to `qwen/qwen3.8-27b` once.
+  - `groq/compound` and `groq/compound-mini` are no longer listed.
+- `qwen/qwen3.8-27b` is the new default Context model and default post-processing fallback. When it is also the post-processing model, the automatic fallback is `openai/gpt-oss-20b`.
 - Deleting a note moves it to Recently Deleted right away, without the few-second Cancel banner. You can still restore it there for 30 days.
 - Retranscribing a note that gives the same text saves it directly and says so, instead of opening the comparison.
-- When the output language is automatic, AI cleanup keeps non-English dictation in the language it was spoken in.
+- The default AI cleanup prompt is updated, so a custom prompt shows the updated-default notice once. When the output language is automatic, cleanup keeps non-English dictation in the language it was spoken in, and a standalone reply such as "yes" is kept instead of being dropped.
 - VoiceOver reads the recording's elapsed time.
 - The note details row no longer shows a spinner; progress shows in the transcript and the toolbar.
 
 ### Fixed
 
-- A failed or placeholder screen-context summary is no longer passed to AI cleanup as context.
-- A model that rejects the temperature setting is retried once without it.
-- With `qwen3.8-27b` as the post-processing model, the automatic fallback is `gpt-oss-20b` instead of the same model, so rate limits and server errors still fall back.
+- A failed or placeholder screen-context summary is no longer passed to AI cleanup as context. Cloud context requests are capped at 512 output tokens (2,048 for reasoning models), and an authentication, not-found or rate-limit error is no longer retried without the screenshot.
+- A model that rejects the temperature setting is retried once without it, and Quill remembers that for that endpoint and model for 7 days.
 
 ## [1.1.2] - 2026-10-20
 
