@@ -102,7 +102,7 @@ struct LocalAIModelRowView: View {
                 actionView
             }
 
-            if presentation == .managed, isPendingSelection {
+            if presentation == .managed, showsActivationNote {
                 Text("This model will become active when the download finishes.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -229,6 +229,13 @@ struct LocalAIModelRowView: View {
             .controlSize(.small)
             .accessibilityLabel("Delete Model")
         }
+    }
+
+    /// A Settings pick still waiting for its download reads the same before
+    /// the download starts and after one is cancelled.
+    private var showsActivationNote: Bool {
+        isPendingSelection
+            || (selectsOnDownload && isSelected && appState.localAIModelNeedsDownload(model))
     }
 
     private var isPendingSelection: Bool {

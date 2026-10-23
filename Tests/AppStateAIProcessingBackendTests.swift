@@ -35,6 +35,7 @@ struct AppStateAIProcessingBackendTests {
         await testMeetingSummaryCopyDropsCloudConsent()
         await testDeletingLocalModelClearsFallbacksUsingIt()
         await testOnlyTheShownPrimaryIsTheModelAbove()
+        await testModelNeedsDownloadBeforeAndAfterACancel()
         await testFallbackPickerKeepsUnavailableCurrentChoiceAndSnapshotStoresCloudOnly()
         testFallbackExecutorIsSeparateAndSkipsNoneOrPrimary()
         await testIncompatibleLegacyContextSelectionIsPreservedAndDisabled()
@@ -868,6 +869,48 @@ struct AppStateAIProcessingBackendTests {
             storedFallbackChoice(forKey: "meeting_summary_fallback_choice")
                 == .cloud(modelID: AppState.defaultMeetingSummaryFallbackModel)
         )
+    }
+
+    private static func testModelNeedsDownloadBeforeAndAfterACancel() async {
+        resetAIProcessingDefaults()
+        let status = LocalAIStatusHarness(
+            statuses: [LocalAIModelCatalog.quality.id: .ready],
+            defaultStatus: .notInstalled
+        )
+        let installs = LocalAIInstallHarness()
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { status.status(for: $0) }
+        dependencies.localAI.startInstall = installs.start
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+        let gemma = LocalAIModelCatalog.gemma4E4B
+        await MainActor.run {
+            precondition(appState.localAIModelNeedsDownload(gemma), "before the download")
+            precondition(!appState.localAIModelNeedsDownload(LocalAIModelCatalog.quality), "downloaded")
+            appState.installLocalAIModel(gemma, autoSelectFor: .postProcessing)
+            precondition(!appState.localAIModelNeedsDownload(gemma), "downloading shows progress instead")
+            appState.cancelLocalAIInstall(gemma)
+            precondition(
+                appState.localAIModelNeedsDownload(gemma),
+                "a cancel still finishing already reads as stopped, so the note doesn't blink"
+            )
+        }
+        installs.complete(model: gemma, with: .failure(.cancelled))
+        await waitUntil { !appState.localAIInstallState(for: gemma).isInstalling }
+        await MainActor.run {
+            precondition(
+                appState.localAIModelNeedsDownload(gemma),
+                "after a cancel it reads as before the download"
+            )
+        }
+
+        resetAIProcessingDefaults()
+        var unsupported = modelTestDependencies()
+        unsupported.localAI.processingAvailability = unsupportedLocalAIAvailability
+        let other = await makeRefreshedAppState(dependencies: unsupported)
+        await MainActor.run {
+            precondition(!other.localAIModelNeedsDownload(gemma), "a model this Mac can't run")
+        }
+        resetAIProcessingDefaults()
     }
 
     private static func testOnlyTheShownPrimaryIsTheModelAbove() async {
