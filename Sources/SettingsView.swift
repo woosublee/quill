@@ -2105,13 +2105,17 @@ struct ModelsSettingsView: View {
             }
         case .localAI:
             // The row's own install state, as the picker's "Download
-            // required" tag reads it; a model being deleted still warns.
+            // required" tag reads it; a model being deleted or a corrupt
+            // install still warns.
             guard let model = managedLocalAITranscriptionModel,
                   model.supportsTranscription,
                   appState.isLocalAIModelAvailable(model) else {
                 return false
             }
-            return appState.localAIInstallState(for: model).status != .ready
+            switch appState.localAIInstallState(for: model).status {
+            case .notInstalled, .partial: return true
+            case .ready, .corrupt: return false
+            }
         case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
             return false
         }
