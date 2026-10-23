@@ -1733,6 +1733,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         guard isNoteBrowserTranscriptionChoiceReady(choice) else { return }
+        // An explicit pick wins over one still waiting for its download.
+        cancelLocalAITranscriptionAutoSelection()
+        cancelNativeWhisperAutoSelection()
         setNoteBrowserTranscriptionChoice(choice)
         transcriptionEnabled = true
     }

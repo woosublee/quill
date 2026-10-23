@@ -637,6 +637,19 @@ struct AppStateTranscriptionConfigurationTests {
         }
 
         resetDefaults()
+        let browser = await makeLocalAIAppState(installStatus: .notInstalled)
+        await MainActor.run {
+            browser.markLocalAITranscriptionModelPending("gemma-4-e4b-it")
+            browser.armNativeWhisperAutoSelection()
+            browser.setNoteBrowserTranscriptionSelection(.appleLive)
+            precondition(
+                browser.pendingLocalAITranscriptionModelID == nil
+                    && !browser.willAutoSelectNativeWhisperWhenReady,
+                "a Note Browser pick cancels picks waiting for a download"
+            )
+        }
+
+        resetDefaults()
         let ready = await makeLocalAIAppState(installStatus: .ready)
         await MainActor.run {
             ready.markLocalAITranscriptionModelPending("gemma-4-e4b-it")
