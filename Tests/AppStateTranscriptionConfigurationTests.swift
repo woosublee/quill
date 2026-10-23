@@ -113,6 +113,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testEightGigabyteMacListsOnlyLightTranscriptionModel()
         await testReloadHintOnlyWhenLocalModelsDiffer()
         await testSelectingUninstalledLocalAIWaitsForInstall()
+        await testSettingsPickWaitsForDownloadLikeTheAIPickers()
         await testStartupKeepsLocalAIChoiceBeforeStatusRefresh()
         await testFinishedDownloadDoesNotTurnTranscriptionOn()
         try await testLocalAIRetryRecordsLocalAIModelID()
@@ -192,6 +193,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testNativeWhisperInstallAutoSelectsOnSuccess()
         await testExplicitBackendChoiceCancelsAutoSelectionOnly()
         await testNativeWhisperCancellationClearsAutoSelection()
+        await testSettingsWhisperPickWaitsForDownload()
         await testAppStateInstancesKeepIndependentNativeWhisperEnvironments()
         await testNativeWhisperDeletionUsesOriginatingDependency()
         await testSetupProcessingPresetsPreserveProviderConfiguration()
@@ -575,6 +577,72 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(
                 appState.pendingLocalAITranscriptionModelID == nil,
                 "cancel clears the pending choice"
+            )
+        }
+    }
+
+    private static func testSettingsPickWaitsForDownloadLikeTheAIPickers() async {
+        resetDefaults()
+        let appState = await makeLocalAIAppState(installStatus: .notInstalled)
+        await MainActor.run {
+            appState.markLocalAITranscriptionModelPending("gemma-4-e4b-it")
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == "gemma-4-e4b-it",
+                "a pick that needs its download is pending"
+            )
+            precondition(
+                !appState.localAIInstallState(for: LocalAIModelCatalog.gemma4E4B).isInstalling,
+                "picking alone doesn't start the download"
+            )
+            appState.discardUndownloadedLocalAISelections()
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == nil,
+                "closing Settings drops a pick that never downloaded"
+            )
+            appState.selectLocalAITranscriptionModel("gemma-4-e4b-it")
+            appState.discardUndownloadedLocalAISelections()
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == "gemma-4-e4b-it",
+                "a running download keeps its pick"
+            )
+        }
+
+        // A failed download keeps its error on the row, but closing Settings
+        // drops the pick so it can't switch transcription later.
+        resetDefaults()
+        let completions = LocalAICompletionBox()
+        var dependencies = localAITranscriptionDependencies(installStatus: .notInstalled)
+        dependencies.localAI.startInstall = { _, _, completion in
+            completions.store(completion)
+            return LocalAIInstallTask()
+        }
+        let failing = await MainActor.run { AppState(dependencies: dependencies) }
+        await failing.waitForLocalAIInstallStateRefresh()
+        await MainActor.run { failing.selectLocalAITranscriptionModel("gemma-4-e4b-it") }
+        completions.fail(.downloadFailed("synthetic"))
+        for _ in 0..<200 {
+            let stopped = await MainActor.run {
+                !failing.localAIInstallState(for: LocalAIModelCatalog.gemma4E4B).isInstalling
+            }
+            if stopped { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        await MainActor.run {
+            failing.markLocalAITranscriptionModelPending("gemma-4-e4b-it")
+            failing.discardUndownloadedLocalAISelections()
+            precondition(
+                failing.pendingLocalAITranscriptionModelID == nil,
+                "a failed download doesn't keep a pick that could switch later"
+            )
+        }
+
+        resetDefaults()
+        let ready = await makeLocalAIAppState(installStatus: .ready)
+        await MainActor.run {
+            ready.markLocalAITranscriptionModelPending("gemma-4-e4b-it")
+            precondition(
+                ready.pendingLocalAITranscriptionModelID == nil,
+                "a downloaded model is never pending"
             )
         }
     }
@@ -2430,6 +2498,47 @@ struct AppStateTranscriptionConfigurationTests {
                     == .apiStandard(modelID: "custom-model")
             )
             precondition(!fixture.appState.willAutoSelectNativeWhisperWhenReady)
+        }
+    }
+
+    private static func testSettingsWhisperPickWaitsForDownload() async {
+        resetDefaults()
+        let fixture = makeNativeWhisperInstallFixture()
+
+        await MainActor.run {
+            fixture.appState.armNativeWhisperAutoSelection()
+            precondition(fixture.appState.willAutoSelectNativeWhisperWhenReady)
+            precondition(!fixture.appState.isInstallingNativeWhisper)
+
+            fixture.appState.discardUndownloadedLocalAISelections()
+            precondition(
+                !fixture.appState.willAutoSelectNativeWhisperWhenReady,
+                "closing Settings drops a pick that never downloaded"
+            )
+
+            fixture.appState.armNativeWhisperAutoSelection()
+            fixture.appState.installNativeWhisperModel(autoSelectWhenReady: true)
+            fixture.appState.discardUndownloadedLocalAISelections()
+            precondition(
+                fixture.appState.willAutoSelectNativeWhisperWhenReady,
+                "a running download keeps its pick"
+            )
+        }
+
+        // Closing Settings after the download stops but before its completion
+        // is handled still lets the download apply the pick.
+        resetDefaults()
+        let finished = makeNativeWhisperInstallFixture()
+        await MainActor.run { finished.appState.armNativeWhisperAutoSelection() }
+        finished.status.setStatus(.ready)
+        await MainActor.run { finished.appState.refreshNativeWhisperInstallStatus() }
+        await waitUntil { finished.appState.nativeWhisperInstallStatus == .ready }
+        await MainActor.run {
+            finished.appState.discardUndownloadedLocalAISelections()
+            precondition(
+                finished.appState.willAutoSelectNativeWhisperWhenReady,
+                "a finished download keeps its pick until it applies"
+            )
         }
     }
 
@@ -5802,6 +5911,10 @@ private final class LocalAICompletionBox: @unchecked Sendable {
     func complete() {
         lock.lock(); let completion = completion; lock.unlock()
         completion?(.success(()))
+    }
+    func fail(_ error: LocalAIInstallerError) {
+        lock.lock(); let completion = completion; lock.unlock()
+        completion?(.failure(error))
     }
 }
 

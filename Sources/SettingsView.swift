@@ -2026,8 +2026,15 @@ struct ModelsSettingsView: View {
             appState.cancelLocalAITranscriptionAutoSelection()
         }
         if appState.isNoteBrowserTranscriptionChoiceReady(choice) {
+            appState.cancelLocalAITranscriptionAutoSelection()
             appState.setNoteBrowserTranscriptionChoice(choice)
             appState.transcriptionEnabled = true
+        } else if case .localAI(let modelID) = choice {
+            // Like the AI pickers: a model that needs its download is
+            // pending, and applies once downloaded.
+            appState.markLocalAITranscriptionModelPending(modelID)
+        } else if case .nativeWhisper = choice {
+            appState.armNativeWhisperAutoSelection()
         }
     }
 
@@ -2083,6 +2090,20 @@ struct ModelsSettingsView: View {
         let state = appState.localAIInstallState(for: model)
         guard state.status != .ready else { return nil }
         return localizedCatalogString(state.isInstalling ? "Downloading..." : "Download required")
+    }
+
+    /// A pending pick only waits for its download, which its row already
+    /// says, so no warning is shown for it.
+    private var transcriptionChoiceAwaitsDownload: Bool {
+        switch settingsTranscriptionChoice {
+        case .nativeWhisper:
+            return appState.willAutoSelectNativeWhisperWhenReady
+                && !appState.hasNativeLocalWhisperModel
+        case .localAI(let modelID):
+            return appState.pendingLocalAITranscriptionModelID == modelID
+        case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
+            return false
+        }
     }
 
     private var managedLocalAITranscriptionModel: LocalAIModel? {
@@ -2530,10 +2551,6 @@ struct ModelsSettingsView: View {
                         },
                         showsSelectionControl: false
                     )
-
-                    Text("The download continues in the background while Quill is running.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
 
                 if let model = managedLocalAITranscriptionModel {
@@ -2551,6 +2568,7 @@ struct ModelsSettingsView: View {
                         "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
                     )
                 } else if transcriptionEnabledDraft,
+                          !transcriptionChoiceAwaitsDownload,
                           let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                     Label(reason, systemImage: "exclamationmark.triangle")
                         .font(.caption)
@@ -5675,7 +5693,14 @@ struct NativeWhisperModelRowView: View {
                 actionView
             }
 
-            if appState.isInstallingNativeWhisper {
+            if !showsSelectionControl, isSelected, !isInstalled,
+               appState.willAutoSelectNativeWhisperWhenReady {
+                // Settings words a pending pick like every other model row.
+                Text("This model will become active when the download finishes.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if appState.isInstallingNativeWhisper {
                 Text(
                     appState.willAutoSelectNativeWhisperWhenReady
                         ? localizedCatalogString("Whisper will become active when the download finishes.")

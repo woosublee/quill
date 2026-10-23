@@ -482,11 +482,6 @@ struct ModelsSettingsUIContractTests {
         precondition(!appDelegate.contains("private final class SettingsWindowDelegate"))
         precondition(!appDelegate.contains("private final class SetupWindowDelegate"))
         precondition(!settingsWindow.contains("window.delegate = settingsWindowDelegate"))
-        precondition(
-            models.contains(
-                "The download continues in the background while Quill is running."
-            )
-        )
         precondition(!appDelegate.contains("cancelNativeWhisperInstallForSettingsClose()"))
         precondition(!appDelegate.contains("cancelNativeWhisperInstallForSetupClose()"))
         precondition(appDelegate.contains("appState.requestTerminationAfterModelCleanup()"))
@@ -1288,6 +1283,11 @@ struct ModelsSettingsUIContractTests {
         precondition(settings.contains("let model = LocalAIModelCatalog.model(id: modelID),\n               appState.isLocalAIModelAvailable(model) {"), "no download row for a model this Mac can't run")
         precondition(settings.contains("Text(transcriptionChoiceMenuLabel(currentTranscriptionDisplay))"), "macOS 13's closed label matches")
         precondition(localAIModelRow.contains("guard selectsOnDownload else { return state.status != .ready }"), "a fallback says it runs once downloaded")
+        // Transcription words a model that still needs its download the same
+        // way, inside its row, instead of an orange warning below it.
+        precondition(settings.contains("appState.markLocalAITranscriptionModelPending(modelID)"))
+        precondition(settings.contains("appState.willAutoSelectNativeWhisperWhenReady {\n                // Settings words a pending pick like every other model row.\n                Text(\"This model will become active when the download finishes.\")"))
+        precondition(settings.contains("!transcriptionChoiceAwaitsDownload,"))
         precondition(localAIModelRow.contains("} else if selectsOnDownload {\n                appState.installLocalAIModel(model, autoSelectFor: feature)\n            } else {\n                appState.installLocalAIModel(model)"))
     }
 

@@ -50,8 +50,6 @@ struct LocalizationResourceTests {
             "Processing": "처리",
             "Shortcut": "단축키",
             "Optional permissions": "선택 권한",
-            "The download continues in the background while Quill is running.":
-                "Quill이 실행되는 동안 다운로드가 백그라운드에서 계속돼요.",
             "Whisper will become active when the download finishes.":
                 "다운로드가 끝나면 Whisper가 활성화돼요.",
             "Download continues in the background. Select Whisper after installation.":

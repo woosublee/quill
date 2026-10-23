@@ -801,22 +801,6 @@
         }
       }
     },
-    "The download continues in the background while Quill is running.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The download continues in the background while Quill is running."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill이 실행되는 동안 다운로드가 백그라운드에서 계속돼요."
-          }
-        }
-      }
-    },
     "Quit while models are downloading?": {
       "localizations": {
         "en": {

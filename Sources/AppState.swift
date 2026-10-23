@@ -1563,6 +1563,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingNativeWhisperAutoSelectionModelID = nil
     }
 
+    /// Settings arms a Native Whisper pick that still needs its download, so
+    /// the download applies it like the Download button does.
+    @MainActor
+    func armNativeWhisperAutoSelection() {
+        guard !isModelTerminationCleanupPending, !hasNativeLocalWhisperModel else { return }
+        pendingNativeWhisperAutoSelectionModelID = NativeWhisperModelCatalog.recommended.id
+    }
+
+    /// Settings marks a Local AI pick that still needs its download, like the
+    /// AI pickers, so it applies once downloaded.
+    @MainActor
+    func markLocalAITranscriptionModelPending(_ modelID: String) {
+        guard let model = LocalAIModelCatalog.model(id: modelID),
+              model.supportsTranscription,
+              isLocalAIModelAvailable(model),
+              !localAIWorkflow.isDeletionRequested(modelID),
+              !isLocalAITranscriptionModelUsable(modelID) else {
+            return
+        }
+        pendingLocalAITranscriptionModelID = modelID
+    }
+
     /// Stops a pending Local AI transcription choice from applying when its
     /// download finishes. The download itself continues, like Native Whisper.
     @MainActor
@@ -4139,14 +4161,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func discardUndownloadedLocalAISelections() {
-        let retainedSelections = pendingLocalAISelections.filter { _, modelID in
+        let isDownloadKept: (String) -> Bool = { modelID in
             guard let model = LocalAIModelCatalog.model(id: modelID) else {
                 return false
             }
-            let state = localAIInstallState(for: model)
+            let state = self.localAIInstallState(for: model)
             return state.isInstalling
                 || state.progress.isCancelled
                 || state.issue != nil
+        }
+        // A transcription pick stays only while its download runs or is about
+        // to apply; a failed or cancelled one must not switch later.
+        if let modelID = pendingLocalAITranscriptionModelID {
+            let state = LocalAIModelCatalog.model(id: modelID).map { localAIInstallState(for: $0) }
+            if state.map({ !$0.isInstalling && $0.status != .ready }) ?? true {
+                pendingLocalAITranscriptionModelID = nil
+            }
+        }
+        if willAutoSelectNativeWhisperWhenReady,
+           !isInstallingNativeWhisper,
+           nativeWhisperInstallStatus != .ready {
+            pendingNativeWhisperAutoSelectionModelID = nil
+        }
+        let retainedSelections = pendingLocalAISelections.filter { _, modelID in
+            isDownloadKept(modelID)
         }
         guard retainedSelections != pendingLocalAISelections else { return }
         pendingLocalAISelections = retainedSelections
