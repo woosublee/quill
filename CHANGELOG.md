@@ -27,7 +27,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `qwen/qwen3.8-27b` is the new default Context model and default post-processing fallback. When it is also the post-processing model, the automatic fallback is `openai/gpt-oss-20b`.
 - Deleting a note moves it to Recently Deleted right away, without the few-second Cancel banner. You can still restore it there for 30 days.
 - Retranscribing a note that gives the same text saves it directly and says so, instead of opening the comparison.
-- The default AI cleanup prompt is updated, so a custom prompt shows the updated-default notice once. When the output language is automatic, cleanup keeps non-English dictation in the language it was spoken in, and a standalone reply such as "yes" is kept instead of being dropped.
+- The default AI cleanup prompt is updated, so Settings notes that the default changed if you use a custom prompt. When the output language is automatic, cleanup keeps non-English dictation in the language it was spoken in, and a standalone reply such as "yes" is kept instead of being dropped.
 - VoiceOver reads the recording's elapsed time.
 - The note details row no longer shows a spinner; progress shows in the transcript and the toolbar.
 
