@@ -1282,6 +1282,9 @@ struct ModelsSettingsUIContractTests {
         precondition(settings.contains("isSelected: true,\n                    selectsOnDownload: false"))
         precondition(settings.contains("let model = LocalAIModelCatalog.model(id: modelID),\n               appState.isLocalAIModelAvailable(model) {"), "no download row for a model this Mac can't run")
         precondition(settings.contains("Text(transcriptionChoiceMenuLabel(currentTranscriptionDisplay))"), "macOS 13's closed label matches")
+        // The cloud fallback note is a caption, not an orange warning.
+        precondition(settings.contains("Label(localizedCatalogString(cloudWarning), systemImage: \"info.circle\")"))
+        precondition(!settings.contains("providerConfigurationWarning(cloudWarning)"))
         precondition(localAIModelRow.contains("guard selectsOnDownload else { return state.status != .ready }"), "a fallback says it runs once downloaded")
         // Transcription words a model that still needs its download the same
         // way, inside its row, instead of an orange warning below it.
