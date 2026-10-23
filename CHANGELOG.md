@@ -8,6 +8,31 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.2.0] - 2026-10-23
+
+### Added
+
+- **Fallbacks can use on-device models.** The post-processing and meeting summary fallbacks can now be None, a cloud model, or a local model such as Gemma. A local fallback also covers network failures and timeouts, and a local primary can fall back when its run fails. A local primary only falls back to a cloud model if you pick one for it in Settings; the picker explains what that model is sent.
+- **Delete All in Recently Deleted.** Settings › Recovery › Recently Deleted Notes has a Delete All button that permanently removes every listed note after you confirm.
+- **Full-screen fallback for Context.** A new Context setting, on by default, captures the whole screen when the active window can't be captured. Turn it off to use only app and window details in that case.
+- **Save for the transcription API key.** A Save button next to the transcription API key saves and checks the transcription URL and key, and shows when they work.
+
+### Changed
+
+- Settings model pickers all look and work the same way: each shows the model's size and whether it needs a download, any model can be picked, and a model picked before it's downloaded becomes active when the download finishes. The fallback pickers list every model and disable only the one already used above.
+- The cloud post-processing model list matches upstream: `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `llama-4-scout` and `qwen3-32b` are removed. On Groq, a saved selection of one of them moves to `qwen3.8-27b` once, and the default fallback is now `qwen3.8-27b`.
+- Deleting a note moves it to Recently Deleted right away, without the few-second Cancel banner. You can still restore it there for 30 days.
+- Retranscribing a note that gives the same text saves it directly and says so, instead of opening the comparison.
+- When the output language is automatic, AI cleanup keeps non-English dictation in the language it was spoken in.
+- VoiceOver reads the recording's elapsed time.
+- The note details row no longer shows a spinner; progress shows in the transcript and the toolbar.
+
+### Fixed
+
+- A failed or placeholder screen-context summary is no longer passed to AI cleanup as context.
+- A model that rejects the temperature setting is retried once without it.
+- With `qwen3.8-27b` as the post-processing model, the automatic fallback is `gpt-oss-20b` instead of the same model, so rate limits and server errors still fall back.
+
 ## [1.1.2] - 2026-10-20
 
 ### Changed
