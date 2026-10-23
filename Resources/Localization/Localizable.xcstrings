@@ -21795,6 +21795,22 @@
           }
         }
       }
+    },
+    "Install the native Local Whisper model to use this option": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install the native Local Whisper model to use this option"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 옵션을 사용하려면 Local Whisper 모델을 설치하세요"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

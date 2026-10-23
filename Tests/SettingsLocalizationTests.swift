@@ -502,6 +502,7 @@ struct SettingsLocalizationTests {
             "Show Realtime transcription option": "실시간 전사 옵션 표시",
             "Download required": "다운로드 필요",
             "Used as the model above": "위 모델로 사용 중",
+            "Install the native Local Whisper model to use this option": "이 옵션을 사용하려면 Local Whisper 모델을 설치하세요",
             "Downloading...": "다운로드 중...",
             "Local Whisper Download in Progress": "Local Whisper 다운로드 진행 중",
             "Closing Settings will cancel the model download and remove the partial file.": "Settings를 닫으면 모델 다운로드가 취소되고 완료되지 않은 파일이 제거돼요.",

@@ -1290,7 +1290,10 @@ struct ModelsSettingsUIContractTests {
         // way, inside its row, instead of an orange warning below it.
         precondition(settings.contains("appState.markLocalAITranscriptionModelPending(modelID)"))
         precondition(settings.contains("appState.willAutoSelectNativeWhisperWhenReady {\n                // Settings words a pending pick like every other model row.\n                Text(\"This model will become active when the download finishes.\")"))
-        precondition(settings.contains("!transcriptionChoiceAwaitsDownload,"))
+        precondition(settings.contains("!transcriptionChoiceOnlyNeedsDownload,"))
+        // Not only while pending: after a cancel, a Note Browser pick or a
+        // deletion the row still offers Download, so no warning either.
+        precondition(!settings.contains("return appState.pendingLocalAITranscriptionModelID == modelID"))
         precondition(localAIModelRow.contains("} else if selectsOnDownload {\n                appState.installLocalAIModel(model, autoSelectFor: feature)\n            } else {\n                appState.installLocalAIModel(model)"))
     }
 

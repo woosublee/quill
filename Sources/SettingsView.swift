@@ -2092,15 +2092,30 @@ struct ModelsSettingsView: View {
         return localizedCatalogString(state.isInstalling ? "Downloading..." : "Download required")
     }
 
-    /// A pending pick only waits for its download, which its row already
-    /// says, so no warning is shown for it.
-    private var transcriptionChoiceAwaitsDownload: Bool {
+    /// The picked on-device model only needs its download. Its row below
+    /// offers Download or shows progress and the picker says "Download
+    /// required", so no warning is shown for it.
+    private var transcriptionChoiceOnlyNeedsDownload: Bool {
         switch settingsTranscriptionChoice {
         case .nativeWhisper:
-            return appState.willAutoSelectNativeWhisperWhenReady
-                && !appState.hasNativeLocalWhisperModel
-        case .localAI(let modelID):
-            return appState.pendingLocalAITranscriptionModelID == modelID
+            guard managedNativeModel != nil else { return false }
+            switch appState.nativeWhisperInstallStatus {
+            case .notInstalled, .partial: return true
+            case .ready, .corrupt: return false
+            }
+        case .localAI:
+            // The row's own install state, as the picker's "Download
+            // required" tag reads it; a model being deleted or a corrupt
+            // install still warns.
+            guard let model = managedLocalAITranscriptionModel,
+                  model.supportsTranscription,
+                  appState.isLocalAIModelAvailable(model) else {
+                return false
+            }
+            switch appState.localAIInstallState(for: model).status {
+            case .notInstalled, .partial: return true
+            case .ready, .corrupt: return false
+            }
         case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
             return false
         }
@@ -2568,7 +2583,7 @@ struct ModelsSettingsView: View {
                         "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
                     )
                 } else if transcriptionEnabledDraft,
-                          !transcriptionChoiceAwaitsDownload,
+                          !transcriptionChoiceOnlyNeedsDownload,
                           let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                     Label(reason, systemImage: "exclamationmark.triangle")
                         .font(.caption)
