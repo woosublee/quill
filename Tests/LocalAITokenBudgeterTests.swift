@@ -53,7 +53,8 @@ struct LocalAITokenBudgeterTests {
         for role in [
             LocalAITokenBudgetRole.summaryExtraction,
             .summaryIntermediateMerge,
-            .summaryFinalMerge
+            .summaryFinalMerge,
+            .summaryCompactMerge
         ] {
             let budget = try await budgeter.budget(
                 forRenderedChatPrompt: "rendered prompt",
@@ -69,7 +70,7 @@ struct LocalAITokenBudgeterTests {
             contextWindow: 16_384,
             tokenCounter: FixedTokenCounter(count: 2_000),
             summaryCompletionTokens: LocalAITokenBudgeter.localSummaryCompletionTokens,
-            summaryMergeCompletionTokens: LocalAITokenBudgeter.localSummaryMergeCompletionTokens
+            summaryMergeCompletionTokens: 6_144
         )
         let extraction = try await budgeter.budget(
             forRenderedChatPrompt: "rendered prompt",
@@ -90,6 +91,15 @@ struct LocalAITokenBudgeterTests {
                 maxCompletionTokens: 6_144
             ), "a local merge reserves 6,144 completion tokens (#610)")
         }
+
+        let compact = try await budgeter.budget(
+            forRenderedChatPrompt: "rendered prompt",
+            role: .summaryCompactMerge
+        )
+        try expect(
+            compact?.maxCompletionTokens == 4_096,
+            "a compact merge reserves only the extraction room"
+        )
     }
 
     private static func testBudgeterRejectsNonPositiveSourceBudget() async throws {

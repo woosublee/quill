@@ -14,6 +14,9 @@ enum LocalAITokenBudgetRole: Sendable {
     case summaryExtraction
     case summaryIntermediateMerge
     case summaryFinalMerge
+    /// A merge with only the extraction room, for when the full merge
+    /// room leaves no batch to merge (#610).
+    case summaryCompactMerge
 
     fileprivate func maxCompletionTokens(
         summaryCompletionTokens: Int,
@@ -22,7 +25,7 @@ enum LocalAITokenBudgetRole: Sendable {
         switch self {
         case let .postProcessing(inputReservation):
             return min(max(inputReservation, 0) + 512, 6_144)
-        case .summaryExtraction:
+        case .summaryExtraction, .summaryCompactMerge:
             return summaryCompletionTokens
         case .summaryIntermediateMerge, .summaryFinalMerge:
             return summaryMergeCompletionTokens
@@ -36,16 +39,13 @@ struct LocalAITokenBudgeter: Sendable {
     /// verbatim source quote, so a full chunk's JSON outgrows 1,024 tokens
     /// (#609).
     static let localSummaryCompletionTokens = 4_096
-    /// Merge response room on a local model. A merge can be about as long
-    /// as its partials together, so a batch that left only the extraction
-    /// room was cut off (#610).
-    static let localSummaryMergeCompletionTokens = 6_144
 
     let contextWindow: Int
     let tokenCounter: any LocalAITokenCounting
     var summaryCompletionTokens = 1_024
-    /// Defaults to `summaryCompletionTokens`.
-    var summaryMergeCompletionTokens: Int?
+    /// A merge batch that left only the extraction room could be cut off
+    /// before it finished (#610).
+    var summaryMergeCompletionTokens = 1_024
 
     func budget(
         forRenderedChatPrompt prompt: String,
@@ -57,7 +57,6 @@ struct LocalAITokenBudgeter: Sendable {
         let maxCompletionTokens = role.maxCompletionTokens(
             summaryCompletionTokens: summaryCompletionTokens,
             summaryMergeCompletionTokens: summaryMergeCompletionTokens
-                ?? summaryCompletionTokens
         )
         let sourceTokenLimit = contextWindow
             - renderedPromptTokens
