@@ -12,7 +12,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Fixed
 
-- A long meeting summarized with an on-device model (Gemma 4 E4B or Qwen2.5 7B Instruct) no longer fails with "Response cut off" while Quill combines the partial summaries. Quill now combines fewer partial summaries at a time, so each combining step has room to finish; a long meeting may take one more step than before.
+- A long meeting summarized with an on-device model, including an on-device fallback, is much less likely to fail with "Response cut off" while Quill combines the partial summaries. Quill now combines fewer partial summaries at a time so each step has room to finish, and returns to the earlier batch size only when the partials are too large to combine otherwise. Long meetings may take more combining steps, so their summaries can take longer.
 
 ## [1.2.1] - 2026-10-24
 
