@@ -8,6 +8,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.2.2] - 2026-10-25
+
+### Fixed
+
+- A long meeting summarized with an on-device model, including an on-device fallback, is much less likely to fail with "Response cut off" while Quill combines the partial summaries. Quill now combines fewer partial summaries at a time so each step has room to finish, and returns to the earlier batch size only when the partials are too large to combine otherwise. Long meetings may take more combining steps, so their summaries can take longer.
+
 ## [1.2.1] - 2026-10-24
 
 ### Fixed
