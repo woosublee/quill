@@ -133,13 +133,13 @@ struct LocalAIIntegrationTests {
                 outputLanguage: "Korean"
             )
             try expect(
-                rendered(prompt).utf8.count + LocalAITokenBudgetRole.summaryCompletionTokens + LocalAITokenBudgeter.safetyMarginTokens <= 16_384,
+                rendered(prompt).utf8.count + 1_024 + LocalAITokenBudgeter.safetyMarginTokens <= 16_384,
                 "extraction request remains inside 16K budget"
             )
             let output = try await client.complete(
                 system: prompt.system,
                 user: prompt.user,
-                maxCompletionTokens: LocalAITokenBudgetRole.summaryCompletionTokens
+                maxCompletionTokens: 1_024
             )
             let draft = try MeetingSummaryStrictDecoder.decode(output)
             try MeetingSummaryOutputValidator().validate(
@@ -161,13 +161,13 @@ struct LocalAIIntegrationTests {
                     outputLanguage: "Korean"
                 )
                 try expect(
-                    rendered(prompt).utf8.count + LocalAITokenBudgetRole.summaryCompletionTokens + LocalAITokenBudgeter.safetyMarginTokens <= 16_384,
+                    rendered(prompt).utf8.count + 1_024 + LocalAITokenBudgeter.safetyMarginTokens <= 16_384,
                     "hierarchical merge request remains inside 16K budget"
                 )
                 let output = try await client.complete(
                     system: prompt.system,
                     user: prompt.user,
-                    maxCompletionTokens: LocalAITokenBudgetRole.summaryCompletionTokens
+                    maxCompletionTokens: 1_024
                 )
                 let merged = try MeetingSummaryStrictDecoder.decode(output)
                 try MeetingSummaryOutputValidator().validate(

@@ -321,20 +321,24 @@ private struct MeetingSummaryByteTokenCounter: LocalAITokenCounting {
 /// Counts with the local model's own tokenizer. A byte count overstates a
 /// Korean prompt about fourfold, which leaves too little room to merge
 /// partial summaries (#609). Falls back to the byte count when the server
-/// can't answer.
+/// is running but can't count; a server that won't start fails as it would
+/// for the request itself.
 private struct MeetingSummaryLocalTokenCounter: LocalAITokenCounting {
+    private static let requestTimeout: TimeInterval = 10
+
     let executor: AIProcessingBackendExecutor
     let transport: MeetingSummaryService.Transport
 
     func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
-        do {
-            return try await executor.withEndpoint { [transport] endpoint in
+        try await executor.withEndpoint { [transport] endpoint in
+            do {
                 // llama-server serves /tokenize beside /v1, not under it.
                 let url = endpoint.baseURL
                     .deletingLastPathComponent()
                     .appendingPathComponent("tokenize")
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
+                request.timeoutInterval = Self.requestTimeout
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = try JSONSerialization.data(
                     withJSONObject: ["content": prompt]
@@ -344,13 +348,13 @@ private struct MeetingSummaryLocalTokenCounter: LocalAITokenCounting {
                       (200..<300).contains(http.statusCode),
                       let object = try? JSONSerialization.jsonObject(with: data),
                       let tokens = (object as? [String: Any])?["tokens"] as? [Any] else {
-                    throw MeetingSummaryError.invalidResponse(.responseEnvelope)
+                    return prompt.utf8.count
                 }
                 return tokens.count
+            } catch {
+                if AIProcessingFallbackPolicy.isCancellation(error) { throw error }
+                return prompt.utf8.count
             }
-        } catch {
-            if AIProcessingFallbackPolicy.isCancellation(error) { throw error }
-            return prompt.utf8.count
         }
     }
 }
@@ -374,6 +378,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
 
     private static let requestTimeout: TimeInterval = 120
     private static let contextWindow = 16_384
+    private static let cloudCompletionCeiling = 1_024
     private static let defaultTransport: Transport = { request in
         try await LLMAPITransport.data(for: request)
     }
@@ -406,7 +411,10 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             : MeetingSummaryByteTokenCounter()
         self.tokenBudgeter = tokenBudgeter ?? LocalAITokenBudgeter(
             contextWindow: Self.contextWindow,
-            tokenCounter: tokenCounter
+            tokenCounter: tokenCounter,
+            summaryCompletionTokens: backendExecutor.choice.isLocal
+                ? LocalAITokenBudgeter.localSummaryCompletionTokens
+                : Self.cloudCompletionCeiling
         )
         self.transport = transport
     }
@@ -945,16 +953,14 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         }
 
         let config = ModelConfiguration.config(for: endpoint.selectedModelID)
-        let localCompletionCeiling = max(
-            localCompletionTokens ?? 0,
-            LocalAITokenBudgetRole.summaryCompletionTokens
-        )
+        let localCompletionCeiling = localCompletionTokens
+            ?? tokenBudgeter.summaryCompletionTokens
         var payload: [String: Any] = [
             "model": endpoint.requestModelID,
             "temperature": 0.0,
             "max_completion_tokens": endpoint.kind == .local
                 ? localCompletionCeiling
-                : config.maxCompletionTokens ?? 8_192,
+                : Self.cloudCompletionCeiling,
             "messages": [
                 ["role": "system", "content": prompt.system],
                 ["role": "user", "content": prompt.user]
@@ -1042,15 +1048,18 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         guard let object = try? JSONSerialization.jsonObject(with: data),
               let root = object as? [String: Any],
               let choices = root["choices"] as? [[String: Any]],
-              let first = choices.first,
-              let message = first["message"] as? [String: Any],
-              let content = message["content"] as? String else {
+              let first = choices.first else {
             throw MeetingSummaryError.invalidResponse(.responseEnvelope)
         }
-        // A response that hit the token limit ends mid-JSON; say so rather
-        // than report it as a bad format.
+        // A response that hit the token limit ends mid-JSON, or has no
+        // content when reasoning used it all; say so rather than report a
+        // bad format.
         if first["finish_reason"] as? String == "length" {
             throw MeetingSummaryError.invalidResponse(.outputTruncated)
+        }
+        guard let message = first["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            throw MeetingSummaryError.invalidResponse(.responseEnvelope)
         }
         return content
     }

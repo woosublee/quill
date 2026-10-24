@@ -15,25 +15,26 @@ enum LocalAITokenBudgetRole: Sendable {
     case summaryIntermediateMerge
     case summaryFinalMerge
 
-    /// Room for a Summary response. Every point carries a verbatim source
-    /// quote, so a full chunk's JSON outgrows 1,024 tokens (#609).
-    static let summaryCompletionTokens = 4_096
-
-    fileprivate var maxCompletionTokens: Int {
+    fileprivate func maxCompletionTokens(summaryCompletionTokens: Int) -> Int {
         switch self {
         case let .postProcessing(inputReservation):
             return min(max(inputReservation, 0) + 512, 6_144)
         case .summaryExtraction, .summaryIntermediateMerge, .summaryFinalMerge:
-            return Self.summaryCompletionTokens
+            return summaryCompletionTokens
         }
     }
 }
 
 struct LocalAITokenBudgeter: Sendable {
     static let safetyMarginTokens = 512
+    /// Summary response room on a local model. Every point carries a
+    /// verbatim source quote, so a full chunk's JSON outgrows 1,024 tokens
+    /// (#609).
+    static let localSummaryCompletionTokens = 4_096
 
     let contextWindow: Int
     let tokenCounter: any LocalAITokenCounting
+    var summaryCompletionTokens = 1_024
 
     func budget(
         forRenderedChatPrompt prompt: String,
@@ -42,15 +43,18 @@ struct LocalAITokenBudgeter: Sendable {
         let renderedPromptTokens = try await tokenCounter.tokenCount(
             forRenderedChatPrompt: prompt
         )
+        let maxCompletionTokens = role.maxCompletionTokens(
+            summaryCompletionTokens: summaryCompletionTokens
+        )
         let sourceTokenLimit = contextWindow
             - renderedPromptTokens
-            - role.maxCompletionTokens
+            - maxCompletionTokens
             - Self.safetyMarginTokens
         guard sourceTokenLimit > 0 else { return nil }
 
         return LocalAITokenBudget(
             sourceTokenLimit: sourceTokenLimit,
-            maxCompletionTokens: role.maxCompletionTokens
+            maxCompletionTokens: maxCompletionTokens
         )
     }
 }

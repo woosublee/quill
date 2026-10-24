@@ -386,8 +386,8 @@ struct MeetingSummaryServiceTests {
         try expectNoCalendar(in: recorder.requests(), calendar: calendar)
         try expect(body["max_tokens"] == nil, "cloud Summary omits the local legacy completion key")
         try expect(
-            body["max_completion_tokens"] as? Int == 8_192,
-            "cloud Summary keeps the cloud completion default"
+            body["max_completion_tokens"] as? Int == 1_024,
+            "cloud Summary keeps the 1,024-token completion ceiling"
         )
     }
 
@@ -689,7 +689,7 @@ struct MeetingSummaryServiceTests {
         let recorder = MeetingSummaryRequestRecorder()
         let tokenCounter = MeetingSummaryRecordingTokenCounter()
         let budgeter = LocalAITokenBudgeter(
-            contextWindow: 8_272,
+            contextWindow: 5_200,
             tokenCounter: tokenCounter
         )
         let service = makeCloudService(
@@ -717,8 +717,8 @@ struct MeetingSummaryServiceTests {
         for request in requests {
             let body = try requestBody(request)
             try expect(
-                body["max_completion_tokens"] as? Int == 8_192,
-                "every cloud Summary request keeps the cloud completion default"
+                body["max_completion_tokens"] as? Int == 1_024,
+                "every Summary request reserves the 1,024-token completion ceiling"
             )
         }
         for request in requests {
@@ -727,7 +727,7 @@ struct MeetingSummaryServiceTests {
             let user = try string(try dictionary(messages[1])["content"])
             let rendered = "[System]\n\(system)\n\n[User]\n\(user)"
             try expect(
-                rendered.utf8.count + 4_096 + 512 <= 8_272,
+                rendered.utf8.count + 1_024 + 512 <= 5_200,
                 "every generated Summary request stays inside the injected context budget"
             )
         }
@@ -738,7 +738,7 @@ struct MeetingSummaryServiceTests {
         let service = makeCloudService(
             chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16),
             tokenBudgeter: LocalAITokenBudgeter(
-                contextWindow: 5_072,
+                contextWindow: 2_000,
                 tokenCounter: SingletonTailTokenCounter()
             )
         ) { request in
@@ -893,26 +893,30 @@ struct MeetingSummaryServiceTests {
     /// A response cut off at the token limit is not reported as a bad
     /// format (#609).
     private static func testTruncatedResponseReportsOutputTruncated() async throws {
-        let service = makeCloudService { request in
-            let data = try JSONSerialization.data(withJSONObject: [
-                "choices": [[
-                    "message": ["content": String(validJSON.prefix(40))],
-                    "finish_reason": "length"
-                ]]
-            ])
-            return (
-                data,
-                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            )
-        }
+        // Cut off mid-JSON, or with no content when reasoning used it all.
+        let messages: [Any] = [
+            ["content": String(validJSON.prefix(40))],
+            ["content": NSNull()]
+        ]
+        for message in messages {
+            let service = makeCloudService { request in
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "choices": [["message": message, "finish_reason": "length"]]
+                ])
+                return (
+                    data,
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
+            }
 
-        do {
-            _ = try await service.generate(source: fallbackSource())
-            throw MeetingSummaryServiceTestFailure("Expected truncated response failure")
-        } catch let failure as MeetingSummaryServiceTestFailure {
-            throw failure
-        } catch MeetingSummaryError.invalidResponse(let subtype, _) {
-            try expect(subtype == .outputTruncated, "a length-limited response reports outputTruncated")
+            do {
+                _ = try await service.generate(source: fallbackSource())
+                throw MeetingSummaryServiceTestFailure("Expected truncated response failure")
+            } catch let failure as MeetingSummaryServiceTestFailure {
+                throw failure
+            } catch MeetingSummaryError.invalidResponse(let subtype, _) {
+                try expect(subtype == .outputTruncated, "a length-limited response reports outputTruncated")
+            }
         }
     }
 
