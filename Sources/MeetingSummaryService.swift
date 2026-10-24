@@ -532,7 +532,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             )
             let partial = try await generateDraft(
                 prompt: prompt,
-                role: .summaryExtraction
+                role: .summaryExtraction,
+                outputLanguageCode: languageCode
             )
             let repaired = try repairAndValidate(
                 partial,
@@ -594,7 +595,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             ) {
                 let final = try await generateDraft(
                     prompt: finalPrompt,
-                    role: .summaryFinalMerge
+                    role: .summaryFinalMerge,
+                    outputLanguageCode: outputLanguageCode
                 )
                 let repaired = try repairAndValidate(
                     final,
@@ -633,7 +635,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 )
                 let result = try await generateDraft(
                     prompt: prompt,
-                    role: .summaryIntermediateMerge
+                    role: .summaryIntermediateMerge,
+                    outputLanguageCode: outputLanguageCode
                 )
                 let repaired = try repairAndValidate(
                     result,
@@ -708,7 +711,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
 
     private func generateDraft(
         prompt: MeetingSummaryPrompt,
-        role: LocalAITokenBudgetRole
+        role: LocalAITokenBudgetRole,
+        outputLanguageCode: String
     ) async throws -> DraftResult {
         guard let budget = try await tokenBudgeter.budget(
             forRenderedChatPrompt: renderedPrompt(prompt),
@@ -725,6 +729,9 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 localCompletionTokens: min(
                     budget.sourceTokenLimit + budget.maxCompletionTokens,
                     Self.localCompletionCap
+                ),
+                localResponseFormat: Self.responseFormatJSON(
+                    outputLanguageCode: outputLanguageCode
                 )
             )
         }
@@ -858,13 +865,15 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     private func requestDraft(
         prompt: MeetingSummaryPrompt,
         executor: AIProcessingBackendExecutor,
-        localCompletionTokens: Int? = nil
+        localCompletionTokens: Int? = nil,
+        localResponseFormat: String? = nil
     ) async throws -> DraftResult {
         try await executor.withEndpoint { [self] endpoint in
             let request = try makeRequest(
                 prompt: prompt,
                 endpoint: endpoint,
-                localCompletionTokens: localCompletionTokens
+                localCompletionTokens: localCompletionTokens,
+                localResponseFormat: localResponseFormat
             )
             let data: Data
             let response: URLResponse
@@ -947,9 +956,27 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     /// The shape `MeetingSummaryStrictDecoder` accepts, as JSON text so
     /// its key order is fixed: llama-server makes the model write keys in
     /// schema order, which follows the order the prompt shows.
-    private static let responseFormatJSON = #"""
-    {"type":"json_schema","json_schema":{"name":"meeting_summary","schema":{"type":"object","additionalProperties":false,"required":["overview","keyPoints","decisions","actionItems","openQuestions"],"properties":{"overview":{"type":"object","additionalProperties":false,"required":["text","sourceQuotes"],"properties":{"text":{"type":"string","minLength":1},"sourceQuotes":{"type":"array","items":{"type":"string"}}}},"keyPoints":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":{"type":"string","minLength":1},"sourceQuote":{"type":["string","null"]}}}},"decisions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":{"type":"string","minLength":1},"sourceQuote":{"type":["string","null"]}}}},"actionItems":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["task","owner","dueDate","sourceQuote"],"properties":{"task":{"type":"string","minLength":1},"owner":{"type":["string","null"]},"dueDate":{"type":["string","null"]},"sourceQuote":{"type":["string","null"]}}}},"openQuestions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":{"type":"string","minLength":1},"sourceQuote":{"type":["string","null"]}}}}}}}}
+    private static let responseFormatTemplate = #"""
+    {"type":"json_schema","json_schema":{"name":"meeting_summary","schema":{"type":"object","additionalProperties":false,"required":["overview","keyPoints","decisions","actionItems","openQuestions"],"properties":{"overview":{"type":"object","additionalProperties":false,"required":["text","sourceQuotes"],"properties":{"text":PROSE,"sourceQuotes":{"type":"array","items":{"type":"string"}}}},"keyPoints":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":PROSE,"sourceQuote":{"type":["string","null"]}}}},"decisions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":PROSE,"sourceQuote":{"type":["string","null"]}}}},"actionItems":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["task","owner","dueDate","sourceQuote"],"properties":{"task":PROSE,"owner":{"type":["string","null"]},"dueDate":{"type":["string","null"]},"sourceQuote":{"type":["string","null"]}}}},"openQuestions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":PROSE,"sourceQuote":{"type":["string","null"]}}}}}}}}
     """#
+
+    private static let proseSchema = #"{"type":"string","minLength":1}"#
+
+    /// Generated prose with no CJK ideographs, for an output language that
+    /// doesn't write them. A small local model can otherwise drift into
+    /// Chinese mid-summary (#613). A pattern string's characters are
+    /// sampled as is, so it also leaves out `"`, `\`, and control
+    /// characters, which would let the model run past the string's end.
+    private static let proseWithoutHanSchema = #"{"type":"string","pattern":"^[^\"\\\\\\x00-\\x1f\u3400-\u9fff\uf900-\ufaff]+$"}"#
+
+    /// Source quotes are not constrained, so Hanja spoken in the meeting is
+    /// still quoted as is.
+    private static func responseFormatJSON(outputLanguageCode: String?) -> String {
+        let code = outputLanguageCode?.lowercased() ?? ""
+        let writesHan = code.hasPrefix("zh") || code.hasPrefix("ja")
+        let prose = code.isEmpty || writesHan ? proseSchema : proseWithoutHanSchema
+        return responseFormatTemplate.replacingOccurrences(of: "PROSE", with: prose)
+    }
 
     private static func requestTimeout(for endpoint: AIProcessingEndpoint) -> TimeInterval {
         endpoint.kind == .local ? localRequestTimeout : requestTimeout
@@ -958,7 +985,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     private func makeRequest(
         prompt: MeetingSummaryPrompt,
         endpoint: AIProcessingEndpoint,
-        localCompletionTokens: Int?
+        localCompletionTokens: Int?,
+        localResponseFormat: String?
     ) throws -> URLRequest {
         let url = endpoint.baseURL
             .appendingPathComponent("chat")
@@ -1005,7 +1033,9 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             // the schema keeps its key order.
             body.removeLast()
             body.append(Data(#","response_format":"#.utf8))
-            body.append(Data(Self.responseFormatJSON.utf8))
+            body.append(Data(
+                (localResponseFormat ?? Self.responseFormatJSON(outputLanguageCode: nil)).utf8
+            ))
             body.append(Data("}".utf8))
         }
         request.httpBody = body

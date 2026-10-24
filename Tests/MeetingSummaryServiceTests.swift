@@ -37,6 +37,7 @@ struct MeetingSummaryServiceTests {
         try await testTruncatedResponseReportsOutputTruncated()
         try await testLocalSummaryCountsTokensWithLocalServer()
         try testMergePromptUsesSummaryResponseShape()
+        try await testLocalSchemaKeepsHanOutOfProseUnlessTheLanguageWritesIt()
         try testUserIssueMapsToSummaryDomainCodes()
         try testInvalidResponseUsesSafeResponseEnvelopeSubtype()
         try testSafeFailureSubtypeMappingsCoverSummaryValidation()
@@ -1052,6 +1053,73 @@ struct MeetingSummaryServiceTests {
         _ = try MeetingSummaryStrictDecoder.decode(reencoded)
     }
 
+    /// A small local model can drift into Chinese mid-summary, so prose in a
+    /// language that doesn't write Han can't contain it; quotes stay as
+    /// spoken (#613).
+    private static func testLocalSchemaKeepsHanOutOfProseUnlessTheLanguageWritesIt() async throws {
+        for (code, excludesHan) in [("ko", true), ("en", true), ("ja", false), ("zh-Hant", false)] {
+            let recorder = MeetingSummaryRequestRecorder()
+            let service = MeetingSummaryService(
+                backendExecutor: makeLocalExecutor(),
+                fallbackExecutor: nil,
+                transport: { request in
+                    recorder.record(request)
+                    return try successResponse(request: request, content: validJSON)
+                }
+            )
+            // Only the request matters; the English fixture may fail the
+            // language check afterwards.
+            _ = try? await service.generate(
+                source: MeetingSummarySource(
+                    transcript: summaryTranscript,
+                    calendar: nil,
+                    languageContext: MeetingSummaryLanguageContext(
+                        requestedOutputLanguage: code,
+                        appliedLanguageCode: code,
+                        resolutionSource: .configured
+                    )
+                )
+            )
+
+            let body = try requestBody(try recorder.requests().first.unwrap("summary request"))
+            let schema = try dictionary(
+                try dictionary(try dictionary(body["response_format"])["json_schema"])["schema"]
+            )
+            let properties = try dictionary(schema["properties"])
+            let overview = try dictionary(try dictionary(properties["overview"])["properties"])
+            let point = try dictionary(
+                try dictionary(try dictionary(properties["keyPoints"])["items"])["properties"]
+            )
+            let action = try dictionary(
+                try dictionary(try dictionary(properties["actionItems"])["items"])["properties"]
+            )
+            for (label, field) in [
+                ("overview text", overview["text"]),
+                ("point text", point["text"]),
+                ("action task", action["task"])
+            ] {
+                let pattern = try dictionary(field)["pattern"] as? String
+                if excludesHan {
+                    let pattern = try pattern.unwrap("\(code) \(label) pattern")
+                    let regex = try NSRegularExpression(pattern: pattern)
+                    func matches(_ text: String) -> Bool {
+                        regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+                    }
+                    try expect(matches("다음 주 월요일까지 공유"), "\(code) \(label) allows Hangul")
+                    try expect(!matches("回顾会议"), "\(code) \(label) excludes Han")
+                    try expect(!matches("say \"done"), "\(code) \(label) keeps quotes out of a raw pattern")
+                } else {
+                    try expect(pattern == nil, "\(code) \(label) may write Han")
+                }
+            }
+            try expect(try dictionary(point["sourceQuote"])["pattern"] == nil, "\(code) quotes stay unconstrained")
+            try expect(
+                try dictionary(try dictionary(overview["sourceQuotes"])["items"])["pattern"] == nil,
+                "\(code) overview quotes stay unconstrained"
+            )
+        }
+    }
+
     // MARK: - Fallback triggers (#580)
 
     private static let fallbackCalendar = MeetingSummaryCalendarContext(
@@ -1484,6 +1552,13 @@ private final class MeetingSummaryRequestRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedRequests
+    }
+}
+
+private extension Optional {
+    func unwrap(_ label: String) throws -> Wrapped {
+        guard let self else { throw MeetingSummaryServiceTestFailure("Missing \(label)") }
+        return self
     }
 }
 
