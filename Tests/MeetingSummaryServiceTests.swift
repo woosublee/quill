@@ -1062,16 +1062,27 @@ struct MeetingSummaryServiceTests {
             let service = MeetingSummaryService(
                 backendExecutor: makeLocalExecutor(),
                 fallbackExecutor: nil,
+                chunker: MeetingSummaryTextChunker(maxCharacters: 35),
                 transport: { request in
                     recorder.record(request)
-                    return try successResponse(request: request, content: validJSON)
+                    let user = (try? userMessage(request)) ?? ""
+                    if user.contains("validatedPartials") {
+                        return try successResponse(request: request, content: mergedJSON)
+                    }
+                    let content = user.contains("First paragraph")
+                        ? partialJSON
+                        : partialSecondJSON
+                    return try successResponse(request: request, content: content)
                 }
             )
-            // Only the request matters; the English fixture may fail the
-            // language check afterwards.
+            // Only the requests matter; the English fixtures fail the
+            // language check for other languages before the merge.
             _ = try? await service.generate(
                 source: MeetingSummarySource(
-                    transcript: summaryTranscript,
+                    transcript: [
+                        "First paragraph has a decision.",
+                        "Second paragraph has an action."
+                    ].joined(separator: "\n\n"),
                     calendar: nil,
                     languageContext: MeetingSummaryLanguageContext(
                         requestedOutputLanguage: code,
@@ -1081,42 +1092,56 @@ struct MeetingSummaryServiceTests {
                 )
             )
 
-            let body = try requestBody(try recorder.requests().first.unwrap("summary request"))
-            let schema = try dictionary(
-                try dictionary(try dictionary(body["response_format"])["json_schema"])["schema"]
-            )
-            let properties = try dictionary(schema["properties"])
-            let overview = try dictionary(try dictionary(properties["overview"])["properties"])
-            let point = try dictionary(
-                try dictionary(try dictionary(properties["keyPoints"])["items"])["properties"]
-            )
-            let action = try dictionary(
-                try dictionary(try dictionary(properties["actionItems"])["items"])["properties"]
-            )
-            for (label, field) in [
-                ("overview text", overview["text"]),
-                ("point text", point["text"]),
-                ("action task", action["task"])
-            ] {
-                let pattern = try dictionary(field)["pattern"] as? String
-                if excludesHan {
-                    let pattern = try pattern.unwrap("\(code) \(label) pattern")
-                    let regex = try NSRegularExpression(pattern: pattern)
-                    func matches(_ text: String) -> Bool {
-                        regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
-                    }
-                    try expect(matches("다음 주 월요일까지 공유"), "\(code) \(label) allows Hangul")
-                    try expect(!matches("回顾会议"), "\(code) \(label) excludes Han")
-                    try expect(!matches("say \"done"), "\(code) \(label) keeps quotes out of a raw pattern")
-                } else {
-                    try expect(pattern == nil, "\(code) \(label) may write Han")
-                }
+            let requests = recorder.requests()
+            try expect(!requests.isEmpty, "\(code) summary request")
+            if code == "en" {
+                try expect(
+                    try userMessage(try requests.last.unwrap("merge request")).contains("validatedPartials"),
+                    "the merge request is checked too"
+                )
             }
-            try expect(try dictionary(point["sourceQuote"])["pattern"] == nil, "\(code) quotes stay unconstrained")
-            try expect(
-                try dictionary(try dictionary(overview["sourceQuotes"])["items"])["pattern"] == nil,
-                "\(code) overview quotes stay unconstrained"
-            )
+            for request in requests {
+                let body = try requestBody(request)
+                let schema = try dictionary(
+                    try dictionary(try dictionary(body["response_format"])["json_schema"])["schema"]
+                )
+                let properties = try dictionary(schema["properties"])
+                let overview = try dictionary(try dictionary(properties["overview"])["properties"])
+                let point = try dictionary(
+                    try dictionary(try dictionary(properties["keyPoints"])["items"])["properties"]
+                )
+                let action = try dictionary(
+                    try dictionary(try dictionary(properties["actionItems"])["items"])["properties"]
+                )
+                for (label, field) in [
+                    ("overview text", overview["text"]),
+                    ("point text", point["text"]),
+                    ("action task", action["task"])
+                ] {
+                    let pattern = try dictionary(field)["pattern"] as? String
+                    if excludesHan {
+                        let pattern = try pattern.unwrap("\(code) \(label) pattern")
+                        let regex = try NSRegularExpression(pattern: pattern)
+                        // The pattern sees the raw JSON text inside the quotes.
+                        func matches(_ text: String) -> Bool {
+                            regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+                        }
+                        try expect(matches("다음 주 월요일까지 공유"), "\(code) \(label) allows Hangul")
+                        try expect(!matches("回顾会议"), "\(code) \(label) excludes Han")
+                        try expect(matches(#"이름은 \"새벽\"으로"#), "\(code) \(label) allows an escaped quote")
+                        try expect(matches(#"A\\B\nC"#), "\(code) \(label) allows other escapes")
+                        try expect(!matches(#"say "done"#), "\(code) \(label) keeps a bare quote out")
+                        try expect(!matches(#"path \q"#), "\(code) \(label) keeps a bare backslash out")
+                    } else {
+                        try expect(pattern == nil, "\(code) \(label) may write Han")
+                    }
+                }
+                try expect(try dictionary(point["sourceQuote"])["pattern"] == nil, "\(code) quotes stay unconstrained")
+                try expect(
+                    try dictionary(try dictionary(overview["sourceQuotes"])["items"])["pattern"] == nil,
+                    "\(code) overview quotes stay unconstrained"
+                )
+            }
         }
     }
 

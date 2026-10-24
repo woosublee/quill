@@ -826,7 +826,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                     prompt: prompt,
                     executor: backendExecutor.replacingChoice(
                         .cloud(modelID: modelID)
-                    )
+                    ),
+                    localResponseFormat: nil
                 )
             } catch let error as MeetingSummaryError {
                 lastError = error
@@ -866,7 +867,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         prompt: MeetingSummaryPrompt,
         executor: AIProcessingBackendExecutor,
         localCompletionTokens: Int? = nil,
-        localResponseFormat: String? = nil
+        localResponseFormat: String?
     ) async throws -> DraftResult {
         try await executor.withEndpoint { [self] endpoint in
             let request = try makeRequest(
@@ -964,18 +965,26 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
 
     /// Generated prose with no CJK ideographs, for an output language that
     /// doesn't write them. A small local model can otherwise drift into
-    /// Chinese mid-summary (#613). A pattern string's characters are
-    /// sampled as is, so it also leaves out `"`, `\`, and control
-    /// characters, which would let the model run past the string's end.
-    private static let proseWithoutHanSchema = #"{"type":"string","pattern":"^[^\"\\\\\\x00-\\x1f\u3400-\u9fff\uf900-\ufaff]+$"}"#
+    /// Chinese mid-summary (#613). A pattern matches the string's raw JSON
+    /// text, so `"` and `\` only come as part of an escape; a bare one
+    /// would let the model run past the string's end.
+    private static let proseWithoutHanSchema = #"{"type":"string","pattern":"^([^\"\\\\\\x00-\\x1f\u3400-\u9fff\uf900-\ufaff]|\\\\[\"\\\\/bfnrt])+$"}"#
+
+    private static let responseFormat = responseFormatTemplate
+        .replacingOccurrences(of: "PROSE", with: proseSchema)
+    private static let responseFormatWithoutHan = responseFormatTemplate
+        .replacingOccurrences(of: "PROSE", with: proseWithoutHanSchema)
 
     /// Source quotes are not constrained, so Hanja spoken in the meeting is
     /// still quoted as is.
-    private static func responseFormatJSON(outputLanguageCode: String?) -> String {
-        let code = outputLanguageCode?.lowercased() ?? ""
-        let writesHan = code.hasPrefix("zh") || code.hasPrefix("ja")
-        let prose = code.isEmpty || writesHan ? proseSchema : proseWithoutHanSchema
-        return responseFormatTemplate.replacingOccurrences(of: "PROSE", with: prose)
+    private static func responseFormatJSON(outputLanguageCode: String) -> String {
+        guard let code = SpokenLanguageResolver.supportedCode(outputLanguageCode) else {
+            return responseFormat
+        }
+        let primaryCode = code.split(separator: "-").first ?? ""
+        return primaryCode == "zh" || primaryCode == "ja"
+            ? responseFormat
+            : responseFormatWithoutHan
     }
 
     private static func requestTimeout(for endpoint: AIProcessingEndpoint) -> TimeInterval {
@@ -1034,7 +1043,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             body.removeLast()
             body.append(Data(#","response_format":"#.utf8))
             body.append(Data(
-                (localResponseFormat ?? Self.responseFormatJSON(outputLanguageCode: nil)).utf8
+                (localResponseFormat ?? Self.responseFormat).utf8
             ))
             body.append(Data("}".utf8))
         }
