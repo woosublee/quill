@@ -943,6 +943,42 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         }
     }
 
+    /// The shape `MeetingSummaryStrictDecoder` accepts.
+    private static var responseSchema: [String: Any] {
+        func object(_ properties: [String: Any]) -> [String: Any] {
+            [
+                "type": "object",
+                "additionalProperties": false,
+                "required": properties.keys.sorted(),
+                "properties": properties
+            ]
+        }
+        let text: [String: Any] = ["type": "string", "minLength": 1]
+        let nullableText: [String: Any] = ["type": ["string", "null"]]
+        let points: [String: Any] = [
+            "type": "array",
+            "items": object(["text": text, "sourceQuote": nullableText])
+        ]
+        return object([
+            "overview": object([
+                "text": text,
+                "sourceQuotes": ["type": "array", "items": ["type": "string"]]
+            ]),
+            "keyPoints": points,
+            "decisions": points,
+            "actionItems": [
+                "type": "array",
+                "items": object([
+                    "task": text,
+                    "owner": nullableText,
+                    "dueDate": nullableText,
+                    "sourceQuote": nullableText
+                ])
+            ],
+            "openQuestions": points
+        ])
+    }
+
     private static func requestTimeout(for endpoint: AIProcessingEndpoint) -> TimeInterval {
         endpoint.kind == .local ? localRequestTimeout : requestTimeout
     }
@@ -982,6 +1018,16 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         ]
         if endpoint.kind == .local {
             payload["max_tokens"] = localCompletionCeiling
+            // A small local model drops null keys or leaves quotes inside a
+            // string unescaped; llama-server can only sample JSON that fits
+            // the shape the decoder requires (#611).
+            payload["response_format"] = [
+                "type": "json_schema",
+                "json_schema": [
+                    "name": "meeting_summary",
+                    "schema": Self.responseSchema
+                ]
+            ]
         }
         if let effort = config.reasoningEffort {
             payload["reasoning_effort"] = effort

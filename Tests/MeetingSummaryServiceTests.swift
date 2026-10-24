@@ -386,6 +386,7 @@ struct MeetingSummaryServiceTests {
         guard let calendar = source.calendar else { throw MeetingSummaryServiceTestFailure("Missing calendar") }
         try expectNoCalendar(in: recorder.requests(), calendar: calendar)
         try expect(body["max_tokens"] == nil, "cloud Summary omits the local legacy completion key")
+        try expect(body["response_format"] == nil, "a cloud Summary request is not JSON-schema constrained")
         try expect(
             body["max_completion_tokens"] as? Int == 1_024,
             "cloud Summary keeps the 1,024-token completion ceiling"
@@ -454,6 +455,24 @@ struct MeetingSummaryServiceTests {
             "local Summary leaves 4,096 to 6,144 tokens for the response"
         )
         try expect(request.timeoutInterval == 240, "a local Summary request waits up to 240 seconds")
+        // #611: llama-server samples only JSON in the decoder's shape.
+        let format = try dictionary(body["response_format"])
+        try expect(format["type"] as? String == "json_schema", "a local Summary request constrains its JSON")
+        let schema = try dictionary(try dictionary(format["json_schema"])["schema"])
+        try expect(
+            Set(try array(schema["required"]).compactMap { $0 as? String })
+                == ["overview", "keyPoints", "decisions", "actionItems", "openQuestions"],
+            "the schema requires every Summary key"
+        )
+        let actionItem = try dictionary(
+            try dictionary(try dictionary(schema["properties"])["actionItems"])["items"]
+        )
+        try expect(
+            Set(try array(actionItem["required"]).compactMap { $0 as? String })
+                == ["task", "owner", "dueDate", "sourceQuote"],
+            "an action item must carry its nullable owner and due date"
+        )
+        try expect(actionItem["additionalProperties"] as? Bool == false, "an action item allows no other keys")
         try expect(body["max_tokens"] as? Int == ceiling, "local Summary sends the legacy completion key too")
     }
 
