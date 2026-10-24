@@ -12916,6 +12916,22 @@
         }
       }
     },
+    "Response cut off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Response cut off"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답 잘림"
+          }
+        }
+      }
+    },
     "Context budget": {
       "localizations": {
         "en": {

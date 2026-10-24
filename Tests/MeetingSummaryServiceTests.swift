@@ -34,6 +34,9 @@ struct MeetingSummaryServiceTests {
         try await testNullPointCitationReturnsUnverifiedSummary()
         try await testNullOverviewCitationReturnsUnverifiedSummary()
         try await testChunkFailureDoesNotReturnPartialSummary()
+        try await testTruncatedResponseReportsOutputTruncated()
+        try await testLocalSummaryCountsTokensWithLocalServer()
+        try testMergePromptUsesSummaryResponseShape()
         try testUserIssueMapsToSummaryDomainCodes()
         try testInvalidResponseUsesSafeResponseEnvelopeSubtype()
         try testSafeFailureSubtypeMappingsCoverSummaryValidation()
@@ -125,6 +128,7 @@ struct MeetingSummaryServiceTests {
     private static func testSafeFailureSubtypeMappingsCoverSummaryValidation() throws {
         let cases: [(MeetingSummaryError, MeetingSummaryFailureSubtype)] = [
             (.invalidResponse(.jsonSchema), .jsonSchema),
+            (.invalidResponse(.outputTruncated), .outputTruncated),
             (.invalidResponse(.contextBudget), .contextBudget),
             (.invalidResponse(.mergeBudget), .mergeBudget),
             (.emptyOutput(), .emptyOutput),
@@ -382,6 +386,11 @@ struct MeetingSummaryServiceTests {
         guard let calendar = source.calendar else { throw MeetingSummaryServiceTestFailure("Missing calendar") }
         try expectNoCalendar(in: recorder.requests(), calendar: calendar)
         try expect(body["max_tokens"] == nil, "cloud Summary omits the local legacy completion key")
+        try expect(body["response_format"] == nil, "a cloud Summary request is not JSON-schema constrained")
+        try expect(
+            body["max_completion_tokens"] as? Int == 1_024,
+            "cloud Summary keeps the 1,024-token completion ceiling"
+        )
     }
 
     private static func testLocalRequestUsesLoopbackWithoutAuthorization() async throws {
@@ -440,14 +449,58 @@ struct MeetingSummaryServiceTests {
             "local authorization omitted"
         )
         try expect(body["model"] as? String == "local", "local request model")
+        let ceiling = try int(body["max_completion_tokens"])
         try expect(
-            body["max_completion_tokens"] as? Int == 1_024,
-            "local Summary retains the 1,024-token completion ceiling"
+            (4_096...6_144).contains(ceiling),
+            "local Summary leaves 4,096 to 6,144 tokens for the response"
+        )
+        try expect(request.timeoutInterval == 420, "a local Summary request waits up to 420 seconds")
+        // #611: llama-server samples only JSON in the decoder's shape.
+        let format = try dictionary(body["response_format"])
+        try expect(format["type"] as? String == "json_schema", "a local Summary request constrains its JSON")
+        let schema = try dictionary(try dictionary(format["json_schema"])["schema"])
+        try expect(
+            Set(try array(schema["required"]).compactMap { $0 as? String })
+                == ["overview", "keyPoints", "decisions", "actionItems", "openQuestions"],
+            "the schema requires every Summary key"
+        )
+        let actionItem = try dictionary(
+            try dictionary(try dictionary(schema["properties"])["actionItems"])["items"]
         )
         try expect(
-            body["max_tokens"] as? Int == 1_024,
-            "local Summary sends the legacy 1,024-token completion ceiling"
+            Set(try array(actionItem["required"]).compactMap { $0 as? String })
+                == ["task", "owner", "dueDate", "sourceQuote"],
+            "an action item must carry its nullable owner and due date"
         )
+        try expect(actionItem["additionalProperties"] as? Bool == false, "an action item allows no other keys")
+        // llama-server makes the model write keys in schema order, so it
+        // must be the prompt's order on every launch.
+        let rawBody = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+        guard let formatStart = rawBody.range(of: #""response_format":"#) else {
+            throw MeetingSummaryServiceTestFailure("Missing response_format")
+        }
+        let rawFormat = String(rawBody[formatStart.upperBound...])
+        func offsets(_ keys: [String], in text: String) -> [Int] {
+            keys.map { key in
+                text.range(of: "\"\(key)\":{").map {
+                    text.distance(from: text.startIndex, to: $0.lowerBound)
+                } ?? -1
+            }
+        }
+        let summaryKeys = offsets(
+            ["overview", "keyPoints", "decisions", "actionItems", "openQuestions"],
+            in: rawFormat
+        )
+        try expect(!summaryKeys.contains(-1) && summaryKeys == summaryKeys.sorted(), "the schema lists Summary keys in prompt order")
+        guard let actionStart = rawFormat.range(of: #""actionItems":"#) else {
+            throw MeetingSummaryServiceTestFailure("Missing actionItems schema")
+        }
+        let actionKeys = offsets(
+            ["task", "owner", "dueDate", "sourceQuote"],
+            in: String(rawFormat[actionStart.upperBound...])
+        )
+        try expect(!actionKeys.contains(-1) && actionKeys == actionKeys.sorted(), "the schema lists action item keys in prompt order")
+        try expect(body["max_tokens"] as? Int == ceiling, "local Summary sends the legacy completion key too")
     }
 
     private static func testUnknownTopLevelKeyIsRejected() throws {
@@ -888,6 +941,117 @@ struct MeetingSummaryServiceTests {
         }
     }
 
+    /// A response cut off at the token limit is not reported as a bad
+    /// format (#609).
+    private static func testTruncatedResponseReportsOutputTruncated() async throws {
+        // Cut off mid-JSON, or with no content when reasoning used it all.
+        let messages: [Any] = [
+            ["content": String(validJSON.prefix(40))],
+            ["content": NSNull()]
+        ]
+        for message in messages {
+            let service = makeCloudService { request in
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "choices": [["message": message, "finish_reason": "length"]]
+                ])
+                return (
+                    data,
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
+            }
+
+            do {
+                _ = try await service.generate(source: fallbackSource())
+                throw MeetingSummaryServiceTestFailure("Expected truncated response failure")
+            } catch let failure as MeetingSummaryServiceTestFailure {
+                throw failure
+            } catch MeetingSummaryError.invalidResponse(let subtype, _) {
+                try expect(subtype == .outputTruncated, "a length-limited response reports outputTruncated")
+            }
+        }
+    }
+
+    /// A local model's prompt is counted by its own tokenizer, and the
+    /// response gets all the context the prompt leaves (#609).
+    private static func testLocalSummaryCountsTokensWithLocalServer() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = MeetingSummaryService(
+            backendExecutor: makeLocalExecutor(),
+            fallbackExecutor: nil,
+            transport: { request in
+                recorder.record(request)
+                if request.url?.path == "/tokenize" {
+                    // Four bytes to a token, as for a Korean transcript.
+                    let body = try requestBody(request)
+                    let content = try string(body["content"])
+                    let tokens = Array(repeating: 1, count: content.utf8.count / 4)
+                    return (
+                        try JSONSerialization.data(withJSONObject: ["tokens": tokens]),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                    )
+                }
+                return try successResponse(request: request, content: validJSON)
+            }
+        )
+
+        _ = try await service.generate(source: fallbackSource())
+
+        let tokenize = recorder.allRequests().filter { $0.url?.path == "/tokenize" }
+        try expect(!tokenize.isEmpty, "the local server counts the prompt's tokens")
+        try expect(
+            tokenize.allSatisfy { $0.url?.host == "127.0.0.1" },
+            "token counting stays on this Mac"
+        )
+        let request = try recorder.requests().only()
+        let body = try requestBody(request)
+        let messages = try array(body["messages"])
+        let system = try string(try dictionary(messages[0])["content"])
+        let user = try string(try dictionary(messages[1])["content"])
+        let promptTokens = "[System]\n\(system)\n\n[User]\n\(user)".utf8.count / 4
+        try expect(
+            body["max_completion_tokens"] as? Int == min(16_384 - promptTokens - 512, 6_144),
+            "the response may use the context the prompt leaves, up to 6,144 tokens"
+        )
+    }
+
+    /// A model copies the partials' shape, so they carry every response
+    /// key, null included, and nothing else (#612).
+    private static func testMergePromptUsesSummaryResponseShape() throws {
+        let partial = try MeetingSummaryStrictDecoder.decode(validJSON)
+        let prompt = try MeetingSummaryPromptFactory.merge(
+            validatedPartials: [partial],
+            outputLanguage: "English"
+        )
+        guard let start = prompt.user.firstIndex(of: "{") else {
+            throw MeetingSummaryServiceTestFailure("Missing merge envelope")
+        }
+        let envelope = try dictionary(
+            try JSONSerialization.jsonObject(with: Data(prompt.user[start...].utf8))
+        )
+        let data = try dictionary(envelope["data"])
+        let encoded = try dictionary(try array(data["validatedPartials"]).only())
+
+        try expect(
+            Set(encoded.keys) == ["overview", "keyPoints", "decisions", "actionItems", "openQuestions"],
+            "a merge partial has only the response's top-level keys"
+        )
+        let action = try dictionary(try array(encoded["actionItems"]).only())
+        try expect(
+            Set(action.keys) == ["task", "owner", "dueDate", "sourceQuote"],
+            "an action item keeps its null owner and due date, without app-only fields"
+        )
+        try expect(action["owner"] is NSNull, "a missing owner is written as null")
+        try expect(action["dueDate"] is NSNull, "a missing due date is written as null")
+        let point = try dictionary(try array(encoded["keyPoints"]).only())
+        try expect(Set(point.keys) == ["text", "sourceQuote"], "a point has only its response keys")
+        // The response decoder accepts the merge input's own shape.
+        let reencoded = String(
+            data: try JSONSerialization.data(withJSONObject: encoded),
+            encoding: .utf8
+        )!
+        _ = try MeetingSummaryStrictDecoder.decode(reencoded)
+    }
+
     // MARK: - Fallback triggers (#580)
 
     private static let fallbackCalendar = MeetingSummaryCalendarContext(
@@ -1100,8 +1264,11 @@ struct MeetingSummaryServiceTests {
         } catch {
             try expect(error is CancellationError, "the cancellation is reported as is")
         }
-        let hosts = recorder.requests().map { $0.url?.host }
-        try expect(hosts == ["127.0.0.1"], "a cancelled summary is not retried")
+        let hosts = recorder.allRequests().map { $0.url?.host }
+        try expect(
+            !hosts.isEmpty && hosts.allSatisfy { $0 == "127.0.0.1" },
+            "a cancelled summary is not retried"
+        )
     }
 
     private static func testSummaryFallbackEqualToPrimaryIsNotRetried() async throws {
@@ -1258,6 +1425,13 @@ struct MeetingSummaryServiceTests {
         return value
     }
 
+    private static func int(_ value: Any?) throws -> Int {
+        guard let value = value as? Int else {
+            throw MeetingSummaryServiceTestFailure("Expected integer")
+        }
+        return value
+    }
+
     private static func string(_ value: Any?) throws -> String {
         guard let value = value as? String else {
             throw MeetingSummaryServiceTestFailure("Expected string")
@@ -1301,7 +1475,12 @@ private final class MeetingSummaryRequestRecorder: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Summary requests, without a local model's token counting.
     func requests() -> [URLRequest] {
+        allRequests().filter { $0.url?.path != "/tokenize" }
+    }
+
+    func allRequests() -> [URLRequest] {
         lock.lock()
         defer { lock.unlock() }
         return storedRequests

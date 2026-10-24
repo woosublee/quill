@@ -7,6 +7,7 @@ struct LocalAITokenBudgeterTests {
         try await testPostProcessingCapsCompletionReservation()
         try await testEverySummaryStageUsesFixedCompletionReservation()
         try await testBudgeterRejectsNonPositiveSourceBudget()
+        try await testLocalSummaryReservesLargerCompletion()
         print("LocalAITokenBudgeterTests passed")
     }
 
@@ -61,6 +62,22 @@ struct LocalAITokenBudgeterTests {
             try expect(budget?.maxCompletionTokens == 1_024, "summary stage reserves 1,024 completion tokens")
             try expect(budget?.sourceTokenLimit == 12_848, "summary stage retains the 512-token safety margin")
         }
+    }
+
+    private static func testLocalSummaryReservesLargerCompletion() async throws {
+        let budget = try await LocalAITokenBudgeter(
+            contextWindow: 16_384,
+            tokenCounter: FixedTokenCounter(count: 2_000),
+            summaryCompletionTokens: LocalAITokenBudgeter.localSummaryCompletionTokens
+        ).budget(
+            forRenderedChatPrompt: "rendered prompt",
+            role: .summaryFinalMerge
+        )
+
+        try expect(budget == LocalAITokenBudget(
+            sourceTokenLimit: 9_776,
+            maxCompletionTokens: 4_096
+        ), "a local summary reserves 4,096 completion tokens (#609)")
     }
 
     private static func testBudgeterRejectsNonPositiveSourceBudget() async throws {
