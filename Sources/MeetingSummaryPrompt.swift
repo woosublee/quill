@@ -5,8 +5,52 @@ struct MeetingSummaryPrompt: Equatable, Sendable {
     let user: String
 }
 
-private struct SummaryMergeSourceData: Codable, Equatable, Sendable {
-    let validatedPartials: [MeetingSummaryDraftContentV2]
+private struct SummaryMergeSourceData: Encodable, Sendable {
+    let validatedPartials: [SummaryMergePartial]
+}
+
+/// A validated partial in exactly the shape a Summary response must have.
+/// A model copies the shape it is given, so an empty owner, due date, or
+/// quote is written as null and app-only fields stay out (#612).
+private struct SummaryMergePartial: Encodable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case overview, keyPoints, decisions, actionItems, openQuestions
+    }
+
+    private enum PointKeys: String, CodingKey {
+        case text, sourceQuote
+    }
+
+    private enum ActionItemKeys: String, CodingKey {
+        case task, owner, dueDate, sourceQuote
+    }
+
+    let draft: MeetingSummaryDraftContentV2
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(draft.overview, forKey: .overview)
+        for (key, points) in [
+            (CodingKeys.keyPoints, draft.keyPoints),
+            (.decisions, draft.decisions),
+            (.openQuestions, draft.openQuestions)
+        ] {
+            var list = container.nestedUnkeyedContainer(forKey: key)
+            for point in points {
+                var item = list.nestedContainer(keyedBy: PointKeys.self)
+                try item.encode(point.text, forKey: .text)
+                try item.encode(point.sourceQuote, forKey: .sourceQuote)
+            }
+        }
+        var actions = container.nestedUnkeyedContainer(forKey: .actionItems)
+        for action in draft.actionItems {
+            var item = actions.nestedContainer(keyedBy: ActionItemKeys.self)
+            try item.encode(action.task, forKey: .task)
+            try item.encode(action.owner, forKey: .owner)
+            try item.encode(action.dueDate, forKey: .dueDate)
+            try item.encode(action.sourceQuote, forKey: .sourceQuote)
+        }
+    }
 }
 
 enum MeetingSummaryPromptFactory {
@@ -42,7 +86,9 @@ enum MeetingSummaryPromptFactory {
         let envelope = AIProcessingEnvelope(
             contractVersion: "quill.ai.v2",
             feature: "meeting_summary_merge",
-            data: SummaryMergeSourceData(validatedPartials: validatedPartials)
+            data: SummaryMergeSourceData(
+                validatedPartials: validatedPartials.map(SummaryMergePartial.init)
+            )
         )
         return MeetingSummaryPrompt(
             system: systemPrompt(outputLanguage: outputLanguage),

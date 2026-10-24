@@ -36,6 +36,7 @@ struct MeetingSummaryServiceTests {
         try await testChunkFailureDoesNotReturnPartialSummary()
         try await testTruncatedResponseReportsOutputTruncated()
         try await testLocalSummaryCountsTokensWithLocalServer()
+        try testMergePromptUsesSummaryResponseShape()
         try testUserIssueMapsToSummaryDomainCodes()
         try testInvalidResponseUsesSafeResponseEnvelopeSubtype()
         try testSafeFailureSubtypeMappingsCoverSummaryValidation()
@@ -961,6 +962,44 @@ struct MeetingSummaryServiceTests {
             body["max_completion_tokens"] as? Int == 16_384 - promptTokens - 512,
             "the response may use all the context the prompt leaves"
         )
+    }
+
+    /// A model copies the partials' shape, so they carry every response
+    /// key, null included, and nothing else (#612).
+    private static func testMergePromptUsesSummaryResponseShape() throws {
+        let partial = try MeetingSummaryStrictDecoder.decode(validJSON)
+        let prompt = try MeetingSummaryPromptFactory.merge(
+            validatedPartials: [partial],
+            outputLanguage: "English"
+        )
+        guard let start = prompt.user.firstIndex(of: "{") else {
+            throw MeetingSummaryServiceTestFailure("Missing merge envelope")
+        }
+        let envelope = try dictionary(
+            try JSONSerialization.jsonObject(with: Data(prompt.user[start...].utf8))
+        )
+        let data = try dictionary(envelope["data"])
+        let encoded = try dictionary(try array(data["validatedPartials"]).only())
+
+        try expect(
+            Set(encoded.keys) == ["overview", "keyPoints", "decisions", "actionItems", "openQuestions"],
+            "a merge partial has only the response's top-level keys"
+        )
+        let action = try dictionary(try array(encoded["actionItems"]).only())
+        try expect(
+            Set(action.keys) == ["task", "owner", "dueDate", "sourceQuote"],
+            "an action item keeps its null owner and due date, without app-only fields"
+        )
+        try expect(action["owner"] is NSNull, "a missing owner is written as null")
+        try expect(action["dueDate"] is NSNull, "a missing due date is written as null")
+        let point = try dictionary(try array(encoded["keyPoints"]).only())
+        try expect(Set(point.keys) == ["text", "sourceQuote"], "a point has only its response keys")
+        // The response decoder accepts the merge input's own shape.
+        let reencoded = String(
+            data: try JSONSerialization.data(withJSONObject: encoded),
+            encoding: .utf8
+        )!
+        _ = try MeetingSummaryStrictDecoder.decode(reencoded)
     }
 
     // MARK: - Fallback triggers (#580)
