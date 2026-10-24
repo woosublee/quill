@@ -383,7 +383,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     private static let localRequestTimeout: TimeInterval = 420
     /// Measured responses need at most about 4,200 tokens. A model stuck
     /// repeating itself stops here as a cut-off response, not after
-    /// filling the whole context (#609).
+    /// filling the whole context (#609). A local merge reserves all of it
+    /// (#610).
     private static let localCompletionCap = 6_144
     private static let contextWindow = 16_384
     private static let cloudCompletionCeiling = 1_024
@@ -422,6 +423,9 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             tokenCounter: tokenCounter,
             summaryCompletionTokens: backendExecutor.choice.isLocal
                 ? LocalAITokenBudgeter.localSummaryCompletionTokens
+                : Self.cloudCompletionCeiling,
+            summaryMergeCompletionTokens: backendExecutor.choice.isLocal
+                ? Self.localCompletionCap
                 : Self.cloudCompletionCeiling
         )
         self.transport = transport
@@ -583,7 +587,16 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         source: SummarySourceData
     ) async throws -> DraftResult {
         var records = initialRecords
+        // A merge leaves the full response room, unless that leaves no
+        // batch to merge; then it tries with the extraction room (#610).
+        var compact = false
         while records.count > 1 {
+            let finalRole: LocalAITokenBudgetRole = compact
+                ? .summaryCompactMerge
+                : .summaryFinalMerge
+            let batchRole: LocalAITokenBudgetRole = compact
+                ? .summaryCompactMerge
+                : .summaryIntermediateMerge
             let allDrafts = records.map(\.draft)
             let finalPrompt = try MeetingSummaryPromptFactory.merge(
                 validatedPartials: allDrafts,
@@ -591,11 +604,11 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             )
             if try await fits(
                 finalPrompt,
-                role: .summaryFinalMerge
+                role: finalRole
             ) {
                 let final = try await generateDraft(
                     prompt: finalPrompt,
-                    role: .summaryFinalMerge,
+                    role: finalRole,
                     outputLanguageCode: outputLanguageCode
                 )
                 let repaired = try repairAndValidate(
@@ -614,11 +627,22 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 )
             }
 
-            let batches = try await largestMergeBatches(
-                from: records,
-                promptLanguage: promptLanguage
-            )
+            let batches: [[MergeRecord]]
+            do {
+                batches = try await largestMergeBatches(
+                    from: records,
+                    promptLanguage: promptLanguage,
+                    role: batchRole
+                )
+            } catch MeetingSummaryError.invalidResponse(.mergeBudget, _) where !compact {
+                compact = true
+                continue
+            }
             guard batches.contains(where: { $0.count > 1 }) else {
+                if !compact {
+                    compact = true
+                    continue
+                }
                 throw MeetingSummaryError.invalidResponse(.mergeBudget)
             }
 
@@ -635,7 +659,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 )
                 let result = try await generateDraft(
                     prompt: prompt,
-                    role: .summaryIntermediateMerge,
+                    role: batchRole,
                     outputLanguageCode: outputLanguageCode
                 )
                 let repaired = try repairAndValidate(
@@ -656,6 +680,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 )
             }
             records = merged
+            compact = false
         }
 
         guard let record = records.first else {
@@ -671,7 +696,8 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
 
     private func largestMergeBatches(
         from records: [MergeRecord],
-        promptLanguage: String?
+        promptLanguage: String?,
+        role: LocalAITokenBudgetRole
     ) async throws -> [[MergeRecord]] {
         var batches: [[MergeRecord]] = []
         var current: [MergeRecord] = []
@@ -682,7 +708,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 validatedPartials: candidate.map(\.draft),
                 outputLanguage: promptLanguage
             )
-            if try await fits(prompt, role: .summaryIntermediateMerge) {
+            if try await fits(prompt, role: role) {
                 current = candidate
                 continue
             }
@@ -698,7 +724,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             )
             guard try await fits(
                 singlePrompt,
-                role: .summaryIntermediateMerge
+                role: role
             ) else {
                 throw MeetingSummaryError.invalidResponse(.mergeBudget)
             }

@@ -14,13 +14,21 @@ enum LocalAITokenBudgetRole: Sendable {
     case summaryExtraction
     case summaryIntermediateMerge
     case summaryFinalMerge
+    /// A merge with only the extraction room, for when the full merge
+    /// room leaves no batch to merge (#610).
+    case summaryCompactMerge
 
-    fileprivate func maxCompletionTokens(summaryCompletionTokens: Int) -> Int {
+    fileprivate func maxCompletionTokens(
+        summaryCompletionTokens: Int,
+        summaryMergeCompletionTokens: Int
+    ) -> Int {
         switch self {
         case let .postProcessing(inputReservation):
             return min(max(inputReservation, 0) + 512, 6_144)
-        case .summaryExtraction, .summaryIntermediateMerge, .summaryFinalMerge:
+        case .summaryExtraction, .summaryCompactMerge:
             return summaryCompletionTokens
+        case .summaryIntermediateMerge, .summaryFinalMerge:
+            return summaryMergeCompletionTokens
         }
     }
 }
@@ -35,6 +43,9 @@ struct LocalAITokenBudgeter: Sendable {
     let contextWindow: Int
     let tokenCounter: any LocalAITokenCounting
     var summaryCompletionTokens = 1_024
+    /// A merge batch that left only the extraction room could be cut off
+    /// before it finished (#610).
+    var summaryMergeCompletionTokens = 1_024
 
     func budget(
         forRenderedChatPrompt prompt: String,
@@ -44,7 +55,8 @@ struct LocalAITokenBudgeter: Sendable {
             forRenderedChatPrompt: prompt
         )
         let maxCompletionTokens = role.maxCompletionTokens(
-            summaryCompletionTokens: summaryCompletionTokens
+            summaryCompletionTokens: summaryCompletionTokens,
+            summaryMergeCompletionTokens: summaryMergeCompletionTokens
         )
         let sourceTokenLimit = contextWindow
             - renderedPromptTokens

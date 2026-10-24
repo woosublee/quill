@@ -36,6 +36,8 @@ struct MeetingSummaryServiceTests {
         try await testChunkFailureDoesNotReturnPartialSummary()
         try await testTruncatedResponseReportsOutputTruncated()
         try await testLocalSummaryCountsTokensWithLocalServer()
+        try await testLocalMergeLeavesTheFullResponseRoom()
+        try await testLocalMergeFallsBackToTheExtractionRoom()
         try testMergePromptUsesSummaryResponseShape()
         try await testLocalSchemaKeepsHanOutOfProseUnlessTheLanguageWritesIt()
         try testUserIssueMapsToSummaryDomainCodes()
@@ -1012,6 +1014,90 @@ struct MeetingSummaryServiceTests {
         try expect(
             body["max_completion_tokens"] as? Int == min(16_384 - promptTokens - 512, 6_144),
             "the response may use the context the prompt leaves, up to 6,144 tokens"
+        )
+    }
+
+    /// A local merge batch leaves the full 6,144-token response room, so a
+    /// long meeting's merge isn't cut off (#610).
+    private static func testLocalMergeLeavesTheFullResponseRoom() async throws {
+        // Three partials fit beside a 4,096-token response but not a
+        // 6,144-token one.
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = makeLocalMergeService(tokensPerPartial: 3_000, chunks: 3, recorder: recorder)
+
+        _ = try await service.generate(source: localMergeSource(chunks: 3))
+
+        let merges = try recorder.requests().filter {
+            try userMessage($0).contains("validatedPartials")
+        }
+        try expect(merges.count == 2, "three partials merge in two steps")
+        for merge in merges {
+            try expect(partialCount(in: try userMessage(merge)) <= 2, "a merge batch leaves the full response room")
+            try expect(
+                try requestBody(merge)["max_completion_tokens"] as? Int == 6_144,
+                "a local merge may write up to 6,144 tokens"
+            )
+        }
+    }
+
+    /// Two partials too large to merge beside the full room still merge
+    /// beside the extraction room, as before #610.
+    private static func testLocalMergeFallsBackToTheExtractionRoom() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = makeLocalMergeService(tokensPerPartial: 5_000, chunks: 2, recorder: recorder)
+
+        _ = try await service.generate(source: localMergeSource(chunks: 2))
+
+        let merge = try recorder.requests().filter {
+            try userMessage($0).contains("validatedPartials")
+        }.only()
+        try expect(partialCount(in: try userMessage(merge)) == 2, "both partials merge at once")
+        try expect(
+            try requestBody(merge)["max_completion_tokens"] as? Int == 16_384 - 11_000 - 512,
+            "the merge uses the context the prompt leaves"
+        )
+    }
+
+    /// Partials appear in a merge prompt as compact JSON; the system
+    /// prompt's shape has a space after each colon.
+    private static func partialCount(in prompt: String) -> Int {
+        prompt.components(separatedBy: #""sourceQuotes":["#).count - 1
+    }
+
+    private static func localMergeSource(chunks: Int) -> MeetingSummarySource {
+        MeetingSummarySource(
+            transcript: Array(repeating: "Evidence line.", count: chunks).joined(separator: "\n\n"),
+            calendar: nil,
+            languageContext: summaryLanguage
+        )
+    }
+
+    /// A local service whose server counts 1,000 tokens a prompt plus
+    /// `tokensPerPartial` for each partial it carries.
+    private static func makeLocalMergeService(
+        tokensPerPartial: Int,
+        chunks: Int,
+        recorder: MeetingSummaryRequestRecorder
+    ) -> MeetingSummaryService {
+        MeetingSummaryService(
+            backendExecutor: makeLocalExecutor(),
+            fallbackExecutor: nil,
+            chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16),
+            transport: { request in
+                recorder.record(request)
+                if request.url?.path == "/tokenize" {
+                    let content = try string(try requestBody(request)["content"])
+                    let tokens = Array(
+                        repeating: 1,
+                        count: 1_000 + tokensPerPartial * partialCount(in: content)
+                    )
+                    return (
+                        try JSONSerialization.data(withJSONObject: ["tokens": tokens]),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                    )
+                }
+                return try successResponse(request: request, content: largeEvidenceJSON)
+            }
         )
     }
 
