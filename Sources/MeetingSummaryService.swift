@@ -377,9 +377,10 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     }
 
     private static let requestTimeout: TimeInterval = 120
-    /// A local model writes about 50 tokens a second on a fast Mac, so its
-    /// longest response needs more time than a cloud request.
-    private static let localRequestTimeout: TimeInterval = 240
+    /// A local model writes about 50 tokens a second on a fast Mac and
+    /// about 20 on a base M1, so its longest response needs more time than
+    /// a cloud request.
+    private static let localRequestTimeout: TimeInterval = 420
     /// Measured responses need at most about 4,200 tokens. A model stuck
     /// repeating itself stops here as a cut-off response, not after
     /// filling the whole context (#609).
@@ -943,41 +944,12 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         }
     }
 
-    /// The shape `MeetingSummaryStrictDecoder` accepts.
-    private static var responseSchema: [String: Any] {
-        func object(_ properties: [String: Any]) -> [String: Any] {
-            [
-                "type": "object",
-                "additionalProperties": false,
-                "required": properties.keys.sorted(),
-                "properties": properties
-            ]
-        }
-        let text: [String: Any] = ["type": "string", "minLength": 1]
-        let nullableText: [String: Any] = ["type": ["string", "null"]]
-        let points: [String: Any] = [
-            "type": "array",
-            "items": object(["text": text, "sourceQuote": nullableText])
-        ]
-        return object([
-            "overview": object([
-                "text": text,
-                "sourceQuotes": ["type": "array", "items": ["type": "string"]]
-            ]),
-            "keyPoints": points,
-            "decisions": points,
-            "actionItems": [
-                "type": "array",
-                "items": object([
-                    "task": text,
-                    "owner": nullableText,
-                    "dueDate": nullableText,
-                    "sourceQuote": nullableText
-                ])
-            ],
-            "openQuestions": points
-        ])
-    }
+    /// The shape `MeetingSummaryStrictDecoder` accepts, as JSON text so
+    /// its key order is fixed: llama-server makes the model write keys in
+    /// schema order, which follows the order the prompt shows.
+    private static let responseFormatJSON = #"""
+    {"type":"json_schema","json_schema":{"name":"meeting_summary","schema":{"type":"object","additionalProperties":false,"required":["overview","keyPoints","decisions","actionItems","openQuestions"],"properties":{"overview":{"type":"object","additionalProperties":false,"required":["text","sourceQuotes"],"properties":{"text":{"type":"string","minLength":1},"sourceQuotes":{"type":"array","items":{"type":"string"}}}},"keyPoints":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":{"type":"string","minLength":1},"sourceQuote":{"type":["string","null"]}}}},"decisions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":{"type":"string","minLength":1},"sourceQuote":{"type":["string","null"]}}}},"actionItems":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["task","owner","dueDate","sourceQuote"],"properties":{"task":{"type":"string","minLength":1},"owner":{"type":["string","null"]},"dueDate":{"type":["string","null"]},"sourceQuote":{"type":["string","null"]}}}},"openQuestions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["text","sourceQuote"],"properties":{"text":{"type":"string","minLength":1},"sourceQuote":{"type":["string","null"]}}}}}}}}
+    """#
 
     private static func requestTimeout(for endpoint: AIProcessingEndpoint) -> TimeInterval {
         endpoint.kind == .local ? localRequestTimeout : requestTimeout
@@ -1018,16 +990,6 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         ]
         if endpoint.kind == .local {
             payload["max_tokens"] = localCompletionCeiling
-            // A small local model drops null keys or leaves quotes inside a
-            // string unescaped; llama-server can only sample JSON that fits
-            // the shape the decoder requires (#611).
-            payload["response_format"] = [
-                "type": "json_schema",
-                "json_schema": [
-                    "name": "meeting_summary",
-                    "schema": Self.responseSchema
-                ]
-            ]
         }
         if let effort = config.reasoningEffort {
             payload["reasoning_effort"] = effort
@@ -1035,7 +997,18 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         if let include = config.includeReasoning {
             payload["include_reasoning"] = include
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        var body = try JSONSerialization.data(withJSONObject: payload)
+        if endpoint.kind == .local {
+            // A small local model drops null keys or leaves quotes inside a
+            // string unescaped; llama-server can only sample JSON that fits
+            // the shape the decoder requires (#611). Spliced in as text so
+            // the schema keeps its key order.
+            body.removeLast()
+            body.append(Data(#","response_format":"#.utf8))
+            body.append(Data(Self.responseFormatJSON.utf8))
+            body.append(Data("}".utf8))
+        }
+        request.httpBody = body
         return request
     }
 

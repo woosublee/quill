@@ -454,7 +454,7 @@ struct MeetingSummaryServiceTests {
             (4_096...6_144).contains(ceiling),
             "local Summary leaves 4,096 to 6,144 tokens for the response"
         )
-        try expect(request.timeoutInterval == 240, "a local Summary request waits up to 240 seconds")
+        try expect(request.timeoutInterval == 420, "a local Summary request waits up to 420 seconds")
         // #611: llama-server samples only JSON in the decoder's shape.
         let format = try dictionary(body["response_format"])
         try expect(format["type"] as? String == "json_schema", "a local Summary request constrains its JSON")
@@ -473,6 +473,33 @@ struct MeetingSummaryServiceTests {
             "an action item must carry its nullable owner and due date"
         )
         try expect(actionItem["additionalProperties"] as? Bool == false, "an action item allows no other keys")
+        // llama-server makes the model write keys in schema order, so it
+        // must be the prompt's order on every launch.
+        let rawBody = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+        guard let formatStart = rawBody.range(of: #""response_format":"#) else {
+            throw MeetingSummaryServiceTestFailure("Missing response_format")
+        }
+        let rawFormat = String(rawBody[formatStart.upperBound...])
+        func offsets(_ keys: [String], in text: String) -> [Int] {
+            keys.map { key in
+                text.range(of: "\"\(key)\":{").map {
+                    text.distance(from: text.startIndex, to: $0.lowerBound)
+                } ?? -1
+            }
+        }
+        let summaryKeys = offsets(
+            ["overview", "keyPoints", "decisions", "actionItems", "openQuestions"],
+            in: rawFormat
+        )
+        try expect(!summaryKeys.contains(-1) && summaryKeys == summaryKeys.sorted(), "the schema lists Summary keys in prompt order")
+        guard let actionStart = rawFormat.range(of: #""actionItems":"#) else {
+            throw MeetingSummaryServiceTestFailure("Missing actionItems schema")
+        }
+        let actionKeys = offsets(
+            ["task", "owner", "dueDate", "sourceQuote"],
+            in: String(rawFormat[actionStart.upperBound...])
+        )
+        try expect(!actionKeys.contains(-1) && actionKeys == actionKeys.sorted(), "the schema lists action item keys in prompt order")
         try expect(body["max_tokens"] as? Int == ceiling, "local Summary sends the legacy completion key too")
     }
 
