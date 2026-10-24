@@ -12,9 +12,9 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Fixed
 
-- Meeting summaries made with a local model, such as Gemma or Qwen, no longer fail with an unreadable summary response on longer meetings. Quill now counts the prompt with the local model's own tokenizer, leaves the model room to finish (up to 6,144 output tokens), and allows a local summary request up to 7 minutes. Local models must now return the exact summary format, so owners, due dates and quotation marks no longer break it.
-- When a summary response is cut off before it finishes, the failure reason now says "Response cut off" instead of a format error.
-- A local summary written in Korean, English or another language that doesn't use Chinese characters no longer drifts into Chinese partway through. Source quotes still keep any Chinese characters spoken in the meeting.
+- Meeting summaries made with an on-device model (Gemma 4 E4B or Qwen2.5 7B Instruct) no longer fail with the "Summary format" reason. Quill now counts the prompt with the on-device model's own tokenizer, leaves the model room to finish (up to 6,144 output tokens), and gives each local summary step up to 7 minutes. Quill also constrains on-device models to the summary format, including when combining partial summaries of a long meeting, so a missing owner or due date, or quotation marks in the text, no longer break it.
+- When a summary response from an on-device or cloud model is cut off before it finishes, the failure reason now says "Response cut off" instead of a format error.
+- An on-device summary written in Korean, English, Spanish, French or German no longer drifts into Chinese partway through. Summary text in these languages no longer contains Chinese characters, so Hanja names are written in that language's script; source quotes still keep any Chinese characters spoken in the meeting.
 
 ## [1.2.0] - 2026-10-23
 
