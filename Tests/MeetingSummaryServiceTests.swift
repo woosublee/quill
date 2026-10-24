@@ -36,6 +36,7 @@ struct MeetingSummaryServiceTests {
         try await testChunkFailureDoesNotReturnPartialSummary()
         try await testTruncatedResponseReportsOutputTruncated()
         try await testLocalSummaryCountsTokensWithLocalServer()
+        try await testLocalMergeLeavesRoomForTheWholeResponse()
         try testMergePromptUsesSummaryResponseShape()
         try await testLocalSchemaKeepsHanOutOfProseUnlessTheLanguageWritesIt()
         try testUserIssueMapsToSummaryDomainCodes()
@@ -1013,6 +1014,53 @@ struct MeetingSummaryServiceTests {
             body["max_completion_tokens"] as? Int == min(16_384 - promptTokens - 512, 6_144),
             "the response may use the context the prompt leaves, up to 6,144 tokens"
         )
+    }
+
+    /// A merge can be about as long as its partials together, so a local
+    /// merge batch leaves the full 6,144-token response room (#610).
+    private static func testLocalMergeLeavesRoomForTheWholeResponse() async throws {
+        let recorder = MeetingSummaryRequestRecorder()
+        let service = MeetingSummaryService(
+            backendExecutor: makeLocalExecutor(),
+            fallbackExecutor: nil,
+            chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16),
+            transport: { request in
+                recorder.record(request)
+                if request.url?.path == "/tokenize" {
+                    // 3,000 tokens a partial: three partials fit beside a
+                    // 4,096-token response but not a 6,144-token one.
+                    let content = try string(try requestBody(request)["content"])
+                    let partials = (content.components(separatedBy: "The team reviewed").count - 1) / 6
+                    let tokens = Array(repeating: 1, count: 1_000 + 3_000 * partials)
+                    return (
+                        try JSONSerialization.data(withJSONObject: ["tokens": tokens]),
+                        HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                    )
+                }
+                return try successResponse(request: request, content: largeEvidenceJSON)
+            }
+        )
+
+        _ = try await service.generate(
+            source: MeetingSummarySource(
+                transcript: "Evidence line.\n\nEvidence line.\n\nEvidence line.",
+                calendar: nil,
+                languageContext: summaryLanguage
+            )
+        )
+
+        let merges = try recorder.requests().filter {
+            try userMessage($0).contains("validatedPartials")
+        }
+        try expect(merges.count == 2, "three partials merge in two steps")
+        for merge in merges {
+            let partials = (try userMessage(merge).components(separatedBy: "The team reviewed").count - 1) / 6
+            try expect(partials <= 2, "a merge batch leaves room for the whole response")
+            try expect(
+                try requestBody(merge)["max_completion_tokens"] as? Int == 6_144,
+                "a local merge may write up to 6,144 tokens"
+            )
+        }
     }
 
     /// A model copies the partials' shape, so they carry every response

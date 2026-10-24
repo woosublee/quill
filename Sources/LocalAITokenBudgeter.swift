@@ -15,12 +15,17 @@ enum LocalAITokenBudgetRole: Sendable {
     case summaryIntermediateMerge
     case summaryFinalMerge
 
-    fileprivate func maxCompletionTokens(summaryCompletionTokens: Int) -> Int {
+    fileprivate func maxCompletionTokens(
+        summaryCompletionTokens: Int,
+        summaryMergeCompletionTokens: Int
+    ) -> Int {
         switch self {
         case let .postProcessing(inputReservation):
             return min(max(inputReservation, 0) + 512, 6_144)
-        case .summaryExtraction, .summaryIntermediateMerge, .summaryFinalMerge:
+        case .summaryExtraction:
             return summaryCompletionTokens
+        case .summaryIntermediateMerge, .summaryFinalMerge:
+            return summaryMergeCompletionTokens
         }
     }
 }
@@ -31,10 +36,16 @@ struct LocalAITokenBudgeter: Sendable {
     /// verbatim source quote, so a full chunk's JSON outgrows 1,024 tokens
     /// (#609).
     static let localSummaryCompletionTokens = 4_096
+    /// Merge response room on a local model. A merge can be about as long
+    /// as its partials together, so a batch that left only the extraction
+    /// room was cut off (#610).
+    static let localSummaryMergeCompletionTokens = 6_144
 
     let contextWindow: Int
     let tokenCounter: any LocalAITokenCounting
     var summaryCompletionTokens = 1_024
+    /// Defaults to `summaryCompletionTokens`.
+    var summaryMergeCompletionTokens: Int?
 
     func budget(
         forRenderedChatPrompt prompt: String,
@@ -44,7 +55,9 @@ struct LocalAITokenBudgeter: Sendable {
             forRenderedChatPrompt: prompt
         )
         let maxCompletionTokens = role.maxCompletionTokens(
-            summaryCompletionTokens: summaryCompletionTokens
+            summaryCompletionTokens: summaryCompletionTokens,
+            summaryMergeCompletionTokens: summaryMergeCompletionTokens
+                ?? summaryCompletionTokens
         )
         let sourceTokenLimit = contextWindow
             - renderedPromptTokens

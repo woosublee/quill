@@ -422,7 +422,10 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             tokenCounter: tokenCounter,
             summaryCompletionTokens: backendExecutor.choice.isLocal
                 ? LocalAITokenBudgeter.localSummaryCompletionTokens
-                : Self.cloudCompletionCeiling
+                : Self.cloudCompletionCeiling,
+            summaryMergeCompletionTokens: backendExecutor.choice.isLocal
+                ? LocalAITokenBudgeter.localSummaryMergeCompletionTokens
+                : nil
         )
         self.transport = transport
     }
