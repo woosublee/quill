@@ -377,6 +377,13 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     }
 
     private static let requestTimeout: TimeInterval = 120
+    /// A local model writes about 50 tokens a second on a fast Mac, so its
+    /// longest response needs more time than a cloud request.
+    private static let localRequestTimeout: TimeInterval = 240
+    /// Measured responses need at most about 4,200 tokens. A model stuck
+    /// repeating itself stops here as a cut-off response, not after
+    /// filling the whole context (#609).
+    private static let localCompletionCap = 6_144
     private static let contextWindow = 16_384
     private static let cloudCompletionCeiling = 1_024
     private static let defaultTransport: Transport = { request in
@@ -709,12 +716,15 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             throw MeetingSummaryError.invalidResponse(.contextBudget)
         }
         if backendExecutor.choice.isLocal {
-            // A local response may use all the context the prompt leaves,
-            // so it is cut off only when the context is truly full.
+            // A local response may use the context the prompt leaves, up to
+            // the cap.
             return try await requestDraft(
                 prompt: prompt,
                 executor: backendExecutor,
-                localCompletionTokens: budget.sourceTokenLimit + budget.maxCompletionTokens
+                localCompletionTokens: min(
+                    budget.sourceTokenLimit + budget.maxCompletionTokens,
+                    Self.localCompletionCap
+                )
             )
         }
         return try await requestCloudDraft(prompt: prompt)
@@ -861,7 +871,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
                 (data, response) = try await transport(request)
             } catch let error as URLError where error.code == .timedOut {
                 throw MeetingSummaryError.requestTimedOut(
-                    Self.requestTimeout,
+                    Self.requestTimeout(for: endpoint),
                     modelID: endpoint.selectedModelID
                 )
             } catch {
@@ -933,6 +943,10 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         }
     }
 
+    private static func requestTimeout(for endpoint: AIProcessingEndpoint) -> TimeInterval {
+        endpoint.kind == .local ? localRequestTimeout : requestTimeout
+    }
+
     private func makeRequest(
         prompt: MeetingSummaryPrompt,
         endpoint: AIProcessingEndpoint,
@@ -943,7 +957,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
             .appendingPathComponent("completions")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = Self.requestTimeout
+        request.timeoutInterval = Self.requestTimeout(for: endpoint)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = endpoint.authorizationToken {
             request.setValue(

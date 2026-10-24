@@ -449,7 +449,11 @@ struct MeetingSummaryServiceTests {
         )
         try expect(body["model"] as? String == "local", "local request model")
         let ceiling = try int(body["max_completion_tokens"])
-        try expect(ceiling >= 4_096, "local Summary leaves at least 4,096 tokens for the response")
+        try expect(
+            (4_096...6_144).contains(ceiling),
+            "local Summary leaves 4,096 to 6,144 tokens for the response"
+        )
+        try expect(request.timeoutInterval == 240, "a local Summary request waits up to 240 seconds")
         try expect(body["max_tokens"] as? Int == ceiling, "local Summary sends the legacy completion key too")
     }
 
@@ -959,8 +963,8 @@ struct MeetingSummaryServiceTests {
         let user = try string(try dictionary(messages[1])["content"])
         let promptTokens = "[System]\n\(system)\n\n[User]\n\(user)".utf8.count / 4
         try expect(
-            body["max_completion_tokens"] as? Int == 16_384 - promptTokens - 512,
-            "the response may use all the context the prompt leaves"
+            body["max_completion_tokens"] as? Int == min(16_384 - promptTokens - 512, 6_144),
+            "the response may use the context the prompt leaves, up to 6,144 tokens"
         )
     }
 
