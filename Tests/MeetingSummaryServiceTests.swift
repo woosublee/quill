@@ -37,6 +37,7 @@ struct MeetingSummaryServiceTests {
         try await testTruncatedResponseReportsOutputTruncated()
         try await testLocalSummaryCountsTokensWithLocalServer()
         try testMergePromptUsesSummaryResponseShape()
+        try await testLocalSchemaKeepsHanOutOfProseUnlessTheLanguageWritesIt()
         try testUserIssueMapsToSummaryDomainCodes()
         try testInvalidResponseUsesSafeResponseEnvelopeSubtype()
         try testSafeFailureSubtypeMappingsCoverSummaryValidation()
@@ -1052,6 +1053,98 @@ struct MeetingSummaryServiceTests {
         _ = try MeetingSummaryStrictDecoder.decode(reencoded)
     }
 
+    /// A small local model can drift into Chinese mid-summary, so prose in a
+    /// language that doesn't write Han can't contain it; quotes stay as
+    /// spoken (#613).
+    private static func testLocalSchemaKeepsHanOutOfProseUnlessTheLanguageWritesIt() async throws {
+        for (code, excludesHan) in [("ko", true), ("en", true), ("ja", false), ("zh-Hant", false)] {
+            let recorder = MeetingSummaryRequestRecorder()
+            let service = MeetingSummaryService(
+                backendExecutor: makeLocalExecutor(),
+                fallbackExecutor: nil,
+                chunker: MeetingSummaryTextChunker(maxCharacters: 35),
+                transport: { request in
+                    recorder.record(request)
+                    let user = (try? userMessage(request)) ?? ""
+                    if user.contains("validatedPartials") {
+                        return try successResponse(request: request, content: mergedJSON)
+                    }
+                    let content = user.contains("First paragraph")
+                        ? partialJSON
+                        : partialSecondJSON
+                    return try successResponse(request: request, content: content)
+                }
+            )
+            // Only the requests matter; the English fixtures fail the
+            // language check for other languages before the merge.
+            _ = try? await service.generate(
+                source: MeetingSummarySource(
+                    transcript: [
+                        "First paragraph has a decision.",
+                        "Second paragraph has an action."
+                    ].joined(separator: "\n\n"),
+                    calendar: nil,
+                    languageContext: MeetingSummaryLanguageContext(
+                        requestedOutputLanguage: code,
+                        appliedLanguageCode: code,
+                        resolutionSource: .configured
+                    )
+                )
+            )
+
+            let requests = recorder.requests()
+            try expect(!requests.isEmpty, "\(code) summary request")
+            if code == "en" {
+                try expect(
+                    try userMessage(try requests.last.unwrap("merge request")).contains("validatedPartials"),
+                    "the merge request is checked too"
+                )
+            }
+            for request in requests {
+                let body = try requestBody(request)
+                let schema = try dictionary(
+                    try dictionary(try dictionary(body["response_format"])["json_schema"])["schema"]
+                )
+                let properties = try dictionary(schema["properties"])
+                let overview = try dictionary(try dictionary(properties["overview"])["properties"])
+                let point = try dictionary(
+                    try dictionary(try dictionary(properties["keyPoints"])["items"])["properties"]
+                )
+                let action = try dictionary(
+                    try dictionary(try dictionary(properties["actionItems"])["items"])["properties"]
+                )
+                for (label, field) in [
+                    ("overview text", overview["text"]),
+                    ("point text", point["text"]),
+                    ("action task", action["task"])
+                ] {
+                    let pattern = try dictionary(field)["pattern"] as? String
+                    if excludesHan {
+                        let pattern = try pattern.unwrap("\(code) \(label) pattern")
+                        let regex = try NSRegularExpression(pattern: pattern)
+                        // The pattern sees the raw JSON text inside the quotes.
+                        func matches(_ text: String) -> Bool {
+                            regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+                        }
+                        try expect(matches("다음 주 월요일까지 공유"), "\(code) \(label) allows Hangul")
+                        try expect(!matches("回顾会议"), "\(code) \(label) excludes Han")
+                        try expect(matches(#"이름은 \"새벽\"으로"#), "\(code) \(label) allows an escaped quote")
+                        try expect(matches(#"A\\B\nC"#), "\(code) \(label) allows other escapes")
+                        try expect(!matches(#"say "done"#), "\(code) \(label) keeps a bare quote out")
+                        try expect(!matches(#"path \q"#), "\(code) \(label) keeps a bare backslash out")
+                    } else {
+                        try expect(pattern == nil, "\(code) \(label) may write Han")
+                    }
+                }
+                try expect(try dictionary(point["sourceQuote"])["pattern"] == nil, "\(code) quotes stay unconstrained")
+                try expect(
+                    try dictionary(try dictionary(overview["sourceQuotes"])["items"])["pattern"] == nil,
+                    "\(code) overview quotes stay unconstrained"
+                )
+            }
+        }
+    }
+
     // MARK: - Fallback triggers (#580)
 
     private static let fallbackCalendar = MeetingSummaryCalendarContext(
@@ -1484,6 +1577,13 @@ private final class MeetingSummaryRequestRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedRequests
+    }
+}
+
+private extension Optional {
+    func unwrap(_ label: String) throws -> Wrapped {
+        guard let self else { throw MeetingSummaryServiceTestFailure("Missing \(label)") }
+        return self
     }
 }
 
