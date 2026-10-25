@@ -10,6 +10,8 @@ struct MeetingSummaryWorkflowTests {
         try await testUnverifiedSuccessPersistsWarningAndAttempt()
         try await testCloudFallbackOfLocalPrimaryRecordsItsHost()
         try await testCandidateSuccessSavesNothingUntilChosen()
+        try await testSameTextCandidateIsSavedKeepingCurrentRows()
+        try await testDifferentTextStillWaitsAsCandidate()
         try await testExplicitLanguageOverridesSpokenLanguage()
         try await testEngineDetectedLanguageRequiresNoPreliminaryWrite()
         try await testTranscriptInferredLanguagePersistsBeforeGeneration()
@@ -154,6 +156,78 @@ struct MeetingSummaryWorkflowTests {
 
         workflow.invalidate(noteID: initial.id)
         try expect(workflow.state.candidates[initial.id] == nil, "invalidating the note drops its candidate")
+    }
+
+    /// A new summary with the same text as the saved one leaves nothing to
+    /// choose: it is saved directly, keeping the rows, completion, and edit
+    /// on screen, and the note says the summary didn't change.
+    @MainActor
+    private static func testSameTextCandidateIsSavedKeepingCurrentRows() async throws {
+        let actionID = UUID()
+        var current = makeWorkflowEnvelope(actionID: actionID, completed: true)
+        current.editedAt = Date(timeIntervalSince1970: 1_800)
+        current.originalContent = current.content
+        let initial = makeWorkflowItem().withMeetingSummary(current)
+        let history = MeetingSummaryWorkflowHistoryRecorder(item: initial)
+        let eventRecorder = MeetingSummaryWorkflowEventRecorder(history: history)
+        let workflow = MeetingSummaryWorkflow(
+            dependencies: .init(
+                makeGenerator: { _ in
+                    MeetingSummaryWorkflowGeneratorStub { _ in
+                        makeWorkflowGenerationResult()
+                    }
+                },
+                now: { Date(timeIntervalSince1970: 2_000) }
+            )
+        )
+        workflow.onEvent = { eventRecorder.record($0) }
+        var request = makeWorkflowRequest(item: initial)
+        request.deliversCandidate = true
+
+        let outcome = await workflow.generate(request: request, history: history.access)
+
+        try expect(isVerifiedSuccess(outcome), "same-text success is typed")
+        try expect(workflow.state.candidates[initial.id] == nil, "nothing waits to be chosen")
+        let saved = history.storedItem?.meetingSummary
+        try expect(saved?.content.actionItems.map(\.id) == [actionID], "the current action row is kept")
+        try expect(saved?.content.actionItems.first?.isCompleted == true, "completion is kept")
+        try expect(saved?.editedAt == current.editedAt, "the edit is kept")
+        try expect(saved?.originalContent == current.originalContent, "the original stays to revert to")
+        try expect(saved?.generatedAt == Date(timeIntervalSince1970: 2_000), "the new run is recorded")
+        try expect(saved?.sourceFingerprint != current.sourceFingerprint, "the summary matches the transcript now")
+        try expect(history.storedItem?.meetingSummaryAttempt?.outcome == .succeeded, "the attempt is saved")
+        try expect(eventRecorder.persistedItems.count == 1, "the item is persisted")
+        try expect(workflow.state.unchangedSummaries[initial.id] == saved?.content, "the note can say nothing changed")
+        try expect(!workflow.state.pendingRevealNoteIDs.contains(initial.id), "no reveal for an unchanged summary")
+
+        workflow.dismissUnchangedSummary(noteID: initial.id)
+        try expect(workflow.state.unchangedSummaries[initial.id] == nil, "dismissing hides the note")
+    }
+
+    @MainActor
+    private static func testDifferentTextStillWaitsAsCandidate() async throws {
+        var current = makeWorkflowEnvelope(actionID: UUID(), completed: false)
+        current.content.overview.text = "Earlier review"
+        let initial = makeWorkflowItem().withMeetingSummary(current)
+        let history = MeetingSummaryWorkflowHistoryRecorder(item: initial)
+        let workflow = MeetingSummaryWorkflow(
+            dependencies: .init(
+                makeGenerator: { _ in
+                    MeetingSummaryWorkflowGeneratorStub { _ in
+                        makeWorkflowGenerationResult()
+                    }
+                },
+                now: { Date(timeIntervalSince1970: 2_000) }
+            )
+        )
+        var request = makeWorkflowRequest(item: initial)
+        request.deliversCandidate = true
+
+        _ = await workflow.generate(request: request, history: history.access)
+
+        try expect(workflow.state.candidates[initial.id] != nil, "a different summary waits to be chosen")
+        try expect(history.storedItem?.meetingSummary == current, "the saved summary is unchanged")
+        try expect(workflow.state.unchangedSummaries[initial.id] == nil, "no unchanged note")
     }
 
     /// A local primary that fell back to the cloud records the host the

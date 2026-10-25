@@ -3576,7 +3576,7 @@ private struct NoteDetailView: View {
     /// attempt, transcript edit, or new summary brings the notice back.
     private func summaryNoticeDismissalCondition(_ kind: SummaryNoticeKind) -> String {
         switch kind {
-        case .failure:
+        case .unchanged, .failure:
             return "\(currentSummaryAttempt?.occurredAt.timeIntervalSince1970 ?? 0)"
         case .stale:
             return appState.meetingSummarySource(for: item).fingerprint
@@ -3604,6 +3604,11 @@ private struct NoteDetailView: View {
     private var visibleSummaryNotices: [SummaryNoticeKind] {
         guard let summaryEnvelope else { return [] }
         var kinds: [SummaryNoticeKind] = []
+        // A same-result regeneration leads, like the transcript's.
+        if let unchanged = appState.unchangedMeetingSummaries[item.id],
+           summaryEnvelope.content.hasSameText(as: unchanged) {
+            kinds.append(.unchanged)
+        }
         if summaryFailureNoticePresentation != nil {
             kinds.append(.failure)
         }
@@ -3619,7 +3624,7 @@ private struct NoteDetailView: View {
             kinds.append(.modelUnavailable)
         }
         return kinds.filter { kind in
-            kind == .failure || !isSummaryNoticeDismissed(kind)
+            kind == .unchanged || kind == .failure || !isSummaryNoticeDismissed(kind)
         }
     }
 
@@ -3657,6 +3662,18 @@ private struct NoteDetailView: View {
         expansion: QuillBannerExpansion?
     ) -> some View {
         switch kind {
+        case .unchanged:
+            QuillStatusBanner(
+                systemImage: "info.circle",
+                tint: .secondary,
+                title: localizedCatalogString("The new summary is the same as the current one."),
+                detail: localizedCatalogString("The summary text didn't change."),
+                expansion: expansion,
+                onDismiss: {
+                    areSummaryNoticesExpanded = false
+                    appState.dismissUnchangedMeetingSummaryNotice(noteID: item.id)
+                }
+            )
         case .failure:
             if let presentation = summaryFailureNoticePresentation {
                 let summaryAction = summaryIssueAction(for: presentation)

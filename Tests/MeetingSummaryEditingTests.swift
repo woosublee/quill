@@ -19,6 +19,7 @@ struct MeetingSummaryEditingTests {
         try testRevertRestoresOriginalAndKeepsCompletion()
         try testUneditedSummaryCannotRevert()
         try testEditedSummaryRoundTrips()
+        try testVisibleTextIgnoresIDsLinksAndCompletion()
         print("MeetingSummaryEditingTests passed")
     }
 
@@ -174,6 +175,24 @@ struct MeetingSummaryEditingTests {
             from: JSONEncoder().encode(edited)
         )
         try expect(decoded == edited, "edited summary survives saving")
+    }
+
+    // A regenerated summary counts as the same when the person would see
+    // the same text.
+    private static func testVisibleTextIgnoresIDsLinksAndCompletion() throws {
+        let current = envelope(completed: true).content
+        var regenerated = current
+        regenerated.keyPoints[0] = MeetingSummaryPoint(id: UUID(), text: "Synthetic point", sourceQuote: nil)
+        regenerated.actionItems[0] = action(id: 9, task: "Synthetic task", completed: false)
+        try expect(regenerated.hasSameVisibleText(as: current), "IDs, links, and completion don't count")
+
+        var owner = regenerated
+        owner.actionItems[0].owner = "Synthetic owner"
+        try expect(!owner.hasSameVisibleText(as: current), "an owner counts")
+        var moved = regenerated
+        moved.decisions = moved.keyPoints
+        moved.keyPoints = []
+        try expect(!moved.hasSameVisibleText(as: current), "the section a row is in counts")
     }
 
     // MARK: Fixtures

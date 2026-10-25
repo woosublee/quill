@@ -73,6 +73,22 @@ extension MeetingSummaryContent {
         return copy
     }
 
+    /// True when the person would see the same summary: the same text in
+    /// the same rows, whatever the rows' IDs, source links, or completion.
+    func hasSameVisibleText(as other: MeetingSummaryContent) -> Bool {
+        visibleText == other.visibleText
+    }
+
+    private var visibleText: [[String?]] {
+        [
+            [overview.text],
+            keyPoints.map(\.text),
+            decisions.map(\.text),
+            actionItems.flatMap { [$0.task, $0.owner, $0.dueDate] },
+            openQuestions.map(\.text),
+        ]
+    }
+
     private func withoutCompletion() -> MeetingSummaryContent {
         var copy = self
         for index in copy.actionItems.indices {
@@ -104,6 +120,38 @@ extension MeetingSummaryEnvelope {
         copy.originalContent = originalContent ?? content
         copy.content = cleaned
         copy.editedAt = date
+        return copy
+    }
+
+    /// A new summary with the same text as `current`, saved without asking:
+    /// it keeps the current rows, completion, and edit, so nothing on screen
+    /// changes, and takes the new source links and when it was made.
+    func keepingRows(of current: MeetingSummaryEnvelope) -> MeetingSummaryEnvelope {
+        func points(
+            _ new: [MeetingSummaryPoint],
+            _ old: [MeetingSummaryPoint]
+        ) -> [MeetingSummaryPoint] {
+            zip(new, old).map {
+                MeetingSummaryPoint(id: $1.id, text: $1.text, sourceQuote: $0.sourceQuote)
+            }
+        }
+        var copy = self
+        copy.content.keyPoints = points(content.keyPoints, current.content.keyPoints)
+        copy.content.decisions = points(content.decisions, current.content.decisions)
+        copy.content.openQuestions = points(content.openQuestions, current.content.openQuestions)
+        copy.content.actionItems = zip(content.actionItems, current.content.actionItems).map {
+            MeetingSummaryActionItem(
+                id: $1.id,
+                task: $1.task,
+                owner: $1.owner,
+                dueDate: $1.dueDate,
+                sourceQuote: $0.sourceQuote,
+                isCompleted: $1.isCompleted
+            )
+        }
+        copy.content.overview.text = current.content.overview.text
+        copy.editedAt = current.editedAt
+        copy.originalContent = current.originalContent
         return copy
     }
 
