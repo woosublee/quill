@@ -81,4 +81,4 @@ macOS 앱의 모든 화면과 그 안의 영역을 컴포넌트·토큰 이름�
 
 ## 5. 온보딩(설정 마법사)
 
-- 최소 560×600, `surface-window`. 큰 제목 `setup-hero`/`setup-title`(SF Rounded Bold), 선택 카드는 `surface-control` + 선택 시 `accent-tint-selected`, 아래 이전/다음 버튼. 권한 안내 창은 `radius-14` 카드(정리할 곳 참고).
+- 최소 560×600, `surface-window`. 큰 제목 `setup-hero`/`setup-title`(SF Rounded Bold), 선택 카드는 `surface-control` + 선택 시 `accent-tint-selected`, 아래 이전/다음 버튼. 권한 안내 창은 반경 14 카드(단계 밖 값, 정리할 곳 5번).

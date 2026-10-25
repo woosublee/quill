@@ -74,7 +74,7 @@ def row(title, preview, date="10월 24일 (토) 오후 2:00", cls="", badges="",
 C = {}
 
 # ---------- Overlay ----------
-C["RecordingOverlay"] = ("Overlay", 250, "녹음 상태 알약 · 항상 검정", None, f'''<div class="q-stage" style="background:#5b6472">
+C["RecordingOverlay"] = (250, "녹음 상태 알약 · 항상 검정", None, f'''<div class="q-stage" style="background:#5b6472">
 {item(f'<div class="q-pill w92"><div class="q-dots"><i class="on"></i><i></i><i></i></div></div>', '준비 중')}
 {item(f'<div class="q-pill w92">{wave(.8)}</div>', '녹음 중(누르고 있기)')}
 {item(f'<div class="q-pill w150">{wave(.55)}<span class="q-stop"></span></div>', '녹음 중(토글) · 정지')}
@@ -100,7 +100,7 @@ C["RecordingOverlay"] = ("Overlay", 250, "녹음 상태 알약 · 항상 검정"
 - iPhone·iPad: Dynamic Island / Live Activity가 같은 역할. 같은 파형·색을 씁니다.
 """)
 
-C["MeetingReminder"] = ("Overlay", 150, "회의 시작 전 노치에서 내려오는 알림", None, f'''<div class="q-stage" style="background:#5b6472">
+C["MeetingReminder"] = (150, "회의 시작 전 노치에서 내려오는 알림", None, f'''<div class="q-stage" style="background:#5b6472">
 <div class="q-remind"><div class="top"><span class="app"><img src="{ICON}" alt="">Quill</span><span class="q-close">{ic("x", 9, 2)}</span></div>
 <div class="row"><div><div class="t">디자인 리뷰</div><div class="m">2분 후 시작 · Google Meet</div></div><button class="go">시작</button></div></div>
 </div>''',
@@ -115,7 +115,7 @@ C["MeetingReminder"] = ("Overlay", 150, "회의 시작 전 노치에서 내려�
 - macOS 알림은 이 패널을 못 띄울 때만 대체로 씁니다.
 """)
 
-C["NoticeToast"] = ("Overlay", 110, "녹음 중 알림 한 줄", None, f'''<div class="q-stage" style="background:#5b6472">
+C["NoticeToast"] = (110, "녹음 중 알림 한 줄", None, f'''<div class="q-stage" style="background:#5b6472">
 {item(f'<div class="q-ntoast"><span style="color:var(--status-processing)">{ic("warn", 12)}</span>시스템 오디오 없음 — 마이크만으로 녹음 중</div>', '알림')}
 {item(f'<div class="q-ntoast"><span style="color:var(--status-processing)">{ic("warn", 12)}</span>시스템 오디오를 가져오지 못했어요<span class="x">{ic("x", 8, 2.2)}</span></div>', 'hover 시 닫기')}
 </div>''',
@@ -129,7 +129,7 @@ C["NoticeToast"] = ("Overlay", 110, "녹음 중 알림 한 줄", None, f'''<div 
 """)
 
 # ---------- Feedback ----------
-C["StatusBanner"] = ("Feedback", 170, "노트 위 한 줄 상태, 여러 개면 +N", None, f'''<div class="q-stage col text">
+C["StatusBanner"] = (170, "노트 위 한 줄 상태, 여러 개면 +N", None, f'''<div class="q-stage col text">
 <div class="q-banner"><span class="err">{ic("err", 11)}</span><span class="ttl">전사하지 못했어요</span><span class="det">네트워크 연결을 확인해 주세요.</span><span class="sp"></span><button class="q-small-btn">전사 재시도</button><button class="q-icon-btn">{ic("info", 12)}</button></div>
 <div class="q-banner"><span class="warn">{ic("warn", 11)}</span><span class="ttl">요약을 확인해 주세요</span><span class="sp"></span><button class="q-more">+2</button><button class="q-icon-btn">{ic("x", 9, 2)}</button></div>
 <div class="q-banner"><span style="color:var(--status-processing)">{ic("undo", 11, 1.8)}</span><span class="ttl">복구된 녹음이에요</span><span class="det">앱이 갑자기 종료돼 녹음을 되살렸어요.</span><span class="sp"></span><button class="q-small-btn">폴더 열기</button></div>
@@ -145,7 +145,7 @@ C["StatusBanner"] = ("Feedback", 170, "노트 위 한 줄 상태, 여러 개면 
 - 배너가 여럿이면 첫 배너에 `+N` 알약(`fill-selected`, `chip-label` + `label-secondary`), 펼치면 "간단히". 새 배너 모양을 만들지 말고 이것을 씁니다.
 """)
 
-C["IssueEmptyState"] = ("Feedback", 300, "가운데 빈 상태와 전체 오류", None, f'''<div class="q-stage text" style="justify-content:center;gap:40px">
+C["IssueEmptyState"] = (300, "가운데 빈 상태와 전체 오류", None, f'''<div class="q-stage text" style="justify-content:center;gap:40px">
 <div class="q-empty"><div class="disc">{ic("search", 30, 1)}</div><h3>일치하는 노트 없음</h3><p>"로드맵"과 일치하는 노트가 없어요. 다른 단어로 찾아보거나 검색어를 지워 보세요.</p></div>
 <div class="q-empty"><div class="disc issue">{ic("warn", 24)}</div><h3>전사하지 못했어요</h3><p>오디오는 그대로 있어요. 다시 시도하거나 모델 설정을 확인해 보세요.</p><div class="acts"><button class="q-small-btn">전사 재시도</button><button class="q-small-btn">모델 설정 열기</button></div></div>
 </div>''',
@@ -161,13 +161,13 @@ C["IssueEmptyState"] = ("Feedback", 300, "가운데 빈 상태와 전체 오류"
 - iOS의 `ContentUnavailableView`와 같은 모양입니다.
 """)
 
-C["InfoNotice"] = ("Feedback", 70, "동작이 필요 없는 조용한 한 줄", None, f'''<div class="q-stage text"><div class="q-info">{ic("info", 11)}<span>정리할 내용이 없어 원문을 그대로 두었어요.</span><span class="sp"></span><button class="q-icon-btn">{ic("x", 9, 2)}</button></div></div>''',
+C["InfoNotice"] = (70, "동작이 필요 없는 조용한 한 줄", None, f'''<div class="q-stage text"><div class="q-info">{ic("info", 11)}<span>정리할 내용이 없어 원문을 그대로 두었어요.</span><span class="sp"></span><button class="q-icon-btn">{ic("x", 9, 2)}</button></div></div>''',
 """# InfoNotice
 
 정보만 주는 한 줄입니다(`QuillInfoNotice`). 표면 없이 `info.circle` 11 + `callout`, 전체 `label-secondary`, 닫기는 선택.
 """)
 
-C["Toast"] = ("Feedback", 80, "노트 브라우저 하단 토스트", None, f'''<div class="q-stage text"><div class="q-toast">노트를 Markdown으로 내보냈어요<u>Finder에서 보기</u></div></div>''',
+C["Toast"] = (80, "노트 브라우저 하단 토스트", None, f'''<div class="q-stage text"><div class="q-toast">노트를 Markdown으로 내보냈어요<u>Finder에서 보기</u></div></div>''',
 """# Toast
 
 작업 결과를 잠깐 알리는 하단 토스트입니다(`NoteBrowserToastView`).
@@ -176,7 +176,7 @@ C["Toast"] = ("Feedback", 80, "노트 브라우저 하단 토스트", None, f'''
 - 문구 `toast-text`, 동작은 밑줄 친 `chip-label`(흰색) 하나.
 """)
 
-C["DeletionCapsule"] = ("Feedback", 120, "삭제 알림 + 줄어드는 취소", None, f'''<div class="q-stage" style="background:var(--surface-window)">
+C["DeletionCapsule"] = (120, "삭제 알림 + 줄어드는 취소", None, f'''<div class="q-stage" style="background:var(--surface-window)">
 {item('<div class="q-glass"><span>노트 2개를 삭제했어요</span><button class="q-cancel"><span class="fill"></span><span>취소</span></button></div>', '취소 가능')}
 {item('<div class="q-glass" style="padding-right:14px"><span>전사가 끝난 뒤에 노트를 삭제해 주세요</span></div>', '안내만')}
 </div>''',
@@ -191,7 +191,7 @@ C["DeletionCapsule"] = ("Feedback", 120, "삭제 알림 + 줄어드는 취소", 
 
 # ---------- Notes ----------
 chk_on = f'<span class="q-check on">{ic("check", 10, 2.2)}</span>'
-C["NoteListRow"] = ("Notes", 500, "노트 목록 한 줄과 상태", None, f'''<div class="q-stage">
+C["NoteListRow"] = (500, "노트 목록 한 줄과 상태", None, f'''<div class="q-stage">
 <div class="q-list">
 {row("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로…", badges='<span class="q-badge">요약</span>')}
 {row("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일을 찾기 어렵다는 점이었어요.", cls="sel", date="10월 23일 (금) 오전 11:20")}
@@ -217,13 +217,13 @@ C["NoteListRow"] = ("Notes", 500, "노트 목록 한 줄과 상태", None, f'''<
 - VoiceOver는 행 하나로 묶어 제목·날짜·상태·선택 여부를 말로 읽습니다.
 """)
 
-C["SelectionCheckbox"] = ("Notes", 80, "다중 선택 원", None, f'''<div class="q-stage">{item(chk_on, '선택')}{item('<span class="q-check off"></span>', '선택 안 함')}{item('<span class="q-check na"></span>', '선택 불가(녹음·처리 중)')}</div>''',
+C["SelectionCheckbox"] = (80, "다중 선택 원", None, f'''<div class="q-stage">{item(chk_on, '선택')}{item('<span class="q-check off"></span>', '선택 안 함')}{item('<span class="q-check na"></span>', '선택 불가(녹음·처리 중)')}</div>''',
 """# SelectionCheckbox
 
 다중 선택 모드에서 노트 행 왼쪽에 붙는 18pt 원입니다. 선택 `accent` + 흰 체크(9 Bold), 미선택 `label-secondary` 60% 1.5 테두리, 선택 불가 점선(35%) + 이유 도움말.
 """)
 
-C["StatusIndicator"] = ("Notes", 90, "노트 상태 점·스피너", None, f'''<div class="q-stage">
+C["StatusIndicator"] = (90, "노트 상태 점·스피너", None, f'''<div class="q-stage">
 {item('<span class="q-dot done"></span>', '완료 · 오디오만')}
 {item('<span style="display:inline-flex;gap:4px;align-items:center"><span class="q-dot rec"></span><span class="q-timer">03:12</span></span>', '녹음 중')}
 {item('<span class="q-spin"></span>', '전사 중')}
@@ -237,13 +237,13 @@ C["StatusIndicator"] = ("Notes", 90, "노트 상태 점·스피너", None, f'''<
 """)
 
 # ---------- Actions ----------
-C["CapsuleButton"] = ("Actions", 80, "사이드바·배너의 중립 캡슐", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-capsule">전사 방식 선택</button>', '기본')}{item('<button class="q-capsule" style="background:var(--fill-pressed)">전사 방식 선택</button>', '누름')}{item('<button class="q-capsule" disabled>전사 방식 선택</button>', '비활성')}{item('<button class="q-more">+3</button>', '+N 알약')}</div>''',
+C["CapsuleButton"] = (80, "사이드바·배너의 중립 캡슐", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-capsule">전사 방식 선택</button>', '기본')}{item('<button class="q-capsule" style="background:var(--fill-pressed)">전사 방식 선택</button>', '누름')}{item('<button class="q-capsule" disabled>전사 방식 선택</button>', '비활성')}{item('<button class="q-more">+3</button>', '+N 알약')}</div>''',
 """# CapsuleButton
 
 중립 캡슐 버튼입니다(`SidebarCapsuleButtonStyle`). `chip-label`, 여백 10×5, `fill-chip` → 누름 `fill-pressed`, 비활성 `opacity-disabled`. 강조색을 쓰지 않습니다. 주 동작이 필요한 곳은 시스템 `.borderedProminent`를 씁니다.
 """)
 
-C["ToolbarButton"] = ("", 80, "노트 툴바의 원형 아이콘 버튼", None, f'''<div class="q-stage text">{item(f'<button class="q-tool lg">{ic("copy", 14)}</button>', '기본')}{item(f'<button class="q-tool lg hover">{ic("copy", 14)}</button>', 'hover')}{item(f'<button class="q-tool lg" style="background:var(--fill-pressed);transform:scale(.92)">{ic("copy", 14)}</button>', '누름 0.92배')}{item(f'<button class="q-tool lg" style="opacity:.35">{ic("copy", 14)}</button>', '쓸 수 없음')}{item(f'<button class="q-tool lg" style="color:var(--status-recording)">{ic("trash", 14)}</button>', '삭제')}</div>''',
+C["ToolbarButton"] = (80, "노트 툴바의 원형 아이콘 버튼", None, f'''<div class="q-stage text">{item(f'<button class="q-tool lg">{ic("copy", 14)}</button>', '기본')}{item(f'<button class="q-tool lg hover">{ic("copy", 14)}</button>', 'hover')}{item(f'<button class="q-tool lg" style="background:var(--fill-pressed);transform:scale(.92)">{ic("copy", 14)}</button>', '누름 0.92배')}{item(f'<button class="q-tool lg" style="opacity:.35">{ic("copy", 14)}</button>', '쓸 수 없음')}{item(f'<button class="q-tool lg" style="color:var(--status-recording)">{ic("trash", 14)}</button>', '삭제')}</div>''',
 """# ToolbarButton
 
 `NoteToolbar` 안의 36pt 원형 아이콘 버튼입니다(`ToolbarIconButton` + `ToolbarButtonStyle`). 아이콘 13 Medium.
@@ -253,20 +253,20 @@ C["ToolbarButton"] = ("", 80, "노트 툴바의 원형 아이콘 버튼", None, 
 - 사이드바 머리의 배경 없는 버튼은 `IconButton`.
 """)
 
-C["RecordButton"] = ("Actions", 100, "떠 있는 녹음 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-rec" aria-label="녹음"></button>', '대기 44 · 모든 플랫폼')}{item('<button class="q-rec on" aria-label="정지"></button>', '녹음 중')}</div>''',
+C["RecordButton"] = (100, "떠 있는 녹음 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-rec" aria-label="녹음"></button>', '대기 44 · 모든 플랫폼')}{item('<button class="q-rec on" aria-label="정지"></button>', '녹음 중')}</div>''',
 """# RecordButton
 
 노트 사이드바 아래 가운데의 녹음 버튼입니다. 지름 `size-record-button`, 대기 `status-recording`, 녹음 중 `status-processing` + 흰 14pt 사각형(`radius-3`). 흰 18% 테두리(`record-ring`) + `shadow-record`. 다중 선택 중에는 숨깁니다. iPhone·iPad도 같은 44를 씁니다.
 """)
 
-C["InputPicker"] = ("Actions", 80, "다음 녹음의 오디오 소스", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item(f'<span class="q-input">{ic("mic", 11)}{ic("chev", 9, 1.8)}</span>', '마이크')}{item(f'<span class="q-input"><span style="display:inline-flex;align-items:center;gap:2px">{ic("mic", 11)}<b style="font-size:9px;color:var(--label-secondary)">+</b>{ic("laptop", 11)}</span>{ic("chev", 9, 1.8)}</span>', '마이크 + 시스템 오디오')}{item(f'<span class="q-input">{ic("laptop", 11)}{ic("chev", 9, 1.8)}</span>', '시스템 오디오')}</div>''',
+C["InputPicker"] = (80, "다음 녹음의 오디오 소스", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item(f'<span class="q-input">{ic("mic", 11)}{ic("chev", 9, 1.8)}</span>', '마이크')}{item(f'<span class="q-input"><span style="display:inline-flex;align-items:center;gap:2px">{ic("mic", 11)}<b style="font-size:9px;color:var(--label-secondary)">+</b>{ic("laptop", 11)}</span>{ic("chev", 9, 1.8)}</span>', '마이크 + 시스템 오디오')}{item(f'<span class="q-input">{ic("laptop", 11)}{ic("chev", 9, 1.8)}</span>', '시스템 오디오')}</div>''',
 """# InputPicker
 
 다음 녹음이 무엇을 담을지 아이콘으로 보여 주는 66×26 버튼입니다(노트 브라우저 사이드바 머리). `fill-chip`, 반경 7(정리할 곳 참고). 누르면 메뉴 막대 마이크 하위 메뉴와 같은 AppKit 메뉴. 소스는 이름 대신 조합으로 표현합니다: 마이크 / 마이크 + 시스템 오디오 / 시스템 오디오.
 """)
 
 # ---------- Atoms split out of larger components ----------
-C["Badge"] = ("", 80, "노트 행 배지와 상세 머리 태그", None, f'''<div class="q-stage">{item('<span class="q-badge">요약</span>', '행 배지 · 요약')}{item('<span class="q-badge">오디오만</span>', '행 배지 · 오디오만')}{item('<span class="q-tags"><span>CLOUD</span>·<span class="dim">NO CTX</span>·<span>LLM</span>·<span>KO</span></span>', '상세 머리 태그')}</div>''',
+C["Badge"] = (80, "노트 행 배지와 상세 머리 태그", None, f'''<div class="q-stage">{item('<span class="q-badge">요약</span>', '행 배지 · 요약')}{item('<span class="q-badge">오디오만</span>', '행 배지 · 오디오만')}{item('<span class="q-tags"><span>CLOUD</span>·<span class="dim">NO CTX</span>·<span>LLM</span>·<span>KO</span></span>', '상세 머리 태그')}</div>''',
 """# Badge
 
 노트의 성격을 짧게 붙이는 표시입니다. 두 종류만 씁니다.
@@ -276,7 +276,7 @@ C["Badge"] = ("", 80, "노트 행 배지와 상세 머리 태그", None, f'''<di
 - 새 배지 색을 만들지 않습니다. 상태(녹음 중·실패)는 배지가 아니라 `StatusIndicator`.
 """)
 
-C["Waveform"] = ("", 90, "녹음 레벨 막대와 처리 중 펄스", None, f'''<div class="q-stage" style="background:var(--overlay-surface);color:var(--overlay-text)">{item(wave(.35), '조용함')}{item(wave(.8), '말하는 중')}{item(wave(1), '큰 소리')}{item(proc(), '처리 중 펄스')}</div>'''.replace('class="q-cap"', 'class="q-cap" style="color:var(--overlay-text-muted)"'),
+C["Waveform"] = (90, "녹음 레벨 막대와 처리 중 펄스", None, f'''<div class="q-stage" style="background:var(--overlay-surface);color:var(--overlay-text)">{item(wave(.35), '조용함')}{item(wave(.8), '말하는 중')}{item(wave(1), '큰 소리')}{item(proc(), '처리 중 펄스')}</div>'''.replace('class="q-cap"', 'class="q-cap" style="color:var(--overlay-text-muted)"'),
 """# Waveform
 
 Quill의 얼굴인 흰 막대 파형입니다(`WaveformBar`, `ProcessingPill`). 항상 `overlay-surface` 위 `overlay-text`로 그립니다.
@@ -287,7 +287,7 @@ Quill의 얼굴인 흰 막대 파형입니다(`WaveformBar`, `ProcessingPill`). 
 - 쓰는 곳: `RecordingOverlay`, 노치 옆 배치, iPhone Dynamic Island. 노트의 오디오 파형은 다른 것(`AudioPlayer`).
 """)
 
-C["CloseButton"] = ("", 80, "배너·오버레이의 작은 원형 닫기", None, f'''<div class="q-stage">{item(f'<button class="q-icon-btn" aria-label="닫기">{ic("x", 9, 2)}</button>', '배너 · 기본')}{item(f'<button class="q-icon-btn" style="background:var(--fill-hover)" aria-label="닫기">{ic("x", 9, 2)}</button>', '배너 · hover')}{item(f'<button class="q-icon-btn" aria-label="자세히">{ic("info", 12)}</button>', '배너 · 정보')}{item(f'<span style="background:var(--overlay-surface);padding:6px;border-radius:8px;display:inline-flex"><span class="q-close">{ic("x", 9, 2)}</span></span>', '오버레이 위')}</div>''',
+C["CloseButton"] = (80, "배너·오버레이의 작은 원형 닫기", None, f'''<div class="q-stage">{item(f'<button class="q-icon-btn" aria-label="닫기">{ic("x", 9, 2)}</button>', '배너 · 기본')}{item(f'<button class="q-icon-btn" style="background:var(--fill-hover)" aria-label="닫기">{ic("x", 9, 2)}</button>', '배너 · hover')}{item(f'<button class="q-icon-btn" aria-label="자세히">{ic("info", 12)}</button>', '배너 · 정보')}{item(f'<span style="background:var(--overlay-surface);padding:6px;border-radius:8px;display:inline-flex"><span class="q-close">{ic("x", 9, 2)}</span></span>', '오버레이 위')}</div>''',
 """# CloseButton
 
 배너와 오버레이 오른쪽 끝의 20pt 원형 아이콘 버튼입니다(`size-close`).
@@ -297,7 +297,7 @@ C["CloseButton"] = ("", 80, "배너·오버레이의 작은 원형 닫기", None
 - 누르는 영역은 보이는 크기보다 넓게 잡고, hover로만 나타나도 VoiceOver에서는 항상 닿게 합니다. iPhone·iPad는 누르는 영역 44pt.
 """)
 
-C["IconButton"] = ("", 80, "노트 사이드바 머리의 아이콘 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item(f'<button class="q-hicon">{ic("search", 13)}</button>', '검색')}{item(f'<button class="q-hicon" style="color:var(--accent)">{ic("search", 13)}</button>', '검색어 있음')}{item(f'<button class="q-hicon">{ic("import", 13)}</button>', '오디오 가져오기')}{item(f'<button class="q-hicon" style="opacity:.45">{ic("import", 13)}</button>', '쓸 수 없음')}</div>''',
+C["IconButton"] = (80, "노트 사이드바 머리의 아이콘 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item(f'<button class="q-hicon">{ic("search", 13)}</button>', '검색')}{item(f'<button class="q-hicon" style="color:var(--accent)">{ic("search", 13)}</button>', '검색어 있음')}{item(f'<button class="q-hicon">{ic("import", 13)}</button>', '오디오 가져오기')}{item(f'<button class="q-hicon" style="opacity:.45">{ic("import", 13)}</button>', '쓸 수 없음')}</div>''',
 """# IconButton
 
 노트 사이드바 첫 줄(신호등 버튼 옆)의 배경 없는 아이콘 버튼입니다(`headerIconButton`). 26×24, 아이콘 13 Medium, `label-secondary`.
@@ -306,7 +306,7 @@ C["IconButton"] = ("", 80, "노트 사이드바 머리의 아이콘 버튼", Non
 - 배경·테두리를 그리지 않습니다. 원형 hover가 필요한 곳은 `ToolbarButton`.
 """)
 
-C["SearchField"] = ("", 70, "노트 검색 필드", None, f'''<div class="q-stage col" style="background:var(--surface-window);width:256px">{item(f'<div class="q-searchf">{ic("search", 11)}<span class="ph">노트 검색</span></div>', '비어 있음')}{item(f'<div class="q-searchf">{ic("search", 11)}<span>로드맵</span><span class="clr">{ic("x", 7, 2.4)}</span></div>', '입력 중 · 지우기')}</div>''',
+C["SearchField"] = (70, "노트 검색 필드", None, f'''<div class="q-stage col" style="background:var(--surface-window);width:256px">{item(f'<div class="q-searchf">{ic("search", 11)}<span class="ph">노트 검색</span></div>', '비어 있음')}{item(f'<div class="q-searchf">{ic("search", 11)}<span>로드맵</span><span class="clr">{ic("x", 7, 2.4)}</span></div>', '입력 중 · 지우기')}</div>''',
 """# SearchField
 
 노트 사이드바 둘째 줄의 검색 필드입니다(`searchField`). 돋보기나 ⌘F로 열면 입력 선택·모델 선택 줄 자리를 대신해서, 머리 높이가 바뀌지 않습니다.
@@ -315,7 +315,7 @@ C["SearchField"] = ("", 70, "노트 검색 필드", None, f'''<div class="q-stag
 - 검색어가 있으면 오른쪽에 지우기(`xmark.circle.fill` 10, `label-tertiary`). Esc나 지우기는 검색어를 비우고 닫습니다. 검색어가 비어 있을 때 포커스가 떠나면 닫힙니다.
 """)
 
-C["ModelPicker"] = ("", 80, "다음 녹음의 전사 모델", None, f'''<div class="q-stage" style="background:var(--surface-window);width:280px;flex-direction:column">{item(f'<span class="q-input model" style="width:200px">{ic("wave", 12)}<span class="lb">Whisper Large v3 Turbo</span>{ic("chev", 8, 1.8)}</span>', '기본')}{item(f'<span class="q-input model" style="width:200px;opacity:.45">{ic("wave", 12)}<span class="lb">끔</span>{ic("chev", 8, 1.8)}</span>', '녹음·전사 중(잠김)')}</div>''',
+C["ModelPicker"] = (80, "다음 녹음의 전사 모델", None, f'''<div class="q-stage" style="background:var(--surface-window);width:280px;flex-direction:column">{item(f'<span class="q-input model" style="width:200px">{ic("wave", 12)}<span class="lb">Whisper Large v3 Turbo</span>{ic("chev", 8, 1.8)}</span>', '기본')}{item(f'<span class="q-input model" style="width:200px;opacity:.45">{ic("wave", 12)}<span class="lb">끔</span>{ic("chev", 8, 1.8)}</span>', '녹음·전사 중(잠김)')}</div>''',
 """# ModelPicker
 
 노트 사이드바 둘째 줄, `InputPicker` 옆 남은 폭을 채우는 전사 모델 선택입니다(`transcriptionModelMenu`).
@@ -325,7 +325,7 @@ C["ModelPicker"] = ("", 80, "다음 녹음의 전사 모델", None, f'''<div cla
 """)
 
 # ---------- Settings ----------
-C["SettingsCard"] = ("Settings", 330, "설정 페이지의 기본 단위", None, f'''<div class="q-stage col" style="background:var(--surface-window);padding:24px;gap:20px">
+C["SettingsCard"] = (330, "설정 페이지의 기본 단위", None, f'''<div class="q-stage col" style="background:var(--surface-window);padding:24px;gap:20px">
 <div class="q-card"><div class="hd">{ic("power", 13, 1.6)}앱</div><div class="rows">
 <label class="q-cb"><span class="box"></span>로그인 시 Quill 실행</label>
 <label class="q-cb"><span class="box on"></span>메뉴 막대 아이콘 표시</label>
@@ -349,13 +349,13 @@ side_items = [("gear", "일반"), ("brush", "모양"), ("wave", "모델"), ("bub
 def sidebar(on="일반"):
     return '<div class="q-side">' + ''.join(f'<div class="it{" on" if t == on else ""}">{ic(i, 13, 1.4)}{t}</div>' for i, t in side_items) + '</div>'
 
-C["SettingsSidebar"] = ("Settings", 480, "설정 탭 목록", None, f'''<div class="q-stage">{sidebar("모델")}</div>''',
+C["SettingsSidebar"] = (480, "설정 탭 목록", None, f'''<div class="q-stage">{sidebar("모델")}</div>''',
 """# SettingsSidebar
 
 설정 창 왼쪽 탭 목록입니다(`SettingsSidebarRow`). 폭 `size-sidebar-settings`, 안쪽 `space-10`, 행 간격 `space-2`. 행은 아이콘 13 Regular(16pt 틀) + `body`, 여백 10×8. 현재 탭은 `accent-tint-nav` + `radius-6`. 스크롤하지 않으며, 순서와 아이콘은 iPhone·iPad 설정 루트 목록에서도 그대로 씁니다.
 """)
 
-C["OptionRow"] = ("", 260, "하나를 고르는 선택 행", None, f'''<div class="q-stage col" style="background:var(--surface-window);width:440px">
+C["OptionRow"] = (260, "하나를 고르는 선택 행", None, f'''<div class="q-stage col" style="background:var(--surface-window);width:440px">
 <div class="q-opt"><span class="r"></span><div class="t0">마이크</div></div>
 <div class="q-opt on"><span class="r">{ic("check", 9, 2.2)}</span><div class="t0">시스템 오디오</div></div>
 <div class="q-opt"><span class="r"></span><div class="t0">마이크 + 시스템 오디오</div></div>
@@ -372,7 +372,7 @@ C["OptionRow"] = ("", 260, "하나를 고르는 선택 행", None, f'''<div clas
 - 지금 코드는 `accent` 대신 `Color.blue`를 직접 쓰고, 행마다 테두리 두께와 여백이 조금씩 달라요(정리할 곳 참고). 새 선택 목록은 이 규칙을 따릅니다.
 """)
 
-C["ModelRow"] = ("Settings", 150, "모델 하나의 상태와 동작", None, f'''<div class="q-stage col" style="background:var(--surface-window)">
+C["ModelRow"] = (150, "모델 하나의 상태와 동작", None, f'''<div class="q-stage col" style="background:var(--surface-window)">
 <div class="q-model on"><div style="flex:1"><div style="font-weight:600">Whisper Large v3 Turbo</div><div class="q-help">1.6GB · 설치됨 · 사용 중</div></div><button class="q-small-btn">삭제</button></div>
 <div class="q-model"><div style="flex:1"><div style="font-weight:600">Qwen3-ASR 0.6B</div><div class="q-help">내려받는 중 · 620MB 중 384MB</div></div><span class="q-donut"></span><button class="q-small-btn">취소</button></div>
 </div>''',
@@ -410,7 +410,7 @@ def detail_pane(top=32):
 
 detail = detail_pane()
 
-C["NoteToolbar"] = ("Notes", 110, "노트 상세 아래 떠 있는 동작 캡슐", None, f'''<div class="q-stage text" style="flex-direction:column;align-items:center;gap:14px">{ftool()}<div class="q-ftool"><button class="q-tool lg" style="color:var(--status-processing)">{ic("undo", 14).replace('<svg', '<svg style="transform:scaleX(-1)"')}</button><span class="dv"></span><button class="q-tool lg">{ic("copy", 14)}</button><button class="q-tool lg">{ic("save", 14)}</button><button class="q-tool lg">{ic("sparkle", 14)}</button><span class="dv"></span><button class="q-tool lg" style="color:var(--status-recording)">{ic("trash", 14)}</button></div></div>''',
+C["NoteToolbar"] = (110, "노트 상세 아래 떠 있는 동작 캡슐", None, f'''<div class="q-stage text" style="flex-direction:column;align-items:center;gap:14px">{ftool()}<div class="q-ftool"><button class="q-tool lg" style="color:var(--status-processing)">{ic("undo", 14).replace('<svg', '<svg style="transform:scaleX(-1)"')}</button><span class="dv"></span><button class="q-tool lg">{ic("copy", 14)}</button><button class="q-tool lg">{ic("save", 14)}</button><button class="q-tool lg">{ic("sparkle", 14)}</button><span class="dv"></span><button class="q-tool lg" style="color:var(--status-recording)">{ic("trash", 14)}</button></div></div>''',
 """# NoteToolbar
 
 노트 상세 아래 가운데에 떠 있는 동작 캡슐입니다(`floatingToolbar`, `ToolbarIconButton`). 높이 48, 아래 여백 20, 좌우 8. 배경은 유리(macOS 26 이상 `glassEffect`, 이전은 `.ultraThinMaterial`, 투명도 줄이기에서는 불투명), 테두리 `stroke-glass` 0.6, 그림자 `shadow-glass`.
@@ -421,7 +421,7 @@ C["NoteToolbar"] = ("Notes", 110, "노트 상세 아래 떠 있는 동작 캡슐
 - 녹음 중인 노트, 요약·전사 비교 중에는 숨깁니다.
 """)
 
-C["AudioPlayer"] = ("Notes", 120, "노트 머리의 오디오 카드", None, f'''<div class="q-stage text" style="flex-direction:column"><div style="width:560px">{audio_card()}</div></div>''',
+C["AudioPlayer"] = (120, "노트 머리의 오디오 카드", None, f'''<div class="q-stage text" style="flex-direction:column"><div style="width:560px">{audio_card()}</div></div>''',
 """# AudioPlayer
 
 노트 상세 머리, 제목 아래에 붙는 오디오 카드입니다(`NoteAudioBar` → `NoteAudioPlayerView`). 높이 72, 반경 `radius-12`, 안쪽 16×14.
@@ -437,7 +437,7 @@ macnotes = f'''<div class="q-stage" style="background:var(--surface-window)"><di
 <div class="q-list" style="background:none;width:auto">{row("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요.", cls="sel", badges='<span class="q-badge">요약</span>')}{row("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일 찾기였어요.", date="10월 23일 (금) 오전 11:20")}{row("팀 스탠드업", "전사하는 중이에요…", date="10월 23일 (금) 오전 11:20", status='<span class="q-spin"></span>')}{row("아이디어 메모", "알림은 한 줄로.", date="10월 21일 (수) 오전 9:05")}</div>
 <div style="position:absolute;bottom:16px;left:0;right:0;display:flex;justify-content:center"><span class="q-rec"></span></div>
 </div>{detail}</div></div>'''
-C["MacNoteBrowser"] = ("Screens · macOS", 560, "노트 브라우저 전체 배치", 940, macnotes,
+C["MacNoteBrowser"] = (560, "노트 브라우저 전체 배치", 940, macnotes,
 """# MacNoteBrowser
 
 노트 브라우저 창의 배치 예시입니다(정적 재현, `NoteBrowserView` 기준).
@@ -453,7 +453,7 @@ macset = f'''<div class="q-stage" style="background:var(--surface-window)"><div 
 <div class="q-card"><div class="hd">{ic("undo", 13, 1.6)}업데이트</div><div class="rows"><label class="q-cb"><span class="box on"></span>업데이트 자동 확인</label><div style="display:flex;gap:10px;align-items:center"><button class="q-small-btn">지금 업데이트 확인</button><span class="q-help">마지막 확인: 2026년 10월 24일 오후 10:24</span></div></div></div>
 <div class="q-card"><div class="hd">{ic("lock", 13, 1.6)}권한</div><div class="rows" style="gap:8px"><div class="q-perm"><span class="pi">{ic("mic", 13)}</span><span>마이크</span><span style="flex:1"></span><span class="ok">{ic("check", 10, 2)}</span><span class="okt">허용됨</span></div><div class="q-perm"><span class="pi">{ic("key", 13)}</span><span>손쉬운 사용</span><span style="flex:1"></span><button class="q-small-btn">접근 허용</button></div><div class="q-perm"><span class="pi">{ic("wave", 13)}</span><span>음성 인식</span><span style="flex:1"></span><span class="ok">{ic("check", 10, 2)}</span><span class="okt">허용됨</span></div><div class="q-perm"><span class="pi">{ic("doc", 13)}</span><span>화면 기록</span><span style="flex:1"></span><span class="ok">{ic("check", 10, 2)}</span><span class="okt">허용됨</span></div><div class="q-perm"><span class="pi">{ic("info", 13)}</span><span>알림</span><span style="flex:1"></span><button class="q-small-btn">접근 허용</button></div></div></div>
 </div></div></div>'''
-C["MacSettings"] = ("Screens · macOS", 560, "설정 창 · 일반 탭", 940, macset,
+C["MacSettings"] = (560, "설정 창 · 일반 탭", 940, macset,
 """# MacSettings
 
 설정 창 배치 예시입니다(정적 재현). 왼쪽 `SettingsSidebar`, 오른쪽 `SettingsCard`를 세로로 쌓은 페이지(첫 카드는 위에서 40). 탭별 카드 목록은 **화면 구성** 섹션의 표.
@@ -483,7 +483,7 @@ phone_rec = f'''<div class="q-phone" style="background:var(--surface-window)"><d
 <div style="font-size:17px;line-height:25px;color:var(--label-secondary);margin-top:8px">다음 주까지 온보딩 문구를 정리하고…</div></div>
 <div style="flex:1;display:flex;align-items:center;justify-content:center"><div class="q-pill" style="border-radius:999px;width:200px;height:56px;transform:scale(1.2)">{wave(.85)}</div></div>
 <div style="display:flex;align-items:center;justify-content:space-between;padding:0 28px 48px"><span class="q-capsule" style="font-size:15px;padding:10px 14px;display:inline-flex;gap:6px;align-items:center">{ic("mic", 14)}iPhone 마이크{ic("chev", 10, 1.8)}</span><span class="q-rec on"></span></div><div class="home"></div></div>'''
-C["PhoneNotes"] = ("Screens · iPhone", 700, "목록 → 상세 → 녹음 (제안)", 1080, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_list}{phone_detail}{phone_rec}</div>',
+C["PhoneNotes"] = (700, "목록 → 상세 → 녹음 (제안)", 1080, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_list}{phone_detail}{phone_rec}</div>',
 """# PhoneNotes
 
 iPhone 노트 흐름 제안입니다(정적 재현). 탭 없이 내비게이션 스택 하나: 노트 목록(큰 제목, 검색, `NoteListRow` 구조, 하단 44pt 녹음 버튼) → 노트 상세(push, macOS와 같은 순서: 날짜 줄 → 제목 → 오디오 카드 → 세그먼트 → 배너 → 본문 17pt, 복사·저장·삭제는 오른쪽 위 `…` 메뉴) → 녹음 시트(Dynamic Island에 같은 검정 파형). 글자 대응은 **iPhone · iPad** 섹션.
@@ -505,13 +505,13 @@ phone_set_root = f'''<div class="q-phone" style="background:var(--surface-window
 <div class="q-nav"><span></span><span style="font-weight:600">완료</span></div><div class="q-large">설정</div>
 <div class="q-group">{sec("", li("gear", "일반") + li("brush", "모양") + li("wave", "모델") + li("mic", "입력"))}
 {sec("", li("cal", "캘린더", color="var(--status-recording)") + li("cloud", "iCloud 동기화") + li("bubble", "음성 매크로"))}
-{sec("", li("undo", "최근 삭제한 노트", color="var(--label-secondary)") + li("info", "정보", color="var(--label-secondary)"))}</div><div class="home"></div></div>'''
+{sec("", li("undo", "기록 복구", color="var(--label-secondary)") + li("info", "정보", color="var(--label-secondary)"))}</div><div class="home"></div></div>'''
 phone_set_models = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 <div class="q-nav"><span style="display:flex;align-items:center;gap:2px">{ic("back", 18, 2)}설정</span><span></span></div><div style="text-align:center;font-weight:600;font-size:17px;margin-top:-28px;margin-bottom:8px">모델</div>
 <div class="q-group">{sec("전사", li("", "모델", "기기 내 Whisper") + li("", "전사 언어", "자동"), "기기 안에서 전사해요. 오디오가 밖으로 나가지 않아요.")}
 {sec("후처리", li("", "모델", "끔") + li("", "출력 언어", "입력과 같게"))}
 {sec("기기 내 모델 저장소", li("", "Whisper Large v3 Turbo", "1.6GB") + li("", "Qwen3-ASR 0.6B", "받기"))}</div><div class="home"></div></div>'''
-C["PhoneSettings"] = ("Screens · iPhone", 700, "설정 루트와 모델 페이지 (제안)", 700, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_set_root}{phone_set_models}</div>',
+C["PhoneSettings"] = (700, "설정 루트와 모델 페이지 (제안)", 700, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_set_root}{phone_set_models}</div>',
 """# PhoneSettings
 
 iPhone 설정 제안입니다(정적 재현). 노트 목록의 톱니로 여는 시트. 루트는 macOS 설정 탭과 같은 순서·아이콘의 목록(Mac 전용 탭 제외: 단축키 일부, AI 도구, 보관된 기록 등). 각 페이지는 `List(.insetGrouped)`이고 macOS `SettingsCard` 하나가 Section 하나, `caption` 도움말이 섹션 꼬리가 됩니다. 유지·변형·제외 표는 **iPhone · iPad** 섹션.
@@ -526,7 +526,7 @@ pad_notes = f'''<div class="q-stage" style="padding:28px;background:var(--surfac
 <div class="q-list" style="width:auto;background:none">{row("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요.", cls="sel", badges='<span class="q-badge">요약</span>')}{row("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일 찾기였어요.", date="10월 23일 (금) 오전 11:20")}{row("팀 스탠드업", "전사하는 중이에요…", date="10월 23일 (금) 오전 11:20", status='<span class="q-spin"></span>')}</div>
 <div style="position:absolute;bottom:20px;left:0;right:0;display:flex;justify-content:center"><span class="q-rec"></span></div></div>
 {detail_pane(28)}</div></div>'''
-C["PadNotes"] = ("Screens · iPad", 680, "두 열 노트 화면 (제안)", 920, pad_notes,
+C["PadNotes"] = (680, "두 열 노트 화면 (제안)", 920, pad_notes,
 """# PadNotes
 
 iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 사이드바 320, 녹음 버튼 44, 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 세로·좁은 창에서는 사이드바가 덮개로 열립니다.
@@ -535,14 +535,14 @@ iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열
 pad_set = f'''<div class="q-stage" style="padding:28px;background:var(--surface-window)"><div class="q-tablet" style="background:var(--surface-window)">
 <div style="width:320px;flex:none;box-shadow:inset -.5px 0 0 var(--divider-sidebar);padding-top:20px">
 <div class="q-large" style="font-size:28px">설정</div>
-<div class="q-sec">{li("gear", "일반")}{li("brush", "모양")}<div class="li" style="background:var(--accent);color:#fff"><span class="ic" style="background:#fff;color:var(--accent)">{ic("wave", 16)}</span><span>모델</span></div>{li("mic", "입력")}{li("cal", "캘린더", color="var(--status-recording)")}{li("cloud", "iCloud 동기화")}{li("undo", "복구", color="var(--label-secondary)")}{li("info", "정보", color="var(--label-secondary)")}</div></div>
+<div class="q-sec">{li("gear", "일반")}{li("brush", "모양")}<div class="li" style="background:var(--accent);color:#fff"><span class="ic" style="background:#fff;color:var(--accent)">{ic("wave", 16)}</span><span>모델</span></div>{li("bubble", "프롬프트")}{li("key", "단축키")}{li("mic", "입력")}{li("cal", "캘린더", color="var(--status-recording)")}{li("cloud", "iCloud 동기화")}{li("undo", "기록 복구", color="var(--label-secondary)")}{li("info", "정보", color="var(--label-secondary)")}</div></div>
 <div style="flex:1;padding-top:20px"><div style="text-align:center;font-weight:600;font-size:17px;padding-bottom:6px">모델</div>
 <div style="max-width:560px;margin:0 auto">{sec("클라우드 제공자", li("", "제공자", "OpenAI") + li("", "API 키", "저장됨"))}{sec("전사", li("", "모델", "기기 내 Whisper") + li("", "실시간 전사 옵션 보기", tog=False), "기기 안에서 전사해요. 오디오가 밖으로 나가지 않아요.")}{sec("회의 요약", li("", "모델", "기기 내 Gemma"))}</div></div>
 </div></div>'''
-C["PadSettings"] = ("Screens · iPad", 680, "두 열 설정 (제안)", 920, pad_set,
+C["PadSettings"] = (680, "두 열 설정 (제안)", 920, pad_set,
 """# PadSettings
 
-iPad 설정 제안입니다(정적 재현). 왼쪽 탭 목록(macOS 사이드바와 같은 순서·아이콘), 오른쪽 해당 페이지의 insetGrouped 섹션(최대 폭 560 가운데). 별도 창으로 열지 시트로 열지는 결정할 것 3번.
+iPad 설정 제안입니다(정적 재현). 왼쪽 탭 목록(macOS 사이드바와 같은 순서·아이콘, Mac 전용인 AI 도구는 제외, 단축키는 음성 매크로만), 오른쪽 해당 페이지의 insetGrouped 섹션(최대 폭 560 가운데). 별도 창으로 열지 시트로 열지는 결정할 것 3번.
 """)
 
 ORDER = {'1 · 원자': ['Badge', 'StatusIndicator', 'SelectionCheckbox', 'Waveform', 'CapsuleButton', 'IconButton', 'CloseButton', 'ToolbarButton', 'RecordButton'], '2 · 분자': ['InputPicker', 'ModelPicker', 'SearchField', 'NoteListRow', 'StatusBanner', 'InfoNotice', 'Toast', 'NoticeToast', 'DeletionCapsule', 'AudioPlayer', 'OptionRow', 'ModelRow'], '3 · 유기체': ['RecordingOverlay', 'MeetingReminder', 'NoteToolbar', 'IssueEmptyState', 'SettingsCard', 'SettingsSidebar'], '4 · 화면 · macOS': ['MacNoteBrowser', 'MacSettings'], '5 · 화면 · iPhone': ['PhoneNotes', 'PhoneSettings'], '6 · 화면 · iPad': ['PadNotes', 'PadSettings']}
@@ -551,7 +551,7 @@ NAMES = [n for ns in ORDER.values() for n in ns]
 assert sorted(NAMES) == sorted(C), set(NAMES) ^ set(C)
 import json
 for name in NAMES:
-    _g, height, subtitle, width, body, readme = C[name]
+    height, subtitle, width, body, readme = C[name]
     group = GROUP[name]
     d = os.path.join(ROOT, "components", name)
     os.makedirs(d, exist_ok=True)

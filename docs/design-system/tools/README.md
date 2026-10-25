@@ -20,7 +20,7 @@
 
 ## 컴포넌트 고치기
 
-컴포넌트의 `preview.html`과 `README.md`는 `tools/gen_components.py`가 만듭니다. 직접 고치지 말고 스크립트를 고친 뒤 다시 만듭니다.
+컴포넌트의 `preview.html`과 `README.md`는 `tools/gen_components.py`가 만듭니다. 직접 고치지 말고 스크립트를 고친 뒤 다시 만듭니다. 예외는 표지(`components/Cover/preview.html`)로, 손으로 고치는 파일이며 로컬 갤러리에는 나오지 않고 아티팩트에서만 보입니다.
 
 ```bash
 python3 docs/design-system/tools/gen_components.py docs/design-system

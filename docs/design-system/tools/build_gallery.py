@@ -23,7 +23,13 @@ def tokens_css(tokens):
     shared = []
     for family in ("spacing", "radius", "shadow", "opacity", "size"):
         for token in tokens.get(family, {}).get("tokens", []):
-            shared.append(f"--{token['name']}: {token['value']};")
+            value = token["value"]
+            if isinstance(value, dict):
+                # Per-theme values (a shadow, for example) go with the colors.
+                for theme in themes:
+                    blocks[theme].append(f"--{token['name']}: {value.get(theme, value.get(themes[0]))};")
+            else:
+                shared.append(f"--{token['name']}: {value};")
     for key, stack in tokens["type"]["families"].items():
         shared.append(f"--font-{key}: {stack};")
     css = f":root, [data-theme=\"{themes[0]}\"] {{ {' '.join(blocks[themes[0]])} }}\n"

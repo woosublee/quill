@@ -38,14 +38,14 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 
 ## 간격과 배치
 
-- 간격 단계: `space-2` `space-4` `space-6` `space-8` `space-10` `space-12` `space-14` `space-16` `space-20` `space-24` `space-40`. 이 밖의 값(5, 7, 9, 18, 22 등)은 새로 쓰지 않습니다.
+- 간격 단계: `space-2` `space-3` `space-4` `space-6` `space-8` `space-10` `space-12` `space-14` `space-16` `space-20` `space-24` `space-40`. 이 밖의 값(5, 7, 18, 22 등)은 새로 쓰지 않습니다. 노트 행의 위아래 9만 예외로 둡니다(80pt 행 높이에 맞춘 값).
 - 설정 페이지: 바깥 `space-24`, 카드 사이 `space-20`, 카드 안 `space-16`, 카드 제목과 내용 `space-12`, 컨트롤 사이 `space-10`.
 - 노트 행: 좌우 `space-12`, 위아래 9, 높이 `size-note-row`(80).
 - 창: 노트 브라우저 최소 800×520, 사이드바 `size-sidebar-notes`. 설정 최소 680×520, 사이드바 `size-sidebar-settings`, 피커 280~`size-settings-control`. 온보딩 최소 560×600.
 
 ## 모양: 반경, 표면, 그림자
 
-- 반경 단계: `radius-6`(작은 컨트롤) → `radius-8`(행·선택 카드) → `radius-9`(배너·토스트) → `radius-10`(설정 카드·오버레이 토스트) → `radius-18`(유리 캡슐) → `radius-26`(회의 알림). 알약·배지는 `radius-capsule`. 오버레이처럼 화면 위에 뜨는 것은 연속 곡률(`.continuous`)을 씁니다.
+- 반경 단계: `radius-3`(정지 사각형·요약 하이라이트) → `radius-6`(작은 컨트롤) → `radius-8`(행·선택 카드) → `radius-9`(배너·토스트) → `radius-10`(설정 카드·오버레이 토스트) → `radius-12`(녹음 오버레이 아래 모서리·오디오 카드) → `radius-18`(유리 캡슐) → `radius-26`(회의 알림). 알약·배지는 `radius-capsule`. 오버레이처럼 화면 위에 뜨는 것은 연속 곡률(`.continuous`)을 씁니다.
 - 카드 스타일은 역할이 있을 때만: 설정 카드, 선택 카드, 배너, 토스트. 노트 본문에는 카드 없음.
 - 유리(재질)는 노트 사이드바(`.ultraThinMaterial`), 삭제 알림 캡슐, 노트 툴바 캡슐에만. macOS 26 이상은 `glassEffect`, 투명도 줄이기에서는 `surface-window`로 불투명하게.
 - 그림자는 다섯 가지뿐: `shadow-banner`, `shadow-row-selected`, `shadow-toast`, `shadow-glass`, `shadow-record`.
