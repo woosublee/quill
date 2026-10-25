@@ -1,17 +1,19 @@
 # 정리할 곳
 
-지금 코드(main@fe43ee7)에서 이 시스템을 벗어난 부분입니다. 새 화면에서는 이 패턴을 따라 하지 않고, 기존 코드는 별도 이슈로 하나씩 맞춥니다. 숫자는 `Sources/`에서 센 사용 횟수입니다.
+지금 코드에서 이 시스템을 벗어난 부분입니다(main@fe43ee7에서 조사, 이후 고친 내용은 각 절에 적음). 새 화면에서는 이 패턴을 따라 하지 않고, 기존 코드는 항목마다 연결된 GitHub 이슈에서 하나씩 맞춥니다. 숫자는 `Sources/`에서 센 사용 횟수입니다.
 
-## 1. 공통 토큰 파일이 없음
+## 1. 공통 토큰 파일 — 일부 완료 (#623)
+
+`Sources/QuillDesignTokens.swift`에 간격·반경과 경고·오류 색을 먼저 두었습니다. 나머지 색·그림자와 기존 화면의 숫자는 아래 이슈들에서 옮깁니다.
 
 색·간격·반경이 모두 각 뷰에 숫자로 직접 들어 있습니다(`spacing:` 값 18종, `cornerRadius:` 13종, 그림자 8종). iPhone·iPad와 같이 쓰려면 Swift 패키지(예: `QuillDesign`)에 `QuillColor`, `QuillSpacing`, `QuillRadius`, `QuillFont`를 두고 macOS·iOS가 함께 가져다 쓰는 구조를 권장합니다. 이미 있는 `QuillMotion`, `QuillContrast`, `QuillTransparency`(AccessibilityDisplayPreferences.swift)가 좋은 출발점입니다.
 
-## 2. 강조색 대신 파랑을 직접 씀
+## 2. 강조색 대신 파랑을 직접 씀 (#624)
 
 - `Color.blue` 22곳, `.foregroundStyle(.blue)` 11곳(SettingsView 19, NoteBrowserView 5, ShortcutComponents 5, MenuBarView 4).
 - 사용자가 시스템 강조색을 바꾸면 이 부분만 파랗게 남습니다. 모두 `accent`(`Color.accentColor`)로.
 
-## 3. 선택 카드 모양이 네 가지
+## 3. 선택 카드 모양이 네 가지 (#625)
 
 | 위치 | 바탕 | 테두리 | 반경 | 안쪽 여백 |
 | --- | --- | --- | --- | --- |
@@ -22,19 +24,19 @@
 
 → 하나로: 가장 많이 쓰는 모양(`accent` 10% + `accent` 1.5pt, `radius-8`, 여백 `space-12`)에 맞추고 `Color.blue` 대신 `accent`(컴포넌트 **OptionRow** 참고).
 
-## 4. 경고 노랑이 두 가지
+## 4. 경고 노랑이 두 가지 (#626)
 
-- 배너·이슈: `issue-warning`(#f2b35c), 그 색 리터럴이 QuillUserIssueView.swift에 두 번(295행, `QuillStatusBanner.warningTint`) 중복.
+- 배너·이슈: `issue-warning`(#f2b35c). QuillUserIssueView.swift에 두 번 적혀 있던 리터럴은 `QuillColor.issueWarning` 하나로 합쳤습니다.
 - 설정 안 주의 문구: 시스템 `.orange`(`status-processing`)를 그대로 사용.
 → 경고 의미는 `issue-warning` 하나로, `.orange`는 처리 중 상태에만.
 
-## 5. 단계 밖의 값
+## 5. 단계 밖의 값 (#627)
 
 - 반경 7(입력 선택 버튼, 노트 내보내기 2곳), 5(18pt 앱 아이콘), 14(권한 안내 창), 1·1.5(막대) → 7은 `radius-6` 또는 `radius-8`, 14는 `radius-10` 또는 `radius-18`로.
 - 간격 5, 7, 9, 18, 22, 2.5 → 가까운 단계로. 단, 파형 막대 간격 2.5와 노트 행 세로 9는 의도된 값이라 유지.
 - 글자 11.5(행 미리보기, 취소 버튼), 10.5(회의 알림 시작 시각) → 반 단위 크기는 역할 토큰(`row-preview`, `reminder-meta`)으로만 허용하고 새로 만들지 않습니다.
 
-## 6. 그 밖
+## 6. 그 밖 (#628)
 
 - `YellowSpinner`는 이름과 달리 주황(`status-processing`)으로만 쓰임 → `ProcessingSpinner`로 이름 정리.
 - `SettingsCard`는 `.cornerRadius(10)` + 별도 테두리, 다른 카드는 `background(_, in: shape)` → 한 가지 방식으로.
@@ -42,14 +44,14 @@
 - `label-tertiary` 글자는 대비 4.5:1 미달. 빈 상태 장식 외에 설명 문구로 쓰인 곳은 `label-secondary`로.
 - `issue-warning`, `issue-error`는 밝은 바탕에서 3:1 미달. 아이콘 전용 규칙을 지키고, 대비 높이기에서는 진한 값으로 바꾸는 처리를 검토.
 
-## 7. 설정 페이지 머리가 탭마다 다름
+## 7. 설정 페이지 머리가 탭마다 다름 (#629)
 
 캘린더, iCloud 동기화, AI 도구, 기록 복구 탭에는 큰 페이지 제목이 있고, 일반·모양·모델·프롬프트·단축키·입력에는 없습니다. 정보 탭은 앱 아이콘 머리를 씁니다. → 모두 없애거나 모두 두는 쪽으로 하나로.
 
-## 8. 번역되지 않은 문구
+## 8. 번역되지 않은 문구 (#630)
 
 한국어 화면에 영어가 남아 있습니다: 모양 탭 카드 제목 "Recording Overlay", 단축키 탭의 "Hold to Talk", "Tap to Toggle", "Paste Again", "Disabled", "Custom Shortcut", "Record any key combo.", "Record…". 개발 빌드에서는 "Quill Dev이(가)"처럼 조사가 어색하게 붙는 문구도 있습니다.
 
-## 9. 켜기/끄기 컨트롤이 섞여 있음
+## 9. 켜기/끄기 컨트롤이 섞여 있음 (#631)
 
 같은 성격의 켜기/끄기가 체크박스와 스위치로 섞여 있습니다(화면 구성 › 설정 창의 규칙 참고). 카드 머리 스위치, 줄 안 스위치, 체크박스의 쓰임을 지금 규칙대로 유지하되, 새 설정은 이 규칙에 맞춥니다.
