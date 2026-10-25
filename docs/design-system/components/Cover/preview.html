@@ -1,0 +1,56 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Quill</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--surface-window); color:var(--label-primary); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .ink { fill:var(--brand-ink); }
+  .glow { fill:var(--brand-glow); }
+  .feather { fill:var(--overlay-text); }
+  .black { fill:var(--overlay-surface); }
+  .accent { fill:var(--accent); }
+  .rec { fill:var(--status-recording); }
+  .words { position:absolute; left:40px; bottom:40px; max-width:440px; }
+  .name { margin:0; font-size:120px; line-height:.92; font-weight:700; letter-spacing:-.03em; font-family:var(--font-rounded); color:var(--label-primary); }
+  .tag { margin:12px 0 0 4px; font-size:14px; line-height:20px; color:var(--label-secondary); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      brand-ink 288×264 slab bled off the top (the app icon's glass, largest) · overlay-surface notch pill 136×38 with radius-12 bottom corners bled off the top · accent 96×96 disc · status-recording 24 disc (recording only, kept small)
+  arrangement one tall ink slab with satellites to its right; the black overlay hangs from the top edge like the notch pill
+  pattern     the 9-bar waveform from WaveformView (multipliers 0.35→1.0) as capsules in brand-glow, the centre bar in overlay-text — the icon's feathers, the overlay's bars
+  scales      bar width 12 and pitch 22 (space-10 gap), capsule rx half the width; slab corners radius-26; pill radius-12; gutters space-16, space-24
+-->
+<rect class="ink" x="16" y="-26" width="288" height="290" rx="26"/>
+<rect class="glow cap" x="60" y="109" width="12" height="70" rx="6"/>
+<rect class="glow cap" x="82" y="96" width="12" height="97" rx="6"/>
+<rect class="glow cap" x="104" y="83" width="12" height="123" rx="6"/>
+<rect class="glow cap" x="126" y="73" width="12" height="143" rx="6"/>
+<rect class="feather cap" x="148" y="66" width="12" height="156" rx="6"/>
+<rect class="glow cap" x="170" y="73" width="12" height="143" rx="6"/>
+<rect class="glow cap" x="192" y="83" width="12" height="123" rx="6"/>
+<rect class="glow cap" x="214" y="96" width="12" height="97" rx="6"/>
+<rect class="glow cap" x="236" y="109" width="12" height="70" rx="6"/>
+<path class="black" d="M320 0 H456 V26 A12 12 0 0 1 444 38 H332 A12 12 0 0 1 320 26 Z"/>
+<rect class="feather" x="352" y="13" width="3" height="12" rx="1.5"/><rect class="feather" x="358" y="9" width="3" height="20" rx="1.5"/><rect class="feather" x="364" y="12" width="3" height="14" rx="1.5"/>
+<circle class="rec" cx="436" cy="19" r="8"/>
+<circle class="accent" cx="384" cy="216" r="48"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Quill</h1>
+<p class="tag">말로 쓰는 노트 · macOS, iPhone, iPad 공통 디자인 시스템</p>
+</div>
+</div>
+</body>
+</html>

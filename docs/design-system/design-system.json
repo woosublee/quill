@@ -1,0 +1,50 @@
+{
+  "v": 3,
+  "layout": "files",
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-24T16:01:24Z"
+  },
+  "title": "Quill",
+  "namespace": "Quill",
+  "libraries": [],
+  "sections": {},
+  "groups": [
+    "Logos"
+  ],
+  "assetGroups": {
+    "Logos": {
+      "name": "Logos",
+      "tile": "l",
+      "order": [
+        "AppIcon-Source.png",
+        "AppIcon-Dev-Source.png"
+      ],
+      "files": {
+        "AppIcon-Source.png": {
+          "name": "AppIcon-Source.png",
+          "blob": "61053d78cdb2d37cf933aab01b55cda6",
+          "size": 5001725,
+          "type": "image/png"
+        },
+        "AppIcon-Dev-Source.png": {
+          "name": "AppIcon-Dev-Source.png",
+          "blob": "86e9858febe7385b43012250f07b0f50",
+          "size": 1330409,
+          "type": "image/png"
+        }
+      }
+    }
+  },
+  "blobs": {},
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "lastChange": {
+    "by": "WooSub Lee",
+    "at": "2026-10-25T11:40:00Z",
+    "via": "Claude Code",
+    "note": "실제 앱(Quill Dev 1.2.2) 화면과 대조해 설정 컨트롤·권한 줄·선택 행·날짜 형식·용어(시스템 오디오, 전사문, 기록 복구)를 맞추고 정리할 곳 3개 추가"
+  }
+}
