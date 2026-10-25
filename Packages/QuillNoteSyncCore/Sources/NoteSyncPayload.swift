@@ -1,13 +1,13 @@
 import Foundation
 
-enum NoteSyncPayloadError: Error { case malformed }
+public enum NoteSyncPayloadError: Error { case malformed }
 
 /// The JSON a `Note` record carries as its `payload` asset. Shared with the
 /// iPhone app, so keys never change once shipped; `v` versions the shape.
-enum NoteSyncPayload {
-    static let version = 1
+public enum NoteSyncPayload {
+    public static let version = 1
 
-    static func encode(_ record: NoteSyncRecord) throws -> Data {
+    public static func encode(_ record: NoteSyncRecord) throws -> Data {
         var object: [String: Any] = [
             "v": version,
             "id": record.noteID.uuidString,
@@ -18,7 +18,7 @@ enum NoteSyncPayload {
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
-    static func decode(_ data: Data) throws -> NoteSyncRecord {
+    public static func decode(_ data: Data) throws -> NoteSyncRecord {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let idText = object["id"] as? String, let noteID = UUID(uuidString: idText),
               let fieldsObject = object["fields"] as? [String: Any] else {
@@ -36,11 +36,11 @@ enum NoteSyncPayload {
         )
     }
 
-    static func encodeFields(_ fields: [String: NoteSyncValue]) throws -> Data {
+    public static func encodeFields(_ fields: [String: NoteSyncValue]) throws -> Data {
         try JSONSerialization.data(withJSONObject: fieldsObject(fields), options: [.sortedKeys])
     }
 
-    static func decodeFields(_ data: Data) throws -> [String: NoteSyncValue] {
+    public static func decodeFields(_ data: Data) throws -> [String: NoteSyncValue] {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw NoteSyncPayloadError.malformed
         }

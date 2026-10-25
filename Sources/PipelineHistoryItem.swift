@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 enum PipelineHistoryItemIntent: String, Codable {
     case dictation

@@ -1,81 +1,10 @@
 import Foundation
+import QuillNoteSyncCore
 
-/// One synced field value. Absence of a key means `nil`.
-enum NoteSyncValue: Codable, Equatable, Sendable {
-    case string(String)
-    case date(Date)
-    case bool(Bool)
-    case data(Data)
-    case int(Int)
-    /// A value from a newer build, kept as its JSON and written back unchanged.
-    case raw(Data)
-}
+// The sync record and its fields are in QuillNoteSyncCore, shared with the
+// iPhone app. This file converts them to and from this Mac's notes.
 
-/// The note fields that sync, each in the field group it merges with. Raw
-/// values are the record keys, so they never change once shipped.
-enum NoteSyncField: String, CaseIterable, Sendable {
-    case customTitle
-    case rawTranscript
-    case transcriptFileName
-    case postProcessedTranscript
-    case meetingSummaryJSON
-    case meetingSummaryAttempt
-    case calendarMatch
-    case timestamp
-    case recordingStartedAt
-    case recordingEndedAt
-    case transcriptionLanguageCode
-    case spokenLanguageCode
-    case spokenLanguageResolution
-    case intent
-    case postProcessingStatus
-    case aiProcessingOutcome
-    case localTranscriptionModelID
-    case usedLocalTranscription
-    case usedPostProcessing
-    case audioFileName
-    case audioManifest
-
-    /// Fields every record carries. A record missing one (a malformed or
-    /// partial record) never overwrites the local value with a default.
-    var isRequired: Bool {
-        switch self {
-        case .rawTranscript, .postProcessedTranscript, .timestamp, .transcriptionLanguageCode,
-             .intent, .postProcessingStatus, .aiProcessingOutcome, .localTranscriptionModelID,
-             .usedLocalTranscription, .usedPostProcessing:
-            return true
-        default:
-            return false
-        }
-    }
-
-    var group: NoteFieldGroup {
-        switch self {
-        case .customTitle: return .title
-        case .rawTranscript, .transcriptFileName: return .rawTranscript
-        case .postProcessedTranscript: return .editedTranscript
-        case .meetingSummaryJSON, .meetingSummaryAttempt: return .summary
-        case .calendarMatch: return .calendar
-        case .timestamp, .recordingStartedAt, .recordingEndedAt: return .recordingTime
-        case .transcriptionLanguageCode, .spokenLanguageCode, .spokenLanguageResolution: return .language
-        case .intent, .postProcessingStatus, .aiProcessingOutcome, .localTranscriptionModelID,
-             .usedLocalTranscription, .usedPostProcessing: return .status
-        case .audioFileName, .audioManifest: return .audio
-        }
-    }
-
-    enum ValueKind { case string, date, bool, data }
-
-    /// The kind of value this field always carries.
-    var valueKind: ValueKind {
-        switch self {
-        case .meetingSummaryJSON, .meetingSummaryAttempt, .calendarMatch, .audioManifest: return .data
-        case .timestamp, .recordingStartedAt, .recordingEndedAt: return .date
-        case .usedLocalTranscription, .usedPostProcessing: return .bool
-        default: return .string
-        }
-    }
-
+extension NoteSyncField {
     /// Kept by the store beside the note rather than on
     /// `PipelineHistoryItem`: the item never carries it.
     var isStoreLevel: Bool { self == .audioManifest }
@@ -86,12 +15,7 @@ enum NoteSyncField: String, CaseIterable, Sendable {
     }
 }
 
-/// A note as it travels between Macs: only fields a person sees, the field
-/// clock, and the deletion time. Unknown keys from newer builds are kept.
-struct NoteSyncRecord: Equatable, Sendable {
-    static let schemaVersion = 1
-    static let schemaVersionKey = "schemaVersion"
-
+extension NoteSyncRecord {
     /// Item fields that never leave the Mac that made the note.
     static let localOnlyItemKeys: Set<String> = [
         "contextScreenshotDataURL", "contextScreenshotStatus", "contextWindowTitle",
@@ -100,18 +24,6 @@ struct NoteSyncRecord: Equatable, Sendable {
         "contextSummary", "debugStatus", "customSystemPrompt", "customVocabulary",
         "usedContextCapture"
     ]
-
-    let noteID: UUID
-    var fields: [String: NoteSyncValue]
-    var clock: NoteFieldClock
-    var deletedAt: Date?
-
-    init(noteID: UUID, fields: [String: NoteSyncValue], clock: NoteFieldClock, deletedAt: Date?) {
-        self.noteID = noteID
-        self.fields = fields
-        self.clock = clock
-        self.deletedAt = deletedAt
-    }
 
     init(item: PipelineHistoryItem) {
         var fields: [String: NoteSyncValue] = [Self.schemaVersionKey: .int(Self.schemaVersion)]
@@ -144,37 +56,6 @@ struct NoteSyncRecord: Equatable, Sendable {
             clock: (item.fieldClock ?? NoteFieldClock.uniform(item.timestamp)).roundedToMilliseconds(),
             deletedAt: item.deletedAt?.roundedToMilliseconds()
         )
-    }
-
-    /// Whether a known field holds a value this build can't read: another
-    /// value kind, or an intent or language source it doesn't know. Such a
-    /// record is skipped rather than applied with values lost. Newer builds
-    /// never change the shape of a shipped key; a new shape gets a new key.
-    var hasUnreadableKnownFields: Bool {
-        if let version = fields[Self.schemaVersionKey], case .int = version {} else if fields[Self.schemaVersionKey] != nil {
-            return true
-        }
-        return NoteSyncField.allCases.contains { field in
-            guard let value = fields[field.rawValue] else { return false }
-            switch (field.valueKind, value) {
-            case (.string, .string(let text)):
-                switch field {
-                case .intent: return PipelineHistoryItemIntent(rawValue: text) == nil
-                case .spokenLanguageResolution: return SpokenLanguageResolutionSource(rawValue: text) == nil
-                default: return false
-                }
-            case (.date, .date), (.bool, .bool), (.data, .data):
-                return false
-            default:
-                return true
-            }
-        }
-    }
-
-    /// Whether every field a note needs is present. A record without them
-    /// can update a note this Mac has, but never create one.
-    var hasRequiredFields: Bool {
-        NoteSyncField.allCases.allSatisfy { !$0.isRequired || fields[$0.rawValue] != nil }
     }
 
     /// The note this record describes, applied onto the note already on
@@ -289,20 +170,5 @@ struct NoteSyncRecord: Equatable, Sendable {
 enum NoteSyncEligibility {
     static func isSyncable(_ item: PipelineHistoryItem) -> Bool {
         !item.isIncompleteTranscription && item.unrecoveredRecordingContext == nil
-    }
-}
-
-extension NoteFieldClock {
-    /// CloudKit keeps dates to the millisecond, so stamps are compared and
-    /// sent at that precision; the same edit then reads equal on every Mac.
-    func roundedToMilliseconds() -> NoteFieldClock {
-        NoteFieldClock(stamps: stamps.mapValues { $0.roundedToMilliseconds() })
-    }
-}
-
-extension Date {
-    /// The date as the sync payload carries it.
-    func roundedToMilliseconds() -> Date {
-        Date(timeIntervalSince1970: (timeIntervalSince1970 * 1000).rounded() / 1000)
     }
 }

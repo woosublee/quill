@@ -1,6 +1,7 @@
 import Combine
 import CryptoKit
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct NoteAudioDownloaderTests {

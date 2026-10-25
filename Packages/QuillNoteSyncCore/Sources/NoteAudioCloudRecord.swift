@@ -1,11 +1,25 @@
 import CloudKit
 import Foundation
 
+/// One audio part to send: which bytes of which file.
+public struct NoteSyncOutgoingAudio: Equatable, Sendable {
+    public let part: NoteAudioPartID
+    public let fileURL: URL
+    /// The whole file's size.
+    public let byteCount: Int64
+
+    public init(part: NoteAudioPartID, fileURL: URL, byteCount: Int64) {
+        self.part = part
+        self.fileURL = fileURL
+        self.byteCount = byteCount
+    }
+}
+
 /// Maps audio parts to CloudKit `NoteAudio` records. They live in their own
 /// zone, which the engine never fetches, so audio downloads only on demand.
-enum NoteAudioCloudRecord {
-    static let zoneName = "NoteAudio"
-    static let recordType = "NoteAudio"
+public enum NoteAudioCloudRecord {
+    public static let zoneName = "NoteAudio"
+    public static let recordType = "NoteAudio"
 
     private enum Key {
         static let data = "data"
@@ -14,31 +28,31 @@ enum NoteAudioCloudRecord {
     }
 
     /// The one small field a lookup asks for, so it never downloads audio.
-    static let lookupKeys = [Key.index]
+    public static let lookupKeys = [Key.index]
     /// The field holding the part's bytes, for a download.
-    static let dataKey = Key.data
+    public static let dataKey = Key.data
 
-    static func zoneID() -> CKRecordZone.ID {
+    public static func zoneID() -> CKRecordZone.ID {
         CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
     }
 
-    static func recordID(for part: NoteAudioPartID) -> CKRecord.ID {
+    public static func recordID(for part: NoteAudioPartID) -> CKRecord.ID {
         CKRecord.ID(recordName: part.recordName, zoneID: zoneID())
     }
 
-    static func part(from recordID: CKRecord.ID) -> NoteAudioPartID? {
+    public static func part(from recordID: CKRecord.ID) -> NoteAudioPartID? {
         guard recordID.zoneID == zoneID() else { return nil }
         return NoteAudioPartID(recordName: recordID.recordName)
     }
 
-    static func partFile(for part: NoteAudioPartID, in outbox: URL) -> URL {
+    public static func partFile(for part: NoteAudioPartID, in outbox: URL) -> URL {
         outbox.appendingPathComponent("\(part.recordName).part")
     }
 
     /// Audio that fits one part sends the file itself; a part of a longer
     /// file is cut into `outbox` first. A part's name says which bytes it
     /// holds, so it is always saved as a new record, never over another.
-    static func makeRecord(
+    public static func makeRecord(
         _ outgoing: NoteSyncOutgoingAudio,
         outbox: URL,
         partSize: Int64 = NoteAudioParts.partSize
@@ -58,15 +72,15 @@ enum NoteAudioCloudRecord {
         return record
     }
 
-    static func removePartFile(for part: NoteAudioPartID, in outbox: URL) {
+    public static func removePartFile(for part: NoteAudioPartID, in outbox: URL) {
         try? FileManager.default.removeItem(at: partFile(for: part, in: outbox))
     }
 
     /// What one send carries: every waiting note change first, then audio
     /// deletes, then a single audio part, so text never waits behind audio
     /// and one request holds at most one part.
-    @available(macOS 14.0, *)
-    static func nextBatch(_ pending: [CKSyncEngine.PendingRecordZoneChange]) -> [CKSyncEngine.PendingRecordZoneChange] {
+    @available(iOS 17.0, macOS 14.0, *)
+    public static func nextBatch(_ pending: [CKSyncEngine.PendingRecordZoneChange]) -> [CKSyncEngine.PendingRecordZoneChange] {
         let audioZone = zoneID()
         func isAudio(_ change: CKSyncEngine.PendingRecordZoneChange) -> Bool {
             switch change {

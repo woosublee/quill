@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct NoteSyncRecordTests {
@@ -23,6 +24,7 @@ struct NoteSyncRecordTests {
         testStampsCompareAtMilliseconds()
         testNewNoteNeedsEveryRequiredField()
         testUnreadableKnownValuesAreDetected()
+        testSharedCoreKnowsEveryMacRawValue()
         print("NoteSyncRecordTests passed")
     }
 
@@ -397,5 +399,26 @@ struct NoteSyncRecordTests {
         var future = NoteSyncRecord(item: item())
         future.fields["futureField"] = .raw(Data("[1]".utf8))
         precondition(!future.hasUnreadableKnownFields, "unknown keys are fine")
+    }
+
+    /// QuillNoteSyncCore can't see this Mac's enums, so it keeps their raw
+    /// values. A case added here must be added there, or records carrying it
+    /// would be skipped as unreadable.
+    static func testSharedCoreKnowsEveryMacRawValue() {
+        func intentRawValue(_ intent: PipelineHistoryItemIntent) -> String {
+            switch intent {
+            case .dictation, .commandAutomatic, .commandManual: return intent.rawValue
+            }
+        }
+        let intents: [PipelineHistoryItemIntent] = [.dictation, .commandAutomatic, .commandManual]
+        precondition(Set(intents.map(intentRawValue)) == NoteSyncRecord.knownIntents)
+
+        func resolutionRawValue(_ source: SpokenLanguageResolutionSource) -> String {
+            switch source {
+            case .configured, .engineDetected, .transcriptInferred, .unavailable: return source.rawValue
+            }
+        }
+        let sources: [SpokenLanguageResolutionSource] = [.configured, .engineDetected, .transcriptInferred, .unavailable]
+        precondition(Set(sources.map(resolutionRawValue)) == NoteSyncRecord.knownSpokenLanguageResolutions)
     }
 }

@@ -18,6 +18,10 @@ otherwise.
 - `Sources/PipelineHistoryStore.swift` and `Sources/NoteAssetStore.swift`: local note history.
 - `Sources/UpdateManager.swift`: Sparkle update behavior.
 - `Sources/SettingsView.swift`, `Sources/SetupView.swift`, and other SwiftUI files: UI.
+- `Packages/QuillNoteSyncCore/`: note sync record, merge, payload, CloudKit,
+  and audio-part logic shared with the iPhone app (#634). The Makefile builds it
+  as its own Swift 6 module before the app and the tests that import it; the
+  root `Package.swift` exposes it to the iPhone app.
 - `Tests/`: dependency-free executable and grouped full-source tests.
 - `.github/workflows/tests.yml`: sharded pull-request verification.
 - `.github/workflows/release.yml`: official notarized Developer ID release.
@@ -39,6 +43,18 @@ otherwise.
   are sufficient.
 - Production sources are discovered automatically by the Makefile. Every test
   source must be compiled and executed exactly once by the existing shard wiring.
+
+## Shared core with the iPhone app
+
+Logic both apps need lives once, in `Packages/`, and the iPhone app loads it
+from this repository at a pinned revision. Change it here; never copy it.
+
+- Keep code in `Packages/` free of Mac-only types. Conversions to and from
+  `PipelineHistoryItem` stay in `Sources/` as extensions.
+- A change to shared code changes the iPhone app when it next moves its pin.
+  Keep record shapes and synced bytes compatible, and say in the PR when shared
+  behavior changes.
+- Anything in `Packages/` is public under this repository's MIT license.
 
 ## Verification
 

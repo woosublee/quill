@@ -1,5 +1,6 @@
 import CoreData
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct PipelineHistorySyncStoreTests {
