@@ -60,7 +60,9 @@ struct QuillDesignTokensTests {
     /// it is unit-checked with the rest but left out of the comparison.
     private static func testRadiusMatchesTokensFile(_ tokens: [String: Any]) {
         var file = lengths(tokens, family: "radius")
-        file["radius-capsule"] = nil
+        guard file.removeValue(forKey: "radius-capsule") != nil else {
+            preconditionFailure("tokens.json has no radius-capsule token")
+        }
         let swift = Dictionary(uniqueKeysWithValues: QuillRadius.scale.map { ($0.name, Double($0.value)) })
         assertSame(swift, file, "QuillRadius")
     }
