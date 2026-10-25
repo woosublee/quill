@@ -2689,7 +2689,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var unchangedRetranscriptions: [UUID: String] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
-    @Published private(set) var unchangedMeetingSummaries: [UUID: MeetingSummaryContent] = [:]
+    @Published private(set) var unchangedMeetingSummaries: [UUID: Date] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
     /// back (#440). Only one waits at a time, and
     /// `finalizePendingSummaryDeletion()` (any deletion, clear, import, or
@@ -8787,6 +8787,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let updated = pipelineHistory[noteIndex].withMeetingSummary(edited)
         try pipelineHistoryStore.update(updated)
         pipelineHistory[noteIndex] = updated
+        // An edited summary no longer is the one that came back unchanged.
+        meetingSummaryWorkflow.dismissUnchangedSummary(noteID: noteID)
     }
 
     /// Saves the waiting new summary in place of the current one, keeping

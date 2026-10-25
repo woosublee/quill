@@ -79,6 +79,39 @@ extension MeetingSummaryContent {
         visibleText == other.visibleText
     }
 
+    /// This content with the source links of `other`, keeping its own rows,
+    /// text, and completion. Nil unless both have the same visible text.
+    func withSourceLinks(from other: MeetingSummaryContent) -> MeetingSummaryContent? {
+        guard hasSameVisibleText(as: other) else { return nil }
+        func points(
+            _ rows: [MeetingSummaryPoint],
+            _ links: [MeetingSummaryPoint]
+        ) -> [MeetingSummaryPoint] {
+            zip(rows, links).map {
+                MeetingSummaryPoint(id: $0.id, text: $0.text, sourceQuote: $1.sourceQuote)
+            }
+        }
+        var copy = self
+        copy.overview = MeetingSummaryEvidenceText(
+            text: overview.text,
+            sourceQuotes: other.overview.sourceQuotes
+        )
+        copy.keyPoints = points(keyPoints, other.keyPoints)
+        copy.decisions = points(decisions, other.decisions)
+        copy.openQuestions = points(openQuestions, other.openQuestions)
+        copy.actionItems = zip(actionItems, other.actionItems).map {
+            MeetingSummaryActionItem(
+                id: $0.id,
+                task: $0.task,
+                owner: $0.owner,
+                dueDate: $0.dueDate,
+                sourceQuote: $1.sourceQuote,
+                isCompleted: $0.isCompleted
+            )
+        }
+        return copy
+    }
+
     private var visibleText: [[String?]] {
         [
             [overview.text],
@@ -118,8 +151,10 @@ extension MeetingSummaryEnvelope {
             .keepingCompletion(from: content)
         guard !cleaned.hasSameText(as: content) else { return nil }
         var copy = self
-        if let originalContent, cleaned.hasSameVisibleText(as: originalContent) {
-            copy.content = cleaned
+        if let originalContent,
+           let restored = cleaned.withSourceLinks(from: originalContent) {
+            // A row deleted and typed again gets its source link back.
+            copy.content = restored
             copy.editedAt = nil
             copy.originalContent = nil
             return copy
@@ -130,35 +165,17 @@ extension MeetingSummaryEnvelope {
         return copy
     }
 
-    /// A new summary with the same text as `current`, saved without asking:
-    /// it keeps the current rows, completion, and edit, so nothing on screen
-    /// changes, and takes the new source links and when it was made.
-    func keepingRows(of current: MeetingSummaryEnvelope) -> MeetingSummaryEnvelope {
-        func points(
-            _ new: [MeetingSummaryPoint],
-            _ old: [MeetingSummaryPoint]
-        ) -> [MeetingSummaryPoint] {
-            zip(new, old).map {
-                MeetingSummaryPoint(id: $1.id, text: $1.text, sourceQuote: $0.sourceQuote)
-            }
-        }
+    /// A new summary with the same text as `current`, saved without asking,
+    /// or nil when the text differs. It keeps the current rows and
+    /// completion, so nothing on screen changes, and takes the new source
+    /// links and when it was made. Text matching what Quill made now is no
+    /// longer an edit, so there is nothing to revert to.
+    func keepingRows(of current: MeetingSummaryEnvelope) -> MeetingSummaryEnvelope? {
+        guard let rows = current.content.withSourceLinks(from: content) else { return nil }
         var copy = self
-        copy.content.keyPoints = points(content.keyPoints, current.content.keyPoints)
-        copy.content.decisions = points(content.decisions, current.content.decisions)
-        copy.content.openQuestions = points(content.openQuestions, current.content.openQuestions)
-        copy.content.actionItems = zip(content.actionItems, current.content.actionItems).map {
-            MeetingSummaryActionItem(
-                id: $1.id,
-                task: $1.task,
-                owner: $1.owner,
-                dueDate: $1.dueDate,
-                sourceQuote: $0.sourceQuote,
-                isCompleted: $1.isCompleted
-            )
-        }
-        copy.content.overview.text = current.content.overview.text
-        copy.editedAt = current.editedAt
-        copy.originalContent = current.originalContent
+        copy.content = rows
+        copy.editedAt = nil
+        copy.originalContent = nil
         return copy
     }
 

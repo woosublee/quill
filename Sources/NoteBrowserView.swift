@@ -3576,7 +3576,10 @@ private struct NoteDetailView: View {
     /// attempt, transcript edit, or new summary brings the notice back.
     private func summaryNoticeDismissalCondition(_ kind: SummaryNoticeKind) -> String {
         switch kind {
-        case .unchanged, .failure:
+        case .unchanged:
+            // Dismissed through the workflow's state instead, never recorded.
+            return ""
+        case .failure:
             return "\(currentSummaryAttempt?.occurredAt.timeIntervalSince1970 ?? 0)"
         case .stale:
             return appState.meetingSummarySource(for: item).fingerprint
@@ -3605,8 +3608,7 @@ private struct NoteDetailView: View {
         guard let summaryEnvelope else { return [] }
         var kinds: [SummaryNoticeKind] = []
         // A same-result regeneration leads, like the transcript's.
-        if let unchanged = appState.unchangedMeetingSummaries[item.id],
-           summaryEnvelope.content.hasSameText(as: unchanged) {
+        if appState.unchangedMeetingSummaries[item.id] == summaryEnvelope.generatedAt {
             kinds.append(.unchanged)
         }
         if summaryFailureNoticePresentation != nil {

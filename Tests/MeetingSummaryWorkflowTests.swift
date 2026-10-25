@@ -159,8 +159,9 @@ struct MeetingSummaryWorkflowTests {
     }
 
     /// A new summary with the same text as the saved one leaves nothing to
-    /// choose: it is saved directly, keeping the rows, completion, and edit
-    /// on screen, and the note says the summary didn't change.
+    /// choose: it is saved directly, keeping the rows and completion on
+    /// screen, and the note says the summary didn't change. Text matching
+    /// what Quill made now is no longer an edit.
     @MainActor
     private static func testSameTextCandidateIsSavedKeepingCurrentRows() async throws {
         let actionID = UUID()
@@ -191,13 +192,13 @@ struct MeetingSummaryWorkflowTests {
         let saved = history.storedItem?.meetingSummary
         try expect(saved?.content.actionItems.map(\.id) == [actionID], "the current action row is kept")
         try expect(saved?.content.actionItems.first?.isCompleted == true, "completion is kept")
-        try expect(saved?.editedAt == current.editedAt, "the edit is kept")
-        try expect(saved?.originalContent == current.originalContent, "the original stays to revert to")
+        try expect(saved?.isEdited == false, "text matching the new summary is no edit")
+        try expect(saved?.originalContent == nil, "there is nothing to revert to")
         try expect(saved?.generatedAt == Date(timeIntervalSince1970: 2_000), "the new run is recorded")
         try expect(saved?.sourceFingerprint != current.sourceFingerprint, "the summary matches the transcript now")
         try expect(history.storedItem?.meetingSummaryAttempt?.outcome == .succeeded, "the attempt is saved")
         try expect(eventRecorder.persistedItems.count == 1, "the item is persisted")
-        try expect(workflow.state.unchangedSummaries[initial.id] == saved?.content, "the note can say nothing changed")
+        try expect(workflow.state.unchangedSummaries[initial.id] == saved?.generatedAt, "the note can say nothing changed")
         try expect(!workflow.state.pendingRevealNoteIDs.contains(initial.id), "no reveal for an unchanged summary")
 
         workflow.dismissUnchangedSummary(noteID: initial.id)

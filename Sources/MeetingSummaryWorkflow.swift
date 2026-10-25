@@ -45,8 +45,8 @@ struct MeetingSummaryWorkflowState: Equatable, Sendable {
     var pendingRevealNoteIDs: Set<UUID>
     var candidates: [UUID: MeetingSummaryCandidate]
     /// Notes whose new summary had the same text as the saved one, with
-    /// the content then saved, so the Summary tab can say so.
-    var unchangedSummaries: [UUID: MeetingSummaryContent]
+    /// when that summary was made, so the Summary tab can say so.
+    var unchangedSummaries: [UUID: Date]
 
     static let initial = MeetingSummaryWorkflowState(
         generatingNoteIDs: [],
@@ -244,11 +244,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         // keeping what is on screen, like a retranscription with the same
         // result.
         let unchangedSummary = request.deliversCandidate
-            ? currentItem.meetingSummary.flatMap { current in
-                envelope.content.hasSameVisibleText(as: current.content)
-                    ? envelope.keepingRows(of: current)
-                    : nil
-            }
+            ? currentItem.meetingSummary.flatMap { envelope.keepingRows(of: $0) }
             : nil
         if request.deliversCandidate, unchangedSummary == nil {
             // Nothing is saved until the person chooses the new summary.
@@ -278,7 +274,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         }
         onEvent?(.itemPersisted(updated))
         if let unchangedSummary {
-            state.unchangedSummaries[request.noteID] = unchangedSummary.content
+            state.unchangedSummaries[request.noteID] = unchangedSummary.generatedAt
         }
         finishGeneration(
             noteID: request.noteID,
