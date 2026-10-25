@@ -5,13 +5,14 @@ import Foundation
 // first time so the person can revert to it.
 
 extension MeetingSummaryContent {
-    /// The content without rows left empty while editing.
-    func removingEmptyItems() -> MeetingSummaryContent {
+    /// The content without rows left empty while editing, except the row
+    /// `keptID` that the person may still be typing in.
+    func removingEmptyItems(except keptID: UUID? = nil) -> MeetingSummaryContent {
         var copy = self
-        copy.keyPoints = keyPoints.filter { !Self.isBlank($0.text) }
-        copy.decisions = decisions.filter { !Self.isBlank($0.text) }
-        copy.openQuestions = openQuestions.filter { !Self.isBlank($0.text) }
-        copy.actionItems = actionItems.filter { !Self.isBlank($0.task) }
+        copy.keyPoints = keyPoints.filter { $0.id == keptID || !Self.isBlank($0.text) }
+        copy.decisions = decisions.filter { $0.id == keptID || !Self.isBlank($0.text) }
+        copy.openQuestions = openQuestions.filter { $0.id == keptID || !Self.isBlank($0.text) }
+        copy.actionItems = actionItems.filter { $0.id == keptID || !Self.isBlank($0.task) }
         return copy
     }
 

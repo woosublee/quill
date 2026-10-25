@@ -70,6 +70,10 @@ struct MeetingSummaryView<Notices: View>: View {
         }
         .onChange(of: draft) { _ in scheduleSave() }
         .onChange(of: focusedField) { field in
+            // A row left without typing goes away; only the row being typed
+            // in stays empty.
+            let cleaned = draft.removingEmptyItems(except: field?.rowID)
+            if cleaned != draft { draft = cleaned }
             // Leaving the summary saves right away.
             if field == nil { saveNow() }
         }
@@ -520,6 +524,14 @@ private enum SummaryField: Hashable {
     case task(UUID)
     case owner(UUID)
     case dueDate(UUID)
+
+    /// The row this field belongs to; nil for the overview.
+    var rowID: UUID? {
+        switch self {
+        case .overview: nil
+        case .point(let id), .task(let id), .owner(let id), .dueDate(let id): id
+        }
+    }
 }
 
 /// ⌫ on an empty row removes it, like Reminders. Key handling needs macOS 14;

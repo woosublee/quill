@@ -10,6 +10,7 @@ struct MeetingSummaryEditingTests {
         try testUneditedSummaryStoresNoEditFields()
         try testSummaryFromBeforeEditingDecodesAsUnedited()
         try testEditKeepsOriginalAndDropsEmptyRows()
+        try testLeavingEmptyRowsKeepsOnlyTheFocusedOne()
         try testEditKeepsSavedCompletion()
         try testCompletionOnlyChangeIsNotAnEdit()
         try testSecondEditKeepsFirstOriginal()
@@ -56,6 +57,26 @@ struct MeetingSummaryEditingTests {
         try expect(edited.content.actionItems.map(\.task) == ["Synthetic task", "Added action"], "empty action is dropped")
         try expect(edited.content.actionItems[0].owner == "Synthetic owner", "owner edit is kept")
         try expect(edited.content.actionItems[0].sourceQuote == "Synthetic quote.", "source link stays on an edited row")
+    }
+
+    // A new row left without typing goes away once focus leaves it; only the
+    // row still being typed in stays.
+    private static func testLeavingEmptyRowsKeepsOnlyTheFocusedOne() throws {
+        var content = envelope().content
+        content.keyPoints.append(MeetingSummaryPoint(id: pointID(5), text: "", sourceQuote: nil))
+        content.decisions.append(MeetingSummaryPoint(id: pointID(6), text: " ", sourceQuote: nil))
+        content.actionItems.append(action(id: 8, task: "", completed: false))
+
+        let focusedPoint = content.removingEmptyItems(except: pointID(5))
+        try expect(focusedPoint.keyPoints.map(\.id) == [pointID(1), pointID(5)], "the focused empty point stays")
+        try expect(focusedPoint.decisions.isEmpty, "an unfocused empty decision is dropped")
+        try expect(focusedPoint.actionItems.map(\.task) == ["Synthetic task"], "an unfocused empty action is dropped")
+
+        let focusedAction = content.removingEmptyItems(except: pointID(8))
+        try expect(focusedAction.actionItems.map(\.id).last == pointID(8), "the focused empty action stays")
+        try expect(focusedAction.keyPoints.map(\.text) == ["Synthetic point"], "an unfocused empty point is dropped")
+
+        try expect(content.removingEmptyItems(except: nil) == content.removingEmptyItems(), "no focus drops every empty row")
     }
 
     // Completion is saved through its own path; an edit never changes it.
