@@ -1,4 +1,5 @@
 import Foundation
+import QuillUserIssueCore
 
 enum AIProcessingFeature: String, CaseIterable, Hashable, Sendable {
     case postProcessing

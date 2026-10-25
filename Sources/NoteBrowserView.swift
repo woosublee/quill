@@ -2,6 +2,8 @@ import SwiftUI
 import UserNotifications
 import AVFoundation
 import UniformTypeIdentifiers
+import QuillUserIssueCore
+import QuillSummaryFormatCore
 
 // MARK: - Cursor helper
 

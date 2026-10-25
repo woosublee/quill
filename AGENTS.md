@@ -24,6 +24,13 @@ otherwise.
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
   detector, the post-processing output validator, and the prompt data envelope.
+- `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
+  severity, context, the provider diagnostic code allow-list). Its on-screen
+  copy and recovery actions stay in `Sources/QuillUserIssue.swift`.
+- `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
+  (envelope, content, attempt, calendar context, source fingerprint, Markdown
+  rendering). Draft decoding and the attempt's on-screen details stay in
+  `Sources/MeetingSummaryModels.swift`.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

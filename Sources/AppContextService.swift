@@ -1,6 +1,7 @@
 import Foundation
 import ApplicationServices
 import AppKit
+import QuillUserIssueCore
 
 struct AppSelectionSnapshot {
     let appName: String?

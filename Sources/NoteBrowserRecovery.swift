@@ -1,4 +1,5 @@
 import Foundation
+import QuillUserIssueCore
 
 enum NoteBrowserRetryAvailability: Equatable {
     case noAudio

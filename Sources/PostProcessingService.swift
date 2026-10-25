@@ -1,5 +1,6 @@
 import Foundation
 import QuillAITextCore
+import QuillUserIssueCore
 
 enum PostProcessingError: LocalizedError {
     case requestFailed(statusCode: Int, providerCode: String?)

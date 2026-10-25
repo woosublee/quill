@@ -1,4 +1,5 @@
 import Foundation
+import QuillSummaryFormatCore
 
 @main
 struct MeetingSummaryUIContractTests {

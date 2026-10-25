@@ -1,4 +1,5 @@
 import Foundation
+import QuillUserIssueCore
 
 struct NativeWhisperModelWorkflowState: Equatable, Sendable {
     var installStatus: NativeWhisperInstallStatus

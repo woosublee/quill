@@ -1,4 +1,5 @@
 import Foundation
+import QuillSummaryFormatCore
 
 // Editing a saved meeting summary in place (#262). The Summary tab edits a
 // copy of the content and saves it here; the generated content is kept the

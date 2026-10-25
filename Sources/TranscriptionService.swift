@@ -4,6 +4,7 @@ import Foundation
 import Speech
 import os.log
 import QuillAITextCore
+import QuillUserIssueCore
 
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
