@@ -26,8 +26,15 @@ struct MeetingSummaryView<Notices: View>: View {
     @State private var hoveredRowID: UUID?
     @State private var showsRevertConfirmation = false
     @FocusState private var focusedField: SummaryField?
-    /// A row just added, until it takes focus a moment later.
-    @State private var newRowID: UUID?
+    /// The ID of each section's New Item row. Typing in it makes it a row
+    /// with this ID, so the field stays the same view, and the section
+    /// gets a new one.
+    @State private var newPointIDs: [WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>: UUID] = [
+        \.keyPoints: UUID(),
+        \.decisions: UUID(),
+        \.openQuestions: UUID(),
+    ]
+    @State private var newActionID = UUID()
 
     /// Waits this long after the last keystroke before saving, like the transcript.
     private static var saveDelay: Duration { .milliseconds(500) }
@@ -190,24 +197,32 @@ struct MeetingSummaryView<Notices: View>: View {
     ) -> some View {
         summarySection(title: title) {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(draft[keyPath: points]) { point in
+                ForEach(rowsWithNewRow(points)) { point in
                     pointRow(point, in: points)
-                }
-                // A new row being typed in takes the button's place until it has text.
-                if !draft.endsWithFocusedUntypedRow(points, focusedID: typingRowID) {
-                    newRowButton(title: "New Item", marker: bulletMarker) {
-                        appendPoint(to: points)
-                    }
                 }
             }
         }
+    }
+
+    /// The section's rows and, after them, a New Item row to type in. It
+    /// gives way while a row emptied at the end is being typed in.
+    private func rowsWithNewRow(
+        _ points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
+    ) -> [MeetingSummaryPoint] {
+        let rows = draft[keyPath: points]
+        guard let id = newPointIDs[points],
+              !draft.endsWithFocusedUntypedRow(points, focusedID: focusedField?.rowID) else {
+            return rows
+        }
+        return rows + [MeetingSummaryPoint(id: id, text: "", sourceQuote: nil)]
     }
 
     private func pointRow(
         _ point: MeetingSummaryPoint,
         in points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
     ) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        let isNewRow = point.id == newPointIDs[points]
+        return HStack(alignment: .top, spacing: 10) {
             bulletMarker
                 .padding(.top, 6)
             VStack(alignment: .leading, spacing: 5) {
@@ -234,6 +249,8 @@ struct MeetingSummaryView<Notices: View>: View {
             removeButton(rowID: point.id, isFocused: focusedField == .point(point.id)) {
                 removePoint(point.id, from: points)
             }
+            .opacity(isNewRow ? 0 : 1)
+            .disabled(isNewRow)
         }
         .onHover { hoveredRowID = $0 ? point.id : (hoveredRowID == point.id ? nil : hoveredRowID) }
     }
@@ -241,19 +258,23 @@ struct MeetingSummaryView<Notices: View>: View {
     private var actionSection: some View {
         summarySection(title: "Action Items") {
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(draft.actionItems) { item in
+                ForEach(actionsWithNewRow) { item in
                     actionRow(item)
-                }
-                if !draft.endsWithFocusedUntypedAction(focusedID: typingRowID) {
-                    newRowButton(title: "New Action Item", marker: checkboxMarker) {
-                        appendAction()
-                    }
                 }
             }
         }
     }
 
+    /// The action items and, after them, a New Action Item row to type in.
+    private var actionsWithNewRow: [MeetingSummaryActionItem] {
+        guard !draft.endsWithFocusedUntypedAction(focusedID: focusedField?.rowID) else {
+            return draft.actionItems
+        }
+        return draft.actionItems + [Self.emptyAction(id: newActionID)]
+    }
+
     private func actionRow(_ item: MeetingSummaryActionItem) -> some View {
+        let isNewRow = item.id == newActionID
         let isFocused = focusedField == .task(item.id)
             || focusedField == .owner(item.id)
             || focusedField == .dueDate(item.id)
@@ -267,6 +288,7 @@ struct MeetingSummaryView<Notices: View>: View {
             )
             .toggleStyle(.checkbox)
             .labelsHidden()
+            .disabled(isNewRow)
             .accessibilityLabel(item.task)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -286,29 +308,32 @@ struct MeetingSummaryView<Notices: View>: View {
                 .modifier(DeleteWhenEmpty(text: item.task) {
                     removeAction(item.id)
                 })
-                HStack(spacing: 8) {
-                    TextField(
-                        "Owner",
-                        text: optionalActionBinding(item.id, \.owner),
-                        prompt: Text("Owner needs review")
-                    )
-                    .focused($focusedField, equals: .owner(item.id))
-                    .fixedSize()
-                    Text(verbatim: "·")
-                        .foregroundStyle(.tertiary)
-                    TextField(
-                        "Due date",
-                        text: optionalActionBinding(item.id, \.dueDate),
-                        prompt: Text("Due date needs review")
-                    )
-                    .focused($focusedField, equals: .dueDate(item.id))
-                    .fixedSize()
+                // Owner and due date come with the row once it has text.
+                if !isNewRow {
+                    HStack(spacing: 8) {
+                        TextField(
+                            "Owner",
+                            text: optionalActionBinding(item.id, \.owner),
+                            prompt: Text("Owner needs review")
+                        )
+                        .focused($focusedField, equals: .owner(item.id))
+                        .fixedSize()
+                        Text(verbatim: "·")
+                            .foregroundStyle(.tertiary)
+                        TextField(
+                            "Due date",
+                            text: optionalActionBinding(item.id, \.dueDate),
+                            prompt: Text("Due date needs review")
+                        )
+                        .focused($focusedField, equals: .dueDate(item.id))
+                        .fixedSize()
+                    }
+                    .textFieldStyle(.plain)
+                    .labelsHidden()
+                    .disabled(!isEditable)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .textFieldStyle(.plain)
-                .labelsHidden()
-                .disabled(!isEditable)
-                .font(.caption)
-                .foregroundStyle(.secondary)
                 if !isFocused,
                    let quote = nonempty(item.sourceQuote),
                    sourceQuoteIsValid(quote) {
@@ -318,6 +343,8 @@ struct MeetingSummaryView<Notices: View>: View {
             removeButton(rowID: item.id, isFocused: isFocused) {
                 removeAction(item.id)
             }
+            .opacity(isNewRow ? 0 : 1)
+            .disabled(isNewRow)
         }
         .onHover { hoveredRowID = $0 ? item.id : (hoveredRowID == item.id ? nil : hoveredRowID) }
     }
@@ -328,31 +355,6 @@ struct MeetingSummaryView<Notices: View>: View {
         Circle()
             .fill(Color.secondary.opacity(0.45))
             .frame(width: 4, height: 4)
-    }
-
-    private var checkboxMarker: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .strokeBorder(Color.secondary.opacity(0.45), lineWidth: 1)
-            .frame(width: 13, height: 13)
-    }
-
-    /// A dimmed row at the end of a section that adds one more.
-    private func newRowButton<Marker: View>(
-        title: LocalizedStringKey,
-        marker: Marker,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                marker
-                Text(title)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.tertiary)
-        .disabled(!isEditable)
-        .accessibilityLabel(Text(title))
     }
 
     /// Shown while the row is hovered or being edited.
@@ -407,8 +409,16 @@ struct MeetingSummaryView<Notices: View>: View {
         Binding(
             get: { draft[keyPath: points].first { $0.id == id }?.text ?? "" },
             set: { newValue in
-                guard let index = draft[keyPath: points].firstIndex(where: { $0.id == id }) else { return }
-                draft[keyPath: points][index].text = newValue
+                if let index = draft[keyPath: points].firstIndex(where: { $0.id == id }) {
+                    draft[keyPath: points][index].text = newValue
+                } else if id == newPointIDs[points], !newValue.isEmpty {
+                    // Typing in the New Item row makes it a row, and a new
+                    // New Item row appears below it.
+                    draft[keyPath: points].append(
+                        MeetingSummaryPoint(id: id, text: newValue, sourceQuote: nil)
+                    )
+                    newPointIDs[points] = UUID()
+                }
             }
         )
     }
@@ -420,8 +430,14 @@ struct MeetingSummaryView<Notices: View>: View {
         Binding(
             get: { draft.actionItems.first { $0.id == id }?[keyPath: field] ?? "" },
             set: { newValue in
-                guard let index = draft.actionItems.firstIndex(where: { $0.id == id }) else { return }
-                draft.actionItems[index][keyPath: field] = newValue
+                if let index = draft.actionItems.firstIndex(where: { $0.id == id }) {
+                    draft.actionItems[index][keyPath: field] = newValue
+                } else if id == newActionID, !newValue.isEmpty {
+                    var item = Self.emptyAction(id: id)
+                    item[keyPath: field] = newValue
+                    draft.actionItems.append(item)
+                    newActionID = UUID()
+                }
             }
         )
     }
@@ -440,19 +456,16 @@ struct MeetingSummaryView<Notices: View>: View {
         )
     }
 
-    private func appendPoint(
-        to points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
-    ) {
-        let point = MeetingSummaryPoint(id: UUID(), text: "", sourceQuote: nil)
-        draft[keyPath: points].append(point)
-        focus(.point(point.id))
-    }
-
     private func insertPoint(
         after id: UUID,
         in points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
     ) {
         guard let index = draft[keyPath: points].firstIndex(where: { $0.id == id }) else { return }
+        // Return on the last row goes to the New Item row below.
+        if index == draft[keyPath: points].count - 1, let newID = newPointIDs[points] {
+            focus(.point(newID))
+            return
+        }
         let point = MeetingSummaryPoint(id: UUID(), text: "", sourceQuote: nil)
         draft[keyPath: points].insert(point, at: index + 1)
         focus(.point(point.id))
@@ -465,14 +478,12 @@ struct MeetingSummaryView<Notices: View>: View {
         draft[keyPath: points].removeAll { $0.id == id }
     }
 
-    private func appendAction() {
-        let item = Self.emptyAction()
-        draft.actionItems.append(item)
-        focus(.task(item.id))
-    }
-
     private func insertAction(after id: UUID) {
         guard let index = draft.actionItems.firstIndex(where: { $0.id == id }) else { return }
+        if index == draft.actionItems.count - 1 {
+            focus(.task(newActionID))
+            return
+        }
         let item = Self.emptyAction()
         draft.actionItems.insert(item, at: index + 1)
         focus(.task(item.id))
@@ -497,23 +508,14 @@ struct MeetingSummaryView<Notices: View>: View {
 
     /// Focuses a row added in this update, once it exists.
     private func focus(_ field: SummaryField) {
-        // Counts as typed in right away, so the New Item button gives way
-        // in the same update the row appears in, without a flicker.
-        newRowID = field.rowID
         DispatchQueue.main.async {
             focusedField = field
-            newRowID = nil
         }
     }
 
-    /// The row being typed in, or one just added that is about to be.
-    private var typingRowID: UUID? {
-        newRowID ?? focusedField?.rowID
-    }
-
-    private static func emptyAction() -> MeetingSummaryActionItem {
+    private static func emptyAction(id: UUID = UUID()) -> MeetingSummaryActionItem {
         MeetingSummaryActionItem(
-            id: UUID(),
+            id: id,
             task: "",
             owner: nil,
             dueDate: nil,

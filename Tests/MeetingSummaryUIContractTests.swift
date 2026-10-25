@@ -234,8 +234,11 @@ struct MeetingSummaryUIContractTests {
             ".onSubmit { insertPoint(after: point.id, in: points) }",
             ".onSubmit { insertAction(after: item.id) }",
             ".modifier(DeleteWhenEmpty(",
-            "newRowButton(title: \"New Item\"",
-            "newRowButton(title: \"New Action Item\"",
+            // Each section ends in a row to type in, not a button that adds one.
+            "ForEach(rowsWithNewRow(points))",
+            "ForEach(actionsWithNewRow)",
+            "prompt: Text(\"New Item\")",
+            "prompt: Text(\"New Action Item\")",
             "Button(\"Revert to Original\")",
             "draftSaver.saveNow = { saveNow() }"
         ] {
