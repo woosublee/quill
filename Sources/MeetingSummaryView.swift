@@ -26,6 +26,8 @@ struct MeetingSummaryView<Notices: View>: View {
     @State private var hoveredRowID: UUID?
     @State private var showsRevertConfirmation = false
     @FocusState private var focusedField: SummaryField?
+    /// A row just added, until it takes focus a moment later.
+    @State private var newRowID: UUID?
 
     /// Waits this long after the last keystroke before saving, like the transcript.
     private static var saveDelay: Duration { .milliseconds(500) }
@@ -192,7 +194,7 @@ struct MeetingSummaryView<Notices: View>: View {
                     pointRow(point, in: points)
                 }
                 // A new row being typed in takes the button's place until it has text.
-                if !draft.endsWithFocusedUntypedRow(points, focusedID: focusedField?.rowID) {
+                if !draft.endsWithFocusedUntypedRow(points, focusedID: typingRowID) {
                     newRowButton(title: "New Item", marker: bulletMarker) {
                         appendPoint(to: points)
                     }
@@ -242,7 +244,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 ForEach(draft.actionItems) { item in
                     actionRow(item)
                 }
-                if !draft.endsWithFocusedUntypedAction(focusedID: focusedField?.rowID) {
+                if !draft.endsWithFocusedUntypedAction(focusedID: typingRowID) {
                     newRowButton(title: "New Action Item", marker: checkboxMarker) {
                         appendAction()
                     }
@@ -495,9 +497,18 @@ struct MeetingSummaryView<Notices: View>: View {
 
     /// Focuses a row added in this update, once it exists.
     private func focus(_ field: SummaryField) {
+        // Counts as typed in right away, so the New Item button gives way
+        // in the same update the row appears in, without a flicker.
+        newRowID = field.rowID
         DispatchQueue.main.async {
             focusedField = field
+            newRowID = nil
         }
+    }
+
+    /// The row being typed in, or one just added that is about to be.
+    private var typingRowID: UUID? {
+        newRowID ?? focusedField?.rowID
     }
 
     private static func emptyAction() -> MeetingSummaryActionItem {
