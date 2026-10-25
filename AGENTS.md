@@ -19,9 +19,14 @@ otherwise.
 - `Sources/UpdateManager.swift`: Sparkle update behavior.
 - `Sources/SettingsView.swift`, `Sources/SetupView.swift`, and other SwiftUI files: UI.
 - `Packages/QuillNoteSyncCore/`: note sync record, merge, payload, CloudKit,
-  and audio-part logic shared with the iPhone app (#634). The Makefile builds it
-  as its own Swift 6 module before the app and the tests that import it; the
-  root `Package.swift` exposes it to the iPhone app in the same language mode.
+  and audio-part logic shared with the iPhone app (#634).
+- `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
+  spoken- and output-language checks, protected atoms, text chunking, the
+  post-processing prompt policy, vocabulary parsing, the instruction-execution
+  detector, the post-processing output validator, and the prompt data envelope.
+- The Makefile builds each shared module as its own Swift 6 module before the
+  app and every test executable; the root `Package.swift` exposes them to the
+  iPhone app in the same language mode.
   Resolving that package also downloads Sparkle, which the iPhone app never
   builds or links.
 - `Tests/`: dependency-free executable and grouped full-source tests.

@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 enum TranscriptionRetryOrigin: Equatable, Sendable {
     case manual

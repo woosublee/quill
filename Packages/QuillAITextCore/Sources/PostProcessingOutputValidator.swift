@@ -1,6 +1,6 @@
 import Foundation
 
-enum AIValidationFailure: Error, Codable, Equatable, Sendable {
+public enum AIValidationFailure: Error, Codable, Equatable, Sendable {
     case nonFillerEmpty
     case languageMismatch
     case languageUncertain
@@ -10,17 +10,19 @@ enum AIValidationFailure: Error, Codable, Equatable, Sendable {
     case disproportionateCollapse
 }
 
-enum AIProcessingOutcome: Codable, Equatable, Sendable {
+public enum AIProcessingOutcome: Codable, Equatable, Sendable {
     case succeeded
     case rawFallback(reason: AIValidationFailure)
     case failed(reason: String)
 }
 
-struct PostProcessingOutputValidator {
+public struct PostProcessingOutputValidator {
+    public init() {}
+
     private static let normalizedDataEnvelopePromptLeakSignatures =
         PostProcessingPromptPolicy.leakSignatures.map(normalizedPromptLeakText)
 
-    static func containsPostProcessingPromptLeak(
+    public static func containsPostProcessingPromptLeak(
         output: String,
         source: String
     ) -> Bool {
@@ -45,7 +47,7 @@ struct PostProcessingOutputValidator {
             .joined(separator: " ")
     }
 
-    func validate(
+    public func validate(
         source: String,
         output: String,
         outputLanguage: String,
@@ -103,13 +105,13 @@ struct PostProcessingOutputValidator {
 
     /// Minimum transcript length, counted without whitespace or punctuation,
     /// before an empty or `EMPTY` cleanup reply is worth asking about again.
-    static let emptyReplyReaskMinimumCharacterCount = 40
+    public static let emptyReplyReaskMinimumCharacterCount = 40
 
     /// Decides whether an empty or `EMPTY` cleanup reply should be re-asked once.
     /// Only non-filler transcripts with at least
     /// `emptyReplyReaskMinimumCharacterCount` characters, ignoring whitespace
     /// and punctuation, qualify.
-    static func shouldReaskAfterEmptyReply(source: String) -> Bool {
+    public static func shouldReaskAfterEmptyReply(source: String) -> Bool {
         guard isMeaningful(source) else { return false }
         let ignored = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
         let count = source.reduce(into: 0) { count, character in
@@ -151,7 +153,7 @@ struct PostProcessingOutputValidator {
 }
 
 extension AIProcessingOutcome {
-    var pipelineHistoryStatus: String {
+    public var pipelineHistoryStatus: String {
         switch self {
         case .succeeded:
             return "succeeded"

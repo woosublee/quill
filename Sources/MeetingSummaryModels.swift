@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillAITextCore
 
 enum MeetingSummaryBackendKind: String, Codable, Equatable, Sendable {
     case cloud

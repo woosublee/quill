@@ -2,14 +2,19 @@ import Foundation
 
 /// A vocabulary list split into plain terms and explicit
 /// heard-form -> correct-form correction pairs.
-struct ParsedVocabulary: Equatable, Sendable {
-    var terms: [String] = []
-    var corrections: [VocabularyCorrection] = []
+public struct ParsedVocabulary: Equatable, Sendable {
+    public var terms: [String] = []
+    public var corrections: [VocabularyCorrection] = []
+
+    public init(terms: [String] = [], corrections: [VocabularyCorrection] = []) {
+        self.terms = terms
+        self.corrections = corrections
+    }
 
     /// Heard forms the output check may let change. A heard form that
     /// matches a correct form ignoring case (`quill -> Quill`) is left out,
     /// so the correct spelling stays protected.
-    var outputCheckExemptHeardForms: [String] {
+    public var outputCheckExemptHeardForms: [String] {
         let correctForms = Set(corrections.map { $0.correct.lowercased() })
         return corrections
             .map(\.heard)
@@ -17,11 +22,11 @@ struct ParsedVocabulary: Equatable, Sendable {
     }
 }
 
-enum CustomVocabularyParser {
+public enum CustomVocabularyParser {
     /// Splits raw custom vocabulary into entries on new lines, commas, and
     /// semicolons, trimming whitespace and dropping case-insensitive
     /// duplicates. This is the long-standing vocabulary split.
-    static func entries(from rawVocabulary: String) -> [String] {
+    public static func entries(from rawVocabulary: String) -> [String] {
         let terms = rawVocabulary
             .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == ";" })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -31,7 +36,7 @@ enum CustomVocabularyParser {
         return terms.filter { seen.insert($0.lowercased()).inserted }
     }
 
-    static func parse(_ rawVocabulary: String) -> ParsedVocabulary {
+    public static func parse(_ rawVocabulary: String) -> ParsedVocabulary {
         parseEntries(entries(from: rawVocabulary))
     }
 
@@ -39,7 +44,7 @@ enum CustomVocabularyParser {
     /// the model a specific mishearing. Multiple heard variants can share one
     /// correction with "|": "cloud code | clod code -> Claude Code".
     /// Entries without an arrow behave exactly as before.
-    static func parseEntries(_ entries: [String]) -> ParsedVocabulary {
+    public static func parseEntries(_ entries: [String]) -> ParsedVocabulary {
         var parsed = ParsedVocabulary()
         for entry in entries {
             // The arrow needs whitespace on both sides so existing words

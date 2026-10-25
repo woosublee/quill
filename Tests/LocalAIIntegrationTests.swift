@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 @main
 struct LocalAIIntegrationTests {

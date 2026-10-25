@@ -1,5 +1,6 @@
 import Foundation
 import Speech
+import QuillAITextCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main

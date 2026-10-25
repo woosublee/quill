@@ -1,5 +1,6 @@
 import Foundation
 import QuillNoteSyncCore
+import QuillAITextCore
 
 @main
 struct RecentlyDeletedCoreTests {

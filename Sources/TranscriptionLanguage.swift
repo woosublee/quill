@@ -29,7 +29,8 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     // 자동 감지 옵션
     static let auto = TranscriptionLanguage(code: "auto", displayName: "Auto Detect")
 
-    // 지원 언어 목록 — 언어 추가 시 여기에만 추가하면 됨
+    // 지원 언어 목록 — 언어를 추가하면 Packages/QuillAITextCore의
+    // SpokenLanguageResolver.supportedCodes에도 추가한다(SpokenLanguageResolutionTests가 일치를 확인).
     static let all: [TranscriptionLanguage] = [
         .auto,
         TranscriptionLanguage(code: "ko", displayName: "한국어"),

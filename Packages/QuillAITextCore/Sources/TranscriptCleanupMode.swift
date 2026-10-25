@@ -1,10 +1,10 @@
 import Foundation
 
-enum TranscriptCleanupMode: Equatable, Sendable {
+public enum TranscriptCleanupMode: Equatable, Sendable {
     case short
     case long
 
-    static func resolve(for transcript: String) -> TranscriptCleanupMode {
+    public static func resolve(for transcript: String) -> TranscriptCleanupMode {
         let proseCharacterCount = transcript.unicodeScalars.reduce(into: 0) { count, scalar in
             if CharacterSet.letters.contains(scalar) {
                 count += 1

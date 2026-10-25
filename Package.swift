@@ -8,7 +8,8 @@ let package = Package(
         .executable(name: "SparkleResolver", targets: ["SparkleResolver"]),
         // Shared with the iPhone app, which depends on this repository for it
         // (#634). The Mac app builds it from the Makefile instead.
-        .library(name: "QuillNoteSyncCore", targets: ["QuillNoteSyncCore"])
+        .library(name: "QuillNoteSyncCore", targets: ["QuillNoteSyncCore"]),
+        .library(name: "QuillAITextCore", targets: ["QuillAITextCore"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")
@@ -25,6 +26,11 @@ let package = Package(
             name: "QuillNoteSyncCore",
             path: "Packages/QuillNoteSyncCore/Sources",
             // The Makefile builds it with -swift-version 6 too.
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "QuillAITextCore",
+            path: "Packages/QuillAITextCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],

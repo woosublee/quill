@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 struct MeetingSummaryGeneratorConfiguration: Sendable {
     let backendExecutor: AIProcessingBackendExecutor

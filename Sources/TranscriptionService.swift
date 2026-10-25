@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import Speech
 import os.log
+import QuillAITextCore
 
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
