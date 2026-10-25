@@ -151,10 +151,10 @@ extension MeetingSummaryEnvelope {
             .keepingCompletion(from: content)
         guard !cleaned.hasSameText(as: content) else { return nil }
         var copy = self
-        if let originalContent,
-           let restored = cleaned.withSourceLinks(from: originalContent) {
-            // A row deleted and typed again gets its source link back.
-            copy.content = restored
+        // Saved as typed, so the Summary tab keeps its draft, including a
+        // new row still being typed in.
+        if let originalContent, cleaned.hasSameVisibleText(as: originalContent) {
+            copy.content = cleaned
             copy.editedAt = nil
             copy.originalContent = nil
             return copy

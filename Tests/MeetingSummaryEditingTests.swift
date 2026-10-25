@@ -202,8 +202,7 @@ struct MeetingSummaryEditingTests {
     }
 
     // Typing the generated text back, even in a re-added row, leaves an
-    // unedited summary with nothing to revert, and the row's source link
-    // comes back.
+    // unedited summary with nothing to revert. The text is saved as typed.
     private static func testEditingBackToOriginalIsNotAnEdit() throws {
         let original = envelope(completed: true)
         var changed = original.content
@@ -216,7 +215,7 @@ struct MeetingSummaryEditingTests {
         try expect(!unedited.isEdited && unedited.originalContent == nil, "back to the generated text is unedited")
         try expect(unedited.content.keyPoints.map(\.text) == ["Synthetic point"], "the typed text is saved")
         try expect(unedited.content.keyPoints[0].id == pointID(7), "the typed row stays")
-        try expect(unedited.content.keyPoints[0].sourceQuote == "Synthetic quote.", "the source link comes back")
+        try expect(unedited.content.keyPoints[0].sourceQuote == nil, "saved as typed")
         try expect(unedited.content.actionItems[0].isCompleted, "completion stays checked")
         try expect(unedited.revertedToOriginal() == nil, "nothing to revert")
     }
