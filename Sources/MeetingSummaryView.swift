@@ -188,8 +188,11 @@ struct MeetingSummaryView<Notices: View>: View {
                 ForEach(draft[keyPath: points]) { point in
                     pointRow(point, in: points)
                 }
-                newRowButton(title: "New Item", marker: bulletMarker) {
-                    appendPoint(to: points)
+                // An empty last row takes the button's place until it has text.
+                if draft[keyPath: points].last.map({ nonempty($0.text) != nil }) ?? true {
+                    newRowButton(title: "New Item", marker: bulletMarker) {
+                        appendPoint(to: points)
+                    }
                 }
             }
         }
@@ -236,8 +239,10 @@ struct MeetingSummaryView<Notices: View>: View {
                 ForEach(draft.actionItems) { item in
                     actionRow(item)
                 }
-                newRowButton(title: "New Action Item", marker: checkboxMarker) {
-                    appendAction()
+                if draft.actionItems.last.map({ nonempty($0.task) != nil }) ?? true {
+                    newRowButton(title: "New Action Item", marker: checkboxMarker) {
+                        appendAction()
+                    }
                 }
             }
         }
