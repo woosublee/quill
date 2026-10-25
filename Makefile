@@ -71,13 +71,16 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # executable, which all see every shared module.
 # Adding a module here also needs its *_SOURCES variable and a lib<Module>.a
 # rule below; the build fails with "No rule to make target" until then.
-# Listed with dependents before what they depend on, for the static link.
+# Listed in link order, each module before the ones it imports. Build order
+# comes from the prerequisites of each lib<Module>.a rule, not from this list.
 SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SUMMARY_FORMAT_CORE_SOURCES = $(shell find Packages/QuillSummaryFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
+# Every architecture the app or a test executable can build for.
+SHARED_CORE_ARCHS = arm64 x86_64
 HOST_ARCH := $(shell uname -m)
 shared_core_lib = $(foreach module,$(SHARED_CORE_MODULES),$(SHARED_CORE_BUILD_DIR)/$(1)/lib$(module).a)
 shared_core_flags = -I $(SHARED_CORE_BUILD_DIR)/$(1) -L $(SHARED_CORE_BUILD_DIR)/$(1) $(foreach module,$(SHARED_CORE_MODULES),-l$(module))
@@ -223,12 +226,13 @@ $(SHARED_CORE_TOOLCHAIN): FORCE
 	@{ swiftc --version 2>&1; xcrun --sdk macosx --show-sdk-path; } > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
-# $(1): module name, $(2): its sources. Runs in a rule whose stem is the arch.
+# $(1): module name, $(2): its sources, $(3): extra flags. Runs in a rule
+# whose stem is the arch.
 shared_core_compile = swiftc \
 		-parse-as-library \
 		-swift-version 6 \
 		-module-name $(1) \
-		-I "$(@D)" \
+		$(3) \
 		-emit-module \
 		-emit-module-path "$(@D)/$(1).swiftmodule" \
 		-emit-library \
@@ -250,16 +254,18 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) M
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillUserIssueCore,$(USER_ISSUE_CORE_SOURCES))
 
-# Keep every shared library: built only as another module's prerequisite, make
-# would otherwise delete it as an intermediate file.
-.SECONDARY: $(foreach arch,arm64 x86_64,$(call shared_core_lib,$(arch)))
+# Keep every shared library. A target that names only some of them, such as
+# one module's library, reaches the rest through pattern rules alone, and make
+# would delete those afterwards as intermediate files.
+.SECONDARY: $(foreach arch,$(SHARED_CORE_ARCHS),$(call shared_core_lib,$(arch)))
 
-# Imports QuillAITextCore and QuillUserIssueCore, so those are built first.
+# Imports QuillAITextCore and QuillUserIssueCore, so those are built first and
+# only this module gets the search path to their interfaces.
 $(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a: $(SUMMARY_FORMAT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
-	$(call shared_core_compile,QuillSummaryFormatCore,$(SUMMARY_FORMAT_CORE_SOURCES))
+	$(call shared_core_compile,QuillSummaryFormatCore,$(SUMMARY_FORMAT_CORE_SOURCES),-I "$(@D)")
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LLAMA_STAMP) $(LOCALIZATION_STAMP) Quill.entitlements $(PROVISIONING_SCRIPT) $(PROVISIONING_PROFILE) $(if $(filter universal,$(ARCH)),$(call shared_core_lib,arm64) $(call shared_core_lib,x86_64),$(call shared_core_lib,$(ARCH)))
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LLAMA_STAMP) $(LOCALIZATION_STAMP) Quill.entitlements $(PROVISIONING_SCRIPT) $(PROVISIONING_PROFILE) $(if $(filter universal,$(ARCH)),$(foreach arch,$(SHARED_CORE_ARCHS),$(call shared_core_lib,$(arch))),$(call shared_core_lib,$(ARCH)))
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \

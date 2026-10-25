@@ -25,6 +25,8 @@ struct MeetingSummaryModelsTests {
         testNewSummariesUseSchemaVersion4()
         testCompletionStateSurvivesEquivalentRegeneration()
         testMarkdownRendererIncludesAllSections()
+        testContentRendererMatchesEnvelopeRenderer()
+        try testStoredBytesStayFixed()
         testSourceLocatorFindsExactQuote()
         testSourceLocatorDoesNotInventFuzzyRange()
         print("MeetingSummaryModelsTests passed")
@@ -375,6 +377,121 @@ struct MeetingSummaryModelsTests {
         precondition(rendered.contains("## Decisions"))
         precondition(rendered.contains("## Action Items"))
         precondition(rendered.contains("## Open Questions"))
+    }
+
+    private static func testContentRendererMatchesEnvelopeRenderer() {
+        let envelope = MeetingSummaryEnvelope.fixture(actions: [
+            MeetingSummaryActionItem(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
+                task: "Send the notes.",
+                owner: "Ada",
+                dueDate: "Friday",
+                sourceQuote: nil,
+                isCompleted: true
+            )
+        ])
+
+        precondition(
+            MeetingSummaryMarkdownRenderer.render(envelope.content)
+                == MeetingSummaryMarkdownRenderer.render(envelope),
+            "rendering the content alone matches rendering its envelope"
+        )
+    }
+
+    // Both apps read these bytes, so a change here breaks the stored format.
+    // The expected values were produced by the code before it moved into the
+    // shared modules (#634).
+    private static func testStoredBytesStayFixed() throws {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let source = MeetingSummarySource(
+            transcript: "Decision: ship Friday.",
+            calendar: MeetingSummaryCalendarContext(
+                title: "Design Review",
+                start: start,
+                end: start.addingTimeInterval(1_800),
+                attendees: ["Ada", "Lin"]
+            ),
+            languageContext: languageContext
+        )
+        let fingerprint = "79f21068f816b89f8c7487be72c3b0e4a5c5b598b2dc14106b6f7cc8ccc8eb61"
+        precondition(source.fingerprint == fingerprint, "source fingerprint changed")
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        func encoded<T: Encodable>(_ value: T) throws -> String {
+            String(decoding: try encoder.encode(value), as: UTF8.self)
+        }
+
+        let envelope = MeetingSummaryEnvelope(
+            schemaVersion: MeetingSummaryEnvelope.currentSchemaVersion,
+            promptVersion: 3,
+            generatedAt: Date(timeIntervalSince1970: 2_000),
+            sourceFingerprint: fingerprint,
+            modelID: "test/model",
+            backendKind: .cloud,
+            languageContext: languageContext,
+            content: MeetingSummaryContent(
+                overview: MeetingSummaryEvidenceText(
+                    text: "The team reviewed the release.",
+                    sourceQuotes: ["The team reviewed the release."]
+                ),
+                keyPoints: [
+                    MeetingSummaryPoint(
+                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
+                        text: "The release remains on schedule.",
+                        sourceQuote: "The release remains on schedule."
+                    )
+                ],
+                decisions: [],
+                actionItems: [
+                    MeetingSummaryActionItem(
+                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
+                        task: "Send the notes.",
+                        owner: "Ada",
+                        dueDate: "Friday",
+                        sourceQuote: nil,
+                        isCompleted: true
+                    )
+                ],
+                openQuestions: []
+            )
+        )
+        let envelopeJSON = try encoded(envelope)
+        precondition(
+            envelopeJSON == #"{"backendKind":"cloud","content":{"actionItems":[{"dueDate":"Friday","id":"00000000-0000-0000-0000-000000000020","isCompleted":true,"owner":"Ada","task":"Send the notes."}],"decisions":[],"keyPoints":[{"id":"00000000-0000-0000-0000-000000000010","sourceQuote":"The release remains on schedule.","text":"The release remains on schedule."}],"openQuestions":[],"overview":{"sourceQuotes":["The team reviewed the release."],"text":"The team reviewed the release."}},"generatedAt":-978305200,"languageContext":{"appliedLanguageCode":"en","requestedOutputLanguage":"English","resolutionSource":"configured"},"modelID":"test\/model","promptVersion":3,"schemaVersion":4,"sourceFingerprint":"79f21068f816b89f8c7487be72c3b0e4a5c5b598b2dc14106b6f7cc8ccc8eb61"}"#,
+            "summary envelope bytes changed"
+        )
+
+        let attempt = MeetingSummaryAttempt(
+            occurredAt: Date(timeIntervalSince1970: 2_100),
+            outcome: .failed,
+            backendKind: .local,
+            modelID: "summary/model",
+            providerHost: "api.example.com",
+            language: languageContext,
+            issue: QuillUserIssueRecord(
+                code: .meetingSummaryInvalidResponse,
+                context: QuillUserIssueContext(
+                    httpStatus: 502,
+                    providerCode: "Rate-Limit",
+                    meetingSummaryFailureSubtype: .jsonSchema,
+                    operation: .postProcessing
+                )
+            ),
+            sourceFingerprint: fingerprint
+        )
+        let attemptJSON = try encoded(attempt)
+        precondition(
+            attemptJSON == #"{"backendKind":"local","issue":{"code":"meeting-summary-invalid-response","context":{"httpStatus":502,"meetingSummaryFailureSubtype":"jsonSchema","operation":"postProcessing"},"schemaVersion":1,"severity":"warning"},"language":{"appliedLanguageCode":"en","requestedOutputLanguage":"English","resolutionSource":"configured"},"modelID":"summary\/model","occurredAt":-978305100,"outcome":"failed","providerHost":"api.example.com","sourceFingerprint":"79f21068f816b89f8c7487be72c3b0e4a5c5b598b2dc14106b6f7cc8ccc8eb61"}"#,
+            "summary attempt bytes changed"
+        )
+
+        let issueJSON = try encoded(QuillUserIssueRecord(code: .postProcessingFailed))
+        precondition(
+            issueJSON
+                == #"{"code":"post-processing-failed","context":{},"schemaVersion":1,"severity":"warning"}"#,
+            "user issue record bytes changed"
+        )
     }
 }
 
