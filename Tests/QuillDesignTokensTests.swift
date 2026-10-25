@@ -56,24 +56,31 @@ struct QuillDesignTokensTests {
         assertSame(swift, lengths(tokens, family: "spacing"), "QuillSpacing")
     }
 
-    /// The capsule radius is a shape (`Capsule()`), not a number, in Swift.
+    /// The capsule radius is a shape (`Capsule()`), not a number, in Swift, so
+    /// it is unit-checked with the rest but left out of the comparison.
     private static func testRadiusMatchesTokensFile(_ tokens: [String: Any]) {
-        let entries = (tokens["radius"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
-        let numeric = entries.filter { $0["name"] as? String != "radius-capsule" }
-        let file = lengths(["radius": ["tokens": numeric]], family: "radius")
+        var file = lengths(tokens, family: "radius")
+        file["radius-capsule"] = nil
         let swift = Dictionary(uniqueKeysWithValues: QuillRadius.scale.map { ($0.name, Double($0.value)) })
         assertSame(swift, file, "QuillRadius")
     }
 
-    /// QuillColor draws one color in both appearances, so every theme in
-    /// tokens.json must hold that same value.
+    /// QuillColor draws one color in both appearances, so every theme declared
+    /// in color.themes must hold that same value.
     private static func testIssueColorsMatchTokensFile(_ tokens: [String: Any]) {
-        let entries = (tokens["color"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        let color = tokens["color"] as? [String: Any]
+        let entries = color?["tokens"] as? [[String: Any]] ?? []
+        let themeIDs = Set((color?["themes"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+        precondition(!themeIDs.isEmpty, "tokens.json has no color themes")
         for (name, rgb) in [("issue-warning", QuillColor.issueWarningRGB), ("issue-error", QuillColor.issueErrorRGB)] {
             let entry = entries.first { $0["name"] as? String == name }
             guard let themes = entry?["value"] as? [String: String], !themes.isEmpty else {
                 preconditionFailure("tokens.json has no per-theme value for \(name)")
             }
+            precondition(
+                Set(themes.keys) == themeIDs,
+                "\(name) has themes \(themes.keys.sorted()) but color.themes is \(themeIDs.sorted())"
+            )
             let expected = hexString(rgb)
             for (theme, value) in themes.sorted(by: { $0.key < $1.key }) {
                 precondition(
