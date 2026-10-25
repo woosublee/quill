@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import QuillNoteSyncCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import QuillNoteSyncCore
 
 struct AppStateStorageLayout: Sendable {
     let rootDirectory: URL

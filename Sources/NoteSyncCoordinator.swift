@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 /// Note changes that failed and haven't gone through: only note IDs.
 struct NoteSyncFailedChanges: Codable, Equatable {
@@ -152,14 +153,6 @@ struct NoteAudioPartInICloud: Equatable {
     let saved: Date
 }
 
-/// One audio part to send: which bytes of which file.
-struct NoteSyncOutgoingAudio: Equatable {
-    let part: NoteAudioPartID
-    let fileURL: URL
-    /// The whole file's size.
-    let byteCount: Int64
-}
-
 enum NoteAudioSendFailure {
     case quotaExceeded(NoteAudioPartID)
     /// Offline; the engine retries these itself.
@@ -169,12 +162,6 @@ enum NoteAudioSendFailure {
     case accountNeedsAttention
     case failed(NoteAudioPartID)
     case deleteFailed(NoteAudioPartID)
-}
-
-struct NoteSyncOutgoing: Equatable {
-    let record: NoteSyncRecord
-    /// The CloudKit system fields from the last save, carrying its change tag.
-    let systemFields: Data?
 }
 
 struct NoteSyncFetched {

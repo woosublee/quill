@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillNoteSyncCore
 
 /// Why a note's audio can't be downloaded right now.
 enum NoteAudioUnavailableReason: Equatable, Sendable {

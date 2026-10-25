@@ -2,7 +2,7 @@ import CloudKit
 import Foundation
 
 /// How a failed save or delete is handled, read from its CloudKit error.
-enum NoteSyncSendErrorKind: Equatable {
+public enum NoteSyncSendErrorKind: Equatable, Sendable {
     /// The `Notes` zone is gone: deleted by another Mac, or by this one.
     case zoneGone
     case serverChanged
@@ -21,7 +21,7 @@ enum NoteSyncSendErrorKind: Equatable {
 
 /// Where a failed save or delete goes, from what was sent, the error, and
 /// whether this Mac is deleting its iCloud data.
-enum NoteSyncSendRoute: Equatable {
+public enum NoteSyncSendRoute: Equatable, Sendable {
     /// The engine retries it itself, or nothing is left to do.
     case nothing
     /// A part iCloud already has (its name says which bytes it holds).
@@ -43,9 +43,9 @@ enum NoteSyncSendRoute: Equatable {
     /// Tried again later: a save with waits, a delete as a delete.
     case failed
 
-    enum Sent { case note, part }
+    public enum Sent: Sendable { case note, part }
 
-    static func route(_ sent: Sent, isSave: Bool, code: CKError.Code, deletingZone: Bool) -> NoteSyncSendRoute {
+    public static func route(_ sent: Sent, isSave: Bool, code: CKError.Code, deletingZone: Bool) -> NoteSyncSendRoute {
         let kind = NoteSyncCloudRecord.sendErrorKind(code)
         switch kind {
         case .throttled: return .nothing
@@ -78,12 +78,14 @@ enum NoteSyncSendRoute: Equatable {
 /// This Mac's delete from iCloud, and the changes that met the missing zone
 /// meanwhile: put back if the delete is undone, dropped once it's done.
 /// The engine keeps it under its lock.
-struct NoteSyncDeleteHold<Change> {
-    private(set) var isDeleting = false
+public struct NoteSyncDeleteHold<Change> {
+    public private(set) var isDeleting = false
     private var isFinished = false
     private var held: [Change] = []
 
-    mutating func begin() {
+    public init() {}
+
+    public mutating func begin() {
         isDeleting = true
         isFinished = false
         held = []
@@ -91,7 +93,7 @@ struct NoteSyncDeleteHold<Change> {
 
     /// Returns the changes to put back now: all of them once the delete was
     /// undone (their send finished after it), none once it went through.
-    mutating func hold(_ changes: [Change]) -> [Change] {
+    public mutating func hold(_ changes: [Change]) -> [Change] {
         guard isDeleting else { return changes }
         if !isFinished { held += changes }
         return []
@@ -99,13 +101,13 @@ struct NoteSyncDeleteHold<Change> {
 
     /// What is held so far, while the delete still counts as running (the
     /// undo puts these back before it ends).
-    mutating func takeHeld() -> [Change] {
+    public mutating func takeHeld() -> [Change] {
         defer { held = [] }
         return held
     }
 
     /// The delete was undone: the changes held since `takeHeld`.
-    mutating func undo() -> [Change] {
+    public mutating func undo() -> [Change] {
         isDeleting = false
         defer { held = [] }
         return held
@@ -113,18 +115,30 @@ struct NoteSyncDeleteHold<Change> {
 
     /// The delete went through: nothing held goes back, and nothing more is
     /// held. Sync turns off, so it still counts as deleting.
-    mutating func finish() {
+    public mutating func finish() {
         isFinished = true
         held = []
+    }
+}
+
+/// A note to send.
+public struct NoteSyncOutgoing: Equatable, Sendable {
+    public let record: NoteSyncRecord
+    /// The CloudKit system fields from the last save, carrying its change tag.
+    public let systemFields: Data?
+
+    public init(record: NoteSyncRecord, systemFields: Data?) {
+        self.record = record
+        self.systemFields = systemFields
     }
 }
 
 /// Maps sync records to CloudKit `Note` records. The note travels as one
 /// JSON asset (`payload`), so long transcripts never hit the record size
 /// limit; `schemaVersion` and `deletedAt` are copied out for the console.
-enum NoteSyncCloudRecord {
-    static let zoneName = "Notes"
-    static let recordType = "Note"
+public enum NoteSyncCloudRecord {
+    public static let zoneName = "Notes"
+    public static let recordType = "Note"
 
     private enum Key {
         static let payload = "payload"
@@ -133,9 +147,9 @@ enum NoteSyncCloudRecord {
     }
 
     /// Fetches only the note's payload (no plain console fields).
-    static let payloadKeys = [Key.payload]
+    public static let payloadKeys = [Key.payload]
 
-    static func sendErrorKind(_ code: CKError.Code) -> NoteSyncSendErrorKind {
+    public static func sendErrorKind(_ code: CKError.Code) -> NoteSyncSendErrorKind {
         switch code {
         case .zoneNotFound, .userDeletedZone: return .zoneGone
         case .serverRecordChanged: return .serverChanged
@@ -148,26 +162,26 @@ enum NoteSyncCloudRecord {
         }
     }
 
-    static func zoneID() -> CKRecordZone.ID {
+    public static func zoneID() -> CKRecordZone.ID {
         CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
     }
 
-    static func recordID(for noteID: UUID) -> CKRecord.ID {
+    public static func recordID(for noteID: UUID) -> CKRecord.ID {
         CKRecord.ID(recordName: noteID.uuidString, zoneID: zoneID())
     }
 
-    static func noteID(from recordID: CKRecord.ID) -> UUID? {
+    public static func noteID(from recordID: CKRecord.ID) -> UUID? {
         UUID(uuidString: recordID.recordName)
     }
 
-    static func outboxFile(for noteID: UUID, in outbox: URL) -> URL {
+    public static func outboxFile(for noteID: UUID, in outbox: URL) -> URL {
         outbox.appendingPathComponent("\(noteID.uuidString).json")
     }
 
     /// Writes the payload file under `outbox` and returns the record to save.
     /// Starting from the saved system fields keeps the change tag, so
     /// CloudKit can tell a stale save from a current one.
-    static func makeRecord(_ outgoing: NoteSyncOutgoing, outbox: URL) throws -> CKRecord {
+    public static func makeRecord(_ outgoing: NoteSyncOutgoing, outbox: URL) throws -> CKRecord {
         let id = recordID(for: outgoing.record.noteID)
         let record = outgoing.systemFields
             .flatMap(record(fromSystemFields:))
@@ -188,33 +202,35 @@ enum NoteSyncCloudRecord {
 
     /// Payload and audio part files hold note content, so each is removed once its save is
     /// done, and any left from an earlier run are removed when sync starts.
-    static func removeOutboxFile(for noteID: UUID, in outbox: URL) {
+    public static func removeOutboxFile(for noteID: UUID, in outbox: URL) {
         try? FileManager.default.removeItem(at: outboxFile(for: noteID, in: outbox))
     }
 
-    static func removeAllOutboxFiles(in outbox: URL) {
+    public static func removeAllOutboxFiles(in outbox: URL) {
         let files = (try? FileManager.default.contentsOfDirectory(at: outbox, includingPropertiesForKeys: nil)) ?? []
         for file in files where file.pathExtension == "json" || file.pathExtension == "part" {
             try? FileManager.default.removeItem(at: file)
         }
     }
 
-    static func payload(of record: CKRecord) -> Data? {
+    public static func payload(of record: CKRecord) -> Data? {
         guard let url = (record[Key.payload] as? CKAsset)?.fileURL else { return nil }
         return try? Data(contentsOf: url)
     }
 
-    static func systemFields(of record: CKRecord) -> Data {
+    public static func systemFields(of record: CKRecord) -> Data {
         let archiver = NSKeyedArchiver(requiringSecureCoding: true)
         record.encodeSystemFields(with: archiver)
         archiver.finishEncoding()
         return archiver.encodedData
     }
 
-    static func record(fromSystemFields data: Data) -> CKRecord? {
+    public static func record(fromSystemFields data: Data) -> CKRecord? {
         guard let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else { return nil }
         unarchiver.requiresSecureCoding = true
         defer { unarchiver.finishDecoding() }
         return CKRecord(coder: unarchiver)
     }
 }
+
+extension NoteSyncDeleteHold: Sendable where Change: Sendable {}

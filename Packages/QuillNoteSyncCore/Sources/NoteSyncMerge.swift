@@ -3,8 +3,8 @@ import Foundation
 /// Merges two versions of one note group by group: the later stamp wins.
 /// On a tie, the group whose encoded values sort higher wins, so every Mac
 /// settles on the same values without knowing which Mac wrote them.
-enum NoteSyncMerge {
-    static func merge(local: NoteSyncRecord, remote: NoteSyncRecord) -> NoteSyncRecord {
+public enum NoteSyncMerge {
+    public static func merge(local: NoteSyncRecord, remote: NoteSyncRecord) -> NoteSyncRecord {
         var local = local
         var remote = remote
         local.clock = local.clock.roundedToMilliseconds()

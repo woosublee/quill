@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct RecentlyDeletedCoreTests {

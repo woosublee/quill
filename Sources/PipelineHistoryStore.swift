@@ -1,5 +1,6 @@
 import Foundation
 import CoreData
+import QuillNoteSyncCore
 
 struct DeletedPipelineHistoryAssets: Equatable, Sendable {
     let historyID: UUID

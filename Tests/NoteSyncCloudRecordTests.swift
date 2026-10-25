@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct NoteSyncCloudRecordTests {

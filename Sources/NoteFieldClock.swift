@@ -1,47 +1,9 @@
 import Foundation
+import QuillNoteSyncCore
 
-/// Groups of note fields that change, sync, and merge together. Only fields a
-/// person sees are listed; screenshots, window context, selected text, and
-/// prompts never sync.
-enum NoteFieldGroup: String, CaseIterable, Sendable {
-    case title
-    case rawTranscript
-    case editedTranscript
-    case summary
-    case calendar
-    case recordingTime
-    case language
-    case status
-    case audio
-    case deletion
-}
-
-/// When each field group of a note last changed. Sync keeps, per group, the
-/// value with the later time. Keys are `NoteFieldGroup` raw values, so a
-/// newer build's groups survive a round trip through this one.
-struct NoteFieldClock: Codable, Equatable, Sendable {
-    private(set) var stamps: [String: Date]
-
-    init(stamps: [String: Date] = [:]) {
-        self.stamps = stamps
-    }
-
-    static func uniform(_ date: Date) -> NoteFieldClock {
-        NoteFieldClock(stamps: Dictionary(
-            uniqueKeysWithValues: NoteFieldGroup.allCases.map { ($0.rawValue, date) }
-        ))
-    }
-
-    func stamp(for group: NoteFieldGroup) -> Date? {
-        stamps[group.rawValue]
-    }
-
-    func setting(_ group: NoteFieldGroup, to date: Date) -> NoteFieldClock {
-        var copy = self
-        copy.stamps[group.rawValue] = date
-        return copy
-    }
-
+/// Field clocks for this Mac's notes. The clock itself and its groups are in
+/// QuillNoteSyncCore, shared with the iPhone app.
+extension NoteFieldClock {
     /// The groups whose values differ. `deletion` is never reported: only
     /// `PipelineHistoryStore.setDeletedAt(_:id:)` changes it.
     static func changedGroups(

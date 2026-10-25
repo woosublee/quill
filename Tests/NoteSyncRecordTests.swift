@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct NoteSyncRecordTests {
@@ -23,6 +24,7 @@ struct NoteSyncRecordTests {
         testStampsCompareAtMilliseconds()
         testNewNoteNeedsEveryRequiredField()
         testUnreadableKnownValuesAreDetected()
+        testSharedCoreKnowsEveryMacRawValue()
         print("NoteSyncRecordTests passed")
     }
 
@@ -397,5 +399,19 @@ struct NoteSyncRecordTests {
         var future = NoteSyncRecord(item: item())
         future.fields["futureField"] = .raw(Data("[1]".utf8))
         precondition(!future.hasUnreadableKnownFields, "unknown keys are fine")
+    }
+
+    /// QuillNoteSyncCore can't see this Mac's enums, so it keeps their raw
+    /// values. A case added or renamed here must change there too, or records
+    /// carrying it would be skipped as unreadable.
+    static func testSharedCoreKnowsEveryMacRawValue() {
+        precondition(
+            Set(PipelineHistoryItemIntent.allCases.map(\.rawValue)) == NoteSyncRecord.knownIntents,
+            "QuillNoteSyncCore's knownIntents matches PipelineHistoryItemIntent"
+        )
+        precondition(
+            Set(SpokenLanguageResolutionSource.allCases.map(\.rawValue)) == NoteSyncRecord.knownSpokenLanguageResolutions,
+            "QuillNoteSyncCore's knownSpokenLanguageResolutions matches SpokenLanguageResolutionSource"
+        )
     }
 }

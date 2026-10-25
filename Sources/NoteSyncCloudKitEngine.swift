@@ -3,6 +3,7 @@ import CloudKit
 import CryptoKit
 import Foundation
 import Network
+import QuillNoteSyncCore
 
 /// Drives `CKSyncEngine` for the coordinator: queues changes, builds the
 /// records it asks for, and hands back what it fetched and sent. Changes
