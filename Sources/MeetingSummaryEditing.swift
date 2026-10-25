@@ -107,7 +107,8 @@ extension MeetingSummaryEnvelope {
 
     /// The summary with the person's edited text, or nil when the text is
     /// unchanged. Empty rows are dropped, completion stays as saved, and the
-    /// generated content is kept from before the first edit.
+    /// generated content is kept from before the first edit. Text edited
+    /// back to the generated text is no longer an edit.
     func applyingEdit(
         _ editedContent: MeetingSummaryContent,
         at date: Date
@@ -117,6 +118,12 @@ extension MeetingSummaryEnvelope {
             .keepingCompletion(from: content)
         guard !cleaned.hasSameText(as: content) else { return nil }
         var copy = self
+        if let originalContent, cleaned.hasSameVisibleText(as: originalContent) {
+            copy.content = cleaned
+            copy.editedAt = nil
+            copy.originalContent = nil
+            return copy
+        }
         copy.originalContent = originalContent ?? content
         copy.content = cleaned
         copy.editedAt = date

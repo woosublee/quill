@@ -16,6 +16,7 @@ struct MeetingSummaryEditingTests {
         try testEditKeepsActionWithOnlyOwner()
         try testCompletionOnlyChangeIsNotAnEdit()
         try testSecondEditKeepsFirstOriginal()
+        try testEditingBackToOriginalIsNotAnEdit()
         try testRevertRestoresOriginalAndKeepsCompletion()
         try testUneditedSummaryCannotRevert()
         try testEditedSummaryRoundTrips()
@@ -193,6 +194,23 @@ struct MeetingSummaryEditingTests {
         moved.decisions = moved.keyPoints
         moved.keyPoints = []
         try expect(!moved.hasSameVisibleText(as: current), "the section a row is in counts")
+    }
+
+    // Typing the generated text back, even in a re-added row, leaves an
+    // unedited summary with nothing to revert.
+    private static func testEditingBackToOriginalIsNotAnEdit() throws {
+        let original = envelope(completed: true)
+        var changed = original.content
+        changed.keyPoints[0].text = "Synthetic point, corrected"
+        let edited = try required(original.applyingEdit(changed, at: Date()))
+
+        var back = edited.content
+        back.keyPoints = [MeetingSummaryPoint(id: pointID(7), text: "Synthetic point", sourceQuote: nil)]
+        let unedited = try required(edited.applyingEdit(back, at: Date()))
+        try expect(!unedited.isEdited && unedited.originalContent == nil, "back to the generated text is unedited")
+        try expect(unedited.content.keyPoints.map(\.text) == ["Synthetic point"], "the typed text is saved")
+        try expect(unedited.content.actionItems[0].isCompleted, "completion stays checked")
+        try expect(unedited.revertedToOriginal() == nil, "nothing to revert")
     }
 
     // MARK: Fixtures
