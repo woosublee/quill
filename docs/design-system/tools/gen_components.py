@@ -258,7 +258,7 @@ C["ToolbarButton"] = (80, "노트 툴바의 원형 아이콘 버튼", None, f'''
 C["RecordButton"] = (100, "떠 있는 녹음 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-rec" aria-label="녹음"></button>', '대기 44 · macOS')}{item('<button class="q-rec on" aria-label="정지"></button>', '녹음 중')}</div>''',
 """# RecordButton
 
-노트 사이드바 아래 가운데의 녹음 버튼입니다. 지름 `size-record-button`, 대기 `status-recording`, 녹음 중 `status-processing` + 흰 14pt 사각형(`radius-3`). 흰 18% 테두리(`record-ring`) + `shadow-record`. 다중 선택 중에는 숨깁니다. iPhone은 56에서 시작해 글자 크기를 따라 최대 88까지 커지고, 선택 모드에서는 빨간 휴지통 버튼으로 바뀝니다(맞출 방향은 결정할 것 4번).
+노트 사이드바 아래 가운데의 녹음 버튼입니다. 지름 `size-record-button`, 대기 `status-recording`, 녹음 중 `status-processing` + 흰 14pt 사각형(`radius-3`). 흰 18% 테두리(`record-ring`) + `shadow-record`. 다중 선택 중에는 숨깁니다. iPhone은 56에서 시작해 글자 크기를 따라 최대 88까지 커지고, 선택 모드에서는 빨간 휴지통 버튼으로 바뀝니다. 크기는 플랫폼마다 따로 둡니다(`size-record-button-iphone`, 2026-10-25).
 """)
 
 C["InputPicker"] = (80, "다음 녹음의 오디오 소스", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item(f'<span class="q-input">{ic("mic", 11)}{ic("chev", 9, 1.8)}</span>', '마이크')}{item(f'<span class="q-input"><span style="display:inline-flex;align-items:center;gap:2px">{ic("mic", 11)}<b style="font-size:9px;color:var(--label-secondary)">+</b>{ic("laptop", 11)}</span>{ic("chev", 9, 1.8)}</span>', '마이크 + 시스템 오디오')}{item(f'<span class="q-input">{ic("laptop", 11)}{ic("chev", 9, 1.8)}</span>', '시스템 오디오')}</div>''',

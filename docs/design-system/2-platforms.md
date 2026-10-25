@@ -10,7 +10,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 ## 공통 규칙
 
 1. **색은 의미 색으로 연결.** macOS 토큰은 iOS 의미 색(`.label`, `.secondaryLabel`, `.tintColor`, `.systemRed` …)에 연결하고, 강조색은 시스템 tint를 따릅니다. 지금 iPhone 코드는 `QuillColorRole`마다 라이트·다크 hex를 직접 두고 강조색도 고정 파랑이라 이 규칙에서 벗어나 있습니다(**정리할 곳** 10번). 지금 값은 아래 **색 대응**에 있습니다.
-2. **녹음은 검정 알약(원칙 2).** 지금 iPhone 녹음 막대는 `recorderPanel`(라이트 `#1C1C1E` 94%, 다크 `#2C2C2E`) 위 흰 글자이고, macOS 오버레이 같은 9막대 파형은 없습니다. Live Activity와 Dynamic Island는 시스템 배경에 아이콘·상태·타이머만 보입니다. 검정으로 맞출지 원칙을 넓힐지는 **결정할 것** 5번.
+2. **녹음은 검정 알약(원칙 2).** 지금 iPhone 녹음 막대는 `recorderPanel`(라이트 `#1C1C1E` 94%, 다크 `#2C2C2E`) 위 흰 글자이고, macOS 오버레이 같은 9막대 파형은 없습니다. Live Activity와 Dynamic Island는 시스템 배경에 아이콘·상태·타이머만 보입니다. 검정으로 맞출지 원칙을 넓힐지는 **결정할 것** 4번.
 3. **누를 수 있는 것은 최소 44×44pt**(`QuillVisualSystem.minimumTouchTarget`). 보이는 모양이 작아도 누르는 틀은 44입니다. 배너의 닫기, `+N`, 동작 버튼도 마찬가지입니다.
 4. **hover 없음.** macOS에서 hover로만 보이던 것(경과 시간, 닫기 버튼)은 늘 보이게 하거나 길게 누르기·스와이프로 옮깁니다.
 5. **Dynamic Type을 따름.** 시스템 글자 스타일을 쓰거나, macOS와 같은 pt를 기준으로 두고 `@ScaledMetric(relativeTo:)`로 키웁니다(노트 행, 상세 메타 줄). 고정 pt 그대로 두지 않습니다.
@@ -75,7 +75,7 @@ iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4
 | 노트 행 폭 | 사이드바 안 `radius-8` 행 | 화면 폭 가득, 0.5pt 구분선도 끝까지 | 사이드바 안 `radius-8` 행 |
 | `size-sidebar-notes` | 280 | — | 320(`NavigationSplitView` 기본 폭) |
 | `size-sidebar-settings` | 180 | — | 320 |
-| `size-record-button` | 44 | 56에서 시작해 글자 크기를 따라 커짐, 최대 88 | 44(사이드바 아래) |
+| `size-record-button` / `size-record-button-iphone` | 44 | 56(`size-record-button-iphone`)에서 시작해 글자 크기를 따라 커짐, 최대 88 | 44(사이드바 아래) |
 | `AudioPlayer` 높이 | 72 | 최소 72(접근성 크기 88), 반경 16 | 72 |
 | `NoteToolbar` 높이 | 48 | 48 | 48 |
 | 녹음 막대 | 오버레이 높이 `size-overlay-height` | 한 줄 캡슐, 반경 30, 안쪽 8 | 사이드바 아래 |
@@ -221,11 +221,11 @@ macOS의 `SettingsCard` 하나 = iOS `List(.insetGrouped)`의 Section 하나. �
 - **전사·후처리·회의 요약은 스위치로 켜고 끄며, 모델 목록에 "끔"을 두지 않음**(2026-10-22).
 - **설정 루트는 노트·연결·동기화·앱 네 묶음, 아이콘 없음**(2026-10-23). **스위치는 시스템 녹색**(2026-10-24).
 - **노트 상세 칩은 macOS `statusBadges`와 같게**(2026-10-25).
+- **녹음 버튼 크기는 플랫폼마다 따로**(2026-10-25). macOS `size-record-button` 44, iPhone `size-record-button-iphone` 56(엄지 조작, 글자 크기를 따라 최대 88). iPad는 사이드바 아래라 macOS와 같은 44를 제안합니다.
 
 ## 결정할 것
 
 1. iOS에서 받아쓰기(다른 앱에 붙여넣기)를 키보드 확장으로 제공할지, 노트 녹음만 할지.
 2. iPad 노트 행 선택을 macOS처럼 회색 카드로 할지, iPadOS 기본 강조색 하이라이트로 할지.
 3. 설정을 iPad에서 별도 창으로 열지, 시트로 열지.
-4. **녹음 버튼 크기.** 2026-10-25에 "모든 플랫폼 44pt"로 적었지만 iPhone 앱은 엄지 조작을 이유로 56pt(최대 88)를 씁니다. iPhone도 44로 줄일지, `size-record-button`을 플랫폼별로 둘지.
-5. **녹음 표면.** 원칙 2는 "테마와 상관없이 검정 위 흰 파형"인데 iPhone 녹음 막대는 짙은 회색(다크 `#2C2C2E`)이고 막대와 Dynamic Island 모두 파형이 없습니다. 원칙을 "짙은 단색, 파형은 macOS 오버레이에만"으로 넓힐지, iPhone을 검정·파형으로 맞출지.
+4. **녹음 표면(보류, 2026-10-25: 지금 iPhone 모양을 그대로 두고 나중에 다시 정함).** 원칙 2는 "테마와 상관없이 검정 위 흰 파형"인데 iPhone 녹음 막대는 짙은 회색(다크 `#2C2C2E`)이고 막대와 Dynamic Island 모두 파형이 없습니다. 원칙을 "짙은 단색, 파형은 macOS 오버레이에만"으로 넓힐지, iPhone을 검정·파형으로 맞출지.
