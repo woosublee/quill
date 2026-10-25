@@ -399,7 +399,7 @@ struct MeetingSummaryUIContractTests {
         )
         let notices = block(
             in: noteBrowser,
-            from: "private enum SummaryNoticeKind: Hashable {",
+            from: "private typealias SummaryNoticeKind = AppState.SummaryNoticeKind",
             to: "\n    private func summaryFailureContent("
         )
         for expected in [
@@ -438,8 +438,22 @@ struct MeetingSummaryUIContractTests {
         }
         precondition(order == order.sorted(), "Summary notices must keep their priority order")
         precondition(
-            notices.contains("\"stale:\\(appState.meetingSummarySource(for: item).fingerprint)\""),
+            notices.contains("case .stale:\n            return appState.meetingSummarySource(for: item).fingerprint"),
             "Dismissing the stale notice must last only until the transcript changes again"
+        )
+        // #619: the note view is rebuilt per note, so dismissals live in
+        // AppState, not in the view.
+        precondition(
+            notices.contains("appState.dismissSummaryNotice(")
+                && notices.contains("appState.isSummaryNoticeDismissed(")
+                && !noteBrowser.contains("dismissedSummaryNoticeKeys")
+                && !noteBrowser.contains("dismissedSummaryAttemptAt"),
+            "Summary notice dismissals must outlast switching notes"
+        )
+        precondition(
+            block(in: noteBrowser, from: "private func deleteSummary() {", to: "private func copyContent()")
+                .contains("appState.forgetSummaryNoticeDismissals(noteID: item.id)"),
+            "Deleting a summary must forget its notices' dismissals"
         )
     }
 

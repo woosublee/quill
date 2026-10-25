@@ -21,6 +21,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesRecentlyDeletedFilesSurviveStartupSweep()
         try verifiesWarningBannerStateKeepsOnlyListedNotes()
         try await verifiesStartupPrunesWarningBannerStateOfMissingNotes()
+        try await verifiesSummaryNoticeDismissalOutlivesTheNoteView()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
         try await verifiesClearHistoryRemovesOwnedAssets()
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
@@ -791,12 +792,15 @@ struct AppStateStorageSafetyTests {
     private static func verifiesStartupPrunesWarningBannerStateOfMissingNotes() async throws {
         let retryKey = "note_retry_generation_by_id"
         let dismissalKey = "dismissed_warning_banner_generation_by_key"
+        let summaryDismissalKey = "dismissed_summary_notice_condition_by_key"
         let defaults = UserDefaults.standard
         let savedRetry = defaults.object(forKey: retryKey)
         let savedDismissals = defaults.object(forKey: dismissalKey)
+        let savedSummaryDismissals = defaults.object(forKey: summaryDismissalKey)
         defer {
             defaults.set(savedRetry, forKey: retryKey)
             defaults.set(savedDismissals, forKey: dismissalKey)
+            defaults.set(savedSummaryDismissals, forKey: summaryDismissalKey)
         }
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
@@ -813,12 +817,66 @@ struct AppStateStorageSafetyTests {
                 try JSONEncoder().encode(["\(missing.uuidString):someCode": 3]),
                 forKey: dismissalKey
             )
-            let state = await MainActor.run { () -> ([String: Int], [String: Int]) in
+            defaults.set(
+                try JSONEncoder().encode([
+                    "\(item.id.uuidString):stale": "a",
+                    "\(missing.uuidString):stale": "b"
+                ]),
+                forKey: summaryDismissalKey
+            )
+            let state = await MainActor.run { () -> ([String: Int], [String: Int], [String: String]) in
                 let appState = AppState(dependencies: environment.dependencies)
-                return (appState.noteRetryGenerationByID, appState.dismissedWarningBannerGeneration)
+                return (
+                    appState.noteRetryGenerationByID,
+                    appState.dismissedWarningBannerGeneration,
+                    appState.dismissedSummaryNoticeConditions
+                )
             }
             try expect(state.0 == [item.id.uuidString: 1], "startup drops retry state of missing notes")
             try expect(state.1.isEmpty, "startup drops dismissals of missing notes")
+            try expect(
+                state.2 == ["\(item.id.uuidString):stale": "a"],
+                "startup drops summary notice dismissals of missing notes"
+            )
+        }
+    }
+
+    /// #619: the note view is rebuilt per note, so a dismissed Summary notice
+    /// must be kept by AppState until its condition changes or the note goes.
+    private static func verifiesSummaryNoticeDismissalOutlivesTheNoteView() async throws {
+        let summaryDismissalKey = "dismissed_summary_notice_condition_by_key"
+        let defaults = UserDefaults.standard
+        let savedSummaryDismissals = defaults.object(forKey: summaryDismissalKey)
+        defer { defaults.set(savedSummaryDismissals, forKey: summaryDismissalKey) }
+        defaults.removeObject(forKey: summaryDismissalKey)
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let item = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            _ = try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).append(item, maxCount: Int.max)
+            try await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+                    .dismissSummaryNotice(noteID: item.id, kind: .stale, condition: "edit-1")
+                let appState = AppState(dependencies: environment.dependencies)
+                try expect(
+                    appState.isSummaryNoticeDismissed(noteID: item.id, kind: .stale, condition: "edit-1"),
+                    "a dismissal survives a fresh lookup"
+                )
+                try expect(
+                    !appState.isSummaryNoticeDismissed(noteID: item.id, kind: .stale, condition: "edit-2"),
+                    "a changed condition brings the notice back"
+                )
+                try expect(
+                    !appState.isSummaryNoticeDismissed(noteID: item.id, kind: .unverifiedEvidence, condition: "edit-1"),
+                    "a dismissal covers only its own notice"
+                )
+                appState.deleteHistoryEntry(id: item.id)
+                try expect(
+                    appState.dismissedSummaryNoticeConditions.isEmpty,
+                    "deleting the note forgets its dismissals"
+                )
+            }
         }
     }
 

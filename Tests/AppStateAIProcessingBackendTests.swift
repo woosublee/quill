@@ -3223,9 +3223,11 @@ struct AppStateAIProcessingBackendTests {
         )
         assert(forgetOne.contains("noteRetryGenerationByID.removeValue(forKey: noteID.uuidString)"))
         assert(forgetOne.contains("dismissedWarningBannerGeneration = dismissedWarningBannerGeneration.filter"))
-        assert(forgetOne.contains("Self.saveIntDictionary(noteRetryGenerationByID"))
+        assert(forgetOne.contains("Self.saveDictionary(noteRetryGenerationByID"))
         assert(forgetOne.contains("Self.noteRetryGenerationDefaultsKey"))
         assert(forgetOne.contains("Self.dismissedWarningBannerGenerationDefaultsKey"))
+        assert(forgetOne.contains("dismissedSummaryNoticeConditions = dismissedSummaryNoticeConditions.filter"))
+        assert(forgetOne.contains("Self.dismissedSummaryNoticeConditionsDefaultsKey"))
     }
 
     private static func appStateSource() throws -> String {
