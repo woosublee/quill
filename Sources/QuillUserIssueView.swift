@@ -292,8 +292,8 @@ struct QuillUserIssueView: View {
     private var accentColor: Color {
         if let tintOverride { return tintOverride }
         return presentation.severity == .warning
-            ? Color(red: 0.95, green: 0.70, blue: 0.36)
-            : Color(red: 1.0, green: 0.48, blue: 0.44)
+            ? QuillColor.issueWarning
+            : QuillColor.issueError
     }
 
     private var actionTitle: String {
@@ -375,7 +375,7 @@ struct QuillStatusBanner: View {
     var expansion: QuillBannerExpansion?
     var onDismiss: (() -> Void)?
 
-    static let warningTint = Color(red: 0.95, green: 0.70, blue: 0.36)
+    static let warningTint = QuillColor.issueWarning
 
     var body: some View {
         HStack(spacing: 8) {

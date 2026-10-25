@@ -30,6 +30,10 @@ python3 docs/design-system/tools/gen_components.py docs/design-system
 - 공통 스타일은 `components/bundle.css`를 직접 고칩니다.
 - 앱 아이콘이 들어가는 미리보기는 `tools/app-icon-64.png`를 `data:` 주소로 넣습니다(아티팩트 미리보기 안에서는 업로드 주소가 열리지 않음).
 
+## Swift 토큰과 맞추기
+
+`Sources/QuillDesignTokens.swift`가 `tokens.json`의 간격·반경과 일부 색(`issue-warning`, `issue-error`)을 Swift 값으로 가지고 있습니다. `Tests/QuillDesignTokensTests.swift`가 두 파일을 비교하므로, 토큰을 더하거나 바꾸면 양쪽을 함께 고칩니다(`make check`에서 실패로 드러남). 다른 색과 그림자는 그 값을 쓰는 화면을 옮길 때 같은 방식으로 추가합니다(#623). iPhone·iPad 작업을 시작하면 이 파일을 두 앱이 함께 쓰는 Swift 패키지로 옮깁니다.
+
 ## 로컬에서 보기
 
 ```bash

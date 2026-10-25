@@ -1,8 +1,10 @@
 # 정리할 곳
 
-지금 코드(main@fe43ee7)에서 이 시스템을 벗어난 부분입니다. 새 화면에서는 이 패턴을 따라 하지 않고, 기존 코드는 별도 이슈로 하나씩 맞춥니다. 숫자는 `Sources/`에서 센 사용 횟수입니다.
+지금 코드에서 이 시스템을 벗어난 부분입니다(main@fe43ee7에서 조사, 이후 고친 내용은 각 절에 적음). 새 화면에서는 이 패턴을 따라 하지 않고, 기존 코드는 별도 이슈로 하나씩 맞춥니다. 숫자는 `Sources/`에서 센 사용 횟수입니다.
 
-## 1. 공통 토큰 파일이 없음
+## 1. 공통 토큰 파일 — 일부 완료
+
+`Sources/QuillDesignTokens.swift`에 간격·반경과 경고·오류 색을 먼저 두었습니다. 나머지 색·그림자와 기존 화면의 숫자는 아래 항목들을 고칠 때 옮깁니다.
 
 색·간격·반경이 모두 각 뷰에 숫자로 직접 들어 있습니다(`spacing:` 값 18종, `cornerRadius:` 13종, 그림자 8종). iPhone·iPad와 같이 쓰려면 Swift 패키지(예: `QuillDesign`)에 `QuillColor`, `QuillSpacing`, `QuillRadius`, `QuillFont`를 두고 macOS·iOS가 함께 가져다 쓰는 구조를 권장합니다. 이미 있는 `QuillMotion`, `QuillContrast`, `QuillTransparency`(AccessibilityDisplayPreferences.swift)가 좋은 출발점입니다.
 
@@ -24,7 +26,7 @@
 
 ## 4. 경고 노랑이 두 가지
 
-- 배너·이슈: `issue-warning`(#f2b35c), 그 색 리터럴이 QuillUserIssueView.swift에 두 번(295행, `QuillStatusBanner.warningTint`) 중복.
+- 배너·이슈: `issue-warning`(#f2b35c). QuillUserIssueView.swift에 두 번 적혀 있던 리터럴은 `QuillColor.issueWarning` 하나로 합쳤습니다.
 - 설정 안 주의 문구: 시스템 `.orange`(`status-processing`)를 그대로 사용.
 → 경고 의미는 `issue-warning` 하나로, `.orange`는 처리 중 상태에만.
 
