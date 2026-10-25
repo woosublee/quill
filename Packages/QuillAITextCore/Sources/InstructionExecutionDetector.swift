@@ -1,6 +1,6 @@
 import Foundation
 
-enum InstructionExecutionDetector {
+public enum InstructionExecutionDetector {
     private static let instructionMarkers: Set<String> = [
         "ask", "answer", "compose", "create", "draft", "email", "generate", "make",
         "message", "prompt", "reply", "respond", "response", "summarize", "tell",
@@ -20,7 +20,7 @@ enum InstructionExecutionDetector {
     private static let leadingPunctuationPattern = #"^[\s,.:;!?\"'“”‘’()\[\]{}—–-]+"#
     private static let leadingFillerPattern = #"(?i)^\s*(?:(?:(?:um+|uh+|erm|er|ah+|eh+|yeah|yep|well|okay|ok|so)\b|음+|어+|저기)[\s,.:;!?—–-]*)+"#
 
-    static func appearsToHaveExecutedInstruction(
+    public static func appearsToHaveExecutedInstruction(
         rawTranscript: String,
         cleanedTranscript: String,
         outputLanguage: String

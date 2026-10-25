@@ -1,7 +1,7 @@
 import Foundation
 
-enum ProtectedAtomScanner {
-    static func atoms(from source: String, vocabulary: [String] = []) -> [String] {
+public enum ProtectedAtomScanner {
+    public static func atoms(from source: String, vocabulary: [String] = []) -> [String] {
         let patterns = [
             #"https?://\S+"#,
             #"--[A-Za-z][A-Za-z0-9-]*"#,
@@ -27,7 +27,7 @@ enum ProtectedAtomScanner {
         }
     }
 
-    static func removingAtoms(
+    public static func removingAtoms(
         from source: String,
         atoms: [String]? = nil
     ) -> String {

@@ -1,5 +1,6 @@
 import Foundation
 import QuillNoteSyncCore
+import QuillAITextCore
 
 enum PipelineHistoryItemIntent: String, Codable, CaseIterable {
     case dictation

@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 struct MeetingSummaryGenerationResult: Equatable, Sendable {
     let draft: MeetingSummaryDraftContentV2

@@ -1,6 +1,7 @@
 import Combine
 import Darwin
 import Foundation
+import QuillAITextCore
 
 private final class ControlledRetryCloudUpload: @unchecked Sendable {
     private let condition = NSCondition()

@@ -1,14 +1,14 @@
 import Foundation
 import NaturalLanguage
 
-enum AIOutputLanguageValidation: Equatable, Sendable {
+public enum AIOutputLanguageValidation: Equatable, Sendable {
     case notRequested
     case accepted
     case uncertain
     case mismatch
 }
 
-struct AIOutputLanguageValidator: Sendable {
+public struct AIOutputLanguageValidator: Sendable {
     private enum SourceScript: Hashable {
         case latin
         case hangul
@@ -17,7 +17,7 @@ struct AIOutputLanguageValidator: Sendable {
 
     private let expectedLanguages: Set<NLLanguage>?
 
-    init(
+    public init(
         outputLanguage: String?,
         expectedSourceLanguage: String? = nil
     ) {
@@ -30,7 +30,7 @@ struct AIOutputLanguageValidator: Sendable {
         }
     }
 
-    static func expectedSourceLanguage(
+    public static func expectedSourceLanguage(
         outputLanguage: String?,
         spokenLanguage: SpokenLanguageResolution?,
         fallbackSource: String
@@ -44,7 +44,7 @@ struct AIOutputLanguageValidator: Sendable {
         }
     }
 
-    static func inferredSourceLanguage(for source: String) -> String? {
+    public static func inferredSourceLanguage(for source: String) -> String? {
         let prose = ProtectedAtomScanner.removingAtoms(from: source)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let proseCharacterCount = prose.unicodeScalars.reduce(into: 0) { count, scalar in
@@ -68,7 +68,7 @@ struct AIOutputLanguageValidator: Sendable {
         return SpokenLanguageResolver.supportedCode(language.rawValue)
     }
 
-    func validate(generatedProse: String) -> AIOutputLanguageValidation {
+    public func validate(generatedProse: String) -> AIOutputLanguageValidation {
         guard let expectedLanguages else { return .notRequested }
 
         let prose = ProtectedAtomScanner.removingAtoms(from: generatedProse)
@@ -85,7 +85,7 @@ struct AIOutputLanguageValidator: Sendable {
         return expectedLanguages.contains(detectedLanguage) ? .accepted : .mismatch
     }
 
-    static func isAutomaticOutputLanguage(_ outputLanguage: String?) -> Bool {
+    public static func isAutomaticOutputLanguage(_ outputLanguage: String?) -> Bool {
         let language = outputLanguage?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""

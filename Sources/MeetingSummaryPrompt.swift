@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 struct MeetingSummaryPrompt: Equatable, Sendable {
     let system: String

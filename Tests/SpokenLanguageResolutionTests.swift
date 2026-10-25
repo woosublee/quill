@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 @main
 struct SpokenLanguageResolutionTests {
@@ -16,6 +17,7 @@ struct SpokenLanguageResolutionTests {
         testUnresolvableAutoDetectRemainsUnavailable()
         testRealtimeConfiguredLanguageDrivesRequestAndResolution()
         testSummaryOutputLanguageMappings()
+        testSharedResolverSupportsTheTranscriptionLanguages()
         print("SpokenLanguageResolutionTests passed")
     }
 
@@ -221,5 +223,15 @@ struct SpokenLanguageResolutionTests {
         precondition(TranscriptionLanguage.summaryPromptLanguage(for: "ko") == "Korean")
         precondition(TranscriptionLanguage.summaryPromptLanguage(for: "pt") == "Portuguese")
         precondition(TranscriptionLanguage.summaryPromptLanguage(for: "unsupported") == nil)
+    }
+
+    /// QuillAITextCore can't see `TranscriptionLanguage`, so it keeps the
+    /// codes. The set must stay the transcription languages plus Portuguese.
+    private static func testSharedResolverSupportsTheTranscriptionLanguages() {
+        let transcriptionCodes = Set(TranscriptionLanguage.all.map(\.code).filter { $0 != "auto" })
+        precondition(
+            SpokenLanguageResolver.supportedCodes == transcriptionCodes.union(["pt"]),
+            "SpokenLanguageResolver.supportedCodes matches TranscriptionLanguage.all plus pt"
+        )
     }
 }

@@ -1,29 +1,29 @@
 import Foundation
 
-struct MeetingSummaryTextChunk: Equatable, Sendable {
-    let index: Int
-    let startOffset: Int
-    let endOffset: Int
-    let text: String
+public struct MeetingSummaryTextChunk: Equatable, Sendable {
+    public let index: Int
+    public let startOffset: Int
+    public let endOffset: Int
+    public let text: String
 }
 
-struct MeetingSummaryTextChunker: Sendable {
-    static let defaultMaximumSourceBytes = 12_000
+public struct MeetingSummaryTextChunker: Sendable {
+    public static let defaultMaximumSourceBytes = 12_000
 
-    let maximumSourceBytes: Int
+    public let maximumSourceBytes: Int
 
-    init(maximumSourceBytes: Int = Self.defaultMaximumSourceBytes) {
+    public init(maximumSourceBytes: Int = Self.defaultMaximumSourceBytes) {
         precondition(maximumSourceBytes > 0)
         self.maximumSourceBytes = maximumSourceBytes
     }
 
     /// Retained for callers that configured the old character-based chunker.
     /// New Summary production code uses `maximumSourceBytes` from its token budget.
-    init(maxCharacters: Int) {
+    public init(maxCharacters: Int) {
         self.init(maximumSourceBytes: maxCharacters)
     }
 
-    func chunks(for text: String) -> [MeetingSummaryTextChunk] {
+    public func chunks(for text: String) -> [MeetingSummaryTextChunk] {
         guard !text.isEmpty else { return [] }
 
         var chunks: [MeetingSummaryTextChunk] = []

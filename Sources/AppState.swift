@@ -9,6 +9,7 @@ import ScreenCaptureKit
 import Speech
 import EventKit
 import os.log
+import QuillAITextCore
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
 
