@@ -55,3 +55,17 @@
 ## 9. 켜기/끄기 컨트롤이 섞여 있음 (#631)
 
 같은 성격의 켜기/끄기가 체크박스와 스위치로 섞여 있습니다(화면 구성 › 설정 창의 규칙 참고). 카드 머리 스위치, 줄 안 스위치, 체크박스의 쓰임을 지금 규칙대로 유지하되, 새 설정은 이 규칙에 맞춥니다.
+
+## 10. iPhone 앱(`quill-universal`)이 벗어난 곳
+
+`quill-universal` main@b8a32b02의 `ApplePlatforms/QuillMobile/QuilliOS/`에서 조사했습니다. 맞추는 작업은 그 저장소에서 합니다.
+
+- **강조색이 고정 hex.** `QuillVisualSystem`의 `accent`가 `#007AFF` / `#0A84FF`로 고정이고 `.tint(...)`로 직접 겁니다. 시스템 강조색을 바꿔도 따라가지 않습니다(원칙 1). 다른 역할도 시스템 의미 색 대신 hex 팔레트라, 대비 높이기에서 시스템이 진하게 바꿔 주는 처리를 받지 못합니다.
+- **오류 색 규칙이 반대.** 배너의 오류 아이콘(`exclamationmark.circle`)은 회색이고, 설정 화면의 오류 문구는 글자를 빨갛게 칠합니다(클라우드 공급자 설정 등 8곳). → 오류는 아이콘만 `issue-error` 계열로, 글자는 `label-secondary`로.
+- **경고 노랑이 리터럴.** `QuillStatusBanner.warningTint`가 `Color(red:green:blue:)`로 `#C47318` / `#F2B35C`를 따로 적습니다(macOS `issue-warning`과 다크 값만 같음). 배너 면·테두리도 `Color.primary.opacity`를 직접 씁니다.
+- **단계 밖 값.** 간격·여백 리터럴 1, 2, 3, 5, 6, 7, 10과 반경 리터럴 5, 6, 8, 9, 10이 `Spacing`·`Radius` 밖에 있습니다. `Radius`에는 10·16·20만 있어 배너 9, 녹음 막대 30이 이름 없이 쓰입니다.
+- **움직임 값이 macOS와 다름.** 제자리 컨트롤 0.18 easeOut(macOS 0.12 easeInOut), 누름 0.97배(macOS 0.92배), 동작 줄이기에서도 0.15초 애니메이션이 남습니다(macOS는 없음). `QuillMotion`을 거치지 않는 애니메이션이 3곳(온보딩, Mac 노트 상세, 요약 탭) 있습니다.
+- **색 구분 없이 보기가 한 곳뿐.** 노트 행의 실패 표시만 모양을 바꿉니다. 녹음 막대의 주의 상태 등은 확인이 필요합니다.
+- **녹음 표면.** 짙은 회색에 파형 없는 녹음 막대는 원칙 2(검정 위 흰 파형)와 다릅니다. 지금은 그대로 두기로 했습니다(**iPhone · iPad › 결정할 것** 4번, 보류). 녹음 버튼 56pt는 플랫폼별 크기로 확정해 더는 벗어난 곳이 아닙니다.
+- **토큰 공유 전.** iOS는 `Sources/QuillDesignTokens.swift`를 쓰지 않고 자체 `QuillVisualSystem`을 둡니다. 1번의 Swift 패키지로 옮길 때 `Spacing.xs`→`space8`처럼 이름을 맞춥니다.
+- **남은 주석.** 노트 목록 코드(`CaptureLibraryView.swift`)에 지금 동작과 맞지 않는 "취소 토스트" 주석이 남아 있습니다.

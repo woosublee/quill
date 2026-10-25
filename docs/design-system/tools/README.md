@@ -8,7 +8,7 @@
 | --- | --- |
 | `README.md` | 원칙, 콘텐츠, 색, 글자, 간격, 모양, 움직임, 접근성, 컴포넌트 구성, 아이콘 |
 | `1-screens.md` | macOS 화면 구성(설정 탭별 카드 포함) |
-| `2-platforms.md` | iPhone · iPad 구성(제안과 확정한 것, 남은 결정) |
+| `2-platforms.md` | iPhone 실제 구성(`quill-universal` 기준)과 iPad 제안, 확정한 것, 남은 결정 |
 | `3-consistency.md` | 지금 코드에서 규칙을 벗어난 곳 |
 | `tokens.json` | 색(라이트·다크), 글자, 간격, 반경, 그림자, 불투명도, 크기 토큰 |
 | `components/<이름>/` | 컴포넌트별 `README.md`(사용 규칙)와 `preview.html`(정적 재현) |
