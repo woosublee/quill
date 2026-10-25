@@ -2400,29 +2400,48 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     // MARK: Warning banner dismissal (per note + issue code, invalidated by retry)
 
+    /// A notice above a saved summary that can be dismissed.
+    enum SummaryNoticeKind: String, Hashable {
+        case failure
+        case stale
+        case unverifiedEvidence
+        case featureDisabled
+        case modelUnavailable
+    }
+
     // A per-note counter bumped every time that note is retried. Dismissals
     // are recorded against the generation they were dismissed at, so a later
     // retry (which may produce a different outcome) makes the banner
     // reappear if the warning condition still holds.
-    @Published private(set) var noteRetryGenerationByID: [String: Int] = AppState.loadIntDictionary(
+    @Published private(set) var noteRetryGenerationByID: [String: Int] = AppState.loadDictionary(
         forKey: AppState.noteRetryGenerationDefaultsKey
     )
-    @Published private(set) var dismissedWarningBannerGeneration: [String: Int] = AppState.loadIntDictionary(
+    @Published private(set) var dismissedWarningBannerGeneration: [String: Int] = AppState.loadDictionary(
         forKey: AppState.dismissedWarningBannerGenerationDefaultsKey
     )
 
     private static let noteRetryGenerationDefaultsKey = "note_retry_generation_by_id"
     private static let dismissedWarningBannerGenerationDefaultsKey = "dismissed_warning_banner_generation_by_key"
 
-    private static func loadIntDictionary(forKey key: String) -> [String: Int] {
+    // Summary tab notices dismissed per note and notice kind, holding the
+    // condition each was dismissed for; a changed condition brings the
+    // notice back. The note view is rebuilt per note, so this can't live
+    // there (#619).
+    @Published private(set) var dismissedSummaryNoticeConditions: [String: String] = AppState.loadDictionary(
+        forKey: AppState.dismissedSummaryNoticeConditionsDefaultsKey
+    )
+
+    private static let dismissedSummaryNoticeConditionsDefaultsKey = "dismissed_summary_notice_condition_by_key"
+
+    private static func loadDictionary<Value: Codable>(forKey key: String) -> [String: Value] {
         guard let data = UserDefaults.standard.data(forKey: key),
-              let values = try? JSONDecoder().decode([String: Int].self, from: data) else {
+              let values = try? JSONDecoder().decode([String: Value].self, from: data) else {
             return [:]
         }
         return values
     }
 
-    private static func saveIntDictionary(_ values: [String: Int], forKey key: String) {
+    private static func saveDictionary<Value: Codable>(_ values: [String: Value], forKey key: String) {
         guard !values.isEmpty else {
             UserDefaults.standard.removeObject(forKey: key)
             return
@@ -2444,7 +2463,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func incrementNoteRetryGeneration(for noteID: UUID) {
         let key = noteID.uuidString
         noteRetryGenerationByID[key] = (noteRetryGenerationByID[key] ?? 0) + 1
-        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
     }
 
     func isWarningBannerDismissed(noteID: UUID, code: QuillUserIssueCode) -> Bool {
@@ -2464,9 +2483,34 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func dismissWarningBanner(noteID: UUID, code: QuillUserIssueCode) {
         let key = Self.dismissalKey(noteID: noteID, code: code)
         dismissedWarningBannerGeneration[key] = noteRetryGeneration(for: noteID)
-        Self.saveIntDictionary(
+        Self.saveDictionary(
             dismissedWarningBannerGeneration,
             forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
+    func isSummaryNoticeDismissed(noteID: UUID, kind: SummaryNoticeKind, condition: String) -> Bool {
+        dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] == condition
+    }
+
+    @MainActor
+    func dismissSummaryNotice(noteID: UUID, kind: SummaryNoticeKind, condition: String) {
+        dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] = condition
+        Self.saveDictionary(
+            dismissedSummaryNoticeConditions,
+            forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
+        )
+    }
+
+    /// A deleted summary takes its notices' dismissals with it.
+    @MainActor
+    func forgetSummaryNoticeDismissals(noteID: UUID) {
+        let prefix = "\(noteID.uuidString):"
+        guard dismissedSummaryNoticeConditions.keys.contains(where: { $0.hasPrefix(prefix) }) else { return }
+        dismissedSummaryNoticeConditions = dismissedSummaryNoticeConditions.filter { !$0.key.hasPrefix(prefix) }
+        Self.saveDictionary(
+            dismissedSummaryNoticeConditions,
+            forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
         )
     }
 
@@ -2477,15 +2521,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let dismissalPrefix = "\(noteID.uuidString):"
         let hadState = noteRetryGenerationByID[noteID.uuidString] != nil
             || dismissedWarningBannerGeneration.keys.contains { $0.hasPrefix(dismissalPrefix) }
+            || dismissedSummaryNoticeConditions.keys.contains { $0.hasPrefix(dismissalPrefix) }
         guard hadState else { return }
         noteRetryGenerationByID.removeValue(forKey: noteID.uuidString)
         dismissedWarningBannerGeneration = dismissedWarningBannerGeneration.filter {
             !$0.key.hasPrefix(dismissalPrefix)
         }
-        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
-        Self.saveIntDictionary(
+        dismissedSummaryNoticeConditions = dismissedSummaryNoticeConditions.filter {
+            !$0.key.hasPrefix(dismissalPrefix)
+        }
+        Self.saveDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveDictionary(
             dismissedWarningBannerGeneration,
             forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+        Self.saveDictionary(
+            dismissedSummaryNoticeConditions,
+            forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
         )
     }
 
@@ -2499,8 +2551,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let listed = Set(noteIDs.map(\.uuidString))
         return (
             retryGenerations.filter { listed.contains($0.key) },
-            dismissals.filter { listed.contains(String($0.key.prefix { $0 != ":" })) }
+            keepingListedNotes(dismissals, noteIDs: noteIDs)
         )
+    }
+
+    /// Keeps entries whose key starts with a listed note's ID and a colon.
+    static func keepingListedNotes<Value>(
+        _ values: [String: Value],
+        noteIDs: Set<UUID>
+    ) -> [String: Value] {
+        let listed = Set(noteIDs.map(\.uuidString))
+        return values.filter { listed.contains(String($0.key.prefix { $0 != ":" })) }
     }
 
     /// Drops banner state left by notes that no longer exist, for example
@@ -2511,14 +2572,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
             dismissals: dismissedWarningBannerGeneration,
             keepingNoteIDs: noteIDs
         )
+        let summaryDismissals = Self.keepingListedNotes(dismissedSummaryNoticeConditions, noteIDs: noteIDs)
         guard pruned.retryGenerations.count != noteRetryGenerationByID.count
-            || pruned.dismissals.count != dismissedWarningBannerGeneration.count else { return }
+            || pruned.dismissals.count != dismissedWarningBannerGeneration.count
+            || summaryDismissals.count != dismissedSummaryNoticeConditions.count else { return }
         noteRetryGenerationByID = pruned.retryGenerations
         dismissedWarningBannerGeneration = pruned.dismissals
-        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
-        Self.saveIntDictionary(
+        dismissedSummaryNoticeConditions = summaryDismissals
+        Self.saveDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveDictionary(
             dismissedWarningBannerGeneration,
             forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+        Self.saveDictionary(
+            dismissedSummaryNoticeConditions,
+            forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
         )
     }
 
@@ -2526,13 +2594,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// entire run history is cleared.
     @MainActor
     private func forgetAllWarningBannerState() {
-        guard !noteRetryGenerationByID.isEmpty || !dismissedWarningBannerGeneration.isEmpty else { return }
+        guard !noteRetryGenerationByID.isEmpty || !dismissedWarningBannerGeneration.isEmpty
+            || !dismissedSummaryNoticeConditions.isEmpty else { return }
         noteRetryGenerationByID = [:]
         dismissedWarningBannerGeneration = [:]
-        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
-        Self.saveIntDictionary(
+        dismissedSummaryNoticeConditions = [:]
+        Self.saveDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveDictionary(
             dismissedWarningBannerGeneration,
             forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+        Self.saveDictionary(
+            dismissedSummaryNoticeConditions,
+            forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
         )
     }
 

@@ -2550,8 +2550,6 @@ private struct NoteDetailView: View {
     @State private var userChoseContentModeDuringSearch = false
     @State private var summaryIssue: QuillUserIssueRecord?
     @State private var isSummaryIssueBannerDismissed = false
-    @State private var dismissedSummaryAttemptAt: Date?
-    @State private var dismissedSummaryNoticeKeys: Set<String> = []
     @State private var areSummaryNoticesExpanded = false
     @State private var areTranscriptNoticesExpanded = false
     @State private var highlightedSourceQuote: String?
@@ -2686,7 +2684,7 @@ private struct NoteDetailView: View {
             || isGeneratingSummary
     }
     private var isSummaryAttemptBannerDismissed: Bool {
-        dismissedSummaryAttemptAt == currentSummaryAttempt?.occurredAt
+        isSummaryNoticeDismissed(.failure)
     }
     private var isGeneratingSummary: Bool {
         appState.meetingSummaryGeneratingNoteIDs.contains(item.id)
@@ -2878,9 +2876,6 @@ private struct NoteDetailView: View {
             } else {
                 revealSummaryIfPending()
             }
-        }
-        .onChange(of: item.meetingSummaryAttempt) { _ in
-            dismissedSummaryAttemptAt = nil
         }
         .onChange(of: selectedContentMode) { newValue in
             if newValue != .transcript {
@@ -3559,13 +3554,7 @@ private struct NoteDetailView: View {
 
     /// The saved summary's notices, most important first. Several at once
     /// show as one line with a "+N" pill that reveals the rest.
-    private enum SummaryNoticeKind: Hashable {
-        case failure
-        case stale
-        case unverifiedEvidence
-        case featureDisabled
-        case modelUnavailable
-    }
+    private typealias SummaryNoticeKind = AppState.SummaryNoticeKind
 
     /// A newer failed attempt, or an issue from this session, shown above
     /// the summary that is still saved.
@@ -3583,22 +3572,33 @@ private struct NoteDetailView: View {
         return isDismissed ? nil : presentation
     }
 
-    /// A dismissal lasts while the condition is unchanged: another
-    /// transcript edit or a new summary brings the notice back.
-    private func summaryNoticeDismissalKey(_ kind: SummaryNoticeKind) -> String {
+    /// A dismissal lasts while the condition is unchanged: another failed
+    /// attempt, transcript edit, or new summary brings the notice back.
+    private func summaryNoticeDismissalCondition(_ kind: SummaryNoticeKind) -> String {
         switch kind {
         case .failure:
-            return "failure"
+            return "\(currentSummaryAttempt?.occurredAt.timeIntervalSince1970 ?? 0)"
         case .stale:
-            return "stale:\(appState.meetingSummarySource(for: item).fingerprint)"
-        case .unverifiedEvidence:
-            let generatedAt = summaryEnvelope?.generatedAt.timeIntervalSince1970 ?? 0
-            return "evidence:\(generatedAt)"
-        case .featureDisabled:
-            return "featureDisabled"
-        case .modelUnavailable:
-            return "modelUnavailable"
+            return appState.meetingSummarySource(for: item).fingerprint
+        case .unverifiedEvidence, .featureDisabled, .modelUnavailable:
+            return "\(summaryEnvelope?.generatedAt.timeIntervalSince1970 ?? 0)"
         }
+    }
+
+    private func isSummaryNoticeDismissed(_ kind: SummaryNoticeKind) -> Bool {
+        appState.isSummaryNoticeDismissed(
+            noteID: item.id,
+            kind: kind,
+            condition: summaryNoticeDismissalCondition(kind)
+        )
+    }
+
+    private func dismissSummaryNotice(_ kind: SummaryNoticeKind) {
+        appState.dismissSummaryNotice(
+            noteID: item.id,
+            kind: kind,
+            condition: summaryNoticeDismissalCondition(kind)
+        )
     }
 
     private var visibleSummaryNotices: [SummaryNoticeKind] {
@@ -3619,8 +3619,7 @@ private struct NoteDetailView: View {
             kinds.append(.modelUnavailable)
         }
         return kinds.filter { kind in
-            kind == .failure
-                || !dismissedSummaryNoticeKeys.contains(summaryNoticeDismissalKey(kind))
+            kind == .failure || !isSummaryNoticeDismissed(kind)
         }
     }
 
@@ -3670,7 +3669,7 @@ private struct NoteDetailView: View {
                         if summaryIssue != nil {
                             isSummaryIssueBannerDismissed = true
                         } else {
-                            dismissedSummaryAttemptAt = currentSummaryAttempt?.occurredAt
+                            dismissSummaryNotice(.failure)
                         }
                     },
                     expansion: expansion
@@ -3730,7 +3729,7 @@ private struct NoteDetailView: View {
             detail: localizedCatalogString(detail),
             expansion: expansion,
             onDismiss: {
-                dismissedSummaryNoticeKeys.insert(summaryNoticeDismissalKey(kind))
+                dismissSummaryNotice(kind)
             }
         )
     }
@@ -4468,9 +4467,9 @@ private struct NoteDetailView: View {
     private func deleteSummary() {
         do {
             try appState.deleteMeetingSummary(noteID: item.id)
+            appState.forgetSummaryNoticeDismissals(noteID: item.id)
             summaryIssue = nil
             isSummaryIssueBannerDismissed = false
-            dismissedSummaryAttemptAt = nil
         } catch {
             showToast(localizedCatalogString("Could not delete summary."))
         }
