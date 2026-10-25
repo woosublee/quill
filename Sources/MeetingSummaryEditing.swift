@@ -5,13 +5,14 @@ import Foundation
 // first time so the person can revert to it.
 
 extension MeetingSummaryContent {
-    /// The content without rows left empty while editing.
+    /// The content without rows left empty while editing. An action with
+    /// only an owner or due date is kept.
     func removingEmptyItems() -> MeetingSummaryContent {
         var copy = self
         copy.keyPoints = keyPoints.filter { !Self.isBlank($0.text) }
         copy.decisions = decisions.filter { !Self.isBlank($0.text) }
         copy.openQuestions = openQuestions.filter { !Self.isBlank($0.text) }
-        copy.actionItems = actionItems.filter { !Self.isBlank($0.task) }
+        copy.actionItems = actionItems.filter { !Self.isUntyped($0) }
         return copy
     }
 

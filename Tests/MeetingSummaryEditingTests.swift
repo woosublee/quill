@@ -13,6 +13,7 @@ struct MeetingSummaryEditingTests {
         try testLeavingEmptyRowsKeepsOnlyTheFocusedOne()
         try testNewRowButtonGivesWayToFocusedUntypedRow()
         try testEditKeepsSavedCompletion()
+        try testEditKeepsActionWithOnlyOwner()
         try testCompletionOnlyChangeIsNotAnEdit()
         try testSecondEditKeepsFirstOriginal()
         try testRevertRestoresOriginalAndKeepsCompletion()
@@ -99,6 +100,17 @@ struct MeetingSummaryEditingTests {
         try expect(content.endsWithFocusedUntypedAction(focusedID: pointID(8)), "the focused new action takes its place")
         content.actionItems[1].dueDate = "Friday"
         try expect(!content.endsWithFocusedUntypedAction(focusedID: pointID(8)), "a due date counts as typing")
+    }
+
+    // An action with only an owner typed is saved, like it stays on screen.
+    private static func testEditKeepsActionWithOnlyOwner() throws {
+        let original = envelope()
+        var content = original.content
+        var ownerOnly = action(id: 9, task: "", completed: false)
+        ownerOnly.owner = "Synthetic owner"
+        content.actionItems.append(ownerOnly)
+        let edited = try required(original.applyingEdit(content, at: Date()))
+        try expect(edited.content.actionItems.map(\.id).last == pointID(9), "the owner-only action is saved")
     }
 
     // Completion is saved through its own path; an edit never changes it.

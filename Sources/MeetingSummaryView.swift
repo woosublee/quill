@@ -71,9 +71,12 @@ struct MeetingSummaryView<Notices: View>: View {
         .onChange(of: draft) { _ in scheduleSave() }
         .onChange(of: focusedField) { field in
             // A row left without typing goes away; only the row being typed
-            // in stays empty.
-            let cleaned = draft.removingUntypedRows(except: field?.rowID)
-            if cleaned != draft { draft = cleaned }
+            // in stays empty. Wait a turn so text still being composed, such
+            // as Hangul, reaches the draft first.
+            DispatchQueue.main.async {
+                let cleaned = draft.removingUntypedRows(except: focusedField?.rowID)
+                if cleaned != draft { draft = cleaned }
+            }
             // Leaving the summary saves right away.
             if field == nil { saveNow() }
         }
@@ -447,9 +450,7 @@ struct MeetingSummaryView<Notices: View>: View {
         after id: UUID,
         in points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
     ) {
-        // Return on an empty row adds nothing, like Reminders.
-        guard let index = draft[keyPath: points].firstIndex(where: { $0.id == id }),
-              nonempty(draft[keyPath: points][index].text) != nil else { return }
+        guard let index = draft[keyPath: points].firstIndex(where: { $0.id == id }) else { return }
         let point = MeetingSummaryPoint(id: UUID(), text: "", sourceQuote: nil)
         draft[keyPath: points].insert(point, at: index + 1)
         focus(.point(point.id))
@@ -469,8 +470,7 @@ struct MeetingSummaryView<Notices: View>: View {
     }
 
     private func insertAction(after id: UUID) {
-        guard let index = draft.actionItems.firstIndex(where: { $0.id == id }),
-              nonempty(draft.actionItems[index].task) != nil else { return }
+        guard let index = draft.actionItems.firstIndex(where: { $0.id == id }) else { return }
         let item = Self.emptyAction()
         draft.actionItems.insert(item, at: index + 1)
         focus(.task(item.id))
