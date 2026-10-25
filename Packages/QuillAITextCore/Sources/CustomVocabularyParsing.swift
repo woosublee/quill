@@ -6,6 +6,11 @@ public struct ParsedVocabulary: Equatable, Sendable {
     public var terms: [String] = []
     public var corrections: [VocabularyCorrection] = []
 
+    public init(terms: [String] = [], corrections: [VocabularyCorrection] = []) {
+        self.terms = terms
+        self.corrections = corrections
+    }
+
     /// Heard forms the output check may let change. A heard form that
     /// matches a correct form ignoring case (`quill -> Quill`) is left out,
     /// so the correct spelling stays protected.

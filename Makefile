@@ -69,6 +69,8 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # Modules in Packages/ are shared with the iPhone app (#634). Each is built as
 # its own Swift 6 module, per architecture, before the app and every test
 # executable, which all see every shared module.
+# Adding a module here also needs its *_SOURCES variable and a lib<Module>.a
+# rule below; the build fails with "No rule to make target" until then.
 SHARED_CORE_MODULES = QuillNoteSyncCore QuillAITextCore
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)

@@ -5,6 +5,13 @@ public struct MeetingSummaryTextChunk: Equatable, Sendable {
     public let startOffset: Int
     public let endOffset: Int
     public let text: String
+
+    public init(index: Int, startOffset: Int, endOffset: Int, text: String) {
+        self.index = index
+        self.startOffset = startOffset
+        self.endOffset = endOffset
+        self.text = text
+    }
 }
 
 public struct MeetingSummaryTextChunker: Sendable {

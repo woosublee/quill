@@ -17,7 +17,7 @@ public struct SpokenLanguageResolution: Codable, Equatable, Sendable {
     }
 }
 
-public struct SpokenLanguageResolver {
+public enum SpokenLanguageResolver {
     /// The languages a spoken-language code may resolve to: the Mac app's
     /// transcription languages (`TranscriptionLanguage.all`, without "auto")
     /// and Portuguese.

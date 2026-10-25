@@ -402,8 +402,10 @@ struct NoteSyncRecordTests {
         precondition(!future.hasUnreadableKnownFields, "unknown keys are fine")
     }
 
-    /// QuillNoteSyncCore can't see this Mac's enums, so it keeps their raw
-    /// values. A case added or renamed here must change there too, or records
+    /// QuillNoteSyncCore keeps the raw values of these enums: the intent enum
+    /// is this Mac's, and SpokenLanguageResolutionSource is in QuillAITextCore,
+    /// which QuillNoteSyncCore doesn't depend on (deriving it is a #634
+    /// follow-up). A case added or renamed must change there too, or records
     /// carrying it would be skipped as unreadable.
     static func testSharedCoreKnowsEveryMacRawValue() {
         precondition(
