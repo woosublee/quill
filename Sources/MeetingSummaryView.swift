@@ -72,7 +72,7 @@ struct MeetingSummaryView<Notices: View>: View {
         .onChange(of: focusedField) { field in
             // A row left without typing goes away; only the row being typed
             // in stays empty.
-            let cleaned = draft.removingEmptyItems(except: field?.rowID)
+            let cleaned = draft.removingUntypedRows(except: field?.rowID)
             if cleaned != draft { draft = cleaned }
             // Leaving the summary saves right away.
             if field == nil { saveNow() }
@@ -188,8 +188,8 @@ struct MeetingSummaryView<Notices: View>: View {
                 ForEach(draft[keyPath: points]) { point in
                     pointRow(point, in: points)
                 }
-                // An empty last row takes the button's place until it has text.
-                if draft[keyPath: points].last.map({ nonempty($0.text) != nil }) ?? true {
+                // A new row being typed in takes the button's place until it has text.
+                if !draft.endsWithFocusedUntypedRow(points, focusedID: focusedField?.rowID) {
                     newRowButton(title: "New Item", marker: bulletMarker) {
                         appendPoint(to: points)
                     }
@@ -239,7 +239,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 ForEach(draft.actionItems) { item in
                     actionRow(item)
                 }
-                if draft.actionItems.last.map({ nonempty($0.task) != nil }) ?? true {
+                if !draft.endsWithFocusedUntypedAction(focusedID: focusedField?.rowID) {
                     newRowButton(title: "New Action Item", marker: checkboxMarker) {
                         appendAction()
                     }
@@ -447,7 +447,9 @@ struct MeetingSummaryView<Notices: View>: View {
         after id: UUID,
         in points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
     ) {
-        guard let index = draft[keyPath: points].firstIndex(where: { $0.id == id }) else { return }
+        // Return on an empty row adds nothing, like Reminders.
+        guard let index = draft[keyPath: points].firstIndex(where: { $0.id == id }),
+              nonempty(draft[keyPath: points][index].text) != nil else { return }
         let point = MeetingSummaryPoint(id: UUID(), text: "", sourceQuote: nil)
         draft[keyPath: points].insert(point, at: index + 1)
         focus(.point(point.id))
@@ -467,7 +469,8 @@ struct MeetingSummaryView<Notices: View>: View {
     }
 
     private func insertAction(after id: UUID) {
-        guard let index = draft.actionItems.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = draft.actionItems.firstIndex(where: { $0.id == id }),
+              nonempty(draft.actionItems[index].task) != nil else { return }
         let item = Self.emptyAction()
         draft.actionItems.insert(item, at: index + 1)
         focus(.task(item.id))

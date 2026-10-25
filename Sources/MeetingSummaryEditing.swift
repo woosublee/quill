@@ -5,15 +5,50 @@ import Foundation
 // first time so the person can revert to it.
 
 extension MeetingSummaryContent {
-    /// The content without rows left empty while editing, except the row
-    /// `keptID` that the person may still be typing in.
-    func removingEmptyItems(except keptID: UUID? = nil) -> MeetingSummaryContent {
+    /// The content without rows left empty while editing.
+    func removingEmptyItems() -> MeetingSummaryContent {
         var copy = self
-        copy.keyPoints = keyPoints.filter { $0.id == keptID || !Self.isBlank($0.text) }
-        copy.decisions = decisions.filter { $0.id == keptID || !Self.isBlank($0.text) }
-        copy.openQuestions = openQuestions.filter { $0.id == keptID || !Self.isBlank($0.text) }
-        copy.actionItems = actionItems.filter { $0.id == keptID || !Self.isBlank($0.task) }
+        copy.keyPoints = keyPoints.filter { !Self.isBlank($0.text) }
+        copy.decisions = decisions.filter { !Self.isBlank($0.text) }
+        copy.openQuestions = openQuestions.filter { !Self.isBlank($0.text) }
+        copy.actionItems = actionItems.filter { !Self.isBlank($0.task) }
         return copy
+    }
+
+    /// The content without rows that have nothing typed in them, except
+    /// the row `keptID` that the person may still be typing in. An action
+    /// with only an owner or due date stays, so that typing isn't lost.
+    func removingUntypedRows(except keptID: UUID?) -> MeetingSummaryContent {
+        var copy = self
+        copy.keyPoints = keyPoints.filter { $0.id == keptID || !Self.isUntyped($0) }
+        copy.decisions = decisions.filter { $0.id == keptID || !Self.isUntyped($0) }
+        copy.openQuestions = openQuestions.filter { $0.id == keptID || !Self.isUntyped($0) }
+        copy.actionItems = actionItems.filter { $0.id == keptID || !Self.isUntyped($0) }
+        return copy
+    }
+
+    /// True when the last of `points` is an untyped row being typed in,
+    /// standing where the New Item button would be.
+    func endsWithFocusedUntypedRow(
+        _ points: KeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>,
+        focusedID: UUID?
+    ) -> Bool {
+        guard let last = self[keyPath: points].last else { return false }
+        return last.id == focusedID && Self.isUntyped(last)
+    }
+
+    /// The same as `endsWithFocusedUntypedRow` for action items.
+    func endsWithFocusedUntypedAction(focusedID: UUID?) -> Bool {
+        guard let last = actionItems.last else { return false }
+        return last.id == focusedID && Self.isUntyped(last)
+    }
+
+    static func isUntyped(_ point: MeetingSummaryPoint) -> Bool {
+        isBlank(point.text)
+    }
+
+    static func isUntyped(_ action: MeetingSummaryActionItem) -> Bool {
+        isBlank(action.task) && isBlank(action.owner ?? "") && isBlank(action.dueDate ?? "")
     }
 
     /// True when both have the same text, ignoring whether actions are done.
