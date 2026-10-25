@@ -2402,6 +2402,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// A notice above a saved summary that can be dismissed.
     enum SummaryNoticeKind: String, Hashable {
+        case unchanged
         case failure
         case stale
         case unverifiedEvidence
@@ -2688,6 +2689,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var unchangedRetranscriptions: [UUID: String] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
+    @Published private(set) var unchangedMeetingSummaries: [UUID: Date] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
     /// back (#440). Only one waits at a time, and
     /// `finalizePendingSummaryDeletion()` (any deletion, clear, import, or
@@ -6063,6 +6065,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if meetingSummaryCandidates != state.candidates {
             meetingSummaryCandidates = state.candidates
         }
+        if unchangedMeetingSummaries != state.unchangedSummaries {
+            unchangedMeetingSummaries = state.unchangedSummaries
+        }
     }
 
     @MainActor
@@ -8782,6 +8787,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let updated = pipelineHistory[noteIndex].withMeetingSummary(edited)
         try pipelineHistoryStore.update(updated)
         pipelineHistory[noteIndex] = updated
+        // An edited summary no longer is the one that came back unchanged.
+        meetingSummaryWorkflow.dismissUnchangedSummary(noteID: noteID)
     }
 
     /// Saves the waiting new summary in place of the current one, keeping
@@ -8818,6 +8825,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func discardMeetingSummaryCandidate(noteID: UUID) {
         meetingSummaryWorkflow.discardCandidate(noteID: noteID)
+    }
+
+    @MainActor
+    func dismissUnchangedMeetingSummaryNotice(noteID: UUID) {
+        meetingSummaryWorkflow.dismissUnchangedSummary(noteID: noteID)
     }
 
     /// Puts back the summary the model generated, keeping which actions

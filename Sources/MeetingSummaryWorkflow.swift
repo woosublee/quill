@@ -44,11 +44,15 @@ struct MeetingSummaryWorkflowState: Equatable, Sendable {
     var generatingNoteIDs: Set<UUID>
     var pendingRevealNoteIDs: Set<UUID>
     var candidates: [UUID: MeetingSummaryCandidate]
+    /// Notes whose new summary had the same text as the saved one, with
+    /// when that summary was made, so the Summary tab can say so.
+    var unchangedSummaries: [UUID: Date]
 
     static let initial = MeetingSummaryWorkflowState(
         generatingNoteIDs: [],
         pendingRevealNoteIDs: [],
-        candidates: [:]
+        candidates: [:],
+        unchangedSummaries: [:]
     )
 }
 
@@ -103,6 +107,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         generationRevisionByID[request.noteID] = generationRevision
         state.generatingNoteIDs.insert(request.noteID)
         state.candidates.removeValue(forKey: request.noteID)
+        state.unchangedSummaries.removeValue(forKey: request.noteID)
         emitState()
 
         let transcript = Self.transcript(for: initialItem)
@@ -235,7 +240,13 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             issue: nil,
             sourceFingerprint: source.fingerprint
         )
-        if request.deliversCandidate {
+        // The same text leaves nothing to choose: it is saved directly,
+        // keeping what is on screen, like a retranscription with the same
+        // result.
+        let unchangedSummary = request.deliversCandidate
+            ? currentItem.meetingSummary.flatMap { envelope.keepingRows(of: $0) }
+            : nil
+        if request.deliversCandidate, unchangedSummary == nil {
             // Nothing is saved until the person chooses the new summary.
             state.candidates[request.noteID] = MeetingSummaryCandidate(
                 envelope: envelope,
@@ -250,7 +261,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
                 : .verifiedSuccess
         }
         let updated = currentItem
-            .withMeetingSummary(envelope)
+            .withMeetingSummary(unchangedSummary ?? envelope)
             .withMeetingSummaryAttempt(attempt)
         do {
             try history.persist(updated, true)
@@ -262,10 +273,13 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             return .persistenceFailed
         }
         onEvent?(.itemPersisted(updated))
+        if let unchangedSummary {
+            state.unchangedSummaries[request.noteID] = unchangedSummary.generatedAt
+        }
         finishGeneration(
             noteID: request.noteID,
             revision: generationRevision,
-            pendingReveal: true
+            pendingReveal: unchangedSummary == nil
         )
         return result.evidenceVerification == .unverified
             ? .unverifiedSuccess
@@ -278,6 +292,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         state.generatingNoteIDs.remove(noteID)
         state.pendingRevealNoteIDs.remove(noteID)
         state.candidates.removeValue(forKey: noteID)
+        state.unchangedSummaries.removeValue(forKey: noteID)
         emitState()
     }
 
@@ -287,6 +302,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         state.generatingNoteIDs.remove(noteID)
         state.pendingRevealNoteIDs.remove(noteID)
         state.candidates.removeValue(forKey: noteID)
+        state.unchangedSummaries.removeValue(forKey: noteID)
         emitState()
     }
 
@@ -294,6 +310,13 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
     @MainActor
     func discardCandidate(noteID: UUID) {
         guard state.candidates.removeValue(forKey: noteID) != nil else { return }
+        emitState()
+    }
+
+    /// Hides the note that a new summary had the same text.
+    @MainActor
+    func dismissUnchangedSummary(noteID: UUID) {
+        guard state.unchangedSummaries.removeValue(forKey: noteID) != nil else { return }
         emitState()
     }
 

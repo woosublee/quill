@@ -16,9 +16,11 @@ struct MeetingSummaryEditingTests {
         try testEditKeepsActionWithOnlyOwner()
         try testCompletionOnlyChangeIsNotAnEdit()
         try testSecondEditKeepsFirstOriginal()
+        try testEditingBackToOriginalIsNotAnEdit()
         try testRevertRestoresOriginalAndKeepsCompletion()
         try testUneditedSummaryCannotRevert()
         try testEditedSummaryRoundTrips()
+        try testVisibleTextIgnoresIDsLinksAndCompletion()
         print("MeetingSummaryEditingTests passed")
     }
 
@@ -174,6 +176,48 @@ struct MeetingSummaryEditingTests {
             from: JSONEncoder().encode(edited)
         )
         try expect(decoded == edited, "edited summary survives saving")
+    }
+
+    // A regenerated summary counts as the same when the person would see
+    // the same text.
+    private static func testVisibleTextIgnoresIDsLinksAndCompletion() throws {
+        let current = envelope(completed: true).content
+        var regenerated = current
+        regenerated.keyPoints[0] = MeetingSummaryPoint(id: UUID(), text: "Synthetic point", sourceQuote: nil)
+        regenerated.actionItems[0] = action(id: 9, task: "Synthetic task", completed: false)
+        try expect(regenerated.hasSameVisibleText(as: current), "IDs, links, and completion don't count")
+
+        var owner = regenerated
+        owner.actionItems[0].owner = "Synthetic owner"
+        try expect(!owner.hasSameVisibleText(as: current), "an owner counts")
+        var moved = regenerated
+        moved.decisions = moved.keyPoints
+        moved.keyPoints = []
+        try expect(!moved.hasSameVisibleText(as: current), "the section a row is in counts")
+        try expect(moved.withSourceLinks(from: current) == nil, "different text takes no links")
+        let linked = try required(regenerated.withSourceLinks(from: current))
+        try expect(linked.keyPoints[0].id == regenerated.keyPoints[0].id, "rows stay")
+        try expect(linked.keyPoints[0].sourceQuote == "Synthetic quote.", "links come from the other content")
+        try expect(!linked.actionItems[0].isCompleted, "completion stays")
+    }
+
+    // Typing the generated text back, even in a re-added row, leaves an
+    // unedited summary with nothing to revert. The text is saved as typed.
+    private static func testEditingBackToOriginalIsNotAnEdit() throws {
+        let original = envelope(completed: true)
+        var changed = original.content
+        changed.keyPoints[0].text = "Synthetic point, corrected"
+        let edited = try required(original.applyingEdit(changed, at: Date()))
+
+        var back = edited.content
+        back.keyPoints = [MeetingSummaryPoint(id: pointID(7), text: "Synthetic point", sourceQuote: nil)]
+        let unedited = try required(edited.applyingEdit(back, at: Date()))
+        try expect(!unedited.isEdited && unedited.originalContent == nil, "back to the generated text is unedited")
+        try expect(unedited.content.keyPoints.map(\.text) == ["Synthetic point"], "the typed text is saved")
+        try expect(unedited.content.keyPoints[0].id == pointID(7), "the typed row stays")
+        try expect(unedited.content.keyPoints[0].sourceQuote == nil, "saved as typed")
+        try expect(unedited.content.actionItems[0].isCompleted, "completion stays checked")
+        try expect(unedited.revertedToOriginal() == nil, "nothing to revert")
     }
 
     // MARK: Fixtures

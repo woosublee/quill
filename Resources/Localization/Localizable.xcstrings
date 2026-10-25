@@ -21827,6 +21827,38 @@
           }
         }
       }
+    },
+    "The new summary is the same as the current one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The new summary is the same as the current one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 요약이 지금과 같아요."
+          }
+        }
+      }
+    },
+    "The summary text didn't change.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The summary text didn't change."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약 내용은 그대로예요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
