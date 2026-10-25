@@ -72,7 +72,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 1. **원자**: 더 나눌 수 없는 하나의 요소. `Badge`, `StatusIndicator`, `SelectionCheckbox`, `Waveform`, `CapsuleButton`, `IconButton`, `CloseButton`, `ToolbarButton`, `RecordButton`.
 2. **분자**: 원자 몇 개가 한 가지 일을 하는 묶음. `InputPicker`, `ModelPicker`, `SearchField`, `NoteListRow`, `StatusBanner`, `InfoNotice`, `Toast`, `NoticeToast`, `DeletionCapsule`, `AudioPlayer`, `OptionRow`, `ModelRow`.
 3. **유기체**: 화면의 한 구역. `RecordingOverlay`, `MeetingReminder`, `NoteToolbar`, `IssueEmptyState`, `SettingsCard`, `SettingsSidebar`.
-4. **화면**: 유기체를 배치한 전체 화면. macOS(`MacNoteBrowser`, `MacSettings`)와 iPhone(`PhoneNotes`, `PhoneSettings`)은 지금 코드 그대로, iPad는 제안입니다.
+4. **화면**: 유기체를 배치한 전체 화면. macOS(`MacNoteBrowser`, `MacSettings`)는 지금 코드 그대로, iPhone(`PhoneNotes`, `PhoneSettings`)은 지금 앱 구조를 macOS 토큰으로 근사한 재현, iPad는 제안입니다.
 
 macOS 시스템 컨트롤(토글, 팝업 버튼, 세그먼트, 슬라이더)은 Quill이 따로 꾸미지 않으므로 컴포넌트로 두지 않고 시스템 것을 씁니다.
 

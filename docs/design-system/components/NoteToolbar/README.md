@@ -6,4 +6,4 @@
 - 열린 탭을 따라갑니다(#262): 요약 탭에서는 첫 버튼이 요약 다시 만들기, 전사 탭에서는 전사 재시도(필요할 때만). 다시 만들기 아이콘은 `status-processing`(주황), 삭제는 `status-recording` 80%.
 - 요약이 없을 때만 전사 탭에 요약 만들기(`sparkles`)가 붙습니다. 복사하면 아이콘이 잠깐 체크 표시 + `accent`.
 - 녹음 중인 노트, 요약·전사 비교 중에는 숨깁니다.
-- iPhone도 같은 공유 뷰(`Sources/SharedUI/NoteFloatingToolbar.swift`)와 같은 순서를 씁니다. 파일 저장 자리는 공유 시트(`square.and.arrow.up`)이고, 본문을 고치는 동안에도 숨깁니다.
+- iPhone은 이 캡슐을 옮긴 공유 뷰(`quill-universal`의 `Sources/SharedUI/NoteFloatingToolbar.swift`)와 같은 순서를 씁니다. 파일 저장 자리는 공유 시트(`square.and.arrow.up`)이고, 본문을 고치는 동안에도 숨깁니다.

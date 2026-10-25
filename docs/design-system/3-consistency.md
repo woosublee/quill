@@ -58,7 +58,7 @@
 
 ## 10. iPhone 앱(`quill-universal`)이 벗어난 곳
 
-`quill-universal` main@8e715ae의 `ApplePlatforms/QuillMobile/QuilliOS/`에서 조사했습니다. 맞추는 작업은 그 저장소에서 합니다.
+`quill-universal` main@b8a32b02의 `ApplePlatforms/QuillMobile/QuilliOS/`에서 조사했습니다. 맞추는 작업은 그 저장소에서 합니다.
 
 - **강조색이 고정 hex.** `QuillVisualSystem`의 `accent`가 `#007AFF` / `#0A84FF`로 고정이고 `.tint(...)`로 직접 겁니다. 시스템 강조색을 바꿔도 따라가지 않습니다(원칙 1). 다른 역할도 시스템 의미 색 대신 hex 팔레트라, 대비 높이기에서 시스템이 진하게 바꿔 주는 처리를 받지 못합니다.
 - **오류 색 규칙이 반대.** 배너의 오류 아이콘(`exclamationmark.circle`)은 회색이고, 설정 화면의 오류 문구는 글자를 빨갛게 칠합니다(클라우드 공급자 설정 등 8곳). → 오류는 아이콘만 `issue-error` 계열로, 글자는 `label-secondary`로.

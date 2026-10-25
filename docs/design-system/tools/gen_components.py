@@ -216,7 +216,7 @@ C["NoteListRow"] = (500, "노트 목록 한 줄과 상태", None, f'''<div class
 - 상태 바탕: 기본 없음 → hover `fill-hover` + 0.5 테두리 → 선택 `fill-selected` + `stroke-selected` 0.6 + `shadow-row-selected` → 키보드 포커스 `accent-highlight` + 흰 글자 → 방금 도착 `accent-tint-arrived`(잠깐).
 - 상태 표시: 완료 초록 점, 녹음 중 빨간 점 + `timer-mono`, 전사 중 주황 스피너, 복구됨 주황 화살표 원, 실패 빨간 점(색 구분 없이 보기에서는 삼각형).
 - VoiceOver는 행 하나로 묶어 제목·날짜·상태·선택 여부를 말로 읽습니다.
-- iPhone도 같은 공유 뷰(`Sources/SharedUI/NoteRowView.swift`)를 씁니다. 화면 폭을 가득 채우고 반경·선택 바탕이 없으며, 글자는 메타 11 / 제목 15 Semibold / 미리보기 15로 Dynamic Type을 따릅니다. 높이는 견본 글자로 잡아 모든 행이 같고, 메타 줄에 녹음 길이가 붙습니다("날짜 · 길이").
+- iPhone은 이 행을 옮긴 공유 뷰(`quill-universal`의 `Sources/SharedUI/NoteRowView.swift`)를 씁니다. 화면 폭을 가득 채우고 반경·선택 바탕이 없으며, 글자는 메타 11 / 제목 15 Semibold / 미리보기 15로 Dynamic Type을 따릅니다. 높이는 견본 글자로 잡아 모든 행이 같고, 메타 줄에 녹음 길이가 붙습니다("날짜 · 길이").
 """)
 
 C["SelectionCheckbox"] = (80, "다중 선택 원", None, f'''<div class="q-stage">{item(chk_on, '선택')}{item('<span class="q-check off"></span>', '선택 안 함')}{item('<span class="q-check na"></span>', '선택 불가(녹음·처리 중)')}</div>''',
@@ -421,7 +421,7 @@ C["NoteToolbar"] = (110, "노트 상세 아래 떠 있는 동작 캡슐", None, 
 - 열린 탭을 따라갑니다(#262): 요약 탭에서는 첫 버튼이 요약 다시 만들기, 전사 탭에서는 전사 재시도(필요할 때만). 다시 만들기 아이콘은 `status-processing`(주황), 삭제는 `status-recording` 80%.
 - 요약이 없을 때만 전사 탭에 요약 만들기(`sparkles`)가 붙습니다. 복사하면 아이콘이 잠깐 체크 표시 + `accent`.
 - 녹음 중인 노트, 요약·전사 비교 중에는 숨깁니다.
-- iPhone도 같은 공유 뷰(`Sources/SharedUI/NoteFloatingToolbar.swift`)와 같은 순서를 씁니다. 파일 저장 자리는 공유 시트(`square.and.arrow.up`)이고, 본문을 고치는 동안에도 숨깁니다.
+- iPhone은 이 캡슐을 옮긴 공유 뷰(`quill-universal`의 `Sources/SharedUI/NoteFloatingToolbar.swift`)와 같은 순서를 씁니다. 파일 저장 자리는 공유 시트(`square.and.arrow.up`)이고, 본문을 고치는 동안에도 숨깁니다.
 """)
 
 C["AudioPlayer"] = (120, "노트 머리의 오디오 카드", None, f'''<div class="q-stage text" style="flex-direction:column"><div style="width:560px">{audio_card()}</div></div>''',
@@ -472,12 +472,12 @@ def ihead(model="Whisper Large v3 Turbo"):
 
 phone_list = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 {ihead()}
-<div class="q-ilist">{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", b='<span class="q-badge">요약</span>')}{irow("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일을 찾기 어렵다는 점이었어요.", "10월 23일 (금) 오전 11:20 · 4:32")}{irow("팀 스탠드업", "전사하는 중이에요…", "10월 23일 (금) 오전 9:05 · 9:15", '<span class="q-spin"></span>')}{irow("2026년 10월 22일 오후 3:40", "", "10월 22일 (목) 오후 3:40 · 0:58", b='<span class="q-badge">오디오만</span>')}</div>
+<div class="q-ilist">{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", b='<span class="q-badge">요약</span>')}{irow("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일을 찾기 어렵다는 점이었어요.", "10월 23일 (금) 오전 11:20 · 4:32")}{irow("팀 스탠드업", "전사하는 중이에요…", "10월 23일 (금) 오전 9:05 · 9:15", '<span class="q-spin"></span>')}{irow("2026년 10월 22일 오후 3:40", "전사되지 않음", "10월 22일 (목) 오후 3:40 · 0:58")}</div>
 <span class="q-ifab"></span><div class="home"></div></div>'''
 phone_detail = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 <div style="padding:0 16px;flex:none"><span class="q-iback">{ic("back", 16, 2)}</span></div>
 <div style="padding:16px 16px 0;display:flex;flex-direction:column;gap:10px;flex:1">
-<div class="q-meta-mono" style="font-size:10px;letter-spacing:.2px;color:var(--label-secondary)">2026년 10월 24일 (토) 오후 2:00~2:32<br><span style="font-size:9px;font-weight:500">CLOUD · <span style="opacity:.5">NO CTX</span> · LLM · KO</span></div>
+<div class="q-meta-mono" style="font-size:10px;letter-spacing:.2px;color:var(--label-secondary)">2026년 10월 24일 (토) 오후 2:00~2:32<br><span style="font-size:9px;font-weight:500">LOCAL · <span style="opacity:.5">NO CTX</span> · LLM · KO</span></div>
 <div style="font-size:28px;font-weight:700;line-height:32px;letter-spacing:-.3px">주간 제품 회의</div>
 <div class="q-audio" style="border-radius:16px;padding:12px 14px;background:var(--surface-control)"><span class="pb">{ic("play", 11)}</span><div class="bars">{''.join(f'<i style="height:{h}px"{" class=on" if i<8 else ""}></i>' for i,h in enumerate([10,18,14,26,32,22,28,18,12,22,26,34,24,18,14,22,30,20,14,10]))}</div><span class="tm" style="font-size:13px;font-weight:600">0:00 / 12:04</span></div>
 <div class="q-seg" style="display:flex;font-size:13px"><span class="on" style="flex:1;text-align:center">전사문</span><span style="flex:1;text-align:center">요약</span></div>
@@ -487,13 +487,13 @@ phone_detail = f'''<div class="q-phone" style="background:var(--surface-window)"
 phone_rec = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island live"><span style="width:16px;height:16px;border-radius:5px;background:url({ICON}) center/cover"></span><span style="color:#fff;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">3:12</span></div><div class="status"></div>
 {ihead()}
 <div class="q-ilist">{irow("2026년 10월 24일 오후 2:00", "", "10월 24일 (토) 오후 2:00", '<span class="q-dot rec"></span>')}{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", "10월 23일 (금) 오후 2:00 · 32:10", b='<span class="q-badge">요약</span>')}</div>
-<div class="q-recbar"><span class="st"><span class="q-dot rec"></span>녹음 중</span><span class="tm">03:12</span><span class="b">{ic("pause", 14)}</span><span class="b stop"></span></div><div class="home"></div></div>'''
+<div class="q-recbar"><span class="st"><span class="q-dot rec"></span>녹음 중</span><span class="tm">3:12</span><span class="b">{ic("pause", 14)}</span><span class="b stop"></span></div><div class="home"></div></div>'''
 C["PhoneNotes"] = (700, "목록 → 상세 → 녹음 중", 1080, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_list}{phone_detail}{phone_rec}</div>',
 """# PhoneNotes
 
-iPhone 노트 흐름입니다(실제 앱의 정적 재현, 색은 macOS 토큰으로 근사). 탭 없이 `NavigationStack` 하나입니다.
+iPhone 노트 흐름입니다(지금 앱 구조의 정적 재현, 색은 macOS 토큰으로 근사). 탭 없이 `NavigationStack` 하나입니다.
 
-- **노트 목록**: 큰 제목 없이 위에 고정된 머리 한 줄(전사 방식 캡슐 / 검색 · `…`). 설정과 최근 삭제된 노트는 `…` 메뉴에 있습니다. 행은 macOS와 같은 `NoteListRow` 공유 뷰로, 화면 폭 가득·고정 높이이고 메타 줄에 녹음 길이가 붙습니다. 아래 가운데 56pt 녹음 버튼.
+- **노트 목록**: 큰 제목 없이 위에 고정된 머리 한 줄(전사 방식 캡슐 / 검색 · `…`). 설정과 최근 삭제된 노트는 `…` 메뉴에 있습니다. 행은 macOS `NoteListRow`를 옮긴 공유 뷰로, 화면 폭 가득·고정 높이이고 메타 줄에 녹음 길이가 붙습니다. 아래 가운데 56pt 녹음 버튼.
 - **노트 상세**(push): 원형 뒤로가기만 있는 막대 → 메타 줄(SF Mono 10, 칩 9) → 제목 28 Bold → 오디오 카드(72, 반경 16) → 세그먼트(요약이 있을 때만) → 본문 15. 아래에 macOS와 같은 `NoteToolbar` 캡슐.
 - **녹음 중**: 전체 화면 시트 없이 화면 아래 짙은 회색 녹음 막대(상태 · 시간 · 일시정지 · 정지)가 모든 화면 위에 남습니다. Dynamic Island에는 앱 아이콘과 타이머만, 파형은 없습니다.
 
@@ -517,7 +517,7 @@ def iset_nav(title):
 
 phone_set_root = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 {iset_nav("설정")}
-<div class="q-group">{sec("노트", li("", "모델", "Whisper"))}
+<div class="q-group">{sec("노트", li("", "모델", " "))}
 {sec("연결", li("", "캘린더", "켬"))}
 {sec("동기화", li("", "iCloud", "최신 상태"))}
 {sec("앱", li("", "정보", "1.0.0"))}</div><div class="home"></div></div>'''
@@ -530,9 +530,9 @@ phone_set_models = f'''<div class="q-phone" style="background:var(--surface-wind
 C["PhoneSettings"] = (700, "설정 루트와 모델 화면", 700, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_set_root}{phone_set_models}</div>',
 """# PhoneSettings
 
-iPhone 설정입니다(실제 앱의 정적 재현). 노트 목록 `…` 메뉴의 `설정`에서 push로 엽니다.
+iPhone 설정입니다(지금 앱 구조의 정적 재현, 색은 macOS 토큰으로 근사). 노트 목록 `…` 메뉴의 `설정`에서 push로 엽니다.
 
-- **루트**: `List(.insetGrouped)`, inline 제목. macOS 탭 목록을 옮기지 않고 아이콘 없는 네 묶음으로 줄였습니다: 노트 › 모델 / 연결 › 캘린더 / 동기화 › iCloud / 앱 › 정보. 행 오른쪽에 상태 값과 꺾쇠.
+- **루트**: `List(.insetGrouped)`, inline 제목. macOS 탭 목록을 옮기지 않고 아이콘 없는 네 묶음으로 줄였습니다: 노트 › 모델 / 연결 › 캘린더 / 동기화 › iCloud / 앱 › 정보. 캘린더·iCloud·정보 행은 오른쪽에 값과 꺾쇠, 모델 행은 이름만.
 - **모델**: 한 화면에 클라우드 → 전사 → 후처리 → 회의 요약 섹션. macOS `SettingsCard` 하나가 Section 하나이고, 카드 머리 스위치는 섹션 첫 줄 스위치(시스템 녹색)가 됩니다. 모델 행을 누르면 체크 표시 목록에서 고릅니다.
 
 유지·변형·제외 표는 **iPhone · iPad** 섹션.
@@ -563,7 +563,7 @@ pad_set = f'''<div class="q-stage" style="padding:28px;background:var(--surface-
 C["PadSettings"] = (680, "두 열 설정 (제안)", 920, pad_set,
 """# PadSettings
 
-iPad 설정 제안입니다(정적 재현). 왼쪽 탭 목록(macOS 사이드바와 같은 순서·아이콘, Mac 전용인 AI 도구는 제외). iPhone처럼 네 묶음으로 줄일지는 iPad 작업 때 정합니다, 오른쪽 해당 페이지의 insetGrouped 섹션(최대 폭 560 가운데). 별도 창으로 열지 시트로 열지는 결정할 것 3번.
+iPad 설정 제안입니다(정적 재현). 왼쪽 탭 목록(macOS 사이드바와 같은 순서·아이콘, Mac 전용인 AI 도구는 제외)과 오른쪽 해당 페이지의 insetGrouped 섹션(최대 폭 560 가운데). iPhone처럼 네 묶음으로 줄일지는 iPad 작업 때 정합니다. 별도 창으로 열지 시트로 열지는 결정할 것 3번.
 """)
 
 ORDER = {'1 · 원자': ['Badge', 'StatusIndicator', 'SelectionCheckbox', 'Waveform', 'CapsuleButton', 'IconButton', 'CloseButton', 'ToolbarButton', 'RecordButton'], '2 · 분자': ['InputPicker', 'ModelPicker', 'SearchField', 'NoteListRow', 'StatusBanner', 'InfoNotice', 'Toast', 'NoticeToast', 'DeletionCapsule', 'AudioPlayer', 'OptionRow', 'ModelRow'], '3 · 유기체': ['RecordingOverlay', 'MeetingReminder', 'NoteToolbar', 'IssueEmptyState', 'SettingsCard', 'SettingsSidebar'], '4 · 화면 · macOS': ['MacNoteBrowser', 'MacSettings'], '5 · 화면 · iPhone': ['PhoneNotes', 'PhoneSettings'], '6 · 화면 · iPad': ['PadNotes', 'PadSettings']}
