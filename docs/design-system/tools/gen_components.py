@@ -255,7 +255,7 @@ C["ToolbarButton"] = (80, "노트 툴바의 원형 아이콘 버튼", None, f'''
 - 사이드바 머리의 배경 없는 버튼은 `IconButton`.
 """)
 
-C["RecordButton"] = (100, "떠 있는 녹음 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-rec" aria-label="녹음"></button>', '대기 44 · 모든 플랫폼')}{item('<button class="q-rec on" aria-label="정지"></button>', '녹음 중')}</div>''',
+C["RecordButton"] = (100, "떠 있는 녹음 버튼", None, f'''<div class="q-stage" style="background:var(--surface-window)">{item('<button class="q-rec" aria-label="녹음"></button>', '대기 44 · macOS')}{item('<button class="q-rec on" aria-label="정지"></button>', '녹음 중')}</div>''',
 """# RecordButton
 
 노트 사이드바 아래 가운데의 녹음 버튼입니다. 지름 `size-record-button`, 대기 `status-recording`, 녹음 중 `status-processing` + 흰 14pt 사각형(`radius-3`). 흰 18% 테두리(`record-ring`) + `shadow-record`. 다중 선택 중에는 숨깁니다. iPhone은 56에서 시작해 글자 크기를 따라 최대 88까지 커지고, 선택 모드에서는 빨간 휴지통 버튼으로 바뀝니다(맞출 방향은 결정할 것 4번).
@@ -472,21 +472,21 @@ def ihead(model="Whisper Large v3 Turbo"):
 
 phone_list = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 {ihead()}
-<div class="q-ilist">{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", b='<span class="q-badge">요약</span>')}{irow("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일을 찾기 어렵다는 점이었어요.", "10월 23일 (금) 오전 11:20 · 4:32")}{irow("팀 스탠드업", "전사하는 중이에요…", "10월 23일 (금) 오전 9:05 · 9:15", '<span class="q-spin"></span>')}{irow("2026년 10월 22일 오후 3:40", "전사되지 않음", "10월 22일 (목) 오후 3:40 · 0:58")}</div>
+<div class="q-ilist">{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", "10월 24일 (토) 오후 2:00 · 32:10", b='<span class="q-badge">요약</span>')}{irow("고객 인터뷰 정리", "가장 자주 나온 불편은 녹음 파일을 찾기 어렵다는 점이었어요.", "10월 23일 (금) 오전 11:20 · 4:32")}{irow("팀 스탠드업", "전사하는 중이에요…", "10월 23일 (금) 오전 9:05 · 9:15", '<span class="q-spin"></span>')}{irow("2026년 10월 22일 오후 3:40", "전사되지 않음", "10월 22일 (목) 오후 3:40 · 0:58")}</div>
 <span class="q-ifab"></span><div class="home"></div></div>'''
 phone_detail = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 <div style="padding:0 16px;flex:none"><span class="q-iback">{ic("back", 16, 2)}</span></div>
 <div style="padding:16px 16px 0;display:flex;flex-direction:column;gap:10px;flex:1">
-<div class="q-meta-mono" style="font-size:10px;letter-spacing:.2px;color:var(--label-secondary)">2026년 10월 24일 (토) 오후 2:00~2:32<br><span style="font-size:9px;font-weight:500">LOCAL · <span style="opacity:.5">NO CTX</span> · LLM · KO</span></div>
+<div class="q-meta-mono" style="font-size:10px;letter-spacing:.2px;color:var(--label-secondary)">2026년 10월 24일 (토) 오후 2:00~2:32<br><span style="font-size:9px;font-weight:500">LOCAL · <span style="opacity:.71">NO CTX</span> · LLM · KO</span></div>
 <div style="font-size:28px;font-weight:700;line-height:32px;letter-spacing:-.3px">주간 제품 회의</div>
-<div class="q-audio" style="border-radius:16px;padding:12px 14px;background:var(--surface-control)"><span class="pb">{ic("play", 11)}</span><div class="bars">{''.join(f'<i style="height:{h}px"{" class=on" if i<8 else ""}></i>' for i,h in enumerate([10,18,14,26,32,22,28,18,12,22,26,34,24,18,14,22,30,20,14,10]))}</div><span class="tm" style="font-size:13px;font-weight:600">0:00 / 12:04</span></div>
+<div class="q-audio" style="border-radius:16px;padding:12px 14px;background:var(--surface-control)"><span class="pb">{ic("play", 11)}</span><div class="bars">{''.join(f'<i style="height:{h}px"{" class=on" if i<8 else ""}></i>' for i,h in enumerate([10,18,14,26,32,22,28,18,12,22,26,34,24,18,14,22,30,20,14,10]))}</div><span class="tm" style="font-size:13px;font-weight:600">0:00 / 32:10</span></div>
 <div class="q-seg" style="display:flex;font-size:13px"><span class="on" style="flex:1;text-align:center">전사문</span><span style="flex:1;text-align:center">요약</span></div>
 <div style="font-size:15px;line-height:21px">출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하고, 화요일에 다시 확인하기로 했어요.</div></div>
 <div style="position:absolute;bottom:28px;left:0;right:0;display:flex;justify-content:center"><div class="q-ftool"><button class="q-tool lg" style="color:var(--status-processing)">{ic("undo", 14).replace('<svg', '<svg style="transform:scaleX(-1)"')}</button><span class="dv"></span><button class="q-tool lg">{ic("copy", 14)}</button><button class="q-tool lg">{ic("share", 14)}</button><span class="dv"></span><button class="q-tool lg" style="color:var(--status-recording)">{ic("trash", 14)}</button></div></div>
 <div class="home"></div></div>'''
 phone_rec = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island live"><span style="width:16px;height:16px;border-radius:5px;background:url({ICON}) center/cover"></span><span style="color:#fff;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums">3:12</span></div><div class="status"></div>
 {ihead()}
-<div class="q-ilist">{irow("2026년 10월 24일 오후 2:00", "", "10월 24일 (토) 오후 2:00", '<span class="q-dot rec"></span>')}{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", "10월 23일 (금) 오후 2:00 · 32:10", b='<span class="q-badge">요약</span>')}</div>
+<div class="q-ilist">{irow("2026년 10월 24일 오후 3:00", "", "10월 24일 (토) 오후 3:00 · 3:12", '<span style="color:var(--status-recording);font-size:11px;font-weight:600;font-family:var(--font-mono)">REC 3:12</span>')}{irow("주간 제품 회의", "출시 일정과 QA 범위를 이야기했어요. 다음 주까지 온보딩 문구를 정리하기로 했어요.", "10월 24일 (토) 오후 2:00 · 32:10", b='<span class="q-badge">요약</span>')}</div>
 <div class="q-recbar"><span class="st"><span class="q-dot rec"></span>녹음 중</span><span class="tm">3:12</span><span class="b">{ic("pause", 14)}</span><span class="b stop"></span></div><div class="home"></div></div>'''
 C["PhoneNotes"] = (700, "목록 → 상세 → 녹음 중", 1080, f'<div class="q-stage" style="gap:40px;padding:24px 28px;background:var(--surface-window)">{phone_list}{phone_detail}{phone_rec}</div>',
 """# PhoneNotes
@@ -494,7 +494,7 @@ C["PhoneNotes"] = (700, "목록 → 상세 → 녹음 중", 1080, f'<div class="
 iPhone 노트 흐름입니다(지금 앱 구조의 정적 재현, 색은 macOS 토큰으로 근사). 탭 없이 `NavigationStack` 하나입니다.
 
 - **노트 목록**: 큰 제목 없이 위에 고정된 머리 한 줄(전사 방식 캡슐 / 검색 · `…`). 설정과 최근 삭제된 노트는 `…` 메뉴에 있습니다. 행은 macOS `NoteListRow`를 옮긴 공유 뷰로, 화면 폭 가득·고정 높이이고 메타 줄에 녹음 길이가 붙습니다. 아래 가운데 56pt 녹음 버튼.
-- **노트 상세**(push): 원형 뒤로가기만 있는 막대 → 메타 줄(SF Mono 10, 칩 9) → 제목 28 Bold → 오디오 카드(72, 반경 16) → 세그먼트(요약이 있을 때만) → 본문 15. 아래에 macOS와 같은 `NoteToolbar` 캡슐.
+- **노트 상세**(push): 원형 뒤로가기만 있는 막대 → 메타 줄(SF Mono 10, 칩 9, 좁은 폭에서는 날짜와 칩을 두 줄로) → 제목 28 Bold → 오디오 카드(72, 반경 16) → 세그먼트(요약이 있을 때만) → 본문 15. 아래에 macOS와 같은 `NoteToolbar` 캡슐.
 - **녹음 중**: 전체 화면 시트 없이 화면 아래 짙은 회색 녹음 막대(상태 · 시간 · 일시정지 · 정지)가 모든 화면 위에 남습니다. Dynamic Island에는 앱 아이콘과 타이머만, 파형은 없습니다.
 
 크기·글자 대응은 **iPhone · iPad** 섹션.
@@ -523,7 +523,7 @@ phone_set_root = f'''<div class="q-phone" style="background:var(--surface-window
 {sec("앱", li("", "정보", "1.0.0"))}</div><div class="home"></div></div>'''
 phone_set_models = f'''<div class="q-phone" style="background:var(--surface-window)"><div class="island"></div><div class="status"></div>
 {iset_nav("모델")}
-<div class="q-group">{sec("클라우드", li("", "API 제공자", "OpenAI"))}
+<div class="q-group">{sec("클라우드", li("", "API 제공업체", "켬"))}
 {sec("전사", li("", "전사", tog=True) + li("", "전사 모델", "Whisper") + li("", "전사 언어", "자동"), "녹음을 글로 바꿔요.")}
 {sec("후처리", li("", "후처리", tog=False))}
 {sec("회의 요약", li("", "회의 요약", tog=True) + li("", "모델", "Gemma 4 E2B"))}</div><div class="home"></div></div>'''
