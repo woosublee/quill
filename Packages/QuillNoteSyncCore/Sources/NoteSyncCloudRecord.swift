@@ -2,7 +2,7 @@ import CloudKit
 import Foundation
 
 /// How a failed save or delete is handled, read from its CloudKit error.
-public enum NoteSyncSendErrorKind: Equatable {
+public enum NoteSyncSendErrorKind: Equatable, Sendable {
     /// The `Notes` zone is gone: deleted by another Mac, or by this one.
     case zoneGone
     case serverChanged
@@ -21,7 +21,7 @@ public enum NoteSyncSendErrorKind: Equatable {
 
 /// Where a failed save or delete goes, from what was sent, the error, and
 /// whether this Mac is deleting its iCloud data.
-public enum NoteSyncSendRoute: Equatable {
+public enum NoteSyncSendRoute: Equatable, Sendable {
     /// The engine retries it itself, or nothing is left to do.
     case nothing
     /// A part iCloud already has (its name says which bytes it holds).
@@ -43,7 +43,7 @@ public enum NoteSyncSendRoute: Equatable {
     /// Tried again later: a save with waits, a delete as a delete.
     case failed
 
-    public enum Sent { case note, part }
+    public enum Sent: Sendable { case note, part }
 
     public static func route(_ sent: Sent, isSave: Bool, code: CKError.Code, deletingZone: Bool) -> NoteSyncSendRoute {
         let kind = NoteSyncCloudRecord.sendErrorKind(code)
@@ -232,3 +232,5 @@ public enum NoteSyncCloudRecord {
         return CKRecord(coder: unarchiver)
     }
 }
+
+extension NoteSyncDeleteHold: Sendable where Change: Sendable {}

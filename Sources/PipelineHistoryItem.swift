@@ -1,7 +1,7 @@
 import Foundation
 import QuillNoteSyncCore
 
-enum PipelineHistoryItemIntent: String, Codable {
+enum PipelineHistoryItemIntent: String, Codable, CaseIterable {
     case dictation
     case commandAutomatic = "command:automatic"
     case commandManual = "command:manual"

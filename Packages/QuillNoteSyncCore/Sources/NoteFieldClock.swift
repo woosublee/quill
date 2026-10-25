@@ -46,6 +46,12 @@ public struct NoteFieldClock: Codable, Equatable, Sendable {
 extension NoteFieldClock {
     /// The groups whose values differ between two field dictionaries: only
     /// groups whose values really changed. Never reports `deletion`.
+    ///
+    /// The iPhone app stamps its notes with this. The Mac compares its notes
+    /// instead (`changedGroups(from:to:)` on `PipelineHistoryItem`), which
+    /// differs at the edges: it leaves the audio manifest out of `audio`,
+    /// sees the summary attempt with its provider host, and compares dates
+    /// before rounding. Making the two one rule is a #634 follow-up.
     public static func changedGroups(
         from old: [String: NoteSyncValue], to new: [String: NoteSyncValue]
     ) -> Set<NoteFieldGroup> {

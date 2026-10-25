@@ -402,23 +402,16 @@ struct NoteSyncRecordTests {
     }
 
     /// QuillNoteSyncCore can't see this Mac's enums, so it keeps their raw
-    /// values. A case added here must be added there, or records carrying it
-    /// would be skipped as unreadable.
+    /// values. A case added or renamed here must change there too, or records
+    /// carrying it would be skipped as unreadable.
     static func testSharedCoreKnowsEveryMacRawValue() {
-        func intentRawValue(_ intent: PipelineHistoryItemIntent) -> String {
-            switch intent {
-            case .dictation, .commandAutomatic, .commandManual: return intent.rawValue
-            }
-        }
-        let intents: [PipelineHistoryItemIntent] = [.dictation, .commandAutomatic, .commandManual]
-        precondition(Set(intents.map(intentRawValue)) == NoteSyncRecord.knownIntents)
-
-        func resolutionRawValue(_ source: SpokenLanguageResolutionSource) -> String {
-            switch source {
-            case .configured, .engineDetected, .transcriptInferred, .unavailable: return source.rawValue
-            }
-        }
-        let sources: [SpokenLanguageResolutionSource] = [.configured, .engineDetected, .transcriptInferred, .unavailable]
-        precondition(Set(sources.map(resolutionRawValue)) == NoteSyncRecord.knownSpokenLanguageResolutions)
+        precondition(
+            Set(PipelineHistoryItemIntent.allCases.map(\.rawValue)) == NoteSyncRecord.knownIntents,
+            "QuillNoteSyncCore's knownIntents matches PipelineHistoryItemIntent"
+        )
+        precondition(
+            Set(SpokenLanguageResolutionSource.allCases.map(\.rawValue)) == NoteSyncRecord.knownSpokenLanguageResolutions,
+            "QuillNoteSyncCore's knownSpokenLanguageResolutions matches SpokenLanguageResolutionSource"
+        )
     }
 }

@@ -1,9 +1,9 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "QuillSparkleDependencies",
-    platforms: [.macOS(.v13), .iOS(.v17)],
+    platforms: [.macOS(.v13), .iOS(.v16)],
     products: [
         .executable(name: "SparkleResolver", targets: ["SparkleResolver"]),
         // Shared with the iPhone app, which depends on this repository for it
@@ -23,7 +23,10 @@ let package = Package(
         ),
         .target(
             name: "QuillNoteSyncCore",
-            path: "Packages/QuillNoteSyncCore/Sources"
+            path: "Packages/QuillNoteSyncCore/Sources",
+            // The Makefile builds it with -swift-version 6 too.
+            swiftSettings: [.swiftLanguageMode(.v6)]
         )
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )

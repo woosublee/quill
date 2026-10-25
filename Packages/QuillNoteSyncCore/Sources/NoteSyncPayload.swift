@@ -1,6 +1,6 @@
 import Foundation
 
-public enum NoteSyncPayloadError: Error { case malformed }
+public enum NoteSyncPayloadError: Error, Sendable { case malformed }
 
 /// The JSON a `Note` record carries as its `payload` asset. Shared with the
 /// iPhone app, so keys never change once shipped; `v` versions the shape.

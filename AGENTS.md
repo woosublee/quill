@@ -21,7 +21,9 @@ otherwise.
 - `Packages/QuillNoteSyncCore/`: note sync record, merge, payload, CloudKit,
   and audio-part logic shared with the iPhone app (#634). The Makefile builds it
   as its own Swift 6 module before the app and the tests that import it; the
-  root `Package.swift` exposes it to the iPhone app.
+  root `Package.swift` exposes it to the iPhone app in the same language mode.
+  Resolving that package also downloads Sparkle, which the iPhone app never
+  builds or links.
 - `Tests/`: dependency-free executable and grouped full-source tests.
 - `.github/workflows/tests.yml`: sharded pull-request verification.
 - `.github/workflows/release.yml`: official notarized Developer ID release.

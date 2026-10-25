@@ -94,3 +94,5 @@ public struct NoteSyncRetries<Key: Hashable> {
         givenUp = []
     }
 }
+
+extension NoteSyncRetries: Sendable where Key: Sendable {}

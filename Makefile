@@ -73,6 +73,8 @@ SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 HOST_ARCH := $(shell uname -m)
 shared_core_lib = $(SHARED_CORE_BUILD_DIR)/$(1)/libQuillNoteSyncCore.a
 shared_core_flags = -I $(SHARED_CORE_BUILD_DIR)/$(1) -L $(SHARED_CORE_BUILD_DIR)/$(1) -lQuillNoteSyncCore
+# Records the compiler and SDK, so a toolchain update rebuilds the module.
+SHARED_CORE_TOOLCHAIN = $(SHARED_CORE_BUILD_DIR)/.toolchain
 RESOURCES = $(CONTENTS)/Resources
 LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings
 LOCALIZATION_INFO_DIR = Resources/Localization
@@ -208,7 +210,12 @@ $(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj
 	done
 	@touch "$@"
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteSyncCore.a: $(NOTE_SYNC_CORE_SOURCES)
+$(SHARED_CORE_TOOLCHAIN): FORCE
+	@mkdir -p "$(@D)"
+	@{ swiftc --version 2>&1; xcrun --sdk macosx --show-sdk-path; } > "$@.tmp"
+	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
+
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteSyncCore.a: $(NOTE_SYNC_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	swiftc \
 		-parse-as-library \

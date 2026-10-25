@@ -1,6 +1,6 @@
 import NaturalLanguage
 
-enum SpokenLanguageResolutionSource: String, Codable, Equatable, Sendable {
+enum SpokenLanguageResolutionSource: String, Codable, Equatable, Sendable, CaseIterable {
     case configured
     case engineDetected
     case transcriptInferred

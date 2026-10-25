@@ -123,7 +123,7 @@ public struct NoteAudioManifest: Codable, Equatable, Sendable {
     }
 }
 
-public enum NoteAudioPartsError: Error {
+public enum NoteAudioPartsError: Error, Sendable {
     /// The file is shorter than when the part was planned.
     case pastEnd
 }
