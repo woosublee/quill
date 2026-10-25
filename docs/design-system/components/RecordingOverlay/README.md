@@ -10,4 +10,4 @@
 - 배치 두 가지: 가운데(알약) / 노치 옆(노치 좌우로 92pt씩). 업데이트 알림은 항상 가운데.
 - 동작 줄이기: 파형은 레벨만, 처리 중은 멈춘 모래시계, 준비 중은 멈춘 점 셋.
 - 패널은 클릭을 통과시키고(hover 추적만), 입력 전환은 AppKit 메뉴로 엽니다.
-- iPhone·iPad: Dynamic Island / Live Activity가 같은 역할. 같은 파형·색을 씁니다.
+- iPhone: 화면 아래 녹음 막대와 Live Activity·Dynamic Island가 같은 역할입니다. 막대는 짙은 회색 캡슐(`recorderPanel`)에 상태·시간·일시정지·정지만 있고, 파형은 없습니다.

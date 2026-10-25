@@ -43,8 +43,8 @@
   },
   "lastChange": {
     "by": "WooSub Lee",
-    "at": "2026-10-25T11:40:00Z",
+    "at": "2026-10-25T18:10:00Z",
     "via": "Claude Code",
-    "note": "실제 앱(Quill Dev 1.2.2) 화면과 대조해 설정 컨트롤·권한 줄·선택 행·날짜 형식·용어(시스템 오디오, 전사문, 기록 복구)를 맞추고 정리할 곳 3개 추가"
+    "note": "iPhone 섹션을 실제 앱(quill-universal main@8e715ae) 기준으로 다시 씀: 화면 구성·글자·간격·색 대응, 설정 대응표, PhoneNotes·PhoneSettings 미리보기. 정리할 곳 10번(iPhone) 추가, 녹음 버튼 크기·녹음 표면 색은 결정할 것 4·5번으로"
   }
 }

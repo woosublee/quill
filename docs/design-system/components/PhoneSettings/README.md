@@ -1,3 +1,8 @@
 # PhoneSettings
 
-iPhone 설정 제안입니다(정적 재현). 노트 목록의 톱니로 여는 시트. 루트는 macOS 설정 탭과 같은 순서·아이콘의 목록(Mac 전용 탭 제외: 단축키 일부, AI 도구, 보관된 기록 등). 각 페이지는 `List(.insetGrouped)`이고 macOS `SettingsCard` 하나가 Section 하나, `caption` 도움말이 섹션 꼬리가 됩니다. 유지·변형·제외 표는 **iPhone · iPad** 섹션.
+iPhone 설정입니다(실제 앱의 정적 재현). 노트 목록 `…` 메뉴의 `설정`에서 push로 엽니다.
+
+- **루트**: `List(.insetGrouped)`, inline 제목. macOS 탭 목록을 옮기지 않고 아이콘 없는 네 묶음으로 줄였습니다: 노트 › 모델 / 연결 › 캘린더 / 동기화 › iCloud / 앱 › 정보. 행 오른쪽에 상태 값과 꺾쇠.
+- **모델**: 한 화면에 클라우드 → 전사 → 후처리 → 회의 요약 섹션. macOS `SettingsCard` 하나가 Section 하나이고, 카드 머리 스위치는 섹션 첫 줄 스위치(시스템 녹색)가 됩니다. 모델 행을 누르면 체크 표시 목록에서 고릅니다.
+
+유지·변형·제외 표는 **iPhone · iPad** 섹션.

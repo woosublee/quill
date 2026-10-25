@@ -1,4 +1,4 @@
-Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중인 순간만 또렷합니다. 이 문서는 macOS 앱의 실제 코드에서 뽑은 규칙이며, iPhone·iPad·이후 앱도 같은 규칙에서 출발합니다. 화면 구성은 **화면 구성** 섹션, 모바일 배치는 **iPhone · iPad** 섹션, 지금 코드에서 규칙을 벗어난 곳은 **정리할 곳** 섹션에 있습니다.
+Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중인 순간만 또렷합니다. 이 문서는 macOS 앱의 실제 코드에서 뽑은 규칙이며, iPhone 앱(`quill-universal`)과 이후 iPad 앱도 같은 규칙에서 출발합니다. 화면 구성은 **화면 구성** 섹션, iPhone의 실제 배치와 iPad 제안은 **iPhone · iPad** 섹션, 지금 코드에서 규칙을 벗어난 곳은 **정리할 곳** 섹션에 있습니다.
 
 ## 디자인 원칙
 
@@ -26,7 +26,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 - 강조: `accent`와 그 불투명도(`accent-tint-selected` 8%, `accent-tint-nav` 15%, `accent-stroke-selected` 30%, `accent-highlight` 85%). `Color.blue`를 직접 쓰지 않습니다.
 - 상태: 녹음 `status-recording`, 처리 중 `status-processing`, 완료 `status-done`. 이슈 아이콘은 `issue-warning`, `issue-error`(아이콘 전용, 글자 금지).
 - 오버레이: `overlay-surface` 위 `overlay-text`. 보조는 `overlay-text-muted`(62%), 닫기 원 `overlay-chip`.
-- 네이티브 코드에서는 `Sources/QuillDesignTokens.swift`의 `QuillSpacing`, `QuillRadius`, `QuillColor`를 씁니다(토큰 이름 `space-12` = `QuillSpacing.space12`). hex를 직접 쓰지 않습니다. 표의 값은 기본 파랑 강조색 기준의 근사값이고, 코드에서는 `Color.primary`, `.secondary`, `Color(nsColor: .windowBackgroundColor)`(iOS는 `.systemGroupedBackground` 등)와 불투명도를 씁니다.
+- 네이티브 코드에서는 `Sources/QuillDesignTokens.swift`의 `QuillSpacing`, `QuillRadius`, `QuillColor`를 씁니다(토큰 이름 `space-12` = `QuillSpacing.space12`). hex를 직접 쓰지 않습니다. 표의 값은 기본 파랑 강조색 기준의 근사값이고, 코드에서는 `Color.primary`, `.secondary`, `Color(nsColor: .windowBackgroundColor)`와 불투명도를 씁니다. iPhone은 `QuillVisualSystem`의 색 역할을 쓰며, 대응은 **iPhone · iPad › 색 대응**에 있습니다.
 
 ## 글자
 
@@ -34,7 +34,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 - 크기는 역할 이름으로 고릅니다. 화면 제목 `note-title`, 본문 `transcript`, 설정 라벨 `body`, 설정 도움말 `caption`, 행 제목 `row-title`, 행 미리보기 `row-preview`, 행 날짜 `meta-label`.
 - 굵기는 regular / medium / semibold / bold 넷. 강조는 semibold가 기본, bold는 오버레이·회의 알림·온보딩 제목에만.
 - 본문(`transcript`)은 줄 간격 +5pt, 문단 간격 6pt, 좌우 `space-40`.
-- 플랫폼별 크기는 다르고 역할은 같습니다. iPhone·iPad 대응표는 **iPhone · iPad** 섹션.
+- 플랫폼별 크기는 다르고 역할은 같습니다. iPhone은 15pt 본문 기준으로 한두 단계 크고 Dynamic Type을 따릅니다. 대응표는 **iPhone · iPad** 섹션.
 
 ## 간격과 배치
 
@@ -72,7 +72,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 1. **원자**: 더 나눌 수 없는 하나의 요소. `Badge`, `StatusIndicator`, `SelectionCheckbox`, `Waveform`, `CapsuleButton`, `IconButton`, `CloseButton`, `ToolbarButton`, `RecordButton`.
 2. **분자**: 원자 몇 개가 한 가지 일을 하는 묶음. `InputPicker`, `ModelPicker`, `SearchField`, `NoteListRow`, `StatusBanner`, `InfoNotice`, `Toast`, `NoticeToast`, `DeletionCapsule`, `AudioPlayer`, `OptionRow`, `ModelRow`.
 3. **유기체**: 화면의 한 구역. `RecordingOverlay`, `MeetingReminder`, `NoteToolbar`, `IssueEmptyState`, `SettingsCard`, `SettingsSidebar`.
-4. **화면**: 유기체를 배치한 전체 화면. macOS(`MacNoteBrowser`, `MacSettings`)는 지금 코드 그대로, iPhone·iPad는 제안입니다.
+4. **화면**: 유기체를 배치한 전체 화면. macOS(`MacNoteBrowser`, `MacSettings`)와 iPhone(`PhoneNotes`, `PhoneSettings`)은 지금 코드 그대로, iPad는 제안입니다.
 
 macOS 시스템 컨트롤(토글, 팝업 버튼, 세그먼트, 슬라이더)은 Quill이 따로 꾸미지 않으므로 컴포넌트로 두지 않고 시스템 것을 씁니다.
 
