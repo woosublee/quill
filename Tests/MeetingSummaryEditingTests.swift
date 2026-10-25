@@ -10,7 +10,10 @@ struct MeetingSummaryEditingTests {
         try testUneditedSummaryStoresNoEditFields()
         try testSummaryFromBeforeEditingDecodesAsUnedited()
         try testEditKeepsOriginalAndDropsEmptyRows()
+        try testLeavingEmptyRowsKeepsOnlyTheFocusedOne()
+        try testNewRowButtonGivesWayToFocusedUntypedRow()
         try testEditKeepsSavedCompletion()
+        try testEditKeepsActionWithOnlyOwner()
         try testCompletionOnlyChangeIsNotAnEdit()
         try testSecondEditKeepsFirstOriginal()
         try testRevertRestoresOriginalAndKeepsCompletion()
@@ -56,6 +59,58 @@ struct MeetingSummaryEditingTests {
         try expect(edited.content.actionItems.map(\.task) == ["Synthetic task", "Added action"], "empty action is dropped")
         try expect(edited.content.actionItems[0].owner == "Synthetic owner", "owner edit is kept")
         try expect(edited.content.actionItems[0].sourceQuote == "Synthetic quote.", "source link stays on an edited row")
+    }
+
+    // A new row left without typing goes away once focus leaves it; only the
+    // row still being typed in stays.
+    private static func testLeavingEmptyRowsKeepsOnlyTheFocusedOne() throws {
+        var content = envelope().content
+        content.keyPoints.append(MeetingSummaryPoint(id: pointID(5), text: "", sourceQuote: nil))
+        content.decisions.append(MeetingSummaryPoint(id: pointID(6), text: " ", sourceQuote: nil))
+        content.actionItems.append(action(id: 8, task: "", completed: false))
+        var ownerOnly = action(id: 9, task: "", completed: false)
+        ownerOnly.owner = "Synthetic owner"
+        content.actionItems.append(ownerOnly)
+
+        let focusedPoint = content.removingUntypedRows(except: pointID(5))
+        try expect(focusedPoint.keyPoints.map(\.id) == [pointID(1), pointID(5)], "the focused empty point stays")
+        try expect(focusedPoint.decisions.isEmpty, "an unfocused empty decision is dropped")
+        try expect(
+            focusedPoint.actionItems.map(\.id) == [content.actionItems[0].id, pointID(9)],
+            "an untyped action is dropped, one with an owner stays"
+        )
+
+        let focusedAction = content.removingUntypedRows(except: pointID(8))
+        try expect(focusedAction.actionItems.map(\.id).contains(pointID(8)), "the focused empty action stays")
+        try expect(focusedAction.keyPoints.map(\.text) == ["Synthetic point"], "an unfocused empty point is dropped")
+    }
+
+    // The New Item button gives way only to a new row being typed in, so a
+    // row that never got focus still leaves a way to add one.
+    private static func testNewRowButtonGivesWayToFocusedUntypedRow() throws {
+        var content = envelope().content
+        try expect(!content.endsWithFocusedUntypedRow(\.keyPoints, focusedID: pointID(1)), "a typed last row keeps the button")
+        try expect(!content.endsWithFocusedUntypedRow(\.decisions, focusedID: nil), "an empty section keeps the button")
+
+        content.keyPoints.append(MeetingSummaryPoint(id: pointID(5), text: "", sourceQuote: nil))
+        try expect(content.endsWithFocusedUntypedRow(\.keyPoints, focusedID: pointID(5)), "the focused new row takes its place")
+        try expect(!content.endsWithFocusedUntypedRow(\.keyPoints, focusedID: nil), "an unfocused new row keeps the button")
+
+        content.actionItems.append(action(id: 8, task: "", completed: false))
+        try expect(content.endsWithFocusedUntypedAction(focusedID: pointID(8)), "the focused new action takes its place")
+        content.actionItems[1].dueDate = "Friday"
+        try expect(!content.endsWithFocusedUntypedAction(focusedID: pointID(8)), "a due date counts as typing")
+    }
+
+    // An action with only an owner typed is saved, like it stays on screen.
+    private static func testEditKeepsActionWithOnlyOwner() throws {
+        let original = envelope()
+        var content = original.content
+        var ownerOnly = action(id: 9, task: "", completed: false)
+        ownerOnly.owner = "Synthetic owner"
+        content.actionItems.append(ownerOnly)
+        let edited = try required(original.applyingEdit(content, at: Date()))
+        try expect(edited.content.actionItems.map(\.id).last == pointID(9), "the owner-only action is saved")
     }
 
     // Completion is saved through its own path; an edit never changes it.
