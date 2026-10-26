@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillProviderCore
 
 enum CloudTranscriptionJobPhase: String, Codable, Equatable, Sendable {
     case prepared

@@ -5132,7 +5132,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    static let defaultAPIBaseURL = "https://api.groq.com/openai/v1"
+    static let defaultAPIBaseURL = CloudProviderURL.defaultBaseURL
 
     private struct StoredShortcutConfiguration {
         let hold: ShortcutBinding

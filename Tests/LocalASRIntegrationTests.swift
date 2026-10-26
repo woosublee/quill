@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 /// Opt-in check against a real Gemma 4 E4B `llama-server` (make
 /// test-local-asr-integration). Uses synthetic recordings the developer

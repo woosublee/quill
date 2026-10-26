@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillProviderCore
 
 /// Binds a Local AI transcription snapshot to the installed model package and
 /// the shared `llama-server`. Kept apart from the snapshot type so standalone

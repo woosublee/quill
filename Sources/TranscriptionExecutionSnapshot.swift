@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillProviderCore
 
 enum CloudTranscriptionProviderIdentityError: Error, Equatable {
     case invalidURL
@@ -60,49 +61,16 @@ struct CloudTranscriptionExecutionSnapshot: Sendable {
     }
 
     static func normalizedBaseURL(from value: String) throws -> URL {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: trimmed) else {
-            throw CloudTranscriptionProviderIdentityError.invalidURL
-        }
-        guard let scheme = components.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            throw CloudTranscriptionProviderIdentityError.unsupportedScheme
-        }
-        guard components.user == nil, components.password == nil else {
-            throw CloudTranscriptionProviderIdentityError.embeddedCredentials
-        }
-        guard components.query == nil, components.fragment == nil else {
-            throw CloudTranscriptionProviderIdentityError.queryOrFragment
-        }
-        guard let host = components.host?.lowercased(), !host.isEmpty else {
-            throw CloudTranscriptionProviderIdentityError.missingHost
-        }
-
-        components.scheme = scheme
-        components.host = host
-        if components.port == Self.defaultPort(for: scheme) {
-            components.port = nil
-        }
-        if components.path == "/" {
-            components.path = ""
-        } else {
-            components.path = components.path.replacingOccurrences(
-                of: "/+$",
-                with: "",
-                options: .regularExpression
-            )
-        }
-        guard let normalizedURL = components.url else {
-            throw CloudTranscriptionProviderIdentityError.invalidURL
-        }
-        return normalizedURL
-    }
-
-    private static func defaultPort(for scheme: String) -> Int? {
-        switch scheme {
-        case "http": return 80
-        case "https": return 443
-        default: return nil
+        do {
+            return try CloudProviderURL.normalized(value)
+        } catch let error as CloudProviderURLError {
+            switch error {
+            case .invalidURL: throw CloudTranscriptionProviderIdentityError.invalidURL
+            case .unsupportedScheme: throw CloudTranscriptionProviderIdentityError.unsupportedScheme
+            case .missingHost: throw CloudTranscriptionProviderIdentityError.missingHost
+            case .embeddedCredentials: throw CloudTranscriptionProviderIdentityError.embeddedCredentials
+            case .queryOrFragment: throw CloudTranscriptionProviderIdentityError.queryOrFragment
+            }
         }
     }
 
