@@ -173,23 +173,6 @@ enum TranscriptOutputSanitizer {
         return result
     }
 
-    static func postProcessedTranscript(_ value: String) -> String {
-        var result = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !result.isEmpty else { return "" }
-
-        if result.hasPrefix("\"") && result.hasSuffix("\"") && result.count > 1 {
-            result.removeFirst()
-            result.removeLast()
-            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        if result == "EMPTY" {
-            return ""
-        }
-
-        return result
-    }
-
     static func commandModeTranscript(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }

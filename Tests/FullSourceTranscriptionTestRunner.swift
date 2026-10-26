@@ -10,7 +10,7 @@ struct FullSourceTranscriptionTestRunner {
         try PostProcessingUserIssueTests.main()
         try await PostProcessingBackendTests.main()
         try PostProcessingOutputValidatorTests.main()
-        try PostProcessingChunkingTests.main()
+        try await PostProcessingChunkingTests.main()
         try await AppContextBackendTests.main()
         try MeetingSummaryOutputValidatorTests.main()
         try MeetingSummaryEditingTests.main()

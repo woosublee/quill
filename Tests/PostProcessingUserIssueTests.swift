@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 import QuillUserIssueCore
 
 #if !QUILL_GROUPED_TEST_RUNNER

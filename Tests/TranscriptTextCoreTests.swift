@@ -1,4 +1,5 @@
 import Foundation
+import QuillAITextCore
 
 @main
 struct TranscriptTextCoreTests {
@@ -152,13 +153,13 @@ struct TranscriptTextCoreTests {
 
     private static func testPostProcessedTranscriptSanitization() {
         expectEqual(
-            TranscriptOutputSanitizer.postProcessedTranscript("  \"Synthetic output.\" \n"),
+            PostProcessingReplySanitizer.postProcessedTranscript("  \"Synthetic output.\" \n"),
             "Synthetic output."
         )
-        expectEqual(TranscriptOutputSanitizer.postProcessedTranscript("EMPTY"), "")
-        expectEqual(TranscriptOutputSanitizer.postProcessedTranscript("\"EMPTY\""), "")
-        expectEqual(TranscriptOutputSanitizer.postProcessedTranscript("empty"), "empty")
-        expectEqual(TranscriptOutputSanitizer.postProcessedTranscript("  \n "), "")
+        expectEqual(PostProcessingReplySanitizer.postProcessedTranscript("EMPTY"), "")
+        expectEqual(PostProcessingReplySanitizer.postProcessedTranscript("\"EMPTY\""), "")
+        expectEqual(PostProcessingReplySanitizer.postProcessedTranscript("empty"), "empty")
+        expectEqual(PostProcessingReplySanitizer.postProcessedTranscript("  \n "), "")
     }
 
     private static func testModeSpecificSanitization() {
