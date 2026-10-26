@@ -24,9 +24,12 @@ otherwise.
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
   detector, the post-processing output validator, the prompt data envelope,
-  and the local-model token budget.
+  the local-model token budget, and transcript cleanup (its prompt, splitter,
+  and the chunk runner). Cleanup requests, fallbacks, and Edit Mode stay in
+  `Sources/PostProcessingService.swift`.
 - `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
-  severity, context, the provider diagnostic code allow-list). Its on-screen
+  severity, context, the provider diagnostic code allow-list) and its
+  persisted status string (`user-issue:v1:`). Its on-screen
   copy and recovery actions stay in `Sources/QuillUserIssue.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown

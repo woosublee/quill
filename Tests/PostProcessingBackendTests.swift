@@ -421,8 +421,8 @@ struct PostProcessingBackendTests {
         try expect(translated.contains("Translate the final cleaned text into Korean"), "explicit output language still translates")
         try expect(!translated.contains("The dictation is primarily in"), "explicit output language wins")
 
-        try expect(PostProcessingService.dictationLanguageName(forCode: "ja") == "Japanese", "language code to English name")
-        try expect(PostProcessingService.dictationLanguageName(forCode: nil) == nil, "unknown language adds nothing")
+        try expect(PostProcessingPrompt.dictationLanguageName(forCode: "ja") == "Japanese", "language code to English name")
+        try expect(PostProcessingPrompt.dictationLanguageName(forCode: nil) == nil, "unknown language adds nothing")
     }
 
     private static func testDefaultPromptKeepsShortRepliesOutOfEmpty() throws {
@@ -1925,11 +1925,11 @@ struct PostProcessingBackendTests {
         let firstSystemPrompt = try systemPrompt(from: requests[0])
         let secondSystemPrompt = try systemPrompt(from: requests[1])
         try expect(
-            !firstSystemPrompt.contains(PostProcessingService.emptyReplyReminder),
+            !firstSystemPrompt.contains(PostProcessingPrompt.emptyReplyReminder),
             "first request omits the EMPTY reminder"
         )
         try expect(
-            secondSystemPrompt.contains(PostProcessingService.emptyReplyReminder),
+            secondSystemPrompt.contains(PostProcessingPrompt.emptyReplyReminder),
             "second request adds the EMPTY reminder"
         )
         try expect(
