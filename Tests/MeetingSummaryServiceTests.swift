@@ -543,8 +543,10 @@ struct MeetingSummaryServiceTests {
         )
     }
 
-    /// At about 1.9 bytes a token, the Mac's whole-ratio sizing floors the
-    /// ratio to 1 and cuts smaller chunks than the iPhone's exact sizing.
+    /// The 266-byte transcript counts as 140 tokens, about 1.9 bytes a
+    /// token, with 40 tokens of source room. The Mac's whole-ratio sizing
+    /// floors the ratio to 1 and cuts 20-byte chunks (40 * 1 / 2); the
+    /// iPhone's exact sizing cuts 38-byte chunks (40 * 266 / 140 / 2).
     private static func testExactChunkSizingKeepsTheFractionalByteRatio() async throws {
         let transcript = (1...12).map { "Line \($0) of the review." }.joined(separator: "\n")
         func extractionCount(_ sizing: MeetingSummaryChunkSizing) async throws -> Int {
@@ -565,9 +567,19 @@ struct MeetingSummaryServiceTests {
             ))
             return requester.extractionCount()
         }
+        try expect(transcript.utf8.count == 266, "the transcript is 266 bytes")
         let whole = try await extractionCount(.wholeBytesPerToken)
         let exact = try await extractionCount(.exactBytesPerToken)
-        try expect(whole > exact, "whole-ratio sizing cuts more chunks (\(whole) vs \(exact))")
+        try expect(
+            whole == MeetingSummaryTextChunker(maximumSourceBytes: 20).chunks(for: transcript).count
+                && whole == 24,
+            "whole-ratio sizing cuts 20-byte chunks (got \(whole) extractions)"
+        )
+        try expect(
+            exact == MeetingSummaryTextChunker(maximumSourceBytes: 38).chunks(for: transcript).count
+                && exact == 12,
+            "exact sizing cuts 38-byte chunks (got \(exact) extractions)"
+        )
     }
 
     private static func testRateLimitUsesConfiguredFallback() async throws {

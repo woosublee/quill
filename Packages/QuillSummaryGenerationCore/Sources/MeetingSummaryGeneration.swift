@@ -170,9 +170,13 @@ public enum MeetingSummaryError: Error, Equatable {
 }
 
 public enum MeetingSummaryStrictDecoder {
-    /// `unwrapsNestedSourceQuotes` accepts overview quotes wrapped one level
-    /// deeper (`[["quote"]]`), which the iPhone's small local model writes.
-    /// The Mac's local model is held to the schema, so the Mac rejects them.
+    /// `unwrapsNestedSourceQuotes` flattens every array directly inside the
+    /// overview's `sourceQuotes` into it, as the iPhone has done since its
+    /// small local model wrote `[["quote", "quote"]]`. Mixed and empty inner
+    /// arrays flatten too. Null and blank quotes are dropped either way; a
+    /// deeper array or another non-string is still rejected. The Mac's local
+    /// model is held to the schema, so the Mac leaves this off and rejects
+    /// any nested array.
     public static func decode(
         _ text: String,
         unwrapsNestedSourceQuotes: Bool = false
@@ -365,8 +369,11 @@ public struct MeetingSummaryDraftReply: Sendable {
     }
 }
 
-/// Sends one draft request to a model and decodes its reply. Each app keeps
-/// its own requests, retries, fallbacks, and reply parsing.
+/// Sends one draft request to a model and decodes its reply with
+/// `MeetingSummaryStrictDecoder`. Each app keeps its own requests, retries,
+/// fallbacks, and what comes before decoding: the request's response format,
+/// stripping reasoning tags or code fences, and telling a cut-off reply from
+/// a malformed one.
 public protocol MeetingSummaryDraftRequesting: Sendable {
     /// Local or cloud. Only a local model gets the calendar event (#529).
     var backendKind: MeetingSummaryBackendKind { get }
@@ -395,26 +402,6 @@ public enum MeetingSummaryChunkSizing: Sendable {
         case .exactBytesPerToken:
             return tokenLimit * max(transcriptBytes, transcriptTokens)
                 / max(1, transcriptTokens)
-        }
-    }
-}
-
-/// The summary language name a prompt asks for, or nil to keep the
-/// transcript's language.
-public enum MeetingSummaryPromptLanguage {
-    public static func name(for code: String?) -> String? {
-        switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "ko": "Korean"
-        case "en": "English"
-        case "ja": "Japanese"
-        case "zh": "Chinese"
-        case "zh-hans", "zh-cn", "zh-sg": "Simplified Chinese"
-        case "zh-hant", "zh-hk", "zh-mo", "zh-tw": "Traditional Chinese"
-        case "es": "Spanish"
-        case "fr": "French"
-        case "de": "German"
-        case "pt", "pt-br", "pt-pt": "Portuguese"
-        default: nil
         }
     }
 }

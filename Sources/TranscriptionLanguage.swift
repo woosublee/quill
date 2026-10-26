@@ -1,5 +1,5 @@
 import Foundation
-import QuillSummaryGenerationCore
+import QuillAITextCore
 import Speech
 
 struct TranscriptionLanguage: Identifiable, Hashable, Codable {
