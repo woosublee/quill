@@ -23,14 +23,20 @@ otherwise.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
-  detector, the post-processing output validator, and the prompt data envelope.
+  detector, the post-processing output validator, the prompt data envelope,
+  and the local-model token budget.
 - `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
   severity, context, the provider diagnostic code allow-list). Its on-screen
   copy and recovery actions stay in `Sources/QuillUserIssue.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
-  rendering). Draft decoding and the attempt's on-screen details stay in
+  rendering). The attempt's on-screen details stay in
   `Sources/MeetingSummaryModels.swift`.
+- `Packages/QuillSummaryGenerationCore/`: how a meeting summary is made: the
+  prompts, chunking and merging, the strict draft decoder, evidence repair
+  and output checks, and the summary errors. Model requests, fallbacks, and
+  cooldowns stay in `Sources/MeetingSummaryService.swift`, which plugs into
+  the generator as its draft requester.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

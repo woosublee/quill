@@ -2,6 +2,7 @@ import Foundation
 import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
+import QuillSummaryGenerationCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main
@@ -18,6 +19,8 @@ struct MeetingSummaryServiceTests {
         try await testLocalRequestUsesLoopbackWithoutAuthorization()
         try testUnknownTopLevelKeyIsRejected()
         try testOwnerAndDueDateMayBeNull()
+        try testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked()
+        try await testExactChunkSizingKeepsTheFractionalByteRatio()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
         try await testFallbackTerminalFailureReportsPrimaryModel()
@@ -521,6 +524,62 @@ struct MeetingSummaryServiceTests {
         try expect(decoded.actionItems.count == 1, "one action item")
         try expect(decoded.actionItems[0].owner == nil, "null owner")
         try expect(decoded.actionItems[0].dueDate == nil, "null due date")
+    }
+
+    /// The iPhone's small local model wraps overview quotes one level
+    /// deeper; only the iPhone asks to unwrap them.
+    private static func testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked() throws {
+        let nested = #"{"overview":{"text":"Release review","sourceQuotes":[["Release review."]]},"keyPoints":[],"decisions":[],"actionItems":[],"openQuestions":[]}"#
+        try expectFailure("nested overview quotes without unwrapping") {
+            _ = try MeetingSummaryStrictDecoder.decode(nested)
+        }
+        let decoded = try MeetingSummaryStrictDecoder.decode(
+            nested,
+            unwrapsNestedSourceQuotes: true
+        )
+        try expect(
+            decoded.overview.sourceQuotes == ["Release review."],
+            "one level of overview quotes is unwrapped"
+        )
+    }
+
+    /// The 266-byte transcript counts as 140 tokens, about 1.9 bytes a
+    /// token, with 40 tokens of source room. The Mac's whole-ratio sizing
+    /// floors the ratio to 1 and cuts 20-byte chunks (40 * 1 / 2); the
+    /// iPhone's exact sizing cuts 38-byte chunks (40 * 266 / 140 / 2).
+    private static func testExactChunkSizingKeepsTheFractionalByteRatio() async throws {
+        let transcript = (1...12).map { "Line \($0) of the review." }.joined(separator: "\n")
+        func extractionCount(_ sizing: MeetingSummaryChunkSizing) async throws -> Int {
+            let requester = MeetingSummaryCountingRequester()
+            let budgeter = LocalAITokenBudgeter(
+                // 40 tokens of source room after a 1,000-token prompt.
+                contextWindow: 1_000 + 1_024 + LocalAITokenBudgeter.safetyMarginTokens + 40,
+                tokenCounter: MeetingSummaryRatioTokenCounter()
+            )
+            _ = try await MeetingSummaryGenerator(
+                requester: requester,
+                tokenBudgeter: budgeter,
+                chunkSizing: sizing
+            ).generate(source: MeetingSummarySource(
+                transcript: transcript,
+                calendar: nil,
+                languageContext: summaryLanguage
+            ))
+            return requester.extractionCount()
+        }
+        try expect(transcript.utf8.count == 266, "the transcript is 266 bytes")
+        let whole = try await extractionCount(.wholeBytesPerToken)
+        let exact = try await extractionCount(.exactBytesPerToken)
+        try expect(
+            whole == MeetingSummaryTextChunker(maximumSourceBytes: 20).chunks(for: transcript).count
+                && whole == 24,
+            "whole-ratio sizing cuts 20-byte chunks (got \(whole) extractions)"
+        )
+        try expect(
+            exact == MeetingSummaryTextChunker(maximumSourceBytes: 38).chunks(for: transcript).count
+                && exact == 12,
+            "exact sizing cuts 38-byte chunks (got \(exact) extractions)"
+        )
     }
 
     private static func testRateLimitUsesConfiguredFallback() async throws {
@@ -1682,6 +1741,52 @@ private extension Array {
             throw MeetingSummaryServiceTestFailure("Expected one element")
         }
         return first
+    }
+}
+
+/// Counts a rendered prompt as 1,000 tokens and other text at about 1.9
+/// bytes a token.
+private struct MeetingSummaryRatioTokenCounter: LocalAITokenCounting {
+    func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
+        prompt.hasPrefix("[System]") ? 1_000 : prompt.utf8.count * 10 / 19
+    }
+}
+
+private final class MeetingSummaryCountingRequester: MeetingSummaryDraftRequesting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var extractions = 0
+
+    var backendKind: MeetingSummaryBackendKind { .local }
+
+    func requestDraft(
+        _ request: MeetingSummaryDraftRequest
+    ) async throws -> MeetingSummaryDraftReply {
+        if case .summaryExtraction = request.role {
+            recordExtraction()
+        }
+        return MeetingSummaryDraftReply(
+            draft: MeetingSummaryDraftContentV2(
+                overview: MeetingSummaryEvidenceText(text: "The team reviewed the lines.", sourceQuotes: []),
+                keyPoints: [],
+                decisions: [],
+                actionItems: [],
+                openQuestions: []
+            ),
+            modelID: "counting/model",
+            backendKind: .local
+        )
+    }
+
+    private func recordExtraction() {
+        lock.lock()
+        extractions += 1
+        lock.unlock()
+    }
+
+    func extractionCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return extractions
     }
 }
 

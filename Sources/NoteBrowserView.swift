@@ -4,6 +4,7 @@ import AVFoundation
 import UniformTypeIdentifiers
 import QuillUserIssueCore
 import QuillSummaryFormatCore
+import QuillSummaryGenerationCore
 
 // MARK: - Cursor helper
 
