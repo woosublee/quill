@@ -4,6 +4,10 @@ import Foundation
 /// preservation contract, length mode, and language line, and the user
 /// message that carries the transcript in a data envelope.
 public enum PostProcessingPrompt {
+    /// When `defaultSystemPrompt` last changed. Move it with every change: the
+    /// Mac settings tell people who saved a custom prompt before this date
+    /// that the default changed.
+    public static let defaultSystemPromptDate = "2026-10-21"
     public static let defaultSystemPrompt = """
 You are a literal dictation cleanup layer for short messages, email replies, prompts, commands, and long meeting transcripts.
 

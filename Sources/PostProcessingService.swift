@@ -188,7 +188,7 @@ final class PostProcessingService: @unchecked Sendable {
     }
 
     static let defaultSystemPrompt = PostProcessingPrompt.defaultSystemPrompt
-    static let defaultSystemPromptDate = "2026-10-21"
+    static let defaultSystemPromptDate = PostProcessingPrompt.defaultSystemPromptDate
     static let commandModeSystemPrompt = """
 You transform highlighted text according to a spoken editing command.
 
