@@ -1,13 +1,13 @@
 import Foundation
 
-public struct ModelConfig {
+public struct ModelConfig: Sendable {
     public let maxCompletionTokens: Int?
     public let reasoningEffort: String?
     public let includeReasoning: Bool?
     public let shouldStripThinkTags: Bool
 }
 
-public struct ModelConfiguration {
+public struct ModelConfiguration: Sendable {
     public static let llmModels = [
         "openai/gpt-oss-20b",
         "openai/gpt-oss-120b",
