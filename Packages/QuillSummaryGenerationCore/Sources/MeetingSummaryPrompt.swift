@@ -2,9 +2,17 @@ import Foundation
 import QuillAITextCore
 import QuillSummaryFormatCore
 
-struct MeetingSummaryPrompt: Equatable, Sendable {
-    let system: String
-    let user: String
+public struct MeetingSummaryPrompt: Equatable, Sendable {
+    public let system: String
+    public let user: String
+
+    public init(
+        system: String,
+        user: String
+    ) {
+        self.system = system
+        self.user = user
+    }
 }
 
 private struct SummaryMergeSourceData: Encodable, Sendable {
@@ -55,10 +63,10 @@ private struct SummaryMergePartial: Encodable, Sendable {
     }
 }
 
-enum MeetingSummaryPromptFactory {
-    static let version = 2
+public enum MeetingSummaryPromptFactory {
+    public static let version = 2
 
-    static func singlePass(
+    public static func singlePass(
         source: MeetingSummarySource,
         outputLanguage: String?
     ) throws -> MeetingSummaryPrompt {
@@ -69,7 +77,7 @@ enum MeetingSummaryPromptFactory {
         )
     }
 
-    static func chunkExtraction(
+    public static func chunkExtraction(
         chunk: MeetingSummaryTextChunk,
         calendar: MeetingSummaryCalendarContext?,
         outputLanguage: String?
@@ -81,7 +89,7 @@ enum MeetingSummaryPromptFactory {
         )
     }
 
-    static func merge(
+    public static func merge(
         validatedPartials: [MeetingSummaryDraftContentV2],
         outputLanguage: String?
     ) throws -> MeetingSummaryPrompt {

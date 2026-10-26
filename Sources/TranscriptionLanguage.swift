@@ -1,4 +1,5 @@
 import Foundation
+import QuillSummaryGenerationCore
 import Speech
 
 struct TranscriptionLanguage: Identifiable, Hashable, Codable {
@@ -61,19 +62,7 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     }
 
     static func summaryPromptLanguage(for code: String?) -> String? {
-        switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "ko": "Korean"
-        case "en": "English"
-        case "ja": "Japanese"
-        case "zh": "Chinese"
-        case "zh-hans", "zh-cn", "zh-sg": "Simplified Chinese"
-        case "zh-hant", "zh-hk", "zh-mo", "zh-tw": "Traditional Chinese"
-        case "es": "Spanish"
-        case "fr": "French"
-        case "de": "German"
-        case "pt", "pt-br", "pt-pt": "Portuguese"
-        default: nil
-        }
+        MeetingSummaryPromptLanguage.name(for: code)
     }
 
     static func localizedSummaryLanguageName(

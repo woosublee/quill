@@ -1,15 +1,20 @@
 import Foundation
 
-struct LocalAITokenBudget: Equatable, Sendable {
-    let sourceTokenLimit: Int
-    let maxCompletionTokens: Int
+public struct LocalAITokenBudget: Equatable, Sendable {
+    public let sourceTokenLimit: Int
+    public let maxCompletionTokens: Int
+
+    public init(sourceTokenLimit: Int, maxCompletionTokens: Int) {
+        self.sourceTokenLimit = sourceTokenLimit
+        self.maxCompletionTokens = maxCompletionTokens
+    }
 }
 
-protocol LocalAITokenCounting: Sendable {
+public protocol LocalAITokenCounting: Sendable {
     func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int
 }
 
-enum LocalAITokenBudgetRole: Sendable {
+public enum LocalAITokenBudgetRole: Sendable {
     case postProcessing(inputReservation: Int)
     case summaryExtraction
     case summaryIntermediateMerge
@@ -33,21 +38,33 @@ enum LocalAITokenBudgetRole: Sendable {
     }
 }
 
-struct LocalAITokenBudgeter: Sendable {
-    static let safetyMarginTokens = 512
+public struct LocalAITokenBudgeter: Sendable {
+    public static let safetyMarginTokens = 512
     /// Summary response room on a local model. Every point carries a
     /// verbatim source quote, so a full chunk's JSON outgrows 1,024 tokens
     /// (#609).
-    static let localSummaryCompletionTokens = 4_096
+    public static let localSummaryCompletionTokens = 4_096
 
-    let contextWindow: Int
-    let tokenCounter: any LocalAITokenCounting
-    var summaryCompletionTokens = 1_024
+    public let contextWindow: Int
+    public let tokenCounter: any LocalAITokenCounting
+    public var summaryCompletionTokens = 1_024
     /// A merge batch that left only the extraction room could be cut off
     /// before it finished (#610).
-    var summaryMergeCompletionTokens = 1_024
+    public var summaryMergeCompletionTokens = 1_024
 
-    func budget(
+    public init(
+        contextWindow: Int,
+        tokenCounter: any LocalAITokenCounting,
+        summaryCompletionTokens: Int = 1_024,
+        summaryMergeCompletionTokens: Int = 1_024
+    ) {
+        self.contextWindow = contextWindow
+        self.tokenCounter = tokenCounter
+        self.summaryCompletionTokens = summaryCompletionTokens
+        self.summaryMergeCompletionTokens = summaryMergeCompletionTokens
+    }
+
+    public func budget(
         forRenderedChatPrompt prompt: String,
         role: LocalAITokenBudgetRole
     ) async throws -> LocalAITokenBudget? {

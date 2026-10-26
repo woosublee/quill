@@ -1,6 +1,7 @@
 import Foundation
 import QuillUserIssueCore
 import QuillSummaryFormatCore
+import QuillSummaryGenerationCore
 
 @main
 struct MeetingSummaryModelsTests {

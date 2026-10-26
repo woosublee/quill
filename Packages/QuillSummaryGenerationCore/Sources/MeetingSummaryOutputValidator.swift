@@ -3,7 +3,7 @@ import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 
-enum MeetingSummaryOutputValidationError: Error, Equatable, Sendable {
+public enum MeetingSummaryOutputValidationError: Error, Equatable, Sendable {
     case sourceQuoteMissing
     case overviewEvidenceCountInvalid
     case overviewEvidenceQuoteDuplicate
@@ -12,7 +12,7 @@ enum MeetingSummaryOutputValidationError: Error, Equatable, Sendable {
     case dueDateNotGrounded
     case languageMismatch
 
-    var failureSubtype: MeetingSummaryFailureSubtype {
+    public var failureSubtype: MeetingSummaryFailureSubtype {
         switch self {
         case .sourceQuoteMissing:
             .sourceEvidenceMissing
@@ -151,8 +151,10 @@ private enum MeetingSummaryDateEvidenceMatcher {
     }
 }
 
-struct MeetingSummaryOutputValidator: Sendable {
-    func validate(
+public struct MeetingSummaryOutputValidator: Sendable {
+    public init() {}
+
+    public func validate(
         _ draft: MeetingSummaryDraftContentV2,
         outputLanguage: String = "",
         against transcript: String
@@ -164,7 +166,7 @@ struct MeetingSummaryOutputValidator: Sendable {
         )
     }
 
-    func validate(
+    public func validate(
         _ draft: MeetingSummaryDraftContentV2,
         outputLanguage: String = "",
         against source: SummarySourceData
@@ -176,7 +178,7 @@ struct MeetingSummaryOutputValidator: Sendable {
         )
     }
 
-    func validate(
+    public func validate(
         _ draft: MeetingSummaryDraftContentV2,
         outputLanguage: String = "",
         againstValidatedRecords records: [MeetingSummaryDraftContentV2]
@@ -303,7 +305,7 @@ struct MeetingSummaryOutputValidator: Sendable {
             .joined(separator: " ")
     }
 
-    static func sourceTexts(for source: SummarySourceData) -> [String] {
+    public static func sourceTexts(for source: SummarySourceData) -> [String] {
         var texts = [source.transcript]
         guard let calendar = source.calendar else { return texts }
 
@@ -316,7 +318,7 @@ struct MeetingSummaryOutputValidator: Sendable {
         return texts
     }
 
-    func validateLanguage(
+    public func validateLanguage(
         _ draft: MeetingSummaryDraftContentV2,
         outputLanguage: String
     ) throws {
@@ -331,15 +333,25 @@ struct MeetingSummaryOutputValidator: Sendable {
     }
 }
 
-struct MeetingSummaryEvidenceRepairResult: Equatable, Sendable {
-    let draft: MeetingSummaryDraftContentV2
-    let verification: MeetingSummaryEvidenceVerification
+public struct MeetingSummaryEvidenceRepairResult: Equatable, Sendable {
+    public let draft: MeetingSummaryDraftContentV2
+    public let verification: MeetingSummaryEvidenceVerification
+
+    public init(
+        draft: MeetingSummaryDraftContentV2,
+        verification: MeetingSummaryEvidenceVerification
+    ) {
+        self.draft = draft
+        self.verification = verification
+    }
 }
 
 /// Repairs only whitespace and punctuation variants by replacing a model quote
 /// with the exact source substring. It never invents evidence or changes prose.
-struct MeetingSummaryEvidenceRepairer: Sendable {
-    func repair(
+public struct MeetingSummaryEvidenceRepairer: Sendable {
+    public init() {}
+
+    public func repair(
         _ draft: MeetingSummaryDraftContentV2,
         sourceTexts: [String]
     ) -> MeetingSummaryEvidenceRepairResult {

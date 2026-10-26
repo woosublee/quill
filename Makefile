@@ -73,11 +73,12 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SUMMARY_FORMAT_CORE_SOURCES = $(shell find Packages/QuillSummaryFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
+SUMMARY_GENERATION_CORE_SOURCES = $(shell find Packages/QuillSummaryGenerationCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 # Every architecture the app or a test executable can build for.
 SHARED_CORE_ARCHS = arm64 x86_64
@@ -259,11 +260,17 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) M
 # would delete those afterwards as intermediate files.
 .SECONDARY: $(foreach arch,$(SHARED_CORE_ARCHS),$(call shared_core_lib,$(arch)))
 
-# Imports QuillAITextCore and QuillUserIssueCore, so those are built first and
-# only this module gets the search path to their interfaces.
+# Imports QuillAITextCore and QuillUserIssueCore, so those are built first.
+# Only a module that imports other shared modules gets the search path to
+# their interfaces.
 $(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a: $(SUMMARY_FORMAT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillSummaryFormatCore,$(SUMMARY_FORMAT_CORE_SOURCES),-I "$(@D)")
+
+# Imports QuillAITextCore, QuillUserIssueCore, and QuillSummaryFormatCore.
+$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryGenerationCore.a: $(SUMMARY_GENERATION_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
+	@mkdir -p "$(@D)"
+	$(call shared_core_compile,QuillSummaryGenerationCore,$(SUMMARY_GENERATION_CORE_SOURCES),-I "$(@D)")
 
 $(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LLAMA_STAMP) $(LOCALIZATION_STAMP) Quill.entitlements $(PROVISIONING_SCRIPT) $(PROVISIONING_PROFILE) $(if $(filter universal,$(ARCH)),$(foreach arch,$(SHARED_CORE_ARCHS),$(call shared_core_lib,$(arch))),$(call shared_core_lib,$(ARCH)))
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
@@ -609,8 +616,8 @@ $(FULL_SOURCE_TRANSCRIPTION_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) 
 $(FULL_SOURCE_APP_STATE_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift Makefile $(SPARKLE_STAMP) $(call shared_core_lib,$(TEST_ARCH)) | $(TEST_BUILD_DIR)
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library $(call shared_core_flags,$(TEST_ARCH)) -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(TEST_ARCH)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift -o "$@"
 
-$(TEST_BUILD_DIR)/LocalAIIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/MeetingSummaryPrompt.swift Sources/MeetingSummaryOutputValidator.swift Sources/LocalAITokenBudgeter.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/MeetingSummaryPrompt.swift Sources/MeetingSummaryOutputValidator.swift Sources/LocalAITokenBudgeter.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift -o "$@"
+$(TEST_BUILD_DIR)/LocalAIIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift -o "$@"
 
 localization-bundle-test: $(TEST_BUILD_DIR)/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests --bundle "$(APP_BUNDLE)"
@@ -967,7 +974,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/LocalAIDiagnosticsTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/QuillUserIssue.swift Sources/MeetingSummaryModels.swift Tests/AIProcessingEnvelopeTests.swift -o $(TEST_BUILD_DIR)/AIProcessingEnvelopeTests
 	@$(TEST_BUILD_DIR)/AIProcessingEnvelopeTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalAITokenBudgeter.swift Tests/LocalAITokenBudgeterTests.swift -o $(TEST_BUILD_DIR)/LocalAITokenBudgeterTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Tests/LocalAITokenBudgeterTests.swift -o $(TEST_BUILD_DIR)/LocalAITokenBudgeterTests
 	@$(TEST_BUILD_DIR)/LocalAITokenBudgeterTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Tests/TranscriptCleanupModeTests.swift -o $(TEST_BUILD_DIR)/TranscriptCleanupModeTests
 	@$(TEST_BUILD_DIR)/TranscriptCleanupModeTests

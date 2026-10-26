@@ -2,6 +2,7 @@ import Foundation
 import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
+import QuillSummaryGenerationCore
 
 struct MeetingSummaryGeneratorConfiguration: Sendable {
     let backendExecutor: AIProcessingBackendExecutor
