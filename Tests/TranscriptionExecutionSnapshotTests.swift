@@ -7,6 +7,7 @@ struct TranscriptionExecutionSnapshotTests {
         try normalizesEquivalentProviderURLsToOneSecretFreeIdentity()
         try distinguishesProviderHostAndPath()
         try rejectsProviderURLCredentialsQueryAndFragment()
+        try providerURLNormalizationKeepsItsResultsAndErrors()
         try cloudSnapshotCapturesImmutableExecutionValues()
         try localSnapshotCapturesImmutableExecutionValues()
         try localSnapshotRetainsNativeWhisperExecution()
@@ -62,6 +63,42 @@ struct TranscriptionExecutionSnapshotTests {
                 throw TestFailure("sensitive provider URL must be rejected: \(value)")
             } catch is CloudTranscriptionProviderIdentityError {
                 // expected
+            }
+        }
+    }
+
+    // The shared CloudProviderURL does the normalizing now. Each input keeps
+    // the result and the Mac error case it had before.
+    private static func providerURLNormalizationKeepsItsResultsAndErrors() throws {
+        let normalized: [(String, String)] = [
+            (" HTTPS://API.Example.com:443/openai/v1/ ", "https://api.example.com/openai/v1"),
+            ("http://LOCALHOST:80/", "http://localhost"),
+            ("http://192.168.0.10:8080/v1//", "http://192.168.0.10:8080/v1"),
+            ("https://api.example.com:8443", "https://api.example.com:8443"),
+        ]
+        for (input, expected) in normalized {
+            try expectEqual(
+                try CloudTranscriptionExecutionSnapshot.normalizedBaseURL(from: input).absoluteString,
+                expected,
+                "normalized \(input)"
+            )
+        }
+
+        let rejected: [(String, CloudTranscriptionProviderIdentityError)] = [
+            ("ftp://api.example.com/v1", .unsupportedScheme),
+            ("api.example.com/v1", .unsupportedScheme),
+            ("https://user@api.example.com/v1", .embeddedCredentials),
+            ("https://api.example.com/v1?key=synthetic", .queryOrFragment),
+            ("https://api.example.com/v1#synthetic", .queryOrFragment),
+            ("https:///v1", .missingHost),
+            ("https://exa mple.com", .invalidURL),
+        ]
+        for (input, expected) in rejected {
+            do {
+                _ = try CloudTranscriptionExecutionSnapshot.normalizedBaseURL(from: input)
+                throw TestFailure("provider URL must be rejected: \(input)")
+            } catch let error as CloudTranscriptionProviderIdentityError {
+                try expect(error == expected, "\(input): expected \(expected), got \(error)")
             }
         }
     }

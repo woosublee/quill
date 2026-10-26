@@ -158,24 +158,7 @@ class TranscriptionService {
 
     // Validate API key by hitting a lightweight endpoint
     static func validateAPIKey(_ key: String, baseURL: String = AppState.defaultAPIBaseURL) async -> Bool {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        guard let baseURL = try? CloudTranscriptionExecutionSnapshot
-            .normalizedBaseURL(from: baseURL) else {
-            return false
-        }
-
-        var request = URLRequest(url: baseURL.appendingPathComponent("models"))
-        request.timeoutInterval = 10
-        request.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
-
-        do {
-            let (_, response) = try await LLMAPITransport.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return status == 200
-        } catch {
-            return false
-        }
+        await CloudAPIKeyValidator().validate(key: key, baseURL: baseURL) == .valid
     }
 
     // Upload audio file, submit for transcription, and resolve its spoken language.

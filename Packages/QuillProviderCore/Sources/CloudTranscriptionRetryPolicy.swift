@@ -1,0 +1,202 @@
+import Foundation
+
+public struct CloudTranscriptionInvalidResponseFailure: Error, Equatable, Sendable {
+    public init() {}
+}
+
+/// A local speech model stopped at its output limit before the chunk ended.
+public struct TranscriptionChunkTruncatedFailure: Error, Equatable, Sendable {
+    public init() {}
+}
+
+/// The local runtime could not serve a chunk (start failed or the process
+/// exited). Retried like an unavailable provider. `reason` is a fixed code,
+/// never user content.
+public struct TranscriptionChunkRuntimeFailure: Error, Equatable, Sendable {
+    public let reason: String
+    public init(reason: String) { self.reason = reason }
+}
+
+public struct CloudTranscriptionHTTPFailure: Error, Equatable, Sendable {
+    public let statusCode: Int
+    public let retryAfterSeconds: TimeInterval?
+    public let providerCode: String?
+    public let providerType: String?
+    public let sanitizedMessage: String?
+
+    public init(
+        statusCode: Int,
+        retryAfterSeconds: TimeInterval? = nil,
+        providerCode: String? = nil,
+        providerType: String? = nil,
+        sanitizedMessage: String? = nil
+    ) {
+        self.statusCode = statusCode
+        self.retryAfterSeconds = retryAfterSeconds
+        self.providerCode = providerCode
+        self.providerType = providerType
+        self.sanitizedMessage = sanitizedMessage
+    }
+}
+
+public enum CloudTranscriptionFailureCategory: String, Codable, Equatable, Sendable {
+    case transientNetwork
+    case rateLimited
+    case providerUnavailable
+    case authentication
+    case quotaExhausted
+    case invalidRequest
+    case payloadTooLarge
+    case invalidResponse
+    case localIO
+    case cancelled
+    case retryExhausted
+}
+
+public struct CloudTranscriptionRetryDecision: Equatable, Sendable {
+    public let shouldRetry: Bool
+    public let delaySeconds: TimeInterval?
+    public let category: CloudTranscriptionFailureCategory
+}
+
+public struct CloudTranscriptionRetryPolicy: Sendable {
+    public let maximumAttempts: Int
+    public let jitter: @Sendable (Int) -> TimeInterval
+
+    public init(maximumAttempts: Int, jitter: @escaping @Sendable (Int) -> TimeInterval) {
+        self.maximumAttempts = maximumAttempts
+        self.jitter = jitter
+    }
+
+    public func decision(
+        for error: Error,
+        completedAttemptCount: Int
+    ) -> CloudTranscriptionRetryDecision {
+        let category = category(for: error)
+        let retryable = isRetryable(error: error, category: category)
+        guard retryable else {
+            return CloudTranscriptionRetryDecision(
+                shouldRetry: false,
+                delaySeconds: nil,
+                category: category
+            )
+        }
+        guard completedAttemptCount < maximumAttempts else {
+            return CloudTranscriptionRetryDecision(
+                shouldRetry: false,
+                delaySeconds: nil,
+                category: .retryExhausted
+            )
+        }
+
+        if let failure = error as? CloudTranscriptionHTTPFailure,
+           let retryAfterSeconds = failure.retryAfterSeconds {
+            guard retryAfterSeconds >= 0, retryAfterSeconds <= 60 else {
+                return CloudTranscriptionRetryDecision(
+                    shouldRetry: false,
+                    delaySeconds: nil,
+                    category: category
+                )
+            }
+            return CloudTranscriptionRetryDecision(
+                shouldRetry: true,
+                delaySeconds: retryAfterSeconds,
+                category: category
+            )
+        }
+
+        let retryIndex = max(0, completedAttemptCount - 1)
+        let baseDelay: TimeInterval = retryIndex == 0 ? 1 : 3
+        return CloudTranscriptionRetryDecision(
+            shouldRetry: true,
+            delaySeconds: baseDelay + max(0, jitter(retryIndex)),
+            category: category
+        )
+    }
+
+    public func attemptTimeout(
+        encodedByteCount: UInt64,
+        minimum: TimeInterval,
+        maximum: TimeInterval
+    ) -> TimeInterval {
+        let calculated = 20 + TimeInterval(encodedByteCount) / 131_072
+        return max(minimum, min(calculated, maximum))
+    }
+
+    private func category(for error: Error) -> CloudTranscriptionFailureCategory {
+        if error is CancellationError {
+            return .cancelled
+        }
+        if error is TranscriptionChunkRuntimeFailure {
+            return .providerUnavailable
+        }
+        if error is TranscriptionChunkTruncatedFailure {
+            return .invalidResponse
+        }
+        if error is CloudTranscriptionInvalidResponseFailure {
+            return .invalidResponse
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled:
+                return .cancelled
+            case .timedOut,
+                 .networkConnectionLost,
+                 .notConnectedToInternet,
+                 .cannotConnectToHost,
+                 .cannotFindHost,
+                 .dnsLookupFailed:
+                return .transientNetwork
+            default:
+                return .invalidRequest
+            }
+        }
+        if let failure = error as? CloudTranscriptionHTTPFailure {
+            if failure.statusCode == 200 {
+                return .invalidResponse
+            }
+            let safeCode = failure.providerCode?.lowercased()
+            let safeType = failure.providerType?.lowercased()
+            if safeCode == "insufficient_quota" || safeType == "insufficient_quota" {
+                return .quotaExhausted
+            }
+            switch failure.statusCode {
+            case 408:
+                return .transientNetwork
+            case 429:
+                return .rateLimited
+            case 500..<600:
+                return .providerUnavailable
+            case 401, 403:
+                return .authentication
+            case 413:
+                return .payloadTooLarge
+            case 400, 404, 415, 422:
+                return .invalidRequest
+            default:
+                return .invalidResponse
+            }
+        }
+        return .localIO
+    }
+
+    private func isRetryable(
+        error: Error,
+        category: CloudTranscriptionFailureCategory
+    ) -> Bool {
+        switch category {
+        case .transientNetwork, .providerUnavailable:
+            return true
+        case .rateLimited:
+            guard let failure = error as? CloudTranscriptionHTTPFailure else {
+                return false
+            }
+            let safeCode = failure.providerCode?.lowercased()
+            let safeType = failure.providerType?.lowercased()
+            return safeCode != "insufficient_quota"
+                && safeType != "insufficient_quota"
+        default:
+            return false
+        }
+    }
+}
