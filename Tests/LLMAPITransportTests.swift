@@ -10,6 +10,7 @@ struct LLMAPITransportTests {
         try await testRejectionIsRememberedForTheEndpoint()
         try await testOtherErrorsLeaveTheCacheAlone()
         try testCacheKeysAndLifetime()
+        try await testAPIKeyCheckSortsProviderReplies()
         print("LLMAPITransportTests passed")
     }
 
@@ -157,6 +158,37 @@ struct LLMAPITransportTests {
 
     private static func makeCache() -> TemperatureCapabilityCache {
         TemperatureCapabilityCache(defaults: UserDefaults(suiteName: "LLMAPITransportTests-\(UUID().uuidString)")!)
+    }
+
+    // The shared key check the Mac and the iPhone use: GET {base}/models with
+    // a Bearer key and a 10 s timeout; only 200 passes.
+    private static func testAPIKeyCheckSortsProviderReplies() async throws {
+        let transport = LLMAPITransport(protocolClasses: [StubLLMURLProtocol.self], temperatureCache: makeCache())
+        let validator = CloudAPIKeyValidator(transport: transport)
+        let cases: [(Int, CloudAPIKeyValidationResult)] = [
+            (200, .valid), (401, .rejected), (403, .rejected), (404, .notFound),
+            (429, .rateLimited), (500, .unreachable),
+        ]
+        for (status, expected) in cases {
+            StubLLMURLProtocol.reset([(status, "{}")])
+            let result = await validator.validate(key: " synthetic-key ", baseURL: "https://provider.invalid/v1/")
+            try expect(result == expected, "status \(status) gives \(expected), got \(result)")
+            let request = StubLLMURLProtocol.recordedRequests().first
+            try expect(request?.url?.absoluteString == "https://provider.invalid/v1/models", "key check URL")
+            try expect(request?.httpMethod == "GET", "key check method")
+            try expect(request?.timeoutInterval == 10, "key check timeout")
+            try expect(
+                request?.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-key",
+                "key check trims the key into a Bearer header"
+            )
+        }
+
+        StubLLMURLProtocol.reset([])
+        let emptyKey = await validator.validate(key: "  ", baseURL: "https://provider.invalid/v1")
+        try expect(emptyKey == .rejected, "empty key")
+        let badURL = await validator.validate(key: "synthetic-key", baseURL: "ftp://provider.invalid")
+        try expect(badURL == .invalidURL, "bad URL")
+        try expect(StubLLMURLProtocol.recordedRequests().isEmpty, "no request for an empty key or a bad URL")
     }
 
     private static func makeRequest(

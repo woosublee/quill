@@ -1,5 +1,4 @@
 import Foundation
-import QuillProviderCore
 
 /// The API key check result. The Mac shows only pass or fail; the iPhone also
 /// tells a rejected key from an unreachable provider. Both use the same request
@@ -18,7 +17,7 @@ public enum CloudAPIKeyValidationResult: Equatable, Sendable {
 }
 
 /// Checks a key with `GET {base}/models`, a Bearer header, and a 10 s timeout.
-/// Only 200 passes. The response body is neither read nor kept.
+/// Only 200 passes. The response body is downloaded but never used or kept.
 public struct CloudAPIKeyValidator: Sendable {
     private let transport: LLMAPITransport
 

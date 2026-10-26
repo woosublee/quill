@@ -12,7 +12,7 @@ public enum CloudProviderURLError: Error, Equatable, Sendable {
 }
 
 public enum CloudProviderURL {
-    /// The same value as the Mac's `AppState.defaultAPIBaseURL`.
+    /// The default provider. The Mac's `AppState.defaultAPIBaseURL` reads it.
     public static let defaultBaseURL = "https://api.groq.com/openai/v1"
 
     public static func normalized(_ value: String) throws -> URL {
