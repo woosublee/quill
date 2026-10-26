@@ -1,15 +1,15 @@
 import CryptoKit
 import Foundation
 
-enum TemperatureCapability: String, Codable {
+public enum TemperatureCapability: String, Codable, Sendable {
     case supported
     case unsupported
 }
 
 /// Remembers, for 7 days and as SHA-256 digests only, which endpoint and
 /// model combinations reject `temperature`.
-final class TemperatureCapabilityCache: @unchecked Sendable {
-    static let shared = TemperatureCapabilityCache()
+public final class TemperatureCapabilityCache: @unchecked Sendable {
+    public static let shared = TemperatureCapabilityCache()
     private struct Entry: Codable {
         let digest: String
         let capability: TemperatureCapability
@@ -24,19 +24,19 @@ final class TemperatureCapabilityCache: @unchecked Sendable {
     private let lock = NSLock()
     private var revisions: [String: UInt64] = [:]
 
-    struct Observation: Sendable {
+    public struct Observation: Sendable {
         let capability: TemperatureCapability?
         fileprivate let digest: String?
         fileprivate let revision: UInt64
     }
 
-    init(defaults: UserDefaults = .standard, key: String = "llm_temperature_capabilities_v1", now: @escaping () -> Date = Date.init) {
+    public init(defaults: UserDefaults = .standard, key: String = "llm_temperature_capabilities_v1", now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
         self.key = key
         self.now = now
     }
 
-    func capability(for request: URLRequest) -> TemperatureCapability? {
+    public func capability(for request: URLRequest) -> TemperatureCapability? {
         lock.lock()
         defer { lock.unlock() }
         guard let digest = Self.digest(for: request), let entries = load(),
@@ -46,7 +46,7 @@ final class TemperatureCapabilityCache: @unchecked Sendable {
         return entry.capability
     }
 
-    func beginObservation(for request: URLRequest) -> Observation {
+    public func beginObservation(for request: URLRequest) -> Observation {
         lock.lock()
         defer { lock.unlock() }
         guard let digest = Self.digest(for: request) else { return Observation(capability: nil, digest: nil, revision: 0) }
@@ -61,7 +61,7 @@ final class TemperatureCapabilityCache: @unchecked Sendable {
         return Observation(capability: entry.capability, digest: digest, revision: revision)
     }
 
-    func record(_ capability: TemperatureCapability, for request: URLRequest, observation: Observation? = nil) {
+    public func record(_ capability: TemperatureCapability, for request: URLRequest, observation: Observation? = nil) {
         lock.lock()
         defer { lock.unlock() }
         guard let digest = Self.digest(for: request) else { return }

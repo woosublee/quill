@@ -1,6 +1,7 @@
 import Foundation
 import QuillAITextCore
 import QuillUserIssueCore
+import QuillProviderCore
 
 // The diagnostic text is the Mac's. The shared enum has none, so the iPhone
 // app's error descriptions stay as they were.
@@ -257,7 +258,7 @@ Behavior:
         fallbackExecutor: AIProcessingBackendExecutor?,
         instructionExecutionGuardEnabled: Bool = true,
         transport: @escaping Transport = { request in
-            try await LLMAPITransport.data(for: request)
+            try await LLMAPITransport.shared.data(for: request)
         }
     ) {
         self.backendExecutor = backendExecutor

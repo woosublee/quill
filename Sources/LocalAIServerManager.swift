@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 enum LocalAIServerManagerError: LocalizedError, Equatable {
     case modelUnavailable(String)
@@ -42,7 +43,7 @@ struct LocalAIHealthPoller: Sendable {
         cadence: 0.2,
         maxAttempts: 300,
         probe: { request in
-            try await LLMAPITransport.data(for: request)
+            try await LLMAPITransport.shared.data(for: request)
         },
         now: { ProcessInfo.processInfo.systemUptime },
         sleep: { duration in
@@ -293,7 +294,7 @@ actor LocalAIServerManager {
             await LocalAIServerManager.defaultPollHealth(port: port)
         },
         readinessProbe: @escaping ReadinessProbe = { request in
-            try await LLMAPITransport.data(for: request)
+            try await LLMAPITransport.shared.data(for: request)
         },
         readinessPoller: LocalAIReadinessPoller = .default,
         validateModel: ValidateModel? = nil,

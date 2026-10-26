@@ -2,6 +2,7 @@ import Foundation
 import ApplicationServices
 import AppKit
 import QuillUserIssueCore
+import QuillProviderCore
 
 struct AppSelectionSnapshot {
     let appName: String?
@@ -116,7 +117,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension,
         desktopScreenshotFallbackEnabled: Bool = true,
         transport: @escaping Transport = { request in
-            try await LLMAPITransport.data(for: request)
+            try await LLMAPITransport.shared.data(for: request)
         }
     ) {
         let trimmedModel = contextModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,7 +143,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension,
         desktopScreenshotFallbackEnabled: Bool = true,
         transport: @escaping Transport = { request in
-            try await LLMAPITransport.data(for: request)
+            try await LLMAPITransport.shared.data(for: request)
         },
         issueSink: @escaping IssueSink = { _ in }
     ) {

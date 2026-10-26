@@ -13,6 +13,7 @@ import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
+import QuillProviderCore
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
 
@@ -383,7 +384,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             .live
         }
     static var postProcessingTransport: PostProcessingService.Transport = { request in
-        try await LLMAPITransport.data(for: request)
+        try await LLMAPITransport.shared.data(for: request)
     }
 
     static var googleCalendarTokenLoader: (Bool) -> GoogleCalendarOAuthToken? = { allowsAuthenticationUI in

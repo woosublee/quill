@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 @main
 struct LLMAPITransportTests {
@@ -168,15 +169,8 @@ struct LLMAPITransportTests {
         cache: TemperatureCapabilityCache = makeCache()
     ) async throws -> [URLRequest] {
         StubLLMURLProtocol.reset(replies)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubLLMURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        _ = try await LLMAPITransport.data(
-            for: try makeRequest(endpoint: endpoint, body: payload),
-            using: session,
-            cache: cache
-        )
+        let transport = LLMAPITransport(protocolClasses: [StubLLMURLProtocol.self], temperatureCache: cache)
+        _ = try await transport.data(for: try makeRequest(endpoint: endpoint, body: payload))
         return StubLLMURLProtocol.recordedRequests()
     }
 

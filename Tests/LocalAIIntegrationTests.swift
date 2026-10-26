@@ -2,6 +2,7 @@ import Foundation
 import QuillAITextCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
+import QuillProviderCore
 
 @main
 struct LocalAIIntegrationTests {

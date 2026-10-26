@@ -8,7 +8,7 @@ struct ModelsSettingsUIContractTests {
         let appState = try source("Sources/AppState.swift")
         let postProcessing = try source("Sources/PostProcessingService.swift")
         let context = try source("Sources/AppContextService.swift")
-        let modelConfiguration = try source("Sources/ModelConfiguration.swift")
+        let modelConfiguration = try source("Packages/QuillProviderCore/Sources/ModelConfiguration.swift")
         let modelDropdown = try source("Sources/ModelDropdownView.swift")
         let localAIModelRow = (try? source("Sources/LocalAIModelRowView.swift")) ?? ""
         let currentSpec = try source("docs/superpowers/specs/2026-07-17-model-first-settings-redesign.md")

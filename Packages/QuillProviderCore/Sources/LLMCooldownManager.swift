@@ -1,15 +1,15 @@
 import Foundation
 
-struct LLMCooldownIdentity: Hashable {
-    let baseURL: String
-    let model: String
+public struct LLMCooldownIdentity: Hashable, Sendable {
+    public let baseURL: String
+    public let model: String
 
-    init(baseURL: String, model: String) {
+    public init(baseURL: String, model: String) {
         self.baseURL = Self.normalizedBaseURL(baseURL)
         self.model = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
-    var storageKey: String {
+    public var storageKey: String {
         let raw = "\(baseURL)|\(model)"
         let encoded = Data(raw.utf8).base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")
@@ -34,19 +34,19 @@ struct LLMCooldownIdentity: Hashable {
     }
 }
 
-actor LLMCooldownManager {
-    static let shared = LLMCooldownManager()
+public actor LLMCooldownManager {
+    public static let shared = LLMCooldownManager()
 
     private static let defaultReprobeCooldownSeconds: TimeInterval = 60
     private let dailyLimitThreshold: TimeInterval = 3_600
     private let defaults: UserDefaults
     private var cooldowns: [LLMCooldownIdentity: Date] = [:]
 
-    init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
-    func isInCooldown(_ identity: LLMCooldownIdentity, now: Date = Date()) -> Bool {
+    public func isInCooldown(_ identity: LLMCooldownIdentity, now: Date = Date()) -> Bool {
         if let expiry = cooldowns[identity] {
             if now < expiry { return true }
             cooldowns.removeValue(forKey: identity)
@@ -60,7 +60,7 @@ actor LLMCooldownManager {
         return false
     }
 
-    func setCooldown(
+    public func setCooldown(
         _ identity: LLMCooldownIdentity,
         retryAfterSeconds: TimeInterval,
         persist: Bool = false,
@@ -75,7 +75,7 @@ actor LLMCooldownManager {
         }
     }
 
-    func effectivePrimary(
+    public func effectivePrimary(
         baseURL: String,
         primary: String,
         fallback: String?,
@@ -90,7 +90,7 @@ actor LLMCooldownManager {
         return isInCooldown(fallbackIdentity, now: now) ? nil : fallback
     }
 
-    nonisolated static func rateLimitCooldown(
+    public nonisolated static func rateLimitCooldown(
         from httpResponse: HTTPURLResponse
     ) -> (seconds: TimeInterval, isDaily: Bool) {
         let remainingRequests = httpResponse.value(forHTTPHeaderField: "x-ratelimit-remaining-requests")

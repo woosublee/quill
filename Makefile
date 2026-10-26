@@ -73,12 +73,13 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SUMMARY_FORMAT_CORE_SOURCES = $(shell find Packages/QuillSummaryFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SUMMARY_GENERATION_CORE_SOURCES = $(shell find Packages/QuillSummaryGenerationCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
+PROVIDER_CORE_SOURCES = $(shell find Packages/QuillProviderCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 # Every architecture the app or a test executable can build for.
 SHARED_CORE_ARCHS = arm64 x86_64
@@ -254,6 +255,10 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a: $(AI_TEXT_CORE_SOURCES) Makefil
 $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillUserIssueCore,$(USER_ISSUE_CORE_SOURCES))
+
+$(SHARED_CORE_BUILD_DIR)/%/libQuillProviderCore.a: $(PROVIDER_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+	@mkdir -p "$(@D)"
+	$(call shared_core_compile,QuillProviderCore,$(PROVIDER_CORE_SOURCES))
 
 # Keep every shared library. A target that names only some of them, such as
 # one module's library, reaches the rest through pattern rules alone, and make
@@ -616,8 +621,8 @@ $(FULL_SOURCE_TRANSCRIPTION_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) 
 $(FULL_SOURCE_APP_STATE_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift Makefile $(SPARKLE_STAMP) $(call shared_core_lib,$(TEST_ARCH)) | $(TEST_BUILD_DIR)
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library $(call shared_core_flags,$(TEST_ARCH)) -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(TEST_ARCH)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift -o "$@"
 
-$(TEST_BUILD_DIR)/LocalAIIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift -o "$@"
+$(TEST_BUILD_DIR)/LocalAIIntegrationTests: Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LocalAIServerManager.swift Sources/QuillUserIssue.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LocalAIServerManager.swift Sources/QuillUserIssue.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift -o "$@"
 
 localization-bundle-test: $(TEST_BUILD_DIR)/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests --bundle "$(APP_BUNDLE)"
@@ -634,8 +639,8 @@ test-transcription: check-test-wiring
 test-app-state: check-test-wiring
 	@$(call RUN_TIMED_TARGET,_test-app-state,app-state)
 
-$(TEST_BUILD_DIR)/LocalASRIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRIntegrationTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRIntegrationTests.swift -o "$@"
+$(TEST_BUILD_DIR)/LocalASRIntegrationTests: Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRIntegrationTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRIntegrationTests.swift -o "$@"
 
 test-local-ai-integration: $(TEST_BUILD_DIR)/LocalAIIntegrationTests
 	@set -eu; \
@@ -777,7 +782,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/ShortcutMatcherTests
 	@$(TEST_BUILD_DIR)/ShortcutCaptureKeyHandlingTests
 	@$(TEST_BUILD_DIR)/ShortcutValidationMessagesTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/AIModelCapabilities.swift Sources/ModelConfiguration.swift Tests/ModelConfigurationTests.swift -o $(TEST_BUILD_DIR)/ModelConfigurationTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Tests/ModelConfigurationTests.swift -o $(TEST_BUILD_DIR)/ModelConfigurationTests
 	@$(TEST_BUILD_DIR)/ModelConfigurationTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/AppName.swift Sources/ShortcutCore/DictationShortcutSessionController.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/ShortcutCore/ShortcutModels.swift Tests/ShortcutCoreTests.swift -o $(TEST_BUILD_DIR)/ShortcutCoreTests
 	@$(TEST_BUILD_DIR)/ShortcutCoreTests
@@ -960,15 +965,15 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/AudioImportOptionsTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperModelTests
 	@$(TEST_BUILD_DIR)/NativeWhisperModelTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/ModelConfiguration.swift Tests/AIModelCapabilitiesTests.swift -o $(TEST_BUILD_DIR)/AIModelCapabilitiesTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/AIModelCapabilitiesTests.swift -o $(TEST_BUILD_DIR)/AIModelCapabilitiesTests
 	@$(TEST_BUILD_DIR)/AIModelCapabilitiesTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/LocalAIModelTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/LocalAIModelTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelTests
 	@$(TEST_BUILD_DIR)/LocalAIModelTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/LocalAIModelStoreTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelStoreTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/LocalAIModelStoreTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelStoreTests
 	@$(TEST_BUILD_DIR)/LocalAIModelStoreTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIInstaller.swift Tests/LocalAIInstallerTests.swift -o $(TEST_BUILD_DIR)/LocalAIInstallerTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIInstaller.swift Tests/LocalAIInstallerTests.swift -o $(TEST_BUILD_DIR)/LocalAIInstallerTests
 	@$(TEST_BUILD_DIR)/LocalAIInstallerTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Tests/LocalAIServerProcessTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerProcessTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Tests/LocalAIServerProcessTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerProcessTests
 	@$(TEST_BUILD_DIR)/LocalAIServerProcessTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalAIDiagnostics.swift Tests/LocalAIDiagnosticsTests.swift -o $(TEST_BUILD_DIR)/LocalAIDiagnosticsTests
 	@$(TEST_BUILD_DIR)/LocalAIDiagnosticsTests
@@ -980,19 +985,19 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/TranscriptCleanupModeTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Tests/AIOutputLanguageValidatorTests.swift -o $(TEST_BUILD_DIR)/AIOutputLanguageValidatorTests
 	@$(TEST_BUILD_DIR)/AIOutputLanguageValidatorTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Tests/LocalAIServerManagerTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerManagerTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LocalAIServerManager.swift Tests/LocalAIServerManagerTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerManagerTests
 	@$(TEST_BUILD_DIR)/LocalAIServerManagerTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalASRRequestFormat.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRTranscriptionClientTests.swift -o $(TEST_BUILD_DIR)/LocalASRTranscriptionClientTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LocalASRRequestFormat.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRTranscriptionClientTests.swift -o $(TEST_BUILD_DIR)/LocalASRTranscriptionClientTests
 	@$(TEST_BUILD_DIR)/LocalASRTranscriptionClientTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/AIProcessingBackend.swift Tests/AIProcessingBackendTests.swift -o $(TEST_BUILD_DIR)/AIProcessingBackendTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LocalAIServerManager.swift Sources/AIProcessingBackend.swift Tests/AIProcessingBackendTests.swift -o $(TEST_BUILD_DIR)/AIProcessingBackendTests
 	@$(TEST_BUILD_DIR)/AIProcessingBackendTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/QuillUserIssue.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@$(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperInstaller.swift Tests/NativeWhisperInstallerTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperInstallerTests
 	@$(TEST_BUILD_DIR)/NativeWhisperInstallerTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LLMCooldownManager.swift Tests/LLMCooldownManagerTests.swift -o $(TEST_BUILD_DIR)/LLMCooldownManagerTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Tests/LLMCooldownManagerTests.swift -o $(TEST_BUILD_DIR)/LLMCooldownManagerTests
 	@$(TEST_BUILD_DIR)/LLMCooldownManagerTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/LLMAPITransport.swift Sources/TemperatureCapabilityCache.swift Tests/LLMAPITransportTests.swift -o $(TEST_BUILD_DIR)/LLMAPITransportTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Tests/LLMAPITransportTests.swift -o $(TEST_BUILD_DIR)/LLMAPITransportTests
 	@$(TEST_BUILD_DIR)/LLMAPITransportTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/OverlayScreenGeometry.swift Tests/OverlayScreenGeometryTests.swift -o $(TEST_BUILD_DIR)/OverlayScreenGeometryTests
 	@$(TEST_BUILD_DIR)/OverlayScreenGeometryTests

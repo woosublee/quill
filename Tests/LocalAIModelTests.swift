@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 @main
 struct LocalAIModelTests {
@@ -158,7 +159,7 @@ struct LocalAIModelTests {
         let retiredArtifactName = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
         let productSources = try [
             "Sources/LocalAIModel.swift",
-            "Sources/AIModelCapabilities.swift",
+            "Packages/QuillProviderCore/Sources/AIModelCapabilities.swift",
             "Sources/LocalAIInstaller.swift",
             "Sources/LocalAIServerManager.swift"
         ].map { try String(contentsOf: root.appendingPathComponent($0), encoding: .utf8) }

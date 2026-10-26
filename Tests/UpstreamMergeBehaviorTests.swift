@@ -58,8 +58,8 @@ struct UpstreamMergeBehaviorTests {
         checkContains(appState, "requires screen recording permission", "Screen recording permission detection should match explicit requirement errors")
         checkNotContains(appState, "return lowered.contains(\"permission\") || lowered.contains(\"screen recording\")", "Screen recording permission detection should not treat generic capture failures as permission errors")
 
-        let transport = try read("Sources/LLMAPITransport.swift")
-        checkContains(transport, "private static let requestSession", "LLMAPITransport should preserve shared-session reuse for short requests")
+        let transport = try read("Packages/QuillProviderCore/Sources/LLMAPITransport.swift")
+        checkContains(transport, "private let requestSession", "LLMAPITransport should preserve shared-session reuse for short requests")
         checkContains(transport, "configuration.timeoutIntervalForRequest = timeout", "LLMAPITransport request timeout should honor the caller timeout")
         checkContains(transport, "configuration.timeoutIntervalForResource = timeout", "LLMAPITransport resource timeout should honor the caller timeout")
         checkContains(transport, "timeout(for: request.timeoutInterval)", "LLMAPITransport should normalize request-specific timeout overrides")

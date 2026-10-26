@@ -3,6 +3,7 @@ import AVFoundation
 import ServiceManagement
 import UserNotifications
 import QuillUserIssueCore
+import QuillProviderCore
 
 // MARK: - Shared Helpers
 

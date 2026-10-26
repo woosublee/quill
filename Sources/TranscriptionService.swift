@@ -5,6 +5,7 @@ import Speech
 import os.log
 import QuillAITextCore
 import QuillUserIssueCore
+import QuillProviderCore
 
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
@@ -43,7 +44,7 @@ struct CloudTranscriptionDependencies: Sendable {
         return CloudTranscriptionDependencies(
             encodedUploadCeilingBytes: 20_000_000,
             upload: { request, body in
-                try await LLMAPITransport.upload(for: request, from: body)
+                try await LLMAPITransport.shared.upload(for: request, from: body)
             },
             checkpointStore: InMemoryCloudTranscriptionCheckpointStore(),
             progress: { _ in },
@@ -169,7 +170,7 @@ class TranscriptionService {
         request.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
 
         do {
-            let (_, response) = try await LLMAPITransport.data(for: request)
+            let (_, response) = try await LLMAPITransport.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             return status == 200
         } catch {
