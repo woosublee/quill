@@ -9,6 +9,7 @@ struct QuillUserIssueTests {
         try testSeverityAndRecoveryActions()
         try testAppleSpeechOnDeviceUnavailableExplainsTheLanguage(bundle: bundle)
         try testVersionedPersistenceRoundTripAndRejection()
+        try testPersistedStatusRejectsBadPayloadsAndOtherSchemas()
         try testUnknownFutureOperationPreservesPersistedIssue(bundle: bundle)
         try testPersistedPayloadExcludesPrivateDiagnostics()
         try testLocalIssueUsesBoundedDiagnosticCategoryAndExcerpt()
@@ -432,6 +433,47 @@ struct QuillUserIssueTests {
         try expectThrows(.invalidPrefix) {
             _ = try QuillUserIssueRecord.decodePersistedStatus("Error: legacy raw detail")
         }
+    }
+
+    private static func testPersistedStatusRejectsBadPayloadsAndOtherSchemas() throws {
+        func status(payload: String) -> String {
+            QuillUserIssueRecord.persistedStatusPrefix + Data(payload.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+
+        try expectThrows(.invalidPayload) {
+            _ = try QuillUserIssueRecord.decodePersistedStatus(status(payload: #"{"code":"#))
+        }
+        try expectThrows(.invalidPayload) {
+            _ = try QuillUserIssueRecord.decodePersistedStatus(
+                status(payload: #"{"code":"unknown","severity":"error","context":{}}"#)
+            )
+        }
+        try expectThrows(.invalidPayload) {
+            _ = try QuillUserIssueRecord.decodePersistedStatus(
+                status(payload: #"{"schemaVersion":1,"code":"future-code","severity":"warning","context":{}}"#)
+            )
+        }
+        try expectThrows(.unsupportedSchemaVersion(2)) {
+            _ = try QuillUserIssueRecord.decodePersistedStatus(
+                status(payload: #"{"schemaVersion":2,"code":"unknown","severity":"error","context":{}}"#)
+            )
+        }
+
+        let otherSchema = QuillUserIssueRecord(
+            schemaVersion: 2,
+            code: .rateLimited,
+            context: QuillUserIssueContext(modelID: "provider/model-v1")
+        )
+        try expectThrows(.unsupportedSchemaVersion(2)) {
+            _ = try otherSchema.encodedStatus()
+        }
+        try expect(
+            otherSchema.persistedStatus == QuillUserIssueRecord(code: .unknown).persistedStatus,
+            "a record from another schema is stored as a plain unknown issue"
+        )
     }
 
     private static func testUnknownFutureOperationPreservesPersistedIssue(
