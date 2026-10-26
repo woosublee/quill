@@ -1,5 +1,7 @@
 import Foundation
 import QuillAITextCore
+import QuillUserIssueCore
+import QuillSummaryFormatCore
 
 enum MeetingSummaryOutputValidationError: Error, Equatable, Sendable {
     case sourceQuoteMissing

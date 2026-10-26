@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Combine
+import QuillSummaryFormatCore
 
 // MCP server over HTTP (localhost:3457)
 // Claude Code MCP config:

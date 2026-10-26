@@ -1,6 +1,7 @@
 import Foundation
 import QuillNoteSyncCore
 import QuillAITextCore
+import QuillSummaryFormatCore
 
 // The sync record and its fields are in QuillNoteSyncCore, shared with the
 // iPhone app. This file converts them to and from this Mac's notes.

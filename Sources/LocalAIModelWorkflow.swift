@@ -1,4 +1,5 @@
 import Foundation
+import QuillUserIssueCore
 
 struct LocalAIModelWorkflowState: Equatable, Sendable {
     var installStates: [String: LocalAIModelInstallViewState] = [:]

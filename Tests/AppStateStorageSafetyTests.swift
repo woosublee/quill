@@ -1,6 +1,7 @@
 import Combine
 import Darwin
 import Foundation
+import QuillSummaryFormatCore
 
 struct AppStateStorageSafetyTests {
     static func main() async throws {

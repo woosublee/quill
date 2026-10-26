@@ -1,4 +1,5 @@
 import Foundation
+import QuillSummaryFormatCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main

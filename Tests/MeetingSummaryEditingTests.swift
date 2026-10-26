@@ -1,4 +1,5 @@
 import Foundation
+import QuillSummaryFormatCore
 
 // #262: editing a saved meeting summary in place, and reverting to the
 // generated summary. Synthetic content only.

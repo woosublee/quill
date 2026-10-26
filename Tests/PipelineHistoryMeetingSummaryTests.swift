@@ -1,5 +1,7 @@
 import Foundation
 import QuillAITextCore
+import QuillUserIssueCore
+import QuillSummaryFormatCore
 
 @main
 struct PipelineHistoryMeetingSummaryTests {

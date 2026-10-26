@@ -1,4 +1,5 @@
 import Foundation
+import QuillSummaryFormatCore
 
 extension PipelineHistoryItem {
     var meetingSummary: MeetingSummaryEnvelope? {

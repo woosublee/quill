@@ -1,5 +1,6 @@
 import Foundation
 import QuillAITextCore
+import QuillUserIssueCore
 
 @main
 struct NativeWhisperRuntimeTests {

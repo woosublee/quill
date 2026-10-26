@@ -1,6 +1,7 @@
 import Foundation
 import QuillNoteSyncCore
 import QuillAITextCore
+import QuillSummaryFormatCore
 
 @main
 struct NoteSyncRecordTests {

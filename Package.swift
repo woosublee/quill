@@ -9,7 +9,9 @@ let package = Package(
         // Shared with the iPhone app, which depends on this repository for it
         // (#634). The Mac app builds it from the Makefile instead.
         .library(name: "QuillNoteSyncCore", targets: ["QuillNoteSyncCore"]),
-        .library(name: "QuillAITextCore", targets: ["QuillAITextCore"])
+        .library(name: "QuillAITextCore", targets: ["QuillAITextCore"]),
+        .library(name: "QuillUserIssueCore", targets: ["QuillUserIssueCore"]),
+        .library(name: "QuillSummaryFormatCore", targets: ["QuillSummaryFormatCore"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")
@@ -31,6 +33,17 @@ let package = Package(
         .target(
             name: "QuillAITextCore",
             path: "Packages/QuillAITextCore/Sources",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "QuillUserIssueCore",
+            path: "Packages/QuillUserIssueCore/Sources",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "QuillSummaryFormatCore",
+            dependencies: ["QuillAITextCore", "QuillUserIssueCore"],
+            path: "Packages/QuillSummaryFormatCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],

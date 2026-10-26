@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import ServiceManagement
 import UserNotifications
+import QuillUserIssueCore
 
 // MARK: - Shared Helpers
 

@@ -10,6 +10,8 @@ import Speech
 import EventKit
 import os.log
 import QuillAITextCore
+import QuillUserIssueCore
+import QuillSummaryFormatCore
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
 

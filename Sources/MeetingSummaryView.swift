@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillSummaryFormatCore
 
 /// The Summary tab. Like the transcript, the summary is always editable and
 /// saves on its own: Return adds a row below, ⌫ on an empty row removes it,

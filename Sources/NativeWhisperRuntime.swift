@@ -1,5 +1,6 @@
 import Foundation
 import QuillAITextCore
+import QuillUserIssueCore
 
 enum NativeWhisperRuntimeError: LocalizedError, Equatable {
     case runnerNotFound(String)

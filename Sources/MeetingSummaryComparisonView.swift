@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillSummaryFormatCore
 
 /// The wording for one comparison: a summary or a transcript.
 struct ComparisonLabels {
