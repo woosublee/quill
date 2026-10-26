@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillProviderCore
 
 @main
 struct LocalAIServerManagerTests {

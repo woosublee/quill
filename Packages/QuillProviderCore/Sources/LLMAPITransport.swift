@@ -1,69 +1,74 @@
 import Foundation
 
-enum LLMAPITransport {
+/// Sends cloud AI requests. Short requests share one cache-free session;
+/// longer requests and uploads get a fresh one. A provider that rejects
+/// `temperature` is retried once without it. Tests pass `protocolClasses` to
+/// stub the provider. It holds only values fixed at creation, so callers can
+/// share it.
+public struct LLMAPITransport: @unchecked Sendable {
+    public static let shared = LLMAPITransport(protocolClasses: [])
+
     private static let sharedRequestTimeout: TimeInterval = 20
     private static let fallbackTimeout: TimeInterval = 60
-    private static let requestSession: URLSession = {
-        makeEphemeralSession(timeout: sharedRequestTimeout)
-    }()
 
-    private static func makeEphemeralSession(timeout: TimeInterval) -> URLSession {
+    private let protocolClasses: [AnyClass]
+    private let requestSession: URLSession
+    private let temperatureCache: TemperatureCapabilityCache
+
+    public init(protocolClasses: [AnyClass], temperatureCache: TemperatureCapabilityCache = .shared) {
+        self.protocolClasses = protocolClasses
+        self.temperatureCache = temperatureCache
+        requestSession = Self.makeEphemeralSession(timeout: Self.sharedRequestTimeout, protocolClasses: protocolClasses)
+    }
+
+    private static func makeEphemeralSession(timeout: TimeInterval, protocolClasses: [AnyClass]) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
+        if !protocolClasses.isEmpty {
+            configuration.protocolClasses = protocolClasses
+        }
         return URLSession(configuration: configuration)
     }
 
-    static func timeout(for requestTimeout: TimeInterval) -> TimeInterval {
+    public static func timeout(for requestTimeout: TimeInterval) -> TimeInterval {
         guard requestTimeout.isFinite, requestTimeout > 0 else {
             return fallbackTimeout
         }
         return requestTimeout
     }
 
-    static func data(
-        for request: URLRequest
-    ) async throws -> (Data, URLResponse) {
-        try await data(for: request, cache: TemperatureCapabilityCache.shared)
-    }
-
-    static func data(
-        for request: URLRequest,
-        cache: TemperatureCapabilityCache
-    ) async throws -> (Data, URLResponse) {
-        let requestTimeout = timeout(for: request.timeoutInterval)
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let requestTimeout = Self.timeout(for: request.timeoutInterval)
         var normalizedRequest = request
         normalizedRequest.timeoutInterval = requestTimeout
-        if requestTimeout > sharedRequestTimeout {
-            let session = makeEphemeralSession(timeout: requestTimeout)
+        if requestTimeout > Self.sharedRequestTimeout {
+            let session = Self.makeEphemeralSession(timeout: requestTimeout, protocolClasses: protocolClasses)
             defer { session.finishTasksAndInvalidate() }
-            return try await data(for: normalizedRequest, using: session, cache: cache)
+            return try await data(for: normalizedRequest, using: session)
         }
-        return try await data(for: normalizedRequest, using: requestSession, cache: cache)
+        return try await data(for: normalizedRequest, using: requestSession)
     }
 
     /// Sends a chat request, and once more without `temperature` when the
     /// provider rejects that parameter as unsupported. The outcome is
     /// remembered so later requests to the same endpoint and model skip it.
-    static func data(
-        for request: URLRequest,
-        using session: URLSession,
-        cache: TemperatureCapabilityCache
-    ) async throws -> (Data, URLResponse) {
+    private func data(for request: URLRequest, using session: URLSession) async throws -> (Data, URLResponse) {
+        let cache = temperatureCache
         let observation = cache.beginObservation(for: request)
         let capability = observation.capability
-        let outgoing = capability == .unsupported ? requestWithoutTemperature(request) ?? request : request
+        let outgoing = capability == .unsupported ? Self.requestWithoutTemperature(request) ?? request : request
         let result = try await session.data(for: outgoing)
         if let response = result.1 as? HTTPURLResponse, response.statusCode == 200,
-           isValidCompletionResponse(result.0), payloadHasTemperature(outgoing) {
+           Self.isValidCompletionResponse(result.0), Self.payloadHasTemperature(outgoing) {
             cache.record(.supported, for: outgoing, observation: observation)
         }
         guard capability != .unsupported,
               let response = result.1 as? HTTPURLResponse,
               response.statusCode == 400,
-              let retry = requestWithoutUnsupportedTemperature(outgoing, errorData: result.0) else {
+              let retry = Self.requestWithoutUnsupportedTemperature(outgoing, errorData: result.0) else {
             return result
         }
         cache.record(.unsupported, for: outgoing, observation: observation)
@@ -116,16 +121,13 @@ enum LLMAPITransport {
         return requestWithoutTemperature(request)
     }
 
-    static func upload(
-        for request: URLRequest,
-        from bodyData: Data
-    ) async throws -> (Data, URLResponse) {
+    public func upload(for request: URLRequest, from bodyData: Data) async throws -> (Data, URLResponse) {
         // Use a fresh session for each upload so a bad reused connection cannot
         // poison subsequent transcription uploads.
-        let requestTimeout = timeout(for: request.timeoutInterval)
+        let requestTimeout = Self.timeout(for: request.timeoutInterval)
         var normalizedRequest = request
         normalizedRequest.timeoutInterval = requestTimeout
-        let session = makeEphemeralSession(timeout: requestTimeout)
+        let session = Self.makeEphemeralSession(timeout: requestTimeout, protocolClasses: protocolClasses)
         defer { session.finishTasksAndInvalidate() }
         return try await session.upload(for: normalizedRequest, from: bodyData)
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillProviderCore
 
 struct LocalAIManagedModelResolver {
     struct Input: Equatable {

@@ -264,7 +264,7 @@ Post-processing, fallback, Context dropdown은 다음 group을 지원한다.
 
 다음 보존 규칙을 지킨다.
 
-- 현재 predefined model 목록을 임의로 필터링하거나 삭제하지 않는다 (`Sources/ModelConfiguration.swift:10-32`).
+- 현재 predefined model 목록을 임의로 필터링하거나 삭제하지 않는다 (`Packages/QuillProviderCore/Sources/ModelConfiguration.swift`).
 - 현재 저장된 custom model이 catalog에 없어도 `Custom…`으로 그대로 보인다.
 - `Reset to Default`는 현재 Cloud model default를 유지한다.
 - model display name을 꾸며 보여주더라도 API에 보내는 persisted `modelID`와 기존 Cloud 경로는 바꾸지 않는다.

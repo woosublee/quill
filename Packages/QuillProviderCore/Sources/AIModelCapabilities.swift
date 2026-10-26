@@ -1,47 +1,57 @@
-enum AIModelFeature: Hashable, Sendable, Codable {
+public enum AIModelFeature: Hashable, Sendable, Codable {
     case postProcessing
     case contextCapture
     case meetingSummary
     case transcription
 }
 
-enum AIModelModality: Hashable, Sendable, Codable {
+public enum AIModelModality: Hashable, Sendable, Codable {
     case text
     case image
     case audio
 }
 
-struct AIModelCapabilities: Hashable, Sendable, Codable {
-    let features: Set<AIModelFeature>
-    let modalities: Set<AIModelModality>
-    let recommendedContextWindow: Int?
+public struct AIModelCapabilities: Hashable, Sendable, Codable {
+    public let features: Set<AIModelFeature>
+    public let modalities: Set<AIModelModality>
+    public let recommendedContextWindow: Int?
 
-    static let none = AIModelCapabilities(
+    public init(
+        features: Set<AIModelFeature>,
+        modalities: Set<AIModelModality>,
+        recommendedContextWindow: Int?
+    ) {
+        self.features = features
+        self.modalities = modalities
+        self.recommendedContextWindow = recommendedContextWindow
+    }
+
+    public static let none = AIModelCapabilities(
         features: [],
         modalities: [],
         recommendedContextWindow: nil
     )
 
-    func supports(_ feature: AIModelFeature) -> Bool {
+    public func supports(_ feature: AIModelFeature) -> Bool {
         features.contains(feature)
     }
 
-    var supportsContextCapture: Bool {
+    public var supportsContextCapture: Bool {
         supports(.contextCapture) && modalities.contains(.image)
     }
 
-    var supportsTranscription: Bool {
+    public var supportsTranscription: Bool {
         supports(.transcription) && modalities.contains(.audio)
     }
 }
 
-enum LocalAIRuntime: Hashable, Sendable, Codable {
+public enum LocalAIRuntime: Hashable, Sendable, Codable {
     case textChat
     case visionChat(projectorArtifactFileName: String)
 }
 
-enum AIModelIDNormalizer {
-    static func normalizedCloudModelID(_ modelID: String) -> String {
+public enum AIModelIDNormalizer {
+    public static func normalizedCloudModelID(_ modelID: String) -> String {
         let cleanModel = modelID.trimmingCharacters(
             in: .whitespacesAndNewlines
         ).lowercased()
@@ -64,42 +74,42 @@ enum AIModelIDNormalizer {
     }
 }
 
-enum AIModelCapabilityCatalog {
-    static let qwenTextCapabilities = AIModelCapabilities(
+public enum AIModelCapabilityCatalog {
+    public static let qwenTextCapabilities = AIModelCapabilities(
         features: [.postProcessing, .meetingSummary],
         modalities: [.text],
         recommendedContextWindow: 16_384
     )
 
-    static let gemma4LocalCapabilities = AIModelCapabilities(
+    public static let gemma4LocalCapabilities = AIModelCapabilities(
         features: [.postProcessing, .meetingSummary, .contextCapture, .transcription],
         modalities: [.text, .image, .audio],
         recommendedContextWindow: 16_384
     )
 
     /// Speech recognition only; never offered for cleanup, summaries, or Context.
-    static let qwen3ASRCapabilities = AIModelCapabilities(
+    public static let qwen3ASRCapabilities = AIModelCapabilities(
         features: [.transcription],
         modalities: [.audio],
         recommendedContextWindow: 4_096
     )
 
-    static let qwenCloudVisionCapabilities = AIModelCapabilities(
+    public static let qwenCloudVisionCapabilities = AIModelCapabilities(
         features: [.postProcessing, .contextCapture, .meetingSummary],
         modalities: [.text, .image],
         recommendedContextWindow: nil
     )
 
-    static let cloudTextCapabilities = AIModelCapabilities(
+    public static let cloudTextCapabilities = AIModelCapabilities(
         features: [.postProcessing, .meetingSummary],
         modalities: [.text],
         recommendedContextWindow: nil
     )
 
     /// Qwen 3.6 stays here for providers other than Groq that still serve it.
-    static let cloudVisionModelIDs: Set<String> = ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b"]
+    public static let cloudVisionModelIDs: Set<String> = ["qwen/qwen3.8-27b", "qwen/qwen3.6-27b"]
 
-    static func capabilities(forCloudModelID modelID: String) -> AIModelCapabilities {
+    public static func capabilities(forCloudModelID modelID: String) -> AIModelCapabilities {
         cloudVisionModelIDs.contains(AIModelIDNormalizer.normalizedCloudModelID(modelID))
             ? qwenCloudVisionCapabilities
             : cloudTextCapabilities

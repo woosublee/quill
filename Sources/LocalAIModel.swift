@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillProviderCore
 
 struct LocalAIModelArtifact: Identifiable, Hashable, Codable, Sendable {
     var id: String { expectedFileName }

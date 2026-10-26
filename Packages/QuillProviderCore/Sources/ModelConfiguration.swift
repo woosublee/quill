@@ -1,13 +1,13 @@
 import Foundation
 
-public struct ModelConfig {
+public struct ModelConfig: Sendable {
     public let maxCompletionTokens: Int?
     public let reasoningEffort: String?
     public let includeReasoning: Bool?
     public let shouldStripThinkTags: Bool
 }
 
-public struct ModelConfiguration {
+public struct ModelConfiguration: Sendable {
     public static let llmModels = [
         "openai/gpt-oss-20b",
         "openai/gpt-oss-120b",
@@ -23,14 +23,14 @@ public struct ModelConfiguration {
     ]
 
     /// Groq retired Qwen 3.6 and serves Qwen 3.8 in its place.
-    static let retiredGroqQwenModelID = "qwen/qwen3.6-27b"
-    static let groqQwenModelID = "qwen/qwen3.8-27b"
+    public static let retiredGroqQwenModelID = "qwen/qwen3.6-27b"
+    public static let groqQwenModelID = "qwen/qwen3.8-27b"
     /// The default primary model for post-processing and meeting summaries.
-    static let defaultLLMModelID = "openai/gpt-oss-20b"
+    public static let defaultLLMModelID = "openai/gpt-oss-20b"
     /// Models upstream dropped from the list in v1.2.0 (#577). Groq still
     /// serves them, so saved selections move to Qwen 3.8 only once; a model
     /// typed in later stays.
-    static let droppedGroqModelIDs: Set<String> = [
+    public static let droppedGroqModelIDs: Set<String> = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
         "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -39,7 +39,7 @@ public struct ModelConfiguration {
 
     /// Only Groq's own endpoint is migrated. Other providers can still serve
     /// these models under the same names.
-    static func isGroqBaseURL(_ baseURL: String) -> Bool {
+    public static func isGroqBaseURL(_ baseURL: String) -> Bool {
         guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return false
         }
@@ -50,7 +50,7 @@ public struct ModelConfiguration {
 
     /// The Groq replacement for a retired model ID, or nil when it is kept.
     /// Dropped models are replaced only when `includingDroppedModels`.
-    static func groqReplacement(
+    public static func groqReplacement(
         for modelID: String,
         baseURL: String,
         includingDroppedModels: Bool = false
@@ -64,7 +64,7 @@ public struct ModelConfiguration {
         return groqQwenModelID
     }
 
-    static func migrateGroqSelection(
+    public static func migrateGroqSelection(
         key: String,
         baseURL: String,
         defaults: UserDefaults,
@@ -79,7 +79,7 @@ public struct ModelConfiguration {
         defaults.set(replacement, forKey: key)
     }
 
-    static func capabilities(for modelID: String) -> AIModelCapabilities {
+    public static func capabilities(for modelID: String) -> AIModelCapabilities {
         AIModelCapabilityCatalog.capabilities(forCloudModelID: modelID)
     }
 
@@ -212,7 +212,7 @@ public struct ModelConfiguration {
                 shouldStripThinkTags: false
             )
         }
-        
+
         // Generic fallback for any model not explicitly listed above
         return ModelConfig(
             maxCompletionTokens: nil,
@@ -221,12 +221,12 @@ public struct ModelConfiguration {
             shouldStripThinkTags: false
         )
     }
-    
+
     /// Utility method to remove <think>...</think> tags and everything inside them.
     /// This also handles unclosed tags gracefully (e.g. if the model runs out of tokens).
     public static func stripThinkTags(_ text: String) -> String {
         var cleaned = text
-        
+
         // First, replace fully closed tags: <think>...</think>
         // Match anywhere in the text so blocks after leading content are stripped too.
         let closedRegexPattern = "<think>[\\s\\S]*?</think>"
@@ -234,7 +234,7 @@ public struct ModelConfiguration {
             let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
             cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
         }
-        
+
         // Next, if there is an unclosed <think> tag remaining (meaning it started thinking but got truncated),
         // strip from the first remaining <think> tag to the very end of the string.
         let openRegexPattern = "<think>[\\s\\S]*$"
@@ -242,7 +242,7 @@ public struct ModelConfiguration {
             let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
             cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
         }
-        
+
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

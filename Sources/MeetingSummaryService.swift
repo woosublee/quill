@@ -3,6 +3,7 @@ import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
+import QuillProviderCore
 
 protocol MeetingSummaryGenerating: Sendable {
     func generate(
@@ -73,7 +74,7 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     private static let contextWindow = 16_384
     private static let cloudCompletionCeiling = 1_024
     private static let defaultTransport: Transport = { request in
-        try await LLMAPITransport.data(for: request)
+        try await LLMAPITransport.shared.data(for: request)
     }
 
     private let backendExecutor: AIProcessingBackendExecutor

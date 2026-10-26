@@ -4,6 +4,7 @@ import Foundation
 import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
+import QuillProviderCore
 
 private final class ControlledRetryCloudUpload: @unchecked Sendable {
     private let condition = NSCondition()

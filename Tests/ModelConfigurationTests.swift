@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 @main
 struct ModelConfigurationTests {

@@ -1,9 +1,11 @@
 import Foundation
+import QuillProviderCore
 
 @main
 struct LLMAPITransportTests {
     static func main() async throws {
         try await testUnsupportedTemperatureRetriesOnceWithoutIt()
+        try await testShortRequestsUseTheSharedSession()
         try await testOnlyExplicitTemperatureRejectionsRetry()
         try await testRejectionIsRememberedForTheEndpoint()
         try await testOtherErrorsLeaveTheCacheAlone()
@@ -45,6 +47,14 @@ struct LLMAPITransportTests {
 
         let success = try await perform([(200, validCompletion)])
         try expect(success.count == 1 && (try body(success[0]))["temperature"] != nil, "a compatible call keeps temperature")
+    }
+
+    // A request at or under 20 seconds goes through the transport's shared
+    // session instead of a fresh one; it must carry the same stub provider.
+    private static func testShortRequestsUseTheSharedSession() async throws {
+        let retry = try await perform([(400, rejected), (200, validCompletion)], timeout: 20)
+        try expect(retry.count == 2, "a short request retries once through the shared session")
+        try expect(try body(retry[1])["temperature"] == nil, "the shared-session retry removes temperature")
     }
 
     private static func testOnlyExplicitTemperatureRejectionsRetry() async throws {
@@ -165,18 +175,14 @@ struct LLMAPITransportTests {
         _ replies: [(Int, String)],
         body payload: [String: Any] = ["model": "fixture", "temperature": 0, "top_p": 0.7, "max_completion_tokens": 128, "messages": []],
         endpoint: String = UUID().uuidString,
-        cache: TemperatureCapabilityCache = makeCache()
+        cache: TemperatureCapabilityCache = makeCache(),
+        timeout: TimeInterval? = nil
     ) async throws -> [URLRequest] {
         StubLLMURLProtocol.reset(replies)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubLLMURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        _ = try await LLMAPITransport.data(
-            for: try makeRequest(endpoint: endpoint, body: payload),
-            using: session,
-            cache: cache
-        )
+        let transport = LLMAPITransport(protocolClasses: [StubLLMURLProtocol.self], temperatureCache: cache)
+        var request = try makeRequest(endpoint: endpoint, body: payload)
+        if let timeout { request.timeoutInterval = timeout }
+        _ = try await transport.data(for: request)
         return StubLLMURLProtocol.recordedRequests()
     }
 

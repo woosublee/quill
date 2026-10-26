@@ -12,7 +12,8 @@ let package = Package(
         .library(name: "QuillAITextCore", targets: ["QuillAITextCore"]),
         .library(name: "QuillUserIssueCore", targets: ["QuillUserIssueCore"]),
         .library(name: "QuillSummaryFormatCore", targets: ["QuillSummaryFormatCore"]),
-        .library(name: "QuillSummaryGenerationCore", targets: ["QuillSummaryGenerationCore"])
+        .library(name: "QuillSummaryGenerationCore", targets: ["QuillSummaryGenerationCore"]),
+        .library(name: "QuillProviderCore", targets: ["QuillProviderCore"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")
@@ -51,6 +52,11 @@ let package = Package(
             name: "QuillSummaryGenerationCore",
             dependencies: ["QuillAITextCore", "QuillUserIssueCore", "QuillSummaryFormatCore"],
             path: "Packages/QuillSummaryGenerationCore/Sources",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "QuillProviderCore",
+            path: "Packages/QuillProviderCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],

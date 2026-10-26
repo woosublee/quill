@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 /// Sends one WAV chunk to the bundled `llama-server` and returns its text.
 /// Never logs or keeps audio, prompts, or response text.
@@ -9,7 +10,7 @@ struct LocalASRTranscriptionClient: Sendable {
 
     init(
         send: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
-            try await LLMAPITransport.data(for: request)
+            try await LLMAPITransport.shared.data(for: request)
         }
     ) {
         self.send = send

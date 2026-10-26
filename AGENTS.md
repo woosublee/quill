@@ -40,6 +40,11 @@ otherwise.
   and output checks, and the summary errors. Model requests, fallbacks, and
   cooldowns stay in `Sources/MeetingSummaryService.swift`, which plugs into
   the generator as its draft requester.
+- `Packages/QuillProviderCore/`: model rules shared with the iPhone app: the
+  cloud and local model lists and capabilities, rate-limit cooldowns, the
+  temperature capability cache, and the request transport. Cooldowns, the
+  temperature cache, and the Groq model migration read and write
+  `UserDefaults`. API keys and the rest of the settings stay in the app.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

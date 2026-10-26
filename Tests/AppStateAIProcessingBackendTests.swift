@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import QuillUserIssueCore
+import QuillProviderCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main
