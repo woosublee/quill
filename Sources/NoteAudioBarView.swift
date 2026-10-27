@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillAudioLevelCore
 
 /// The note's audio bar: the player when the audio is on this Mac, and a
 /// download bar when it is in iCloud. A finished download swaps in the

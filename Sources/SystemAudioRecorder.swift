@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import os.log
+import QuillAudioLevelCore
 @preconcurrency import ScreenCaptureKit
 
 private let systemAudioRecordingLog = OSLog(subsystem: "com.woosublee.quill", category: "SystemAudioRecording")

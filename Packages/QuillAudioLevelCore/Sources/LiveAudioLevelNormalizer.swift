@@ -1,6 +1,8 @@
 import Foundation
 
-struct LiveAudioLevelNormalizer {
+/// Turns live RMS readings into a 0–1 meter level that adapts to the room's
+/// noise floor and the speaker's peaks.
+public struct LiveAudioLevelNormalizer: Sendable {
     private static let minimumRMS: Float = 0.00001
     private static let minSpanDB: Float = 18
     private static let peakHeadroomDB: Float = 8
@@ -19,13 +21,15 @@ struct LiveAudioLevelNormalizer {
     private var peakCeilingDB: Float = -37
     private var displayLevel: Float = 0
 
-    mutating func reset() {
+    public init() {}
+
+    public mutating func reset() {
         noiseFloorDB = -55
         peakCeilingDB = -37
         displayLevel = 0
     }
 
-    mutating func normalizedLevel(forRMS rms: Float) -> Float {
+    public mutating func normalizedLevel(forRMS rms: Float) -> Float {
         let levelDB = 20 * log10f(max(rms, Self.minimumRMS))
 
         updateNoiseFloor(with: levelDB)

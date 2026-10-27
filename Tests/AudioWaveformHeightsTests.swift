@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioLevelCore
 
 @main
 struct AudioWaveformHeightsTests {

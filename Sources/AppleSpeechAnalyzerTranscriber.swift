@@ -1,6 +1,7 @@
 import AVFoundation
 import os.log
 import Speech
+import QuillAudioLevelCore
 
 private let analyzerLog = OSLog(subsystem: "com.woosublee.quill", category: "AppleSpeechAnalyzer")
 

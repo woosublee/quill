@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
+import QuillAudioLevelCore
 
 // MARK: - Cursor helper
 

@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import os.log
 import Speech
+import QuillAudioLevelCore
 
 private let speechLog = OSLog(subsystem: "com.woosublee.quill", category: "AppleSpeech")
 
