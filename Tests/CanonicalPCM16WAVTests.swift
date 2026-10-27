@@ -14,6 +14,7 @@ struct CanonicalPCM16WAVTests {
             try canonicalCopySkipsExtraChunks()
             try canonicalCopyAcceptsExtensiblePCM()
             try canonicalCopyRejectsOtherFormats()
+            try acceptanceStaysFixed()
             print("CanonicalPCM16WAVTests passed")
         } catch {
             fputs("CanonicalPCM16WAVTests failed: \(error)\n", stderr)
@@ -131,6 +132,183 @@ struct CanonicalPCM16WAVTests {
                 "no partial output"
             )
         }
+    }
+
+    /// Which files are accepted, and what they hold, pinned before this
+    /// code is shared with the iPhone app (#634). Error names are left out
+    /// on purpose: only acceptance must stay the same.
+    private static func acceptanceStaysFixed() throws {
+        let canonical = CanonicalPCM16WAV.header(dataByteCount: 8)
+        let validated: [(String, Data)] = [
+            ("canonical", canonical + Data(count: 8)),
+            ("empty", CanonicalPCM16WAV.header(dataByteCount: 0)),
+            ("odd byte count", CanonicalPCM16WAV.header(dataByteCount: 3) + Data(count: 3)),
+            ("truncated", canonical + Data(count: 6)),
+            ("trailing byte", canonical + Data(count: 9)),
+            ("short header", canonical.prefix(20)),
+            ("RIFX", canonical.replacingBytes(0..<4, with: Data("RIFX".utf8)) + Data(count: 8)),
+            ("WAVX", canonical.replacingBytes(8..<12, with: Data("WAVX".utf8)) + Data(count: 8)),
+            ("fmt marker", canonical.replacingBytes(12..<16, with: Data("fmtx".utf8)) + Data(count: 8)),
+            ("fmt size 18", replacingUInt32(in: canonical, at: 16, with: 18) + Data(count: 8)),
+            ("float tag", replacingUInt16(in: canonical, at: 20, with: 3) + Data(count: 8)),
+            ("stereo", replacingUInt16(in: canonical, at: 22, with: 2) + Data(count: 8)),
+            ("44.1 kHz", replacingUInt32(in: canonical, at: 24, with: 44_100) + Data(count: 8)),
+            ("byte rate", replacingUInt32(in: canonical, at: 28, with: 1) + Data(count: 8)),
+            ("block align", replacingUInt16(in: canonical, at: 32, with: 4) + Data(count: 8)),
+            ("24-bit", replacingUInt16(in: canonical, at: 34, with: 24) + Data(count: 8)),
+            ("data marker", canonical.replacingBytes(36..<40, with: Data("JUNK".utf8)) + Data(count: 8)),
+            ("RIFF size", replacingUInt32(in: canonical, at: 4, with: 37) + Data(count: 8)),
+            ("overflowing size", replacingUInt32(
+                in: replacingUInt32(in: canonical, at: 40, with: .max),
+                at: 4,
+                with: 35
+            ) + Data(count: 8))
+        ]
+        var lines = ["canonical header for 8 data bytes: " + headerHex(canonical)]
+        for (label, bytes) in validated {
+            let url = temporaryURL()
+            defer { try? FileManager.default.removeItem(at: url) }
+            try bytes.write(to: url)
+            let parsed = outcome { try CanonicalPCM16WAV.parseHeader(Data(bytes.prefix(44))) }
+            let validatedFile = outcome { try CanonicalPCM16WAV.validateFile(at: url) }
+            lines.append("validate \(label): header \(parsed), file \(validatedFile)")
+        }
+
+        let samples = Data([1, 0, 2, 0, 3, 0, 4, 0])
+        var extensibleFloat = fmtPayload(extensible: true)
+        extensibleFloat[24] = 3
+        let copied: [(String, Data)] = [
+            ("canonical", riff([chunk("fmt ", fmtPayload()), chunk("data", samples)])),
+            ("extra chunks", riff([
+                chunk("JUNK", Data(repeating: 9, count: 28)),
+                chunk("fmt ", fmtPayload()),
+                chunk("LIST", Data(repeating: 9, count: 5)),
+                chunk("data", samples)
+            ])),
+            ("extensible", riff([chunk("fmt ", fmtPayload(extensible: true)), chunk("data", samples)])),
+            ("extensible float", riff([chunk("fmt ", extensibleFloat), chunk("data", samples)])),
+            ("extensible fmt size 18", riff([
+                chunk("fmt ", fmtPayload(extensible: true).prefix(18)),
+                chunk("data", samples)
+            ])),
+            ("stereo", riff([chunk("fmt ", fmtPayload(channels: 2)), chunk("data", samples)])),
+            ("44.1 kHz", riff([chunk("fmt ", fmtPayload(rate: 44_100)), chunk("data", samples)])),
+            ("float", riff([chunk("fmt ", fmtPayload(tag: 3, bits: 32)), chunk("data", samples)])),
+            ("fmt too large", riff([chunk("fmt ", fmtPayload() + Data(count: 50)), chunk("data", samples)])),
+            ("fmt too small", riff([chunk("fmt ", fmtPayload().prefix(14)), chunk("data", samples)])),
+            ("odd fmt size", riff([chunk("fmt ", fmtPayload() + Data([0])), chunk("data", samples)])),
+            ("supported then unsupported fmt", riff([
+                chunk("fmt ", fmtPayload()),
+                chunk("fmt ", fmtPayload(channels: 2)),
+                chunk("data", samples)
+            ])),
+            ("unsupported then supported fmt", riff([
+                chunk("fmt ", fmtPayload(channels: 2)),
+                chunk("fmt ", fmtPayload()),
+                chunk("data", samples)
+            ])),
+            ("data before fmt", riff([chunk("data", samples), chunk("fmt ", fmtPayload())])),
+            ("no data", riff([chunk("fmt ", fmtPayload())])),
+            ("empty data", riff([chunk("fmt ", fmtPayload()), chunk("data", Data())])),
+            ("odd data", riff([chunk("fmt ", fmtPayload()), chunk("data", Data([1, 0, 2, 0, 3]))])),
+            // The chunk declares 64 bytes but only 8 follow. Today the copy
+            // keeps what is there.
+            ("data past the end", riff([chunk("fmt ", fmtPayload())])
+                + Data("data".utf8) + Data([0x40, 0, 0, 0]) + samples),
+            ("not RIFF", riff([chunk("fmt ", fmtPayload()), chunk("data", samples)])
+                .replacingBytes(0..<4, with: Data("RIFX".utf8))),
+            ("not WAVE", riff([chunk("fmt ", fmtPayload()), chunk("data", samples)])
+                .replacingBytes(8..<12, with: Data("AVI ".utf8))),
+            ("too short", Data("RIFF".utf8))
+        ]
+        for (label, bytes) in copied {
+            let source = temporaryURL()
+            let destination = temporaryURL()
+            defer {
+                try? FileManager.default.removeItem(at: source)
+                try? FileManager.default.removeItem(at: destination)
+            }
+            try bytes.write(to: source)
+            let result = outcome {
+                try CanonicalPCM16WAV.writeCanonicalCopy(of: source, to: destination)
+            }
+            let output: String
+            if let written = try? Data(contentsOf: destination) {
+                let audio = written.dropFirst(44).map { String(format: "%02x", $0) }.joined()
+                let headerMatches = written.prefix(44)
+                    == CanonicalPCM16WAV.header(dataByteCount: UInt32(written.count - 44))
+                output = "audio \(audio)" + (headerMatches ? "" : ", other header")
+            } else {
+                output = "no output"
+            }
+            lines.append("copy \(label): \(result), \(output)")
+        }
+        let pinned = """
+            canonical header for 8 data bytes: 52494646 2c000000 57415645 666d7420 10000000 0100 0100 803e0000 007d0000 0200 1000 64617461 08000000
+            validate canonical: header frames 4, file frames 4
+            validate empty: header rejected, file rejected
+            validate odd byte count: header rejected, file rejected
+            validate truncated: header frames 4, file rejected
+            validate trailing byte: header frames 4, file rejected
+            validate short header: header rejected, file rejected
+            validate RIFX: header rejected, file rejected
+            validate WAVX: header rejected, file rejected
+            validate fmt marker: header rejected, file rejected
+            validate fmt size 18: header rejected, file rejected
+            validate float tag: header rejected, file rejected
+            validate stereo: header rejected, file rejected
+            validate 44.1 kHz: header rejected, file rejected
+            validate byte rate: header rejected, file rejected
+            validate block align: header rejected, file rejected
+            validate 24-bit: header rejected, file rejected
+            validate data marker: header rejected, file rejected
+            validate RIFF size: header rejected, file rejected
+            validate overflowing size: header rejected, file rejected
+            copy canonical: frames 4, audio 0100020003000400
+            copy extra chunks: frames 4, audio 0100020003000400
+            copy extensible: frames 4, audio 0100020003000400
+            copy extensible float: rejected, no output
+            copy extensible fmt size 18: rejected, no output
+            copy stereo: rejected, no output
+            copy 44.1 kHz: rejected, no output
+            copy float: rejected, no output
+            copy fmt too large: rejected, no output
+            copy fmt too small: rejected, no output
+            copy odd fmt size: frames 4, audio 0100020003000400
+            copy supported then unsupported fmt: rejected, no output
+            copy unsupported then supported fmt: frames 4, audio 0100020003000400
+            copy data before fmt: rejected, no output
+            copy no data: rejected, no output
+            copy empty data: rejected, no output
+            copy odd data: frames 2, audio 01000200
+            copy data past the end: frames 4, audio 0100020003000400
+            copy not RIFF: rejected, no output
+            copy not WAVE: rejected, no output
+            copy too short: rejected, no output
+            """
+        try expectEqual(lines.joined(separator: "\n"), pinned, "WAV acceptance")
+    }
+
+    /// "frames N" when accepted, "rejected" for a WAV format error, and the
+    /// error itself for anything else, such as a file that can't be read.
+    private static func outcome(_ operation: () throws -> CanonicalPCM16WAVLayout) -> String {
+        do {
+            return "frames \(try operation().frameCount)"
+        } catch is CanonicalPCM16WAVError {
+            return "rejected"
+        } catch {
+            return "error \(error)"
+        }
+    }
+
+    /// The canonical header, grouped by field.
+    private static func headerHex(_ header: Data) -> String {
+        let widths = [4, 4, 4, 4, 4, 2, 2, 4, 4, 2, 2, 4, 4]
+        var offset = header.startIndex
+        return widths.map { width in
+            defer { offset += width }
+            return header[offset..<(offset + width)].map { String(format: "%02x", $0) }.joined()
+        }.joined(separator: " ")
     }
 
     private static func canonicalHeaderRoundTrips() throws {
@@ -313,6 +491,14 @@ struct CanonicalPCM16WAVTests {
         guard actual == expected else {
             throw TestFailure("\(label): expected \(expected), got \(actual)")
         }
+    }
+}
+
+private extension Data {
+    func replacingBytes(_ range: Range<Int>, with bytes: Data) -> Data {
+        var copy = self
+        copy.replaceSubrange(range, with: bytes)
+        return copy
     }
 }
 
