@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 @main
 struct CanonicalPCM16WAVTests {
@@ -15,6 +16,7 @@ struct CanonicalPCM16WAVTests {
             try canonicalCopyAcceptsExtensiblePCM()
             try canonicalCopyRejectsOtherFormats()
             try acceptanceStaysFixed()
+            try sharedOnlyRulesHold()
             print("CanonicalPCM16WAVTests passed")
         } catch {
             fputs("CanonicalPCM16WAVTests failed: \(error)\n", stderr)
@@ -124,7 +126,7 @@ struct CanonicalPCM16WAVTests {
             do {
                 _ = try CanonicalPCM16WAV.writeCanonicalCopy(of: source, to: destination)
                 throw TestFailure("non-16 kHz mono PCM16 accepted")
-            } catch CanonicalPCM16WAVError.invalidHeader {
+            } catch CanonicalPCM16WAVError.invalidFormat {
             }
             try expectEqual(
                 FileManager.default.fileExists(atPath: destination.path),
@@ -138,8 +140,8 @@ struct CanonicalPCM16WAVTests {
     /// code is shared with the iPhone app (#634). Error names are left out
     /// on purpose: only acceptance must stay the same.
     private static func acceptanceStaysFixed() throws {
-        let canonical = CanonicalPCM16WAV.header(dataByteCount: 8)
-        let validated: [(String, Data)] = [
+        let canonical = try CanonicalPCM16WAV.header(dataByteCount: 8)
+        let validated: [(String, Data)] = try [
             ("canonical", canonical + Data(count: 8)),
             ("empty", CanonicalPCM16WAV.header(dataByteCount: 0)),
             ("odd byte count", CanonicalPCM16WAV.header(dataByteCount: 3) + Data(count: 3)),
@@ -235,8 +237,8 @@ struct CanonicalPCM16WAVTests {
             let output: String
             if let written = try? Data(contentsOf: destination) {
                 let audio = written.dropFirst(44).map { String(format: "%02x", $0) }.joined()
-                let headerMatches = written.prefix(44)
-                    == CanonicalPCM16WAV.header(dataByteCount: UInt32(written.count - 44))
+                let expectedHeader = try CanonicalPCM16WAV.header(dataByteCount: UInt32(written.count - 44))
+                let headerMatches = written.prefix(44) == expectedHeader
                 output = "audio \(audio)" + (headerMatches ? "" : ", other header")
             } else {
                 output = "no output"
@@ -289,6 +291,61 @@ struct CanonicalPCM16WAVTests {
         try expectEqual(lines.joined(separator: "\n"), pinned, "WAV acceptance")
     }
 
+    /// Rules the iPhone app brought into the shared module: an empty file
+    /// on request, the readable part of a cut-off recording, and a header
+    /// too large for RIFF.
+    private static func sharedOnlyRulesHold() throws {
+        let empty = try CanonicalPCM16WAV.header(dataByteCount: 0)
+        try expectEqual(
+            try CanonicalPCM16WAV.parseHeader(empty, requireNonEmpty: false).frameCount,
+            0,
+            "an empty file is allowed on request"
+        )
+        try expectError(.misalignedPayload, "an odd byte count is still rejected") {
+            try CanonicalPCM16WAV.parseHeader(
+                CanonicalPCM16WAV.header(dataByteCount: 3),
+                requireNonEmpty: false
+            )
+        }
+        try expectError(.sizeOverflow, "a header too large for RIFF") {
+            try CanonicalPCM16WAV.header(dataByteCount: UInt32.max - 35)
+        }
+        try expectEqual(
+            try CanonicalPCM16WAV.header(dataByteCount: UInt32.max - 36).count,
+            44,
+            "the largest header still fits"
+        )
+        try expectError(.fileTooShort, "a cut-off header") {
+            try CanonicalPCM16WAV.recoverablePayload(physicalFileByteCount: 43)
+        }
+        let cases: [(UInt64, RecoverablePCM16Payload)] = [
+            (44, RecoverablePCM16Payload(
+                physicalDataByteCount: 0, recoverableDataByteCount: 0,
+                frameCount: 0, removedTrailingByte: false
+            )),
+            (45, RecoverablePCM16Payload(
+                physicalDataByteCount: 1, recoverableDataByteCount: 0,
+                frameCount: 0, removedTrailingByte: true
+            )),
+            (53, RecoverablePCM16Payload(
+                physicalDataByteCount: 9, recoverableDataByteCount: 8,
+                frameCount: 4, removedTrailingByte: true
+            ))
+        ]
+        for (size, expected) in cases {
+            try expectEqual(
+                try CanonicalPCM16WAV.recoverablePayload(physicalFileByteCount: size),
+                expected,
+                "recoverable part of a \(size)-byte file"
+            )
+        }
+        try expectEqual(
+            CanonicalAudioFormat.pcm16Mono16k.duration(forFrameCount: 16_000),
+            1,
+            "one second of frames"
+        )
+    }
+
     /// "frames N" when accepted, "rejected" for a WAV format error, and the
     /// error itself for anything else, such as a file that can't be read.
     private static func outcome(_ operation: () throws -> CanonicalPCM16WAVLayout) -> String {
@@ -312,7 +369,7 @@ struct CanonicalPCM16WAVTests {
     }
 
     private static func canonicalHeaderRoundTrips() throws {
-        let header = CanonicalPCM16WAV.header(dataByteCount: 8)
+        let header = try CanonicalPCM16WAV.header(dataByteCount: 8)
         try expectEqual(header.count, 44, "header byte count")
         let layout = try CanonicalPCM16WAV.parseHeader(header)
         try expectEqual(
@@ -320,14 +377,15 @@ struct CanonicalPCM16WAVTests {
             CanonicalPCM16WAVLayout(
                 dataOffset: 44,
                 dataByteCount: 8,
-                frameCount: 4
+                frameCount: 4,
+                duration: 0.000_25
             ),
             "canonical layout"
         )
     }
 
     private static func parsesCanonicalHeaderFromNonzeroIndexDataSlice() throws {
-        let header = CanonicalPCM16WAV.header(dataByteCount: 8)
+        let header = try CanonicalPCM16WAV.header(dataByteCount: 8)
         var container = Data(repeating: 0xaa, count: 7)
         container.append(header)
         container.append(Data(repeating: 0xbb, count: 3))
@@ -349,48 +407,48 @@ struct CanonicalPCM16WAVTests {
     }
 
     private static func rejectsNonCanonicalFormatFields() throws {
-        let canonical = CanonicalPCM16WAV.header(dataByteCount: 8)
-        try expectError(.invalidHeader, "channel count") {
+        let canonical = try CanonicalPCM16WAV.header(dataByteCount: 8)
+        try expectError(.invalidFormat, "channel count") {
             try CanonicalPCM16WAV.parseHeader(replacingUInt16(in: canonical, at: 22, with: 2))
         }
-        try expectError(.invalidHeader, "sample rate") {
+        try expectError(.invalidFormat, "sample rate") {
             try CanonicalPCM16WAV.parseHeader(replacingUInt32(in: canonical, at: 24, with: 44_100))
         }
-        try expectError(.invalidHeader, "byte rate") {
+        try expectError(.invalidFormat, "byte rate") {
             try CanonicalPCM16WAV.parseHeader(replacingUInt32(in: canonical, at: 28, with: 1))
         }
-        try expectError(.invalidHeader, "block alignment") {
+        try expectError(.invalidFormat, "block alignment") {
             try CanonicalPCM16WAV.parseHeader(replacingUInt16(in: canonical, at: 32, with: 4))
         }
-        try expectError(.invalidHeader, "bit depth") {
+        try expectError(.invalidFormat, "bit depth") {
             try CanonicalPCM16WAV.parseHeader(replacingUInt16(in: canonical, at: 34, with: 24))
         }
     }
 
     private static func rejectsInvalidChunkLayout() throws {
-        let canonical = CanonicalPCM16WAV.header(dataByteCount: 8)
+        let canonical = try CanonicalPCM16WAV.header(dataByteCount: 8)
         var wrongRIFF = canonical
         wrongRIFF.replaceSubrange(0..<4, with: Data("RIFX".utf8))
-        try expectError(.invalidHeader, "RIFF marker") {
+        try expectError(.invalidRIFF, "RIFF marker") {
             try CanonicalPCM16WAV.parseHeader(wrongRIFF)
         }
 
         var wrongData = canonical
         wrongData.replaceSubrange(36..<40, with: Data("JUNK".utf8))
-        try expectError(.invalidHeader, "data marker") {
+        try expectError(.invalidDataChunk, "data marker") {
             try CanonicalPCM16WAV.parseHeader(wrongData)
         }
 
-        try expectError(.invalidHeader, "RIFF size") {
+        try expectError(.invalidRIFF, "RIFF size") {
             try CanonicalPCM16WAV.parseHeader(replacingUInt32(in: canonical, at: 4, with: 37))
         }
     }
 
     private static func rejectsEmptyAndMisalignedAudio() throws {
-        try expectError(.emptyAudio, "empty audio") {
+        try expectError(.emptyPayload, "empty audio") {
             try CanonicalPCM16WAV.parseHeader(CanonicalPCM16WAV.header(dataByteCount: 0))
         }
-        try expectError(.misalignedData, "odd PCM byte count") {
+        try expectError(.misalignedPayload, "odd PCM byte count") {
             try CanonicalPCM16WAV.parseHeader(CanonicalPCM16WAV.header(dataByteCount: 3))
         }
     }
@@ -406,13 +464,13 @@ struct CanonicalPCM16WAVTests {
 
         let truncatedURL = try writeWAV(declaredDataByteCount: 8, payloadByteCount: 6)
         defer { try? FileManager.default.removeItem(at: truncatedURL) }
-        try expectError(.physicalSizeMismatch, "truncated payload") {
+        try expectError(.truncatedPayload, "truncated payload") {
             try CanonicalPCM16WAV.validateFile(at: truncatedURL)
         }
 
         let trailingURL = try writeWAV(declaredDataByteCount: 8, payloadByteCount: 10)
         defer { try? FileManager.default.removeItem(at: trailingURL) }
-        try expectError(.physicalSizeMismatch, "trailing payload") {
+        try expectError(.trailingPayload, "trailing payload") {
             try CanonicalPCM16WAV.validateFile(at: trailingURL)
         }
     }
@@ -429,7 +487,7 @@ struct CanonicalPCM16WAVTests {
             UInt32(maximumFrameCount * 2),
             "maximum frame byte count"
         )
-        try expectError(.outputTooLarge, "overflowing frame count") {
+        try expectError(.sizeOverflow, "overflowing frame count") {
             try CanonicalPCM16WAV.dataByteCount(forFrameCount: maximumFrameCount + 1)
         }
     }
@@ -441,7 +499,7 @@ struct CanonicalPCM16WAVTests {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        var data = CanonicalPCM16WAV.header(dataByteCount: declaredDataByteCount)
+        var data = try CanonicalPCM16WAV.header(dataByteCount: declaredDataByteCount)
         data.append(Data(repeating: 0, count: payloadByteCount))
         try data.write(to: url, options: .atomic)
         return url

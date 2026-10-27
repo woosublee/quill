@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main
@@ -126,7 +127,7 @@ struct NoteAssetStoreTests {
         try withTemporaryStore { store in
             let fileURL = store.storageLayout.audioDirectory
                 .appendingPathComponent("promoted.wav")
-            let originalData = canonicalWAVData(samples: [12, 34])
+            let originalData = try canonicalWAVData(samples: [12, 34])
             try originalData.write(to: fileURL)
             let before = try audioFileNames(in: store)
 
@@ -157,7 +158,7 @@ struct NoteAssetStoreTests {
         try withTemporaryStore { store in
             let sourceURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("note-asset-store-external-\(UUID().uuidString).wav")
-            let contents = canonicalWAVData(samples: [56, 78])
+            let contents = try canonicalWAVData(samples: [56, 78])
             try contents.write(to: sourceURL)
             defer { try? FileManager.default.removeItem(at: sourceURL) }
 
@@ -737,14 +738,14 @@ struct NoteAssetStoreTests {
         }
     }
 
-    private static func canonicalWAVData(samples: [Int16]) -> Data {
+    private static func canonicalWAVData(samples: [Int16]) throws -> Data {
         var payload = Data()
         for sample in samples {
             let value = UInt16(bitPattern: sample)
             payload.append(UInt8(value & 0x00ff))
             payload.append(UInt8(value >> 8))
         }
-        var data = CanonicalPCM16WAV.header(dataByteCount: UInt32(payload.count))
+        var data = try CanonicalPCM16WAV.header(dataByteCount: UInt32(payload.count))
         data.append(payload)
         return data
     }

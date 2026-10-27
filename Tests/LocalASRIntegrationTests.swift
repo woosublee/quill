@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import QuillProviderCore
 
 /// Opt-in check against a real Gemma 4 E4B `llama-server` (make

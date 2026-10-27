@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import Combine
 import AppKit
 import AVFoundation

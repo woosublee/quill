@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillAudioFormatCore
 import QuillProviderCore
 
 struct CloudTranscriptionMultipartLayout: Equatable, Sendable {
@@ -128,8 +129,11 @@ enum CloudTranscriptionSourceIdentityBuilder {
             hasher.update(data: data)
         }
 
-        guard physicalByteCount == layout.dataOffset + layout.dataByteCount else {
-            throw CanonicalPCM16WAVError.physicalSizeMismatch
+        let expectedByteCount = layout.dataOffset + layout.dataByteCount
+        guard physicalByteCount == expectedByteCount else {
+            throw physicalByteCount < expectedByteCount
+                ? CanonicalPCM16WAVError.truncatedPayload
+                : CanonicalPCM16WAVError.trailingPayload
         }
         let digest = hasher.finalize()
             .map { String(format: "%02x", $0) }

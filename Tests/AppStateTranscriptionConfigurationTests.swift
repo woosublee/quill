@@ -1,6 +1,7 @@
 import Combine
 import Darwin
 import Foundation
+import QuillAudioFormatCore
 import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
@@ -5688,7 +5689,7 @@ struct AppStateTranscriptionConfigurationTests {
     }
 
     private static func writeTestWAV(at url: URL) throws {
-        var data = CanonicalPCM16WAV.header(dataByteCount: 8)
+        var data = try CanonicalPCM16WAV.header(dataByteCount: 8)
         for sample: Int16 in [1, 1, 2, 2] {
             var littleEndian = sample.littleEndian
             withUnsafeBytes(of: &littleEndian) {

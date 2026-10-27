@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import QuillProviderCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
@@ -196,7 +197,7 @@ struct TranscriptionServiceLocalAITests {
 
     private static func writeTone(in root: URL, seconds: Int) throws -> URL {
         let frames = seconds * 16_000
-        var data = CanonicalPCM16WAV.header(dataByteCount: UInt32(frames * 2))
+        var data = try CanonicalPCM16WAV.header(dataByteCount: UInt32(frames * 2))
         var payload = Data(count: frames * 2)
         payload.withUnsafeMutableBytes { raw in
             let samples = raw.bindMemory(to: Int16.self)

@@ -1,6 +1,7 @@
 import AVFoundation
 import CryptoKit
 import Foundation
+import QuillAudioFormatCore
 import Speech
 import os.log
 import QuillAITextCore

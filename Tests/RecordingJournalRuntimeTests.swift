@@ -291,7 +291,7 @@ struct RecordingJournalRuntimeTests {
                 recordingID: fixture.recordingID,
                 fileName: "segment-0001-system-audio.wav.part"
             )
-            var payload = RecordingCanonicalWAV.header(dataByteCount: 0)
+            var payload = try RecordingCanonicalWAV.header(dataByteCount: 0)
             payload.append(contentsOf: [0x01, 0x00])
             try payload.write(to: payloadURL)
 
@@ -1802,7 +1802,7 @@ struct RecordingJournalRuntimeTests {
             payload.append(UInt8(value & 0x00FF))
             payload.append(UInt8(value >> 8))
         }
-        var data = RecordingCanonicalWAV.header(
+        var data = try RecordingCanonicalWAV.header(
             dataByteCount: UInt32(payload.count)
         )
         data.append(payload)
