@@ -780,57 +780,16 @@ Model: \(model)
         endpoint: AIProcessingEndpoint,
         localCompletionCeiling: Int?
     ) async throws -> String {
-        let url = endpoint.baseURL
-            .appendingPathComponent("chat")
-            .appendingPathComponent("completions")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        if let token = endpoint.authorizationToken,
-           !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
-        var payload: [String: Any] = [
-            "model": endpoint.requestModelID,
-            "temperature": 0.0,
-            "messages": [
-                [
-                    "role": "system",
-                    "content": systemPrompt
-                ],
-                [
-                    "role": "user",
-                    "content": userMessage
-                ]
-            ]
-        ]
         let config = ModelConfiguration.config(for: model)
-        if let configuredCompletionCeiling = completionCeiling(
-            for: config,
-            model: model
-        ) {
-            payload["max_completion_tokens"] = configuredCompletionCeiling
-        }
-        applyLocalCompletionCompatibility(
-            to: &payload,
+        let request = try chatCompletionRequest(
+            systemPrompt: systemPrompt,
+            userMessage: userMessage,
             endpoint: endpoint,
-            ceiling: localCompletionCeiling
+            config: config,
+            localCompletionCeiling: localCompletionCeiling
         )
-        if let effort = config.reasoningEffort {
-            payload["reasoning_effort"] = effort
-        } else if model == defaultModel {
-            payload["reasoning_effort"] = defaultModelReasoningEffort
-        }
-        if let include = config.includeReasoning {
-            payload["include_reasoning"] = include
-        } else if model == defaultModel {
-            payload["include_reasoning"] = false
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
         let (data, response) = try await performTransport(
             for: request,
@@ -889,15 +848,38 @@ Model: \(model)
             ?? (model == defaultModel ? postProcessingMaxCompletionTokens : nil)
     }
 
-    private func applyLocalCompletionCompatibility(
-        to payload: inout [String: Any],
+    /// A Local AI request always sends a ceiling, under both names; the
+    /// default model gets low reasoning effort with its reasoning hidden.
+    private func chatCompletionRequest(
+        systemPrompt: String,
+        userMessage: String,
         endpoint: AIProcessingEndpoint,
-        ceiling: Int?
-    ) {
-        guard endpoint.kind == .local else { return }
-        let safeCeiling = ceiling ?? postProcessingMaxCompletionTokens
-        payload["max_completion_tokens"] = safeCeiling
-        payload["max_tokens"] = safeCeiling
+        config: ModelConfig,
+        localCompletionCeiling: Int?
+    ) throws -> URLRequest {
+        let isLocal = endpoint.kind == .local
+        let model = endpoint.selectedModelID
+        let isDefaultModel = model == defaultModel
+        let token = endpoint.authorizationToken.flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+        }
+        return try ChatCompletionRequest(
+            model: endpoint.requestModelID,
+            system: systemPrompt,
+            user: userMessage,
+            completionCeiling: isLocal
+                ? localCompletionCeiling ?? postProcessingMaxCompletionTokens
+                : completionCeiling(for: config, model: model),
+            reasoningEffort: config.reasoningEffort
+                ?? (isDefaultModel ? defaultModelReasoningEffort : nil),
+            includeReasoning: config.includeReasoning
+                ?? (isDefaultModel ? false : nil),
+            sendsLegacyCompletionCeiling: isLocal
+        ).urlRequest(
+            baseURL: endpoint.baseURL,
+            authorizationToken: token,
+            timeout: postProcessingTimeoutSeconds(for: endpoint)
+        )
     }
 
     private func processCommandTransform(
@@ -908,17 +890,6 @@ Model: \(model)
         customVocabulary: [String],
         outputLanguage: String = ""
     ) async throws -> PostProcessingResult {
-        let url = endpoint.baseURL
-            .appendingPathComponent("chat")
-            .appendingPathComponent("completions")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        if let token = endpoint.authorizationToken,
-           !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
         // Edit Mode keeps the plain spelling list only. Correction pairs
@@ -994,40 +965,13 @@ Model: \(model)
 \(userMessage)
 """
 
-        var payload: [String: Any] = [
-            "model": endpoint.requestModelID,
-            "temperature": 0.0,
-            "messages": [
-                [
-                    "role": "system",
-                    "content": systemPrompt
-                ],
-                [
-                    "role": "user",
-                    "content": userMessage
-                ]
-            ]
-        ]
-        if let configuredCompletionCeiling {
-            payload["max_completion_tokens"] = configuredCompletionCeiling
-        }
-        applyLocalCompletionCompatibility(
-            to: &payload,
+        let request = try chatCompletionRequest(
+            systemPrompt: systemPrompt,
+            userMessage: userMessage,
             endpoint: endpoint,
-            ceiling: localCompletionCeiling
+            config: config,
+            localCompletionCeiling: localCompletionCeiling
         )
-        if let effort = config.reasoningEffort {
-            payload["reasoning_effort"] = effort
-        } else if model == defaultModel {
-            payload["reasoning_effort"] = defaultModelReasoningEffort
-        }
-        if let include = config.includeReasoning {
-            payload["include_reasoning"] = include
-        } else if model == defaultModel {
-            payload["include_reasoning"] = false
-        }
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
         let (data, response) = try await performTransport(
             for: request,

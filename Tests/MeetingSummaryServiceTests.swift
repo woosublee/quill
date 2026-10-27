@@ -20,6 +20,7 @@ struct MeetingSummaryServiceTests {
         try await testCloudRequestUsesSummaryPromptAndStrictJSON()
         try await testLocalRequestUsesLoopbackWithoutAuthorization()
         try await testChatCompletionRequestsStayFixed()
+        try testChatCompletionRequestRejectsABadSchema()
         try testUnknownTopLevelKeyIsRejected()
         try testOwnerAndDueDateMayBeNull()
         try testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked()
@@ -504,6 +505,26 @@ struct MeetingSummaryServiceTests {
         ]
         for (label, request) in requests {
             try expect(request == pinned[label], "the \(label) request stays the same:\n\(request)")
+        }
+    }
+
+    /// A schema that isn't a JSON object would leave a broken body.
+    private static func testChatCompletionRequestRejectsABadSchema() throws {
+        for schema in ["", "{\"type\":", "[]"] {
+            do {
+                _ = try ChatCompletionRequest(
+                    model: "local",
+                    system: "system",
+                    user: "user",
+                    completionCeiling: 16,
+                    responseFormatJSON: schema
+                ).urlRequest(
+                    baseURL: URL(string: "http://127.0.0.1:8080/v1")!,
+                    authorizationToken: nil,
+                    timeout: 1
+                )
+                throw MeetingSummaryServiceTestFailure("a bad schema \(schema) is rejected")
+            } catch ChatCompletionRequestError.invalidResponseFormat {}
         }
     }
 
