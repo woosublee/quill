@@ -1,5 +1,6 @@
 import Foundation
 import QuillAITextCore
+import QuillProviderCore
 
 @main
 struct TranscriptTextCoreTests {
@@ -12,6 +13,7 @@ struct TranscriptTextCoreTests {
         testInvalidTranscriptResponses()
         testHighConfidenceHallucinationsAreSuppressed()
         testPossibleRealSpeechIsPreserved()
+        testSharedParserKeepsEachAppsOptions()
         testPostProcessedTranscriptSanitization()
         testModeSpecificSanitization()
         print("TranscriptTextCoreTests passed")
@@ -182,6 +184,65 @@ struct TranscriptTextCoreTests {
             fatalError("Synthetic JSON fixture should be serializable")
         }
         return data
+    }
+
+    // The two apps still differ here (#651): the iPhone accepts non-finite
+    // numbers and trims byte order marks from both ends; the Mac does neither.
+    private static func testSharedParserKeepsEachAppsOptions() {
+        let nonFinite = Data(#"{"text":"We ship on Friday.","segments":[{"start":0,"end":1.5,"text":"We ship on Friday.","compression_ratio":Infinity,"no_speech_prob":0.01}]}"#.utf8)
+        expectInvalidResponse(nonFinite)
+        let iPhone = try? CloudTranscriptionResponseParser.parse(nonFinite, options: .iPhone)
+        expectEqual(iPhone?.response.text, "We ship on Friday.")
+        expectEqual(iPhone?.response.segments, [.init(start: 0, end: 1.5, text: "We ship on Friday.")])
+
+        // Punctuation followed by a byte order mark: the Mac keeps the mark as
+        // content, the iPhone trims it and finds nothing left.
+        let markOnly = Data(".\u{FEFF}".utf8)
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parse(markOnly, options: .mac))?.response.text,
+            ".\u{FEFF}"
+        )
+        expectEqual((try? CloudTranscriptionResponseParser.parse(markOnly, options: .iPhone))?.response.text, nil)
+
+        let silence = Data(#"{"text":"Thank you.","segments":[{"start":0,"end":1,"text":"Thank you.","no_speech_prob":0.6}]}"#.utf8)
+        for options in [CloudTranscriptionResponseParser.Options.mac, .iPhone] {
+            let result = try? CloudTranscriptionResponseParser.parse(silence, options: options)
+            expectEqual(result?.response.text, "")
+            expectEqual(result?.response.segments, [])
+        }
+        let noMetadata = Data(#"{"text":"Thank you."}"#.utf8)
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parse(noMetadata))?.hallucinationFilterSkip,
+            .noSegments
+        )
+        let noProbability = Data(#"{"text":"Thank you.","segments":[{"start":0,"end":1,"text":"Thank you."}]}"#.utf8)
+        let skipped = try? CloudTranscriptionResponseParser.parse(noProbability)
+        expectEqual(skipped?.hallucinationFilterSkip, .noNoSpeechProbability)
+        expectEqual(skipped?.response.text, "Thank you.")
+
+        // The Mac reads no_speech_prob only when it converts exactly to a
+        // Double; the iPhone reads any JSON number.
+        let wholeNumber = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":9007199254740993}]}"#.utf8)
+        expectEqual((try? CloudTranscriptionResponseParser.parse(wholeNumber, options: .mac))?.response.text, "Thank you.")
+        expectEqual((try? CloudTranscriptionResponseParser.parse(wholeNumber, options: .iPhone))?.response.text, "")
+
+        // Only the iPhone reads segment times.
+        let timed = Data(#"{"text":"Hello there.","segments":[{"start":0,"end":1,"text":"Hello there.","no_speech_prob":0.01}]}"#.utf8)
+        expectEqual((try? CloudTranscriptionResponseParser.parse(timed, options: .mac))?.response.segments, [])
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parse(timed, options: .iPhone))?.response.segments,
+            [.init(start: 0, end: 1, text: "Hello there.")]
+        )
+
+        // A JSON-only read rejects plain text.
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parseJSON(Data("Hello there.".utf8)))?.response.text,
+            nil
+        )
+        expectEqual(
+            (try? TranscriptionResponseParser.parseJSONTranscript(timed))?.text,
+            "Hello there."
+        )
     }
 
     private static func expectInvalidResponse(_ data: Data) {
