@@ -224,14 +224,7 @@ public struct MeetingSummaryOutputValidator: Sendable {
             }
         }
 
-        switch AIOutputLanguageValidator(outputLanguage: outputLanguage).validate(
-            generatedProse: generatedProse(from: draft)
-        ) {
-        case .mismatch:
-            throw MeetingSummaryOutputValidationError.languageMismatch
-        case .accepted, .notRequested, .uncertain:
-            break
-        }
+        try validateLanguage(draft, outputLanguage: outputLanguage)
     }
 
     private func validateOverviewEvidence(
