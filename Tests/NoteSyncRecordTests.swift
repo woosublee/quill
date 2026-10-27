@@ -2,6 +2,7 @@ import Foundation
 import QuillNoteSyncCore
 import QuillAITextCore
 import QuillSummaryFormatCore
+import QuillUserIssueCore
 
 @main
 struct NoteSyncRecordTests {
@@ -19,6 +20,7 @@ struct NoteSyncRecordTests {
         testMergeKeepsUnknownKeys()
         testDeletionMergesLikeAField()
         testProviderHostNeverLeaves()
+        testIssueProviderHostNeverLeaves()
         testUnknownKeysMergeTheSameBothWays()
         testMergeKeepsNewerBuildClockGroups()
         testEachFieldChangesOnlyItsGroup()
@@ -279,6 +281,88 @@ struct NoteSyncRecordTests {
         let received = record.newNote()!
         precondition(received.meetingSummaryAttempt?.modelID == "synthetic-model")
         precondition(received.meetingSummaryAttempt?.providerHost == nil)
+    }
+
+    static func testIssueProviderHostNeverLeaves() {
+        let host = "llm.internal.example"
+        let context = QuillUserIssueContext(httpStatus: 503, providerHost: host, modelID: "synthetic-model")
+        let issue = QuillUserIssueRecord(code: .meetingSummaryUnavailable, context: context)
+        let failedAttempt = MeetingSummaryAttempt(
+            occurredAt: t0,
+            outcome: .failed,
+            backendKind: .cloud,
+            modelID: "synthetic-model",
+            providerHost: host,
+            language: nil,
+            issue: issue
+        )
+        func record(status: String) -> NoteSyncRecord {
+            let base = item()
+            return NoteSyncRecord(item: PipelineHistoryItem(
+                id: base.id, timestamp: t0, rawTranscript: "r", postProcessedTranscript: "e",
+                postProcessingPrompt: nil, contextSummary: "", contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot", postProcessingStatus: status,
+                debugStatus: "", customVocabulary: "",
+                meetingSummaryAttempt: failedAttempt
+            ))
+        }
+        func syncedStatus(_ record: NoteSyncRecord) -> String {
+            guard case .string(let status)? = record.fields[NoteSyncField.postProcessingStatus.rawValue] else {
+                preconditionFailure("the status syncs")
+            }
+            return status
+        }
+
+        let synced = record(status: issue.persistedStatus)
+        guard case .data(let encoded)? = synced.fields[NoteSyncField.meetingSummaryAttempt.rawValue] else {
+            preconditionFailure("the attempt syncs")
+        }
+        precondition(!String(decoding: encoded, as: UTF8.self).contains(host),
+                     "the host in the attempt's issue never leaves the Mac")
+        let received = synced.newNote()!
+        precondition(received.meetingSummaryAttempt?.issue?.context.providerHost == nil)
+        precondition(received.meetingSummaryAttempt?.issue?.context.httpStatus == 503,
+                     "the rest of the issue still syncs")
+        precondition(received.meetingSummaryAttempt?.issue?.code == .meetingSummaryUnavailable)
+
+        let status = syncedStatus(synced)
+        guard let statusRecord = try? QuillUserIssueRecord.decodePersistedStatus(status) else {
+            preconditionFailure("the synced status is still an issue record")
+        }
+        precondition(statusRecord.context.providerHost == nil, "the host in the status never leaves the Mac")
+        precondition(statusRecord.code == .meetingSummaryUnavailable)
+        precondition(statusRecord.severity == issue.severity)
+        precondition(statusRecord.context.httpStatus == 503)
+        precondition(statusRecord.context.modelID == "synthetic-model")
+
+        let hostless = QuillUserIssueRecord(
+            code: .meetingSummaryUnavailable,
+            context: QuillUserIssueContext(modelID: "synthetic-model")
+        ).persistedStatus
+        precondition(syncedStatus(record(status: hostless)) == hostless, "a status without a host goes unchanged")
+        precondition(syncedStatus(record(status: "succeeded")) == "succeeded", "a plain status goes unchanged")
+        precondition(syncedStatus(record(status: "user-issue:v1:not-base64!")) == "user-issue:v1:not-base64!",
+                     "an unreadable status goes unchanged")
+
+        // A newer build's context field survives; only the host goes.
+        let newer = #"{"code":"meetingSummaryUnavailable","context":{"futureField":7,"providerHost":"llm.internal.example"},"schemaVersion":1,"severity":"warning"}"#
+        let newerStatus = QuillUserIssueRecord.persistedStatusPrefix + Data(newer.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let strippedNewer = syncedStatus(record(status: newerStatus))
+        let strippedPayload = String(strippedNewer.dropFirst(QuillUserIssueRecord.persistedStatusPrefix.count))
+            .replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let padded = strippedPayload + String(repeating: "=", count: (4 - strippedPayload.count % 4) % 4)
+        let strippedJSON = String(decoding: Data(base64Encoded: padded) ?? Data(), as: UTF8.self)
+        precondition(
+            strippedJSON == #"{"code":"meetingSummaryUnavailable","context":{"futureField":7},"schemaVersion":1,"severity":"warning"}"#,
+            "only the host is removed: \(strippedJSON)"
+        )
+
+        // withoutProviderHost copies every context field by hand. Add a new
+        // field there too, then update this count.
+        precondition(Mirror(reflecting: context).children.count == 11,
+                     "QuillUserIssueContext changed; update withoutProviderHost")
     }
 
     static func testUnknownKeysMergeTheSameBothWays() {

@@ -72,6 +72,27 @@ public extension QuillUserIssueRecord {
     }
 }
 
+public extension QuillUserIssueRecord {
+    /// A stored issue status without the provider host in its context, which
+    /// can name a private server. Only that key is removed, so fields from a
+    /// newer build survive. Any other status, or one with no host, comes back
+    /// unchanged.
+    static func persistedStatusWithoutProviderHost(_ status: String) -> String {
+        guard status.hasPrefix(persistedStatusPrefix),
+              let data = Data(base64URLString: String(status.dropFirst(persistedStatusPrefix.count))),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              var context = object["context"] as? [String: Any],
+              context.removeValue(forKey: "providerHost") != nil else {
+            return status
+        }
+        object["context"] = context
+        guard let stripped = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return status
+        }
+        return persistedStatusPrefix + stripped.base64URLEncodedString()
+    }
+}
+
 private extension Data {
     func base64URLEncodedString() -> String {
         base64EncodedString()
