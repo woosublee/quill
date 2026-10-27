@@ -9,6 +9,7 @@ struct PostProcessingBackendTests {
     static func main() async throws {
         try await testLocalRequestUsesLoopbackWithoutAuthorization()
         try await testCloudRequestOmitsLocalCompatibilityKey()
+        try await testChatCompletionRequestsStayFixed()
         try await testLegacyAutomaticOutputLanguageDoesNotPromptTranslation()
         try await testCleanupPromptNamesTheDictationLanguage()
         try testDefaultPromptKeepsShortRepliesOutOfEmpty()
@@ -341,6 +342,116 @@ struct PostProcessingBackendTests {
             throw PostProcessingBackendTestFailure("cloud request body")
         }
         try expect(body["max_tokens"] == nil, "cloud cleanup omits the local legacy completion key")
+    }
+
+    /// Pins each cleanup and Edit Mode request the service hands to its
+    /// transport, so moving the request builder into shared code can't
+    /// change it. Prompt text is pinned by the prompt tests; here it is only
+    /// a placeholder. The default model is named because the service adds
+    /// its reasoning keys for that model alone.
+    private static func testChatCompletionRequestsStayFixed() async throws {
+        try await withPostProcessingTimeoutOverride(nil) {
+            // Its own path, so a cooldown left by another test can't block it.
+            let runID = UUID().uuidString
+            func captured(
+                _ makeService: (@escaping PostProcessingService.Transport) -> PostProcessingService,
+                command: Bool
+            ) async throws -> String {
+                let recorder = PostProcessingRequestRecorder()
+                let service = makeService { request in
+                    recorder.record(request)
+                    return try successResponse(request: request, content: "Original text")
+                }
+                if command {
+                    _ = try await service.commandTransform(
+                        selectedText: "Original text",
+                        voiceCommand: "Make it concise",
+                        context: testContext,
+                        customVocabulary: ""
+                    )
+                } else {
+                    _ = try await service.postProcess(
+                        transcript: "clean this",
+                        context: testContext,
+                        customVocabulary: ""
+                    )
+                }
+                try expect(recorder.count() == 1, "one request is sent")
+                return try canonicalChatRequest(try recorder.request())
+                    .replacingOccurrences(of: runID, with: "<run>")
+            }
+            func cloud(_ modelID: String) -> (@escaping PostProcessingService.Transport) -> PostProcessingService {
+                { transport in
+                    PostProcessingService(
+                        backendExecutor: cloudFallback(
+                            modelID,
+                            cloudBaseURL: "https://api.example.com/openai/v1/\(runID)"
+                        ),
+                        fallbackExecutor: nil,
+                        instructionExecutionGuardEnabled: false,
+                        transport: transport
+                    )
+                }
+            }
+            let local: (@escaping PostProcessingService.Transport) -> PostProcessingService = {
+                makeLocalService(cloudBaseURL: "https://api.example.com/openai/v1/\(runID)", transport: $0)
+            }
+            let defaultModel = ModelConfiguration.defaultLLMModelID
+
+            let requests: [(String, String)] = [
+                ("cleanup cloud", try await captured(cloud("primary/model"), command: false)),
+                ("cleanup cloud default", try await captured(cloud(defaultModel), command: false)),
+                ("cleanup local", try await captured(local, command: false)),
+                ("command cloud", try await captured(cloud("primary/model"), command: true)),
+                ("command cloud default", try await captured(cloud(defaultModel), command: true)),
+                ("command local", try await captured(local, command: true))
+            ]
+            let pinned: [String: String] = [
+                "cleanup cloud": #"""
+                    POST https://api.example.com/openai/v1/<run>/chat/completions
+                    timeout 20.0
+                    Authorization: Bearer cloud-secret
+                    Content-Type: application/json
+                    {"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"primary\/model","temperature":0}
+                    """#,
+                "cleanup cloud default": #"""
+                    POST https://api.example.com/openai/v1/<run>/chat/completions
+                    timeout 20.0
+                    Authorization: Bearer cloud-secret
+                    Content-Type: application/json
+                    {"include_reasoning":false,"max_completion_tokens":4096,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"openai\/gpt-oss-20b","reasoning_effort":"low","temperature":0}
+                    """#,
+                "cleanup local": #"""
+                    POST http://127.0.0.1:<port>/v1/chat/completions
+                    timeout 120.0
+                    Content-Type: application/json
+                    {"max_completion_tokens":6144,"max_tokens":6144,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"local","temperature":0}
+                    """#,
+                "command cloud": #"""
+                    POST https://api.example.com/openai/v1/<run>/chat/completions
+                    timeout 20.0
+                    Authorization: Bearer cloud-secret
+                    Content-Type: application/json
+                    {"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"primary\/model","temperature":0}
+                    """#,
+                "command cloud default": #"""
+                    POST https://api.example.com/openai/v1/<run>/chat/completions
+                    timeout 20.0
+                    Authorization: Bearer cloud-secret
+                    Content-Type: application/json
+                    {"include_reasoning":false,"max_completion_tokens":4096,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"openai\/gpt-oss-20b","reasoning_effort":"low","temperature":0}
+                    """#,
+                "command local": #"""
+                    POST http://127.0.0.1:<port>/v1/chat/completions
+                    timeout 120.0
+                    Content-Type: application/json
+                    {"max_completion_tokens":4096,"max_tokens":4096,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"local","temperature":0}
+                    """#
+            ]
+            for (label, request) in requests {
+                try expect(request == pinned[label], "the \(label) request stays the same:\n\(request)")
+            }
+        }
     }
 
     private static func testLegacyAutomaticOutputLanguageDoesNotPromptTranslation() async throws {
@@ -2379,6 +2490,36 @@ struct PostProcessingBackendTests {
             throw PostProcessingBackendTestFailure("request body")
         }
         return body
+    }
+
+    /// The request as text: method, URL, headers, timeout, then the body
+    /// with sorted keys and each message's text replaced by its role.
+    private static func canonicalChatRequest(_ request: URLRequest) throws -> String {
+        var body = try requestBody(request)
+        if let messages = body["messages"] as? [[String: Any]] {
+            body["messages"] = messages.map { message in
+                var message = message
+                if message["content"] is String {
+                    message["content"] = "<\(message["role"] as? String ?? "?")>"
+                }
+                return message
+            }
+        }
+        var url = request.url?.absoluteString ?? ""
+        if let port = request.url?.port, request.url?.host == "127.0.0.1" {
+            url = url.replacingOccurrences(of: ":\(port)/", with: ":<port>/")
+        }
+        let headers = (request.allHTTPHeaderFields ?? [:])
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+        let bodyText = String(
+            data: try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]),
+            encoding: .utf8
+        ) ?? ""
+        return ([
+            "\(request.httpMethod ?? "") \(url)",
+            "timeout \(request.timeoutInterval)"
+        ] + headers + [bodyText]).joined(separator: "\n")
     }
 
     private static func systemPrompt(from request: URLRequest) throws -> String {

@@ -1,5 +1,7 @@
+import CryptoKit
 import Foundation
 import QuillAITextCore
+import QuillProviderCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
@@ -17,6 +19,7 @@ struct MeetingSummaryServiceTests {
     static func main() async throws {
         try await testCloudRequestUsesSummaryPromptAndStrictJSON()
         try await testLocalRequestUsesLoopbackWithoutAuthorization()
+        try await testChatCompletionRequestsStayFixed()
         try testUnknownTopLevelKeyIsRejected()
         try testOwnerAndDueDateMayBeNull()
         try testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked()
@@ -400,6 +403,150 @@ struct MeetingSummaryServiceTests {
             body["max_completion_tokens"] as? Int == 1_024,
             "cloud Summary keeps the 1,024-token completion ceiling"
         )
+    }
+
+    /// Pins each Summary request the service hands to its transport, so
+    /// moving the request builder into shared code can't change it. Prompt
+    /// text is pinned by the prompt tests; here it is only a placeholder.
+    /// The local schema is spliced in as text, so it is pinned by the digest
+    /// of its exact bytes.
+    private static func testChatCompletionRequestsStayFixed() async throws {
+        // Its own path, so a cooldown left by another test can't block it.
+        let runID = UUID().uuidString
+        // Japanese gets the schema that allows Han characters.
+        let japaneseTranscript = "リリースの確認です。金曜日に出荷します。"
+        let japaneseJSON = #"{"overview":{"text":"リリースの確認です。","sourceQuotes":["リリースの確認です。"]},"keyPoints":[],"decisions":[{"text":"金曜日に出荷します。","sourceQuote":"金曜日に出荷します。"}],"actionItems":[],"openQuestions":[]}"#
+        func captured(_ executor: AIProcessingBackendExecutor, outputLanguageCode: String) async throws -> String {
+            let japanese = outputLanguageCode == "ja"
+            let recorder = MeetingSummaryRequestRecorder()
+            let service = MeetingSummaryService(
+                backendExecutor: executor,
+                fallbackExecutor: nil,
+                transport: { request in
+                    recorder.record(request)
+                    return try successResponse(request: request, content: japanese ? japaneseJSON : validJSON)
+                }
+            )
+            _ = try await service.generate(
+                source: MeetingSummarySource(
+                    transcript: japanese ? japaneseTranscript : summaryTranscript,
+                    calendar: nil,
+                    languageContext: MeetingSummaryLanguageContext(
+                        requestedOutputLanguage: outputLanguageCode,
+                        appliedLanguageCode: outputLanguageCode,
+                        resolutionSource: .configured
+                    )
+                )
+            )
+            return try canonicalChatRequest(try recorder.requests().only())
+                .replacingOccurrences(of: runID, with: "<run>")
+        }
+        func cloud(_ modelID: String) -> AIProcessingBackendExecutor {
+            AIProcessingBackendExecutor(
+                choice: .cloud(modelID: modelID),
+                cloudBaseURL: "https://api.example.com/openai/v1/\(runID)",
+                cloudAPIKey: "test-key"
+            )
+        }
+        func local() -> AIProcessingBackendExecutor {
+            let process = MeetingSummaryFakeProcess()
+            return AIProcessingBackendExecutor(
+                choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
+                cloudBaseURL: "https://api.example.com/openai/v1/\(runID)",
+                cloudAPIKey: "cloud-secret",
+                localServerManager: LocalAIServerManager(
+                    launchProcess: { _, _, port, _ in (process, port) },
+                    pollHealth: { _ in true },
+                    readinessProbe: successfulReadinessProbe,
+                    validateModel: { _ in .ready }
+                ),
+                localAIAvailability: LocalAIProcessingAvailability(
+                    isAppleSilicon: true,
+                    runnerIsExecutable: true,
+                    physicalMemory: 16 * 1024 * 1024 * 1024
+                )
+            )
+        }
+
+        let requests: [(String, String)] = [
+            ("cloud", try await captured(cloud("primary/model"), outputLanguageCode: "en")),
+            ("cloud default", try await captured(cloud(ModelConfiguration.defaultLLMModelID), outputLanguageCode: "en")),
+            ("local en", try await captured(local(), outputLanguageCode: "en")),
+            ("local ja", try await captured(local(), outputLanguageCode: "ja"))
+        ]
+        let pinned: [String: String] = [
+            "cloud": #"""
+                POST https://api.example.com/openai/v1/<run>/chat/completions
+                timeout 120.0
+                Authorization: Bearer test-key
+                Content-Type: application/json
+                {"max_completion_tokens":1024,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"primary\/model","temperature":0}
+                """#,
+            "cloud default": #"""
+                POST https://api.example.com/openai/v1/<run>/chat/completions
+                timeout 120.0
+                Authorization: Bearer test-key
+                Content-Type: application/json
+                {"include_reasoning":false,"max_completion_tokens":1024,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"openai\/gpt-oss-20b","reasoning_effort":"low","temperature":0}
+                """#,
+            "local en": #"""
+                POST http://127.0.0.1:<port>/v1/chat/completions
+                timeout 420.0
+                Content-Type: application/json
+                {"max_completion_tokens":6144,"max_tokens":6144,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"local","response_format":"4c864aae676bc8e9b254d3feff39e8808d4a4a8fe082ba577b995c1f66786201","temperature":0}
+                """#,
+            "local ja": #"""
+                POST http://127.0.0.1:<port>/v1/chat/completions
+                timeout 420.0
+                Content-Type: application/json
+                {"max_completion_tokens":6144,"max_tokens":6144,"messages":[{"content":"<system>","role":"system"},{"content":"<user>","role":"user"}],"model":"local","response_format":"e1085cd53a9745799fdf4af191e5ac5d857568928f86b0572aec5ac1941ba26e","temperature":0}
+                """#
+        ]
+        for (label, request) in requests {
+            try expect(request == pinned[label], "the \(label) request stays the same:\n\(request)")
+        }
+    }
+
+    /// The request as text: method, URL, headers, timeout, then the body
+    /// with sorted keys, each message's text replaced by its role, and the
+    /// spliced local schema replaced by the digest of its raw bytes.
+    private static func canonicalChatRequest(_ request: URLRequest) throws -> String {
+        var body = try requestBody(request)
+        if let messages = body["messages"] as? [[String: Any]] {
+            body["messages"] = messages.map { message in
+                var message = message
+                if message["content"] is String {
+                    message["content"] = "<\(message["role"] as? String ?? "?")>"
+                }
+                return message
+            }
+        }
+        if body["response_format"] != nil {
+            let rawBody = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+            guard let start = rawBody.range(of: #","response_format":"#),
+                  rawBody.hasSuffix("}") else {
+                throw MeetingSummaryServiceTestFailure("Missing spliced response_format")
+            }
+            let rawFormat = rawBody[start.upperBound..<rawBody.index(before: rawBody.endIndex)]
+            body["response_format"] = SHA256.hash(data: Data(rawFormat.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+        }
+        var url = request.url?.absoluteString ?? ""
+        if let port = request.url?.port, request.url?.host == "127.0.0.1" {
+            url = url.replacingOccurrences(of: ":\(port)/", with: ":<port>/")
+        }
+        let headers = (request.allHTTPHeaderFields ?? [:])
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+        let bodyText = String(
+            data: try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]),
+            encoding: .utf8
+        ) ?? ""
+        return ([
+            "\(request.httpMethod ?? "") \(url)",
+            "timeout \(request.timeoutInterval)"
+        ] + headers + [bodyText]).joined(separator: "\n")
     }
 
     private static func testLocalRequestUsesLoopbackWithoutAuthorization() async throws {
