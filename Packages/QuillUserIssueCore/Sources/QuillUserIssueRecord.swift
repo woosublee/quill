@@ -207,6 +207,38 @@ public struct QuillUserIssueRecord: Codable, Equatable, Sendable {
     }
 }
 
+public extension QuillUserIssueContext {
+    /// The same context without `providerHost`, which can name a private
+    /// server. Notes leave the device without it.
+    var withoutProviderHost: QuillUserIssueContext {
+        QuillUserIssueContext(
+            httpStatus: httpStatus,
+            providerHost: nil,
+            providerCode: providerCode,
+            modelID: modelID,
+            localBackend: localBackend,
+            processExitCode: processExitCode,
+            retryExhausted: retryExhausted,
+            meetingSummaryFailureSubtype: meetingSummaryFailureSubtype,
+            operation: operation,
+            postProcessingFailureReason: postProcessingFailureReason,
+            requestTimeoutSeconds: requestTimeoutSeconds
+        )
+    }
+}
+
+public extension QuillUserIssueRecord {
+    /// The same record without the provider host in its context.
+    var withoutProviderHost: QuillUserIssueRecord {
+        QuillUserIssueRecord(
+            schemaVersion: schemaVersion,
+            code: code,
+            severity: severity,
+            context: context.withoutProviderHost
+        )
+    }
+}
+
 public extension QuillUserIssueCode {
     var defaultSeverity: QuillUserIssueSeverity {
         switch self {

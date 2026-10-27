@@ -2,6 +2,7 @@ import Foundation
 import QuillNoteSyncCore
 import QuillAITextCore
 import QuillSummaryFormatCore
+import QuillUserIssueCore
 
 // The sync record and its fields are in QuillNoteSyncCore, shared with the
 // iPhone app. This file converts them to and from this Mac's notes.
@@ -46,7 +47,7 @@ extension NoteSyncRecord {
         put(.spokenLanguageCode, item.spokenLanguageCode.map(NoteSyncValue.string))
         put(.spokenLanguageResolution, item.spokenLanguageResolution.map { .string($0.rawValue) })
         put(.intent, .string(item.intent.rawValue))
-        put(.postProcessingStatus, .string(item.postProcessingStatus))
+        put(.postProcessingStatus, .string(QuillUserIssueRecord.persistedStatusWithoutProviderHost(item.postProcessingStatus)))
         put(.aiProcessingOutcome, .string(item.aiProcessingOutcome))
         put(.localTranscriptionModelID, .string(item.localTranscriptionModelID))
         put(.usedLocalTranscription, .bool(item.usedLocalTranscription))
@@ -120,7 +121,8 @@ extension NoteSyncRecord {
         )
     }
 
-    /// The provider host can name a private server; it never leaves the Mac.
+    /// The provider host can name a private server; it never leaves the Mac,
+    /// including the one in the attempt's issue.
     private static func withoutProviderHost(_ attempt: MeetingSummaryAttempt) -> MeetingSummaryAttempt {
         MeetingSummaryAttempt(
             occurredAt: attempt.occurredAt,
@@ -129,7 +131,7 @@ extension NoteSyncRecord {
             modelID: attempt.modelID,
             providerHost: nil,
             language: attempt.language,
-            issue: attempt.issue,
+            issue: attempt.issue?.withoutProviderHost,
             sourceFingerprint: attempt.sourceFingerprint
         )
     }
