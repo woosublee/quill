@@ -1,10 +1,12 @@
 import Foundation
+import QuillAudioFormatCore
 
 @main
 struct RecordingJournalManifestTests {
     static func main() {
         do {
             try canonicalFormatMatchesRecorderContract()
+            try storedFormatBytesStayFixed()
             try manifestRoundTripPreservesStableMetadata()
             try legacySourceWithoutUnavailableMarkerRemainsExpected()
             try manifestDecodesLegacyPreserveExactWordingKey()
@@ -34,7 +36,7 @@ struct RecordingJournalManifestTests {
     }
 
     private static func canonicalFormatMatchesRecorderContract() throws {
-        let format = RecordingPCMFormat.canonical
+        let format = CanonicalAudioFormat.pcm16Mono16k
         try expectEqual(format.sampleRate, 16_000, "sample rate")
         try expectEqual(format.channelCount, 1, "channel count")
         try expectEqual(format.bitsPerSample, 16, "bits per sample")
@@ -42,6 +44,32 @@ struct RecordingJournalManifestTests {
         guard format.isInterleaved, format.isSigned, format.isLittleEndian else {
             throw TestFailure("canonical PCM must be interleaved signed little-endian")
         }
+    }
+
+    private static func storedFormatBytesStayFixed() throws {
+        let stored = #"{"bitsPerSample":16,"bytesPerFrame":2,"channelCount":1,"isInterleaved":true,"isLittleEndian":true,"isSigned":true,"sampleRate":16000}"#
+        let encoded = try RecordingJournalCoding.makeEncoder().encode(CanonicalAudioFormat.pcm16Mono16k)
+        try expectEqual(String(decoding: encoded, as: UTF8.self), stored, "stored format bytes")
+        let decoded = try RecordingJournalCoding.makeDecoder().decode(
+            CanonicalAudioFormat.self,
+            from: Data(stored.utf8)
+        )
+        try expectEqual(decoded, .pcm16Mono16k, "stored format decodes to canonical")
+
+        let manifestData = try RecordingJournalCoding.makeEncoder().encode(try makeManifest())
+        guard String(decoding: manifestData, as: UTF8.self).contains(#""pcmFormat":"# + stored) else {
+            throw TestFailure("manifest must store the format bytes unchanged")
+        }
+        guard var json = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any] else {
+            throw TestFailure("encoded manifest must be a JSON object")
+        }
+        json["pcmFormat"] = try JSONSerialization.jsonObject(with: Data(stored.utf8))
+        let storedManifest = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: JSONSerialization.data(withJSONObject: json)
+        )
+        try expectEqual(storedManifest.pcmFormat, .pcm16Mono16k, "stored manifest format")
+        try storedManifest.validate()
     }
 
     private static func manifestRoundTripPreservesStableMetadata() throws {
@@ -731,7 +759,7 @@ struct RecordingJournalManifestTests {
             monotonicAnchorNanoseconds: 123_456,
             state: .recording,
             sourceMode: .microphone,
-            pcmFormat: .canonical,
+            pcmFormat: .pcm16Mono16k,
             sources: [source],
             segments: [segment],
             pipeline: RecordingPipelineSnapshot(
@@ -802,7 +830,7 @@ struct RecordingJournalManifestTests {
             monotonicAnchorNanoseconds: 123_456,
             state: .recording,
             sourceMode: sourceMode,
-            pcmFormat: .canonical,
+            pcmFormat: .pcm16Mono16k,
             sources: sources,
             segments: [RecordingJournalSegment(
                 id: segmentID,
@@ -874,7 +902,7 @@ struct RecordingJournalManifestTests {
             monotonicAnchorNanoseconds: 123_456,
             state: .recording,
             sourceMode: .segmented,
-            pcmFormat: .canonical,
+            pcmFormat: .pcm16Mono16k,
             sources: sources,
             segments: [
                 RecordingJournalSegment(

@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 @main
 struct SegmentedRecordingJournalControllerTests {
@@ -186,7 +187,7 @@ struct SegmentedRecordingJournalControllerTests {
         let offset = RecordingFrameOffset.frames(
             firstFrameMonotonicNanoseconds: UInt64.max,
             monotonicAnchorNanoseconds: 0,
-            sampleRate: RecordingPCMFormat.canonical.sampleRate
+            sampleRate: CanonicalPCM16WAV.sampleRate
         )
         try expectEqual(
             offset,

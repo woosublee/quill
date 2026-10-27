@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 struct RecordingRecoveryHistory {
     let journalStore: RecordingJournalStore
@@ -324,7 +325,7 @@ struct RecordingRecoveryHistory {
         let manifest = recovered.manifest
         let pipeline = manifest.pipeline
         let recordingDuration = Double(recovered.promotion.frameCount)
-            / Double(RecordingPCMFormat.canonical.sampleRate)
+            / Double(CanonicalPCM16WAV.sampleRate)
         let recordingEndedAt = manifest.startedAt.addingTimeInterval(
             recordingDuration
         )

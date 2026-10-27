@@ -1,5 +1,7 @@
 import Foundation
 
+/// The Mac stores this in its recording journal manifests, so keep the
+/// field names and types stable.
 public struct CanonicalAudioFormat: Codable, Equatable, Hashable, Sendable {
     public static let pcm16Mono16k = CanonicalAudioFormat(
         sampleRate: 16_000,

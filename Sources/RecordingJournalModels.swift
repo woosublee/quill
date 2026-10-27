@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 enum RecordingJournalError: Error, Equatable {
     case unsupportedSchemaVersion(Int)
@@ -7,26 +8,6 @@ enum RecordingJournalError: Error, Equatable {
     case invalidStateTransition(from: RecordingJournalState, to: RecordingJournalState)
     case conflictingTransitionMetadata
     case missingTransitionMetadata(RecordingJournalState)
-}
-
-struct RecordingPCMFormat: Codable, Equatable {
-    let sampleRate: UInt32
-    let channelCount: UInt16
-    let bitsPerSample: UInt16
-    let bytesPerFrame: UInt16
-    let isInterleaved: Bool
-    let isSigned: Bool
-    let isLittleEndian: Bool
-
-    static let canonical = RecordingPCMFormat(
-        sampleRate: 16_000,
-        channelCount: 1,
-        bitsPerSample: 16,
-        bytesPerFrame: 2,
-        isInterleaved: true,
-        isSigned: true,
-        isLittleEndian: true
-    )
 }
 
 enum RecordingJournalState: String, Codable, Equatable {
@@ -200,7 +181,7 @@ struct RecordingJournalManifest: Codable, Equatable {
     let monotonicAnchorNanoseconds: UInt64
     var state: RecordingJournalState
     let sourceMode: RecordingAudioSourceMode
-    let pcmFormat: RecordingPCMFormat
+    let pcmFormat: CanonicalAudioFormat
     var sources: [RecordingJournalSource]
     var segments: [RecordingJournalSegment]
     let pipeline: RecordingPipelineSnapshot
@@ -215,7 +196,7 @@ struct RecordingJournalManifest: Codable, Equatable {
         guard generation > 0 else {
             throw RecordingJournalError.invalidManifest("Manifest generation must be positive.")
         }
-        guard pcmFormat == .canonical else {
+        guard pcmFormat == .pcm16Mono16k else {
             throw RecordingJournalError.invalidManifest("Unsupported PCM format.")
         }
         guard !sources.isEmpty, !segments.isEmpty else {

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillAudioFormatCore
 
 enum RecordingArtifactFinalizerError: Error, Equatable {
     case unsupportedManifestShape
@@ -111,7 +112,7 @@ struct RecordingArtifactFinalizer {
             sourceURL: sourceURL,
             dataByteCount: committedPayloadSize,
             frameCount: committedPayloadSize
-                / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
+                / UInt64(CanonicalPCM16WAV.bytesPerFrame),
             firstCommittedFrameOffset: firstCommittedFrameOffset,
             removedTrailingData: physicalPayloadSize != committedPayloadSize
         )

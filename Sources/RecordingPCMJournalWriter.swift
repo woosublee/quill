@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 protocol NormalizedPCM16Sink: AnyObject {
     func enqueue(_ copiedPCM16LE: Data)
@@ -104,7 +105,7 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
                 failure = .writerClosed
                 return
             }
-            guard copiedPCM16LE.count.isMultiple(of: Int(RecordingPCMFormat.canonical.bytesPerFrame)) else {
+            guard copiedPCM16LE.count.isMultiple(of: Int(CanonicalPCM16WAV.bytesPerFrame)) else {
                 failure = .oddByteChunk
                 return
             }
@@ -185,7 +186,7 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
                     try operations.fullSync(handle.fileDescriptor)
                     commit = RecordingJournalSourceCommit(
                         dataByteCount: writtenDataByteCount,
-                        frameCount: writtenDataByteCount / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
+                        frameCount: writtenDataByteCount / UInt64(CanonicalPCM16WAV.bytesPerFrame),
                         firstCommittedFrameOffset: writtenDataByteCount > 0
                             ? firstCommittedFrameOffset
                             : nil
@@ -230,7 +231,7 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
 
         let commit = RecordingJournalSourceCommit(
             dataByteCount: writtenDataByteCount,
-            frameCount: writtenDataByteCount / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
+            frameCount: writtenDataByteCount / UInt64(CanonicalPCM16WAV.bytesPerFrame),
             firstCommittedFrameOffset: writtenDataByteCount > 0 ? firstCommittedFrameOffset : nil
         )
         if closeAfterCheckpoint {

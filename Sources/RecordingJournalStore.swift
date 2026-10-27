@@ -242,7 +242,7 @@ final class RecordingJournalStore {
                 monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds,
                 state: .recording,
                 sourceMode: request.sourceMode,
-                pcmFormat: .canonical,
+                pcmFormat: .pcm16Mono16k,
                 sources: [source],
                 segments: [RecordingJournalSegment(
                     id: request.segmentID,
@@ -357,7 +357,7 @@ final class RecordingJournalStore {
                         request.monotonicAnchorNanoseconds,
                     state: .recording,
                     sourceMode: .combined,
-                    pcmFormat: .canonical,
+                    pcmFormat: .pcm16Mono16k,
                     sources: [microphoneSource, systemAudioSource],
                     segments: [RecordingJournalSegment(
                         id: request.segmentID,
@@ -448,7 +448,7 @@ final class RecordingJournalStore {
                         request.monotonicAnchorNanoseconds,
                     state: .recording,
                     sourceMode: .segmented,
-                    pcmFormat: .canonical,
+                    pcmFormat: .pcm16Mono16k,
                     sources: zip(request.sources, createdSession.sources).map {
                         sourceRequest, sourceSession in
                         RecordingJournalSource(
