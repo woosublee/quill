@@ -178,6 +178,9 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             for: sourceItem,
             languageContext: resolvedLanguage.context
         )
+        // Reused for the failure record, the stale check, the envelope, and
+        // the attempt below instead of hashing the transcript for each.
+        let sourceFingerprint = source.fingerprint
         let generator = dependencies.makeGenerator(
             request.generatorConfiguration
         )
@@ -191,7 +194,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
                 history: history,
                 revision: generationRevision,
                 languageContext: source.languageContext,
-                sourceFingerprint: source.fingerprint
+                sourceFingerprint: sourceFingerprint
             )
         }
 
@@ -199,7 +202,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         switch validateCurrentItem(
             noteID: request.noteID,
             revision: generationRevision,
-            sourceFingerprint: source.fingerprint,
+            sourceFingerprint: sourceFingerprint,
             history: history
         ) {
         case .current(let item):
@@ -221,7 +224,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             schemaVersion: MeetingSummaryEnvelope.currentSchemaVersion,
             promptVersion: result.promptVersion,
             generatedAt: dependencies.now(),
-            sourceFingerprint: source.fingerprint,
+            sourceFingerprint: sourceFingerprint,
             modelID: result.modelID,
             backendKind: result.backendKind,
             languageContext: source.languageContext,
@@ -242,7 +245,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
                 : nil,
             language: source.languageContext,
             issue: nil,
-            sourceFingerprint: source.fingerprint
+            sourceFingerprint: sourceFingerprint
         )
         // The same text leaves nothing to choose: it is saved directly,
         // keeping what is on screen, like a retranscription with the same
