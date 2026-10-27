@@ -98,6 +98,20 @@ struct MeetingSummaryModelsTests {
             withCalendar.withoutCalendar.fingerprint
                 == "7cf42ab9951b32bc9d76745daa87249eb8a1ad22554f4107231cb993bc94888a"
         )
+
+        // Sub-second times are rounded to milliseconds, as ISO8601DateFormatter
+        // does with fractional seconds: .9996 becomes the next whole second.
+        let fractional = MeetingSummarySource(
+            transcript: transcript,
+            calendar: MeetingSummaryCalendarContext(
+                title: "Synthetic Release Sync",
+                start: Date(timeIntervalSince1970: 1_800_000_000.9996),
+                end: Date(timeIntervalSince1970: 1_800_001_800.123456),
+                attendees: ["Mina", "Jun"]
+            ),
+            languageContext: languageContext
+        )
+        precondition(fractional.fingerprint == "08b2349465d69c84ca548db176b406fa9052dad556f2776433da2affd6891e15")
     }
 
     private static func testLegacyV1EnvelopeDecodesDisplayOnlyEvidence() throws {
