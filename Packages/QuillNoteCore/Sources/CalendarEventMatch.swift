@@ -3,9 +3,11 @@ import Foundation
 // The calendar event a note is linked to. It syncs as the note's
 // `calendarMatch` bytes (JSONEncoder defaults), so the keys never change.
 
-public enum CalendarProvider: String, Codable, Equatable, Sendable, CaseIterable {
+public enum CalendarProvider: String, Codable, Equatable, Sendable, CaseIterable, Identifiable {
     case google
     case apple
+
+    public var id: String { rawValue }
 }
 
 public enum CalendarMatchSource: String, Codable, Equatable, Sendable {

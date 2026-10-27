@@ -6,6 +6,7 @@ import QuillNoteCore
 struct NoteListRowDisplayDataTests {
     static func main() {
         testFormatsRowDate()
+        testFormatsCompactRowAndDateTitle()
         testFormatsExplicitLocaleRowDates()
         testFormatsExplicitLocaleDetailTimestamps()
         testFormatsEnglishWeekdayAndMonthStyles()
@@ -46,6 +47,25 @@ struct NoteListRowDisplayDataTests {
         testRecordingElapsedFormatter()
         testUnfinishedRecordingNoteNeedsNoContentOrAudio()
         print("NoteListRowDisplayDataTests passed")
+    }
+
+    /// The iPhone list row uses the compact row date, and both apps name an
+    /// untitled note with the date title.
+    static func testFormatsCompactRowAndDateTitle() {
+        let date = Date(timeIntervalSince1970: 1_790_000_000)
+        let utc = TimeZone(identifier: "UTC")!
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = utc
+        let english = Locale(identifier: "en_US")
+        let compact = NoteTimestampFormatter.compactRowTimestamp(for: date, locale: english, calendar: gregorian, timeZone: utc)
+        let row = NoteTimestampFormatter.rowTimestamp(for: date, locale: english, calendar: gregorian, timeZone: utc)
+        assert(compact.contains("Sep ") && !compact.contains("September"), compact)
+        assert(row.contains("September"), row)
+        assert(compact != row, "the compact row has its own cache entry")
+        let title = NoteTimestampFormatter.dateTitle(for: date, locale: english, calendar: gregorian, timeZone: utc)
+        assert(title.contains("September") && title.contains("2026"), title)
+        assert(!title.contains("\u{202F}"), "spaces are plain")
+        assert(NoteTitleResolver.dateTitle(for: date, locale: english) == NoteTimestampFormatter.dateTitle(for: date, locale: english))
     }
 
     private static func testRecordingPlaceholderRowCarriesRecordingStart() {

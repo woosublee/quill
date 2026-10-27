@@ -16,7 +16,37 @@ struct PipelineHistoryCalendarMetadataTests {
         try testDeletedAssetsIncludeHistoryIDForDeleteClearAndTrim()
         testGoogleCalendarConnectionMetadataBuildsConnectedState()
         try testCalendarMatchWithoutProviderDecodesAsGoogle()
+        try testCalendarMatchBytesStayFixed()
         print("PipelineHistoryCalendarMetadataTests passed")
+    }
+
+    /// A note's `calendarMatch` syncs as these bytes (JSONEncoder defaults),
+    /// so the keys and raw values can't change now that both apps share the
+    /// type. The values are compared, not the key order.
+    private static func testCalendarMatchBytesStayFixed() throws {
+        let match = CalendarEventMatch(
+            accountID: "person@example.com",
+            calendarID: "primary",
+            eventID: "evt-1",
+            title: "Synthetic sync",
+            start: Date(timeIntervalSinceReferenceDate: 100),
+            end: Date(timeIntervalSinceReferenceDate: 1_900),
+            attendees: [CalendarEventAttendee(displayName: "Alex", email: "alex@example.com", responseStatus: "accepted", isOptional: true, isSelf: false)],
+            matchSource: .calendarNotification,
+            titleState: .applied,
+            provider: .apple
+        )
+        let stored = #"{"accountID":"person@example.com","attendees":[{"displayName":"Alex","email":"alex@example.com","isOptional":true,"isSelf":false,"responseStatus":"accepted"}],"calendarID":"primary","end":1900,"eventID":"evt-1","matchSource":"calendar_notification","provider":"apple","start":100,"title":"Synthetic sync","titleState":"applied"}"#
+        let encoded = try JSONEncoder().encode(match)
+        let actual = try JSONSerialization.jsonObject(with: encoded) as? NSDictionary
+        let expected = try JSONSerialization.jsonObject(with: Data(stored.utf8)) as? NSDictionary
+        precondition(actual == expected, "calendarMatch bytes changed: \(String(decoding: encoded, as: UTF8.self))")
+        let decoded = try JSONDecoder().decode(CalendarEventMatch.self, from: Data(stored.utf8))
+        precondition(decoded == match, "stored calendarMatch bytes must decode to the same match")
+        precondition(CalendarMatchSource.overlapSuggestion.rawValue == "overlap_suggestion")
+        precondition(CalendarMatchSource.importSelection.rawValue == "import_selection")
+        precondition(CalendarTitleState.suggested.rawValue == "suggested")
+        precondition(CalendarProvider.google.rawValue == "google")
     }
 
     private static func testCalendarMatchWithoutProviderDecodesAsGoogle() throws {

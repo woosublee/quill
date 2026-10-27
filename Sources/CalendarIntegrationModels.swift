@@ -61,9 +61,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 // The note's calendar match types are in QuillNoteCore, shared with the
 // iPhone app.
-extension CalendarProvider: @retroactive Identifiable {
-    public var id: String { rawValue }
-}
 
 struct GoogleCalendarInfo: Identifiable, Codable, Equatable {
     let id: String

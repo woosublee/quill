@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 enum NoteTitleResolver {
     private static let calendarTitleDateFormatter: DateFormatter = {
@@ -18,53 +19,8 @@ enum NoteTitleResolver {
     }
 
     static func dateTitle(for date: Date, locale: Locale = .current) -> String {
-        dateTitleFormatters.string(from: date, locale: locale)
+        NoteTimestampFormatter.dateTitle(for: date, locale: locale)
     }
-
-    /// One formatter per locale, hour cycle, calendar and time zone, keyed
-    /// and spaced like the row date (`NoteTimestampFormatter`), which this
-    /// file can't use: some test builds compile it without the list code.
-    private final class DateTitleFormatters: @unchecked Sendable {
-        private struct Key: Hashable {
-            let locale: String
-            let hourCycle: Locale.HourCycle
-            let calendar: Calendar.Identifier
-            let timeZone: String
-        }
-
-        private let lock = NSLock()
-        private var formatters: [Key: DateFormatter] = [:]
-
-        func string(from date: Date, locale: Locale) -> String {
-            let calendar = Calendar.current
-            let timeZone = TimeZone.current
-            lock.lock()
-            defer { lock.unlock() }
-            let key = Key(
-                locale: locale.identifier,
-                hourCycle: locale.hourCycle,
-                calendar: calendar.identifier,
-                timeZone: timeZone.identifier
-            )
-            let formatter: DateFormatter
-            if let cached = formatters[key] {
-                formatter = cached
-            } else {
-                formatter = DateFormatter()
-                formatter.locale = locale
-                formatter.calendar = calendar
-                formatter.timeZone = timeZone
-                formatter.setLocalizedDateFormatFromTemplate("yMMMMdjm")
-                formatters[key] = formatter
-            }
-            return formatter.string(from: date)
-                .replacingOccurrences(of: "\u{202F}", with: " ")
-                .replacingOccurrences(of: "\u{00A0}", with: " ")
-                .replacingOccurrences(of: "\u{2009}", with: " ")
-        }
-    }
-
-    private static let dateTitleFormatters = DateTitleFormatters()
 
     static func calendarAppliedTitle(suggestedTitle: String, recordingStartedAt: Date) -> String {
         "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"

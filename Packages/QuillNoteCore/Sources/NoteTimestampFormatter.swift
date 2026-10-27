@@ -4,14 +4,17 @@ import Foundation
 /// Mac and the iPhone for a synced note. Narrow and non-breaking spaces from
 /// the formatter become plain spaces.
 public enum NoteTimestampFormatter {
-    /// The Mac note row and the iPhone detail: full month name, day,
-    /// weekday, and time.
+    /// The Mac note row: full month name, day, weekday, and time.
     public static let rowTemplate = "MMMMdEEEjm"
     /// The iPhone list row: like `rowTemplate` with a short month name, so
     /// the date and length fit one line on a phone.
     public static let compactRowTemplate = "MMMdEEEjm"
-    /// A note's detail header, with the year.
+    /// A note's detail header, with the year; an interval when the
+    /// recording times are known.
     public static let detailTemplate = "yMMMdEEEjm"
+    /// The name of a note without a title of its own (the detail's title
+    /// placeholder): year, full month name, day, and time.
+    public static let dateTitleTemplate = "yMMMMdjm"
 
     public static func rowTimestamp(
         for date: Date,
@@ -33,6 +36,18 @@ public enum NoteTimestampFormatter {
     ) -> String {
         normalized(cache.string(
             from: date, role: .compactRow, template: compactRowTemplate,
+            locale: locale, calendar: calendar, timeZone: timeZone
+        ))
+    }
+
+    public static func dateTitle(
+        for date: Date,
+        locale: Locale = .current,
+        calendar: Calendar = .current,
+        timeZone: TimeZone = .current
+    ) -> String {
+        normalized(cache.string(
+            from: date, role: .dateTitle, template: dateTitleTemplate,
             locale: locale, calendar: calendar, timeZone: timeZone
         ))
     }
@@ -61,7 +76,7 @@ public enum NoteTimestampFormatter {
         ))
     }
 
-    public static func normalized(_ value: String) -> String {
+    static func normalized(_ value: String) -> String {
         value.replacingOccurrences(of: "\u{202F}", with: " ")
             .replacingOccurrences(of: "\u{00A0}", with: " ")
             .replacingOccurrences(of: "\u{2009}", with: " ")
@@ -71,11 +86,13 @@ public enum NoteTimestampFormatter {
         case row
         case compactRow
         case detail
+        case dateTitle
         case interval
     }
 
     private struct FormatterKey: Hashable {
         let role: FormatterRole
+        let template: String
         let localeIdentifier: String
         let hourCycle: Locale.HourCycle
         let calendarIdentifier: Calendar.Identifier
@@ -99,6 +116,7 @@ public enum NoteTimestampFormatter {
             defer { lock.unlock() }
             let key = FormatterKey(
                 role: role,
+                template: template,
                 localeIdentifier: locale.identifier,
                 hourCycle: locale.hourCycle,
                 calendarIdentifier: calendar.identifier,
@@ -131,6 +149,7 @@ public enum NoteTimestampFormatter {
             defer { lock.unlock() }
             let key = FormatterKey(
                 role: .interval,
+                template: template,
                 localeIdentifier: locale.identifier,
                 hourCycle: locale.hourCycle,
                 calendarIdentifier: calendar.identifier,
