@@ -43,39 +43,16 @@ public enum CloudTranscriptionHallucinationFilterSkip: Equatable, Sendable {
 /// "thank you"; those are dropped only when the first segment reports a high
 /// no-speech probability, which protects genuine short dictations.
 public enum CloudTranscriptionResponseParser {
-    /// The two apps still differ here (#651). The defaults are the Mac's.
     public struct Options: Equatable, Sendable {
-        /// Replace bare `Infinity`, `-Infinity`, and `NaN` values with `null`
-        /// before decoding instead of rejecting the reply. The iPhone does.
-        public var acceptsNonFiniteNumbers: Bool
-        /// Trim byte order marks from both ends of a plain-text reply before
-        /// its empty check, instead of one leading mark. The iPhone does.
-        public var trimsEveryByteOrderMark: Bool
-        /// Read `no_speech_prob` from any JSON number, instead of only one that
-        /// converts exactly to a Double. The iPhone does.
-        public var readsAnyNumericNoSpeechProbability: Bool
         /// Read each segment's start, end, and text. Only the iPhone uses them.
         public var readsSegments: Bool
 
-        public init(
-            acceptsNonFiniteNumbers: Bool = false,
-            trimsEveryByteOrderMark: Bool = false,
-            readsAnyNumericNoSpeechProbability: Bool = false,
-            readsSegments: Bool = false
-        ) {
-            self.acceptsNonFiniteNumbers = acceptsNonFiniteNumbers
-            self.trimsEveryByteOrderMark = trimsEveryByteOrderMark
-            self.readsAnyNumericNoSpeechProbability = readsAnyNumericNoSpeechProbability
+        public init(readsSegments: Bool = false) {
             self.readsSegments = readsSegments
         }
 
         public static let mac = Options()
-        public static let iPhone = Options(
-            acceptsNonFiniteNumbers: true,
-            trimsEveryByteOrderMark: true,
-            readsAnyNumericNoSpeechProbability: true,
-            readsSegments: true
-        )
+        public static let iPhone = Options(readsSegments: true)
     }
 
     public struct Result: Equatable, Sendable {
@@ -119,7 +96,7 @@ public enum CloudTranscriptionResponseParser {
             guard let text = String(data: data, encoding: .utf8) else {
                 throw CloudTranscriptionResponseParsingError.invalidResponse
             }
-            try validatePlainTextContent(text, options: options)
+            try validatePlainTextContent(text)
             return Result(
                 response: CloudTranscriptionResponse(text: text, language: nil, segments: []),
                 hallucinationFilterSkip: nil
@@ -130,11 +107,11 @@ public enum CloudTranscriptionResponseParser {
 
     /// A JSON reply only; plain text is rejected.
     public static func parseJSON(_ data: Data, options: Options = .mac) throws -> Result {
-        guard let json = try decodedJSONObject(data, options: options) as? [String: Any],
+        guard let json = try decodedJSONObject(data) as? [String: Any],
               let text = json["text"] as? String else {
             throw CloudTranscriptionResponseParsingError.invalidResponse
         }
-        let filter = hallucinationCheck(text: text, json: json, options: options)
+        let filter = hallucinationCheck(text: text, json: json)
         return Result(
             response: CloudTranscriptionResponse(
                 text: filter.isHallucination ? "" : text,
@@ -145,23 +122,75 @@ public enum CloudTranscriptionResponseParser {
         )
     }
 
-    private static func decodedJSONObject(_ data: Data, options: Options) throws -> Any {
-        let source: Data
-        if options.acceptsNonFiniteNumbers {
-            let sanitized = String(decoding: data, as: UTF8.self).replacingOccurrences(
-                of: #"(:\s*|,\s*|\[\s*)(-?Infinity|NaN)\b(?=\s*[,}\]])"#,
-                with: "$1null",
-                options: .regularExpression
-            )
-            source = Data(sanitized.utf8)
-        } else {
-            source = data
+    private static func decodedJSONObject(_ data: Data) throws -> Any {
+        if let object = try? JSONSerialization.jsonObject(with: data) {
+            return object
         }
-        do {
-            return try JSONSerialization.jsonObject(with: source)
-        } catch {
+        // Some providers write a metric such as `compression_ratio` as a bare
+        // Infinity or NaN, which JSON doesn't allow. Read those as null rather
+        // than failing the whole reply.
+        guard let cleaned = nullingNonFiniteNumbers(in: data),
+              let object = try? JSONSerialization.jsonObject(with: cleaned) else {
             throw CloudTranscriptionResponseParsingError.invalidResponse
         }
+        return object
+    }
+
+    /// Replaces bare `NaN`, `Infinity`, and `-Infinity` outside JSON strings
+    /// with `null`. Text inside strings is never touched, and every other byte
+    /// is copied as is, so invalid UTF-8 still fails to decode. Returns nil
+    /// when there is nothing to replace.
+    private static func nullingNonFiniteNumbers(in data: Data) -> Data? {
+        let bytes = Array(data)
+        let tokens: [[UInt8]] = [Array("-Infinity".utf8), Array("Infinity".utf8), Array("NaN".utf8)]
+        let null = Array("null".utf8)
+        var output: [UInt8] = []
+        output.reserveCapacity(bytes.count)
+        var inString = false
+        var escaped = false
+        var replaced = false
+        var index = 0
+        func isWordByte(_ byte: UInt8) -> Bool {
+            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A)
+                || (byte >= 0x61 && byte <= 0x7A) || byte == 0x5F || byte == 0x2E || byte == 0x2B || byte == 0x2D
+        }
+        while index < bytes.count {
+            let byte = bytes[index]
+            if inString {
+                output.append(byte)
+                if escaped {
+                    escaped = false
+                } else if byte == 0x5C {
+                    escaped = true
+                } else if byte == 0x22 {
+                    inString = false
+                }
+                index += 1
+                continue
+            }
+            if byte == 0x22 {
+                inString = true
+                output.append(byte)
+                index += 1
+                continue
+            }
+            // Only '-', 'I', or 'N' can start a token.
+            let canStartToken = byte == 0x2D || byte == 0x49 || byte == 0x4E
+            let startsWord = canStartToken && (index == 0 || !isWordByte(bytes[index - 1]))
+            if startsWord, let token = tokens.first(where: { token in
+                index + token.count <= bytes.count
+                    && bytes[index..<(index + token.count)].elementsEqual(token)
+                    && (index + token.count == bytes.count || !isWordByte(bytes[index + token.count]))
+            }) {
+                output.append(contentsOf: null)
+                index += token.count
+                replaced = true
+                continue
+            }
+            output.append(byte)
+            index += 1
+        }
+        return replaced ? Data(output) : nil
     }
 
     private static func segments(from json: [String: Any]) -> [CloudTranscriptionResponse.Segment] {
@@ -190,16 +219,10 @@ public enum CloudTranscriptionResponseParser {
         return nil
     }
 
-    private static func validatePlainTextContent(_ text: String, options: Options) throws {
-        var candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if options.trimsEveryByteOrderMark {
-            candidate = candidate.trimmingCharacters(in: CharacterSet(charactersIn: "\u{FEFF}"))
-        } else if candidate.first == "\u{FEFF}" {
-            candidate.removeFirst()
-            candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        let contentOnly = candidate.trimmingCharacters(
-            in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines)
+    private static func validatePlainTextContent(_ text: String) throws {
+        let byteOrderMark = CharacterSet(charactersIn: "\u{FEFF}")
+        let contentOnly = text.trimmingCharacters(
+            in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).union(byteOrderMark)
         )
         guard !contentOnly.isEmpty else {
             throw CloudTranscriptionResponseParsingError.invalidResponse
@@ -208,8 +231,7 @@ public enum CloudTranscriptionResponseParser {
 
     private static func hallucinationCheck(
         text: String,
-        json: [String: Any],
-        options: Options
+        json: [String: Any]
     ) -> (isHallucination: Bool, skip: CloudTranscriptionHallucinationFilterSkip?) {
         let normalized = text
             .lowercased()
@@ -220,11 +242,13 @@ public enum CloudTranscriptionResponseParser {
         guard let segments = json["segments"] as? [[String: Any]] else {
             return (false, .noSegments)
         }
-        let value = segments.first?["no_speech_prob"]
-        let noSpeechProb = options.readsAnyNumericNoSpeechProbability
-            ? (value as? NSNumber)?.doubleValue
-            : value as? Double
-        guard let noSpeechProb else {
+        // JSON true and false also arrive as NSNumber; they aren't probabilities.
+        guard let number = segments.first?["no_speech_prob"] as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return (false, .noNoSpeechProbability)
+        }
+        let noSpeechProb = number.doubleValue
+        guard noSpeechProb.isFinite else {
             return (false, .noNoSpeechProbability)
         }
         return (noSpeechProb >= hallucinationNoSpeechThreshold, nil)
