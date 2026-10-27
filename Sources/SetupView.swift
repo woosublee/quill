@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import QuillProviderCore
 import UserNotifications
 
 struct SetupView: View {
@@ -1094,17 +1095,17 @@ struct SetupView: View {
         let resolvedBaseURL = baseURL.isEmpty ? AppState.defaultAPIBaseURL : baseURL
 
         Task {
-            let valid = await TranscriptionService.validateAPIKey(
+            let result = await TranscriptionService.checkAPIKey(
                 key,
                 baseURL: resolvedBaseURL
             )
             await MainActor.run {
                 isValidatingKey = false
-                if valid {
+                if result == .valid {
                     appState.apiKey = key
                     validatedAPIKey = key
                 } else {
-                    keyValidationError = String(
+                    keyValidationError = APIKeyCheckCopy.reason(for: result) ?? String(
                         localized: "Validation failed. Please check your API key and try again."
                     )
                 }

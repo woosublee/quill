@@ -158,7 +158,15 @@ class TranscriptionService {
 
     // Validate API key by hitting a lightweight endpoint
     static func validateAPIKey(_ key: String, baseURL: String = AppState.defaultAPIBaseURL) async -> Bool {
-        await CloudAPIKeyValidator().validate(key: key, baseURL: baseURL) == .valid
+        await checkAPIKey(key, baseURL: baseURL) == .valid
+    }
+
+    /// The same check as `validateAPIKey`, with the reason it failed.
+    static func checkAPIKey(
+        _ key: String,
+        baseURL: String = AppState.defaultAPIBaseURL
+    ) async -> CloudAPIKeyValidationResult {
+        await CloudAPIKeyValidator().validate(key: key, baseURL: baseURL)
     }
 
     // Upload audio file, submit for transcription, and resolve its spoken language.

@@ -1670,6 +1670,10 @@ struct ModelsSettingsView: View {
     @FocusState private var transcriptionAPIKeyFocused: Bool
     @State private var isValidatingKey = false
     @State private var keyValidationIssue: QuillUserIssueRecord?
+    /// Why the last key check failed when the key itself wasn't rejected.
+    @State private var keyValidationReason: String?
+    /// Only the latest key check reports; a newer Save replaces it.
+    @State private var keyValidationCheckID: UUID?
     @State private var transcriptionPairCheckFailed = false
     @State private var transcriptionPairCheckPassed = false
     @State private var transcriptionPairCheckID: UUID?
@@ -1881,6 +1885,7 @@ struct ModelsSettingsView: View {
                     .disabled(isValidatingKey)
                     .onChange(of: apiKeyInput) { _ in
                         keyValidationIssue = nil
+                        keyValidationReason = nil
                     }
 
                 Button(isValidatingKey ? "Validating..." : "Save") {
@@ -1903,6 +1908,10 @@ struct ModelsSettingsView: View {
                             .onSubmit { commitAPIBaseURL() }
                             .onChange(of: isEditingAPIBaseURL) { editing in
                                 if !editing { commitAPIBaseURL() }
+                            }
+                            .onChange(of: apiBaseURLInput) { _ in
+                                // A URL-specific reason no longer applies.
+                                keyValidationReason = nil
                             }
                         Button("Reset to Default") {
                             apiBaseURLInput = AppState.defaultAPIBaseURL
@@ -1936,6 +1945,11 @@ struct ModelsSettingsView: View {
                     presentation: issue.presentation(),
                     style: .inline
                 )
+            } else if let keyValidationReason {
+                Label(keyValidationReason, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -3606,7 +3620,9 @@ struct ModelsSettingsView: View {
     private func validateAndSaveKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         keyValidationIssue = nil
+        keyValidationReason = nil
         if key.isEmpty {
+            keyValidationCheckID = nil
             appState.apiKey = ""
             isValidatingKey = false
             return
@@ -3614,16 +3630,22 @@ struct ModelsSettingsView: View {
 
         let baseURL = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
         isValidatingKey = true
+        let checkID = UUID()
+        keyValidationCheckID = checkID
 
         Task {
-            let valid = await TranscriptionService.validateAPIKey(
+            let result = await TranscriptionService.checkAPIKey(
                 key,
                 baseURL: baseURL.isEmpty ? AppState.defaultAPIBaseURL : baseURL
             )
             await MainActor.run {
+                guard keyValidationCheckID == checkID else { return }
+                keyValidationCheckID = nil
                 isValidatingKey = false
-                if valid {
+                if result == .valid {
                     appState.apiKey = key
+                } else if let reason = APIKeyCheckCopy.reason(for: result) {
+                    keyValidationReason = reason
                 } else {
                     keyValidationIssue = QuillUserIssueRecord(
                         code: .authenticationFailed,
