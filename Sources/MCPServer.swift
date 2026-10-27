@@ -457,7 +457,7 @@ final class MCPServer {
                 summary: item.meetingSummary.map { envelope in
                     NotePayload.Summary(
                         markdown: MeetingSummaryMarkdownRenderer.render(envelope),
-                        isStale: appState.isMeetingSummaryStale(envelope, for: item)
+                        isStale: appState.isMeetingSummaryStaleUncached(envelope, for: item)
                     )
                 },
                 audio: Self.audio(of: item, appState: appState),

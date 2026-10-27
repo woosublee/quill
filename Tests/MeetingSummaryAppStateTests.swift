@@ -103,6 +103,18 @@ struct MeetingSummaryAppStateTests {
 
             let linkedFingerprint = appState.meetingSummarySourceFingerprint(for: linked)
             precondition(linkedFingerprint == appState.meetingSummarySource(for: linked).fingerprint)
+
+            // Only the last eight notes are kept, so viewed notes' text doesn't pile up.
+            for index in 0..<12 {
+                let other = PipelineHistoryItem(
+                    id: UUID(), timestamp: item.timestamp, rawTranscript: "Synthetic note \(index).",
+                    postProcessedTranscript: "", postProcessingPrompt: nil, contextSummary: "",
+                    contextScreenshotDataURL: nil, contextScreenshotStatus: "No screenshot",
+                    postProcessingStatus: "", debugStatus: "", customVocabulary: ""
+                )
+                precondition(appState.meetingSummarySourceFingerprint(for: other) == appState.meetingSummarySource(for: other).fingerprint)
+            }
+            precondition(appState.meetingSummarySourceFingerprintCountForTesting == 8)
             precondition(linkedFingerprint != editedFingerprint, "a new calendar match is hashed again")
         }
     }
