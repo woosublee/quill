@@ -215,12 +215,18 @@ struct TranscriptTextCoreTests {
         expectInvalidResponse(invalidUTF8)
 
         expectInvalidResponse(Data(#"{"text":"We ship","ratio":Infinity"#.utf8))
+
+        // Array and whitespace positions, and an escaped backslash right before
+        // a closing quote.
+        let positions = Data("{\"text\":\"a\\\\\",\"r\":[NaN, -Infinity],\"s\": \tInfinity\n}".utf8)
+        expectEqual((try? TranscriptionResponseParser.parse(positions))?.text, #"a\"#)
     }
 
     private static func testSharedParserOptionsAndSkips() {
         // A plain-text reply that is only punctuation and byte order marks
         // has no content.
         expectInvalidResponse(Data(".\u{FEFF}".utf8))
+        expectInvalidResponse(Data(".\u{FEFF} \u{FEFF}".utf8))
         expectEqual((try? TranscriptionResponseParser.parse(Data("Hi\u{FEFF}".utf8)))?.text, "Hi\u{FEFF}")
 
         let silence = Data(#"{"text":"Thank you.","segments":[{"start":0,"end":1,"text":"Thank you.","no_speech_prob":0.6}]}"#.utf8)
@@ -242,6 +248,9 @@ struct TranscriptTextCoreTests {
         // Any JSON number counts as a no-speech probability.
         let wholeNumber = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":9007199254740993}]}"#.utf8)
         expectEqual((try? TranscriptionResponseParser.parse(wholeNumber))?.text, "")
+        // A boolean isn't a probability, so the phrase is kept.
+        let boolean = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":true}]}"#.utf8)
+        expectEqual((try? TranscriptionResponseParser.parse(boolean))?.text, "Thank you.")
 
         // Only the iPhone reads segment times.
         let timed = Data(#"{"text":"Hello there.","segments":[{"start":0,"end":1,"text":"Hello there.","no_speech_prob":0.01}]}"#.utf8)

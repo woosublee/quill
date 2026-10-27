@@ -768,8 +768,7 @@ class TranscriptionService {
                 outputFile = nil
             }
 
-            let rawJSONString = outputFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-            let parsedJSONData = rawJSONString?.data(using: .utf8)
+            let parsedJSONData = outputFile.flatMap { try? Data(contentsOf: $0) }
             let parsedResponse = parsedJSONData.flatMap {
                 try? TranscriptionResponseParser.parseJSONTranscript($0)
             }

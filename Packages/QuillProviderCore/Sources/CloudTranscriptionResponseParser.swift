@@ -140,7 +140,7 @@ public enum CloudTranscriptionResponseParser {
     /// with `null`. Text inside strings is never touched, and every other byte
     /// is copied as is, so invalid UTF-8 still fails to decode. Returns nil
     /// when there is nothing to replace.
-    static func nullingNonFiniteNumbers(in data: Data) -> Data? {
+    private static func nullingNonFiniteNumbers(in data: Data) -> Data? {
         let bytes = Array(data)
         let tokens: [[UInt8]] = [Array("-Infinity".utf8), Array("Infinity".utf8), Array("NaN".utf8)]
         let null = Array("null".utf8)
@@ -174,10 +174,12 @@ public enum CloudTranscriptionResponseParser {
                 index += 1
                 continue
             }
-            let startsWord = index == 0 || !isWordByte(bytes[index - 1])
+            // Only '-', 'I', or 'N' can start a token.
+            let canStartToken = byte == 0x2D || byte == 0x49 || byte == 0x4E
+            let startsWord = canStartToken && (index == 0 || !isWordByte(bytes[index - 1]))
             if startsWord, let token = tokens.first(where: { token in
                 index + token.count <= bytes.count
-                    && Array(bytes[index..<(index + token.count)]) == token
+                    && bytes[index..<(index + token.count)].elementsEqual(token)
                     && (index + token.count == bytes.count || !isWordByte(bytes[index + token.count]))
             }) {
                 output.append(contentsOf: null)
@@ -218,10 +220,9 @@ public enum CloudTranscriptionResponseParser {
     }
 
     private static func validatePlainTextContent(_ text: String) throws {
-        let candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\u{FEFF}"))
-        let contentOnly = candidate.trimmingCharacters(
-            in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines)
+        let byteOrderMark = CharacterSet(charactersIn: "\u{FEFF}")
+        let contentOnly = text.trimmingCharacters(
+            in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).union(byteOrderMark)
         )
         guard !contentOnly.isEmpty else {
             throw CloudTranscriptionResponseParsingError.invalidResponse
@@ -241,7 +242,13 @@ public enum CloudTranscriptionResponseParser {
         guard let segments = json["segments"] as? [[String: Any]] else {
             return (false, .noSegments)
         }
-        guard let noSpeechProb = (segments.first?["no_speech_prob"] as? NSNumber)?.doubleValue else {
+        // JSON true and false also arrive as NSNumber; they aren't probabilities.
+        guard let number = segments.first?["no_speech_prob"] as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return (false, .noNoSpeechProbability)
+        }
+        let noSpeechProb = number.doubleValue
+        guard noSpeechProb.isFinite else {
             return (false, .noNoSpeechProbability)
         }
         return (noSpeechProb >= hallucinationNoSpeechThreshold, nil)
