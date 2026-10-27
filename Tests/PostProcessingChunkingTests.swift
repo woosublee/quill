@@ -12,6 +12,7 @@ struct PostProcessingChunkingTests {
         try testMultibyteCharactersRespectSafeBoundaries()
         try testLargeUnbrokenTokenPreservesOrderAndBudget()
         try await testRunnerSizesChunksFromItsWindowAndByteRatio()
+        try testFallbackPolicyByErrorAndHosts()
         print("PostProcessingChunkingTests passed")
     }
 
@@ -114,6 +115,49 @@ struct PostProcessingChunkingTests {
         try expect(Set(mac.budgets.map(\.maxCompletionTokens)) == [6_144], "Mac response room")
         try expect(Set(phone.budgets.map(\.maxCompletionTokens)) == [2_048], "reservation plus 512")
         try expect(phone.budgets.count < mac.budgets.count, "two bytes a token makes larger chunks")
+    }
+
+    /// Which cleanup errors try the fallback model, for each pair of hosts
+    /// (cloud to cloud, local to cloud, cloud to local). The table is the
+    /// Mac's rule from #580.
+    private static func testFallbackPolicyByErrorAndHosts() throws {
+        let cases: [(PostProcessingError, [Bool])] = [
+            (.rateLimited(model: "m", retryAfter: 1), [true, false, true]),
+            (.requestFailed(statusCode: 429, providerCode: nil), [true, false, true]),
+            (.requestFailed(statusCode: 500, providerCode: nil), [true, true, true]),
+            (.requestFailed(statusCode: 503, providerCode: nil), [true, true, true]),
+            (.requestFailed(statusCode: 400, providerCode: nil), [false, false, false]),
+            (.requestFailed(statusCode: 401, providerCode: nil), [false, false, false]),
+            (.requestTimedOut(30), [false, true, true]),
+            (.emptyOutput, [false, true, false]),
+            (.invalidResponse("synthetic"), [false, true, false]),
+            (.invalidInput("synthetic"), [false, false, false]),
+            (.contextBudgetExceeded, [false, false, false]),
+            (.suspectedInstructionExecution, [false, false, false]),
+        ]
+        let hosts: [(fromLocal: Bool, toLocal: Bool)] = [(false, false), (true, false), (false, true)]
+        for (error, expected) in cases {
+            for (index, host) in hosts.enumerated() {
+                try expect(
+                    PostProcessingFallbackPolicy.shouldFallBack(
+                        after: error,
+                        fromLocal: host.fromLocal,
+                        toLocal: host.toLocal,
+                        retriesEmptyCloudOutput: false
+                    ) == expected[index],
+                    "\(error) from local \(host.fromLocal) to local \(host.toLocal)"
+                )
+            }
+        }
+        try expect(
+            PostProcessingFallbackPolicy.shouldFallBack(
+                after: .emptyOutput, fromLocal: false, toLocal: false, retriesEmptyCloudOutput: true
+            ),
+            "an empty cloud reply retries when the caller allows it"
+        )
+        try expect(!PostProcessingFallbackPolicy.isServerError(statusCode: 499), "499 isn't a server error")
+        try expect(PostProcessingFallbackPolicy.isServerError(statusCode: 599), "599 is a server error")
+        try expect(!PostProcessingFallbackPolicy.isServerError(statusCode: 600), "600 isn't a server error")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
