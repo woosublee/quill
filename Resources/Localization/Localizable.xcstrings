@@ -13732,18 +13732,18 @@
         }
       }
     },
-    "Check the API URL. Enter an http or https address without a username, password, or query.": {
+    "Check the API URL. Enter an http or https address without a username, password, or anything after ? or #.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check the API URL. Enter an http or https address without a username, password, or query."
+            "value": "Check the API URL. Enter an http or https address without a username, password, or anything after ? or #."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "API 주소를 확인해 주세요. 계정 정보나 ? 뒤 값 없이 http나 https 주소를 넣어 주세요."
+            "value": "API 주소를 확인해 주세요. 계정 정보나 ?·# 뒤 값 없이 http나 https 주소를 넣어 주세요."
           }
         }
       }

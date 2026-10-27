@@ -2852,7 +2852,7 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(APIKeyCheckCopy.reason(for: .rateLimited)?.contains("Too many requests") == true)
         precondition(APIKeyCheckCopy.reason(for: .unreachable)?.contains("answered with an error") == true)
         precondition(APIKeyCheckCopy.reason(for: .insecureConnection)?.contains("https URL") == true)
-        precondition(APIKeyCheckCopy.reason(for: .invalidURL)?.contains("without a username") == true)
+        precondition(APIKeyCheckCopy.reason(for: .invalidURL)?.contains("after ? or #") == true)
         let reasons = [.notFound, .rateLimited, .unreachable, .insecureConnection, .invalidURL]
             .compactMap { APIKeyCheckCopy.reason(for: $0 as CloudAPIKeyValidationResult) }
         precondition(Set(reasons).count == 5, "each failure has its own message")

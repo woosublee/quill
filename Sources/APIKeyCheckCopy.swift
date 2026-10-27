@@ -18,7 +18,7 @@ enum APIKeyCheckCopy {
         case .insecureConnection:
             return String(localized: "This http URL was blocked. Enter an https URL.")
         case .invalidURL:
-            return String(localized: "Check the API URL. Enter an http or https address without a username, password, or query.")
+            return String(localized: "Check the API URL. Enter an http or https address without a username, password, or anything after ? or #.")
         }
     }
 }
