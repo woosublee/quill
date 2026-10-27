@@ -22,20 +22,17 @@ public struct CloudTranscriptionHTTPFailure: Error, Equatable, Sendable {
     public let retryAfterSeconds: TimeInterval?
     public let providerCode: String?
     public let providerType: String?
-    public let sanitizedMessage: String?
 
     public init(
         statusCode: Int,
         retryAfterSeconds: TimeInterval? = nil,
         providerCode: String? = nil,
-        providerType: String? = nil,
-        sanitizedMessage: String? = nil
+        providerType: String? = nil
     ) {
         self.statusCode = statusCode
         self.retryAfterSeconds = retryAfterSeconds
         self.providerCode = providerCode
         self.providerType = providerType
-        self.sanitizedMessage = sanitizedMessage
     }
 }
 

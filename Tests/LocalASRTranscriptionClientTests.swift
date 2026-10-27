@@ -172,7 +172,6 @@ struct LocalASRTranscriptionClientTests {
             throw TestFailure("expected HTTP failure")
         } catch let failure as CloudTranscriptionHTTPFailure {
             try expectEqual(failure.statusCode, 503, "status kept")
-            try expectEqual(failure.sanitizedMessage, nil, "no body text kept")
         }
     }
 

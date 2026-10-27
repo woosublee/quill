@@ -73,11 +73,6 @@ struct TranscriptionProviderPair: Equatable, Sendable {
 }
 
 class TranscriptionService {
-    private static let modelsSupportingVerboseJSON: Set<String> = [
-        "whisper-1",
-        "whisper-large-v3",
-        "whisper-large-v3-turbo"
-    ]
 
     private let apiKey: String
     private let baseURL: URL
@@ -94,7 +89,7 @@ class TranscriptionService {
     private let nativeWhisperExecution: NativeWhisperExecutionSnapshot?
     private let localAIExecution: LocalAITranscriptionExecutionSnapshot?
     private var transcriptionResponseFormat: String {
-        Self.responseFormat(forModel: transcriptionModel)
+        CloudTranscriptionUpload.responseFormat(forModel: transcriptionModel)
     }
     private var transcriptionTimeoutSeconds: TimeInterval {
         let override = UserDefaults.standard.double(forKey: "transcription_timeout_seconds")
@@ -138,11 +133,6 @@ class TranscriptionService {
         self.localAIExecution = localAIExecution
         self.cloudDependencies = cloudDependencies
         self.cloudExecutionContext = cloudExecutionContext
-    }
-
-    static func responseFormat(forModel model: String) -> String {
-        let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return modelsSupportingVerboseJSON.contains(normalizedModel) ? "verbose_json" : "json"
     }
 
     static func appleSpeechAuthorizationIssue(
@@ -812,7 +802,7 @@ class TranscriptionService {
         let encodedByteCount = try multipart.encodedByteCount(
             audioDataByteCount: physicalByteCount,
             fileName: fileURL.lastPathComponent,
-            contentType: audioContentType(for: fileURL.lastPathComponent)
+            contentType: CloudTranscriptionUpload.contentType(forFileName: fileURL.lastPathComponent)
         )
         guard encodedByteCount > cloudDependencies.encodedUploadCeilingBytes else {
             return false
@@ -936,18 +926,16 @@ class TranscriptionService {
         timeoutSeconds: TimeInterval,
         useStructuredHTTPFailure: Bool
     ) async throws -> TranscriptionResult {
-        let url = baseURL
-            .appendingPathComponent("audio")
-            .appendingPathComponent("transcriptions")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = timeoutSeconds
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let request = CloudTranscriptionUpload.request(
+            baseURL: baseURL,
+            key: apiKey,
+            timeout: timeoutSeconds,
+            boundary: boundary
+        )
 
         let audioData = try Data(contentsOf: fileURL)
-        let body = makeMultipartBody(
+        let body = CloudTranscriptionUpload.multipartBody(
             audioData: audioData,
             fileName: fileURL.lastPathComponent,
             model: transcriptionModel,
@@ -1010,7 +998,7 @@ class TranscriptionService {
                 fileURL.lastPathComponent,
                 fileSizeBytes(for: fileURL)
             )
-            let failure = structuredHTTPFailure(
+            let failure = CloudTranscriptionUpload.httpFailure(
                 data: data,
                 response: httpResponse
             )
@@ -1040,33 +1028,6 @@ class TranscriptionService {
         }
     }
 
-    private func structuredHTTPFailure(
-        data: Data,
-        response: HTTPURLResponse
-    ) -> CloudTranscriptionHTTPFailure {
-        let retryAfterSeconds = response.value(
-            forHTTPHeaderField: "Retry-After"
-        ).flatMap(TimeInterval.init)
-        let errorObject = (
-            try? JSONSerialization.jsonObject(with: data)
-        ) as? [String: Any]
-        let providerError = errorObject?["error"] as? [String: Any]
-        return CloudTranscriptionHTTPFailure(
-            statusCode: response.statusCode,
-            retryAfterSeconds: retryAfterSeconds,
-            providerCode: safeProviderErrorField(providerError?["code"]),
-            providerType: safeProviderErrorField(providerError?["type"]),
-            sanitizedMessage: safeProviderErrorField(providerError?["message"])
-        )
-    }
-
-    private func safeProviderErrorField(_ value: Any?) -> String? {
-        guard let value = value as? String else { return nil }
-        let sanitized = value
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .prefix(256)
-        return sanitized.isEmpty ? nil : String(sanitized)
-    }
     private var cloudMultipartLayout: CloudTranscriptionMultipartLayout {
         CloudTranscriptionMultipartLayout(
             model: transcriptionModel,
@@ -1087,60 +1048,9 @@ class TranscriptionService {
         return size.uint64Value
     }
 
-    private func audioContentType(for fileName: String) -> String {
-        if fileName.lowercased().hasSuffix(".wav") {
-            return "audio/wav"
-        }
-        if fileName.lowercased().hasSuffix(".mp3") {
-            return "audio/mpeg"
-        }
-        if fileName.lowercased().hasSuffix(".m4a") {
-            return "audio/mp4"
-        }
-        return "audio/mp4"
-    }
-
     private func fileSizeBytes(for fileURL: URL) -> Int64 {
         let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
         return (attributes?[.size] as? NSNumber)?.int64Value ?? -1
-    }
-
-    private func makeMultipartBody(
-        audioData: Data,
-        fileName: String,
-        model: String,
-        responseFormat: String,
-        language: String?,
-        boundary: String
-    ) -> Data {
-        var body = Data()
-
-        func append(_ value: String) {
-            body.append(Data(value.utf8))
-        }
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        append("\(model)\r\n")
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
-        append("\(responseFormat)\r\n")
-
-        if let language, !language.isEmpty {
-            append("--\(boundary)\r\n")
-            append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-            append("\(language)\r\n")
-        }
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
-        append("Content-Type: \(audioContentType(for: fileName))\r\n\r\n")
-        body.append(audioData)
-        append("\r\n")
-        append("--\(boundary)--\r\n")
-
-        return body
     }
 
     private static func transcriptionTimeoutErrorIfNeeded(

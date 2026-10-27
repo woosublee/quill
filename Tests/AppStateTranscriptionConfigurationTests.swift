@@ -932,13 +932,13 @@ struct AppStateTranscriptionConfigurationTests {
 
     private static func testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels() {
         for model in ["whisper-1", "whisper-large-v3", "whisper-large-v3-turbo", " WHISPER-LARGE-V3 "] {
-            assert(TranscriptionService.responseFormat(forModel: model) == "verbose_json")
+            assert(CloudTranscriptionUpload.responseFormat(forModel: model) == "verbose_json")
         }
     }
 
     private static func testTranscriptionResponseFormatUsesJSONForOtherModels() {
         for model in ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "custom-whisper-compatible-model", ""] {
-            assert(TranscriptionService.responseFormat(forModel: model) == "json")
+            assert(CloudTranscriptionUpload.responseFormat(forModel: model) == "json")
         }
     }
 
