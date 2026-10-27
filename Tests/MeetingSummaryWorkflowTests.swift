@@ -1,4 +1,5 @@
 import Foundation
+import QuillUserIssueCore
 import QuillAITextCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
@@ -29,6 +30,7 @@ struct MeetingSummaryWorkflowTests {
         try await testStaleGenerationCannotClearNewerGenerationState()
         try await testMissingDurableStartRejectsCompletionAfterGeneratorRuns()
         try await testStoredRecordsStayFixed()
+        try await testSharedRecordBuilderBranches()
         print("MeetingSummaryWorkflowTests passed")
     }
 
@@ -949,6 +951,61 @@ struct MeetingSummaryWorkflowTests {
 
 @MainActor
 extension MeetingSummaryWorkflowTests {
+    /// Branches of the shared record builder that the Mac workflow doesn't
+    /// reach: the language error the iPhone passes as it is, and an explicit
+    /// severity.
+    static func testSharedRecordBuilderBranches() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        func attempt(
+            _ error: Error,
+            issue: QuillUserIssueRecord? = nil,
+            backend: MeetingSummaryBackendKind = .cloud,
+            severity: QuillUserIssueSeverity? = nil
+        ) -> MeetingSummaryAttempt {
+            MeetingSummaryRecordBuilder.failureAttempt(
+                error: error,
+                issue: issue,
+                backendKind: backend,
+                configuredModelID: "configured/model",
+                configuredProviderHost: "api.example.com",
+                languageContext: nil,
+                sourceFingerprint: "fingerprint",
+                occurredAt: now,
+                severity: severity
+            )
+        }
+
+        let language = attempt(MeetingSummaryLanguageError.unavailable)
+        try expect(language.issue == QuillUserIssueError.meetingSummaryLanguageUnavailable().record,
+                   "the shared language error stores the Mac's record")
+        try expect(language.providerHost == "api.example.com", "a cloud failure keeps the host")
+        try expect(attempt(MeetingSummaryLanguageError.unavailable, backend: .local).providerHost == nil,
+                   "a local failure has no host")
+
+        let summaryError = MeetingSummaryError.requestFailed(statusCode: 503, providerCode: nil)
+        try expect(attempt(summaryError).issue?.severity == .warning, "the default severity")
+        try expect(attempt(summaryError, severity: .error).issue?.severity == .error,
+                   "an explicit severity wins for a summary error")
+        try expect(attempt(CocoaError(.fileReadUnknown), severity: .error).issue?.severity == .error,
+                   "an explicit severity wins for another error")
+        try expect(attempt(MeetingSummaryLanguageError.unavailable, severity: .warning).issue?.severity == .warning,
+                   "an explicit severity wins for the language error")
+        let ownIssue = QuillUserIssueRecord(code: .meetingSummaryUnavailable, severity: .warning)
+        try expect(attempt(summaryError, issue: ownIssue, severity: .error).issue == ownIssue,
+                   "a passed issue is stored as it is")
+
+        try expect(MeetingSummarySource.transcript(raw: "raw", edited: "  edited \n") == "edited",
+                   "the edited transcript without surrounding whitespace")
+        try expect(MeetingSummarySource.transcript(raw: "raw", edited: " \n ") == "raw",
+                   "a blank edit falls back to the raw transcript")
+        try expect(MeetingSummaryCalendarContext.attendeeLabel(displayName: " ", email: " a@example.com ") == "a@example.com",
+                   "a blank name falls back to the email")
+        try expect(MeetingSummaryCalendarContext.attendeeLabel(displayName: nil, email: "") == nil,
+                   "an attendee with neither is left out")
+    }
+}
+
+extension MeetingSummaryWorkflowTests {
     /// The summary source each case hands the generator and the summary,
     /// attempt, and spoken language each case stores. The expected lines were
     /// generated from `MeetingSummaryWorkflow` before its source, language, and
@@ -1050,6 +1107,7 @@ extension MeetingSummaryWorkflowTests {
             let inferred = item(transcript: "결정: 금요일에 출시합니다.", spokenLanguageCode: nil, resolution: nil)
             let reinfer = item(transcript: "결정: 금요일에 출시합니다.", spokenLanguageCode: "en", resolution: .transcriptInferred)
             let whitespaceEdit = item(edited: "   ")
+            let paddedEdit = item(edited: "  Decision: ship Monday.\n")
             let unknown = item(transcript: "1234 5678", spokenLanguageCode: nil, resolution: nil)
             return [
                 ("cloud calendar", calendarItem, request(calendarItem), returning(result())),
@@ -1063,6 +1121,7 @@ extension MeetingSummaryWorkflowTests {
                 ("inferred language", inferred, request(inferred, language: " "), returning(result())),
                 ("re-inferred language", reinfer, request(reinfer, language: "Auto"), returning(result())),
                 ("whitespace edit", whitespaceEdit, request(whitespaceEdit), returning(result())),
+                ("padded edit", paddedEdit, request(paddedEdit), returning(result())),
                 ("rate limited", local, request(local),
                  { _ in throw MeetingSummaryError.rateLimited(model: "limited/model", retryAfter: 30, providerCode: "rate_limit_exceeded") }),
                 ("request failed", local, request(local),
@@ -1151,6 +1210,10 @@ extension MeetingSummaryWorkflowTests {
             "whitespace edit: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
             "whitespace edit: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
             "whitespace edit: spoken en engineDetected",
+            "padded edit: source transcript=Decision: ship Monday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=5040e66036d1a8bc8469d9f8c6e7d73ec177bd6a34fb62a7a0b081b9ee8639e7",
+            "padded edit: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"5040e66036d1a8bc8469d9f8c6e7d73ec177bd6a34fb62a7a0b081b9ee8639e7\"}",
+            "padded edit: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"5040e66036d1a8bc8469d9f8c6e7d73ec177bd6a34fb62a7a0b081b9ee8639e7\"}",
+            "padded edit: spoken en engineDetected",
             "rate limited: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
             "rate limited: summary nil",
             "rate limited: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"httpStatus\":429,\"modelID\":\"limited\\/model\",\"providerCode\":\"rate_limit_exceeded\",\"providerHost\":\"api.example.com\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"limited\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",

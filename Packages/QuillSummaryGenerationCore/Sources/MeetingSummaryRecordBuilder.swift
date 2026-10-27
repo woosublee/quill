@@ -3,17 +3,6 @@ import QuillAITextCore
 import QuillSummaryFormatCore
 import QuillUserIssueCore
 
-public extension MeetingSummaryCalendarContext {
-    /// How an attendee appears in a summary source: their name, or their
-    /// email when the name is blank. Nil when both are blank.
-    static func attendeeLabel(displayName: String?, email: String?) -> String? {
-        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !name.isEmpty { return name }
-        let email = email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return email.isEmpty ? nil : email
-    }
-}
-
 public enum MeetingSummaryLanguageError: Error, Equatable, Sendable {
     /// The spoken language is unknown, so the summary language can't follow it.
     case unavailable
@@ -53,16 +42,21 @@ public struct MeetingSummaryLanguageDecision: Equatable, Sendable {
                 resolvedSpokenLanguage: nil
             )
         }
-        let requiresTranscriptResolution = spokenLanguage?.source == .transcriptInferred
-            || spokenLanguage?.source == .unavailable
-        let resolvesFromTranscript = requiresTranscriptResolution || spokenLanguage == nil
-        let spoken = resolvesFromTranscript
-            ? SpokenLanguageResolver.resolve(
+        let spoken: SpokenLanguageResolution
+        let resolvesFromTranscript: Bool
+        if let spokenLanguage,
+           spokenLanguage.source != .transcriptInferred,
+           spokenLanguage.source != .unavailable {
+            spoken = spokenLanguage
+            resolvesFromTranscript = false
+        } else {
+            spoken = SpokenLanguageResolver.resolve(
                 requestedLanguageCode: transcriptionLanguageCode,
                 engineLanguageCode: nil,
                 transcript: transcript
             )
-            : spokenLanguage!
+            resolvesFromTranscript = true
+        }
         guard let code = spoken.languageCode else {
             throw MeetingSummaryLanguageError.unavailable
         }
@@ -133,7 +127,8 @@ public enum MeetingSummaryRecordBuilder {
     ///   - issue: the app's own record for an error only it knows about.
     ///     When nil, the record comes from `MeetingSummaryError` or
     ///     `MeetingSummaryLanguageError`, or is a general summary failure.
-    ///   - severity: overrides the codes' default severity.
+    ///   - severity: overrides the codes' default severity for a record
+    ///     built here. A passed `issue` is stored as it is.
     public static func failureAttempt(
         error: Error,
         issue: QuillUserIssueRecord? = nil,

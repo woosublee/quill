@@ -329,10 +329,10 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
     }
 
     static func transcript(for item: PipelineHistoryItem) -> String {
-        let processed = item.postProcessedTranscript.trimmingCharacters(
-            in: .whitespacesAndNewlines
+        MeetingSummarySource.transcript(
+            raw: item.rawTranscript,
+            edited: item.postProcessedTranscript
         )
-        return processed.isEmpty ? item.rawTranscript : processed
     }
 
     static func source(

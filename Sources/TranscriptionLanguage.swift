@@ -47,10 +47,6 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
         all.first { $0.code == code } ?? .auto
     }
 
-    static func code(forSummaryOutput outputLanguage: String?) -> String? {
-        MeetingSummaryPromptLanguage.code(forSetting: outputLanguage)
-    }
-
     static func summaryPromptLanguage(for code: String?) -> String? {
         MeetingSummaryPromptLanguage.name(for: code)
     }

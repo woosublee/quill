@@ -215,11 +215,11 @@ struct SpokenLanguageResolutionTests {
     }
 
     private static func testSummaryOutputLanguageMappings() {
-        precondition(TranscriptionLanguage.code(forSummaryOutput: "Korean") == "ko")
-        precondition(TranscriptionLanguage.code(forSummaryOutput: "Portuguese") == "pt")
-        precondition(TranscriptionLanguage.code(forSummaryOutput: "") == nil)
-        precondition(TranscriptionLanguage.code(forSummaryOutput: "Same as spoken language") == nil)
-        precondition(TranscriptionLanguage.code(forSummaryOutput: "Unsupported") == nil)
+        precondition(MeetingSummaryPromptLanguage.code(forSetting: "Korean") == "ko")
+        precondition(MeetingSummaryPromptLanguage.code(forSetting: "Portuguese") == "pt")
+        precondition(MeetingSummaryPromptLanguage.code(forSetting: "") == nil)
+        precondition(MeetingSummaryPromptLanguage.code(forSetting: "Same as spoken language") == nil)
+        precondition(MeetingSummaryPromptLanguage.code(forSetting: "Unsupported") == nil)
         precondition(TranscriptionLanguage.summaryPromptLanguage(for: "ko") == "Korean")
         precondition(TranscriptionLanguage.summaryPromptLanguage(for: "pt") == "Portuguese")
         precondition(TranscriptionLanguage.summaryPromptLanguage(for: "unsupported") == nil)

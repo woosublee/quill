@@ -88,8 +88,26 @@ public struct MeetingSummaryCalendarContext: Codable, Equatable, Sendable {
     }
 }
 
+public extension MeetingSummaryCalendarContext {
+    /// How an attendee appears in a summary source: their name, or their
+    /// email when the name is blank. Nil when both are blank.
+    static func attendeeLabel(displayName: String?, email: String?) -> String? {
+        let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty { return name }
+        let email = email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return email.isEmpty ? nil : email
+    }
+}
+
 public struct MeetingSummarySource: Equatable, Sendable {
     public static let fingerprintVersion = 1
+
+    /// The transcript a summary reads: the edited one without surrounding
+    /// whitespace, or the raw one when the edited one is blank.
+    public static func transcript(raw: String, edited: String) -> String {
+        let trimmed = edited.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? raw : trimmed
+    }
 
     public let transcript: String
     public let calendar: MeetingSummaryCalendarContext?
