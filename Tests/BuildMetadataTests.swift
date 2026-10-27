@@ -8,6 +8,7 @@ struct BuildMetadataTests {
         try testBuildSettingsTrackCodesignIdentity()
         try testGroupedTestArchitectureRespectsBuildOverride()
         try testAppStateRunnerRequiresIsolatedHome()
+        try testFullSourceRunnersTakeTurns()
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
         try testMakefileBundlesLocalizationResources()
@@ -104,6 +105,21 @@ struct BuildMetadataTests {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
         assertContains(makefile, "test -n \"$$isolated_home\" || exit 1")
+    }
+
+    /// Concurrent runs from two worktrees take turns on the full-source
+    /// runners (#676). A lockf without -k removes the file, which lets the
+    /// next run lock a new file while another run holds the old one.
+    private static func testFullSourceRunnersTakeTurns() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "lockf -k \"$(FULL_SOURCE_TEST_LOCK)\" $(FULL_SOURCE_APP_STATE_RUNNER)")
+        assertContains(makefile, "lockf -k \"$(FULL_SOURCE_TEST_LOCK)\" $(FULL_SOURCE_TRANSCRIPTION_RUNNER)")
+        let lockLines = makefile.split(separator: "\n").filter { $0.contains("lockf ") && !$0.hasPrefix("#") }
+        precondition(lockLines.count >= 3, "Expected the wait probe and both runners to use lockf")
+        for line in lockLines {
+            precondition(line.contains("lockf -k "), "Every lockf on the test lock must keep the file: \(line)")
+        }
     }
 
     private static func testMakefileSeparatesDevRunFromInstallBuild() throws {

@@ -109,7 +109,11 @@ git diff --check
 ```
 
 `make check` validates plist, entitlement, shell, and YAML files, then runs the
-complete Core, Recording, Transcription, and App State test suite. For a local
+complete Core, Recording, Transcription, and App State test suite. Two
+`make check` runs (from two worktrees) can run at once: the two full-source
+runners hold a `lockf` lock on `/tmp/quill-full-source-tests-<uid>.lock` and take
+turns, because UserDefaults are shared across processes. Standalone tests
+that touch `UserDefaults.standard` aren't covered by the lock. For a local
 development app bundle build, the Makefile signs with the first valid Developer ID
 Application identity in the login keychain (official releases are signed and
 notarized in CI). If several are valid, pick one by hash from

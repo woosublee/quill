@@ -1035,20 +1035,35 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/TranscriptionRecoveryPlaceholderTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/MCPLocalAccessPolicy.swift Tests/MCPLocalAccessPolicyTests.swift -o $(TEST_BUILD_DIR)/MCPLocalAccessPolicyTests
 	@$(TEST_BUILD_DIR)/MCPLocalAccessPolicyTests
-	@start="$$(date +%s)"; status=0; \
-		$(FULL_SOURCE_TRANSCRIPTION_RUNNER) || status=$$?; \
+	@$(wait_for_full_source_test_lock); \
+		start="$$(date +%s)"; status=0; \
+		lockf -k "$(FULL_SOURCE_TEST_LOCK)" $(FULL_SOURCE_TRANSCRIPTION_RUNNER) || status=$$?; \
 		end="$$(date +%s)"; \
 		printf '[timing] group=full-source-transcription seconds=%s status=%s\n' "$$((end - start))" "$$status"; \
 		exit "$$status"
 
+# The full-source runners read and write UserDefaults, which go through the
+# user's cfprefsd (the app-state runner's isolated home doesn't change that),
+# so two runs at once (from two worktrees) read each other's settings (#676).
+# Each runner holds a kernel file lock (lockf) while it runs, so concurrent
+# runs take turns; the lock is released when the runner exits, however it
+# exits. Every lockf on the file passes -k: without it lockf removes the file
+# on exit, and the next run would lock a new file while another holds the old.
+# The wait isn't timed: a hung runner in another worktree holds the lock until
+# it is stopped.
+FULL_SOURCE_TEST_LOCK = /tmp/quill-full-source-tests-$(shell id -u).lock
+wait_for_full_source_test_lock = lockf -k -s -t 0 "$(FULL_SOURCE_TEST_LOCK)" true \
+		|| { [ $$? -ne 75 ] || echo "Waiting for another worktree's full-source tests (they share UserDefaults)..."; }
+
 # Separate shard so CI compiles the two full-source runners on parallel runners.
 _test-app-state: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_APP_STATE_RUNNER) | $(TEST_BUILD_DIR)
-	@start="$$(date +%s)"; status=0; \
+	@$(wait_for_full_source_test_lock); \
+		start="$$(date +%s)"; status=0; \
 		isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; \
 		test -n "$$isolated_home" || exit 1; \
 		trap 'rm -rf "$$isolated_home"' EXIT; \
 		mkdir -p "$$isolated_home/tmp"; \
-		CFFIXED_USER_HOME="$$isolated_home" TMPDIR="$$isolated_home/tmp" $(FULL_SOURCE_APP_STATE_RUNNER) || status=$$?; \
+		CFFIXED_USER_HOME="$$isolated_home" TMPDIR="$$isolated_home/tmp" lockf -k "$(FULL_SOURCE_TEST_LOCK)" $(FULL_SOURCE_APP_STATE_RUNNER) || status=$$?; \
 		end="$$(date +%s)"; \
 		printf '[timing] group=full-source-app-state seconds=%s status=%s\n' "$$((end - start))" "$$status"; \
 		exit "$$status"
