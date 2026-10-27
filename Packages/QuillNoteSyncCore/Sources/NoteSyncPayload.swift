@@ -26,13 +26,13 @@ public enum NoteSyncPayload {
         }
         var stamps: [String: Date] = [:]
         for (group, value) in object["clock"] as? [String: Any] ?? [:] {
-            if let ms = (value as? NSNumber)?.doubleValue { stamps[group] = date(ms) }
+            if let ms = number(value) { stamps[group] = date(ms) }
         }
         return NoteSyncRecord(
             noteID: noteID,
             fields: try fields(from: fieldsObject),
             clock: NoteFieldClock(stamps: stamps),
-            deletedAt: (object["deletedAt"] as? NSNumber).map { date($0.doubleValue) }
+            deletedAt: number(object["deletedAt"]).map(date)
         )
     }
 
@@ -76,7 +76,7 @@ public enum NoteSyncPayload {
         guard let box = value as? [String: Any], box.count == 1, let (tag, inner) = box.first else { return nil }
         switch tag {
         case "s": return (inner as? String).map(NoteSyncValue.string)
-        case "d": return (inner as? NSNumber).map { .date(date($0.doubleValue)) }
+        case "d": return number(inner).map { .date(date($0)) }
         case "b": return (inner as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? .bool($0.boolValue) : nil }
         case "x": return (inner as? String).flatMap { Data(base64Encoded: $0) }.map(NoteSyncValue.data)
         case "i": return (inner as? NSNumber).flatMap(exactInteger).map(NoteSyncValue.int)
@@ -91,6 +91,14 @@ public enum NoteSyncPayload {
         let value = number.doubleValue
         guard value == value.rounded(), abs(value) < 9_007_199_254_740_992 else { return nil }
         return Int(exactly: value)
+    }
+
+    /// A JSON number. JSON true and false also arrive as NSNumber; they
+    /// aren't numbers (#673).
+    private static func number(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        return number.doubleValue
     }
 
     private static func milliseconds(_ date: Date) -> Int64 {

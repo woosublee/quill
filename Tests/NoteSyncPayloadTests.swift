@@ -12,6 +12,7 @@ struct NoteSyncPayloadTests {
         try testFieldsAloneRoundTrip()
         try testRecordFromItemSurvivesTransportUnchanged()
         try testOnlyExactIntegersReadAsInt()
+        try testBooleansAreNotDates()
         print("NoteSyncPayloadTests passed")
     }
 
@@ -92,6 +93,20 @@ struct NoteSyncPayloadTests {
         let record = NoteSyncRecord(item: item)
         let received = try NoteSyncPayload.decode(NoteSyncPayload.encode(record))
         precondition(received == record, "a record reads back equal after transport")
+    }
+
+    /// #673: JSON true and false aren't times, so a damaged payload can't
+    /// delete a note or stamp a field at 1970.
+    static func testBooleansAreNotDates() throws {
+        let json = "{\"v\":1,\"id\":\"11111111-2222-3333-4444-555555555555\",\"fields\":{\"when\":{\"d\":true},\"at\":{\"d\":1800000000000}},\"clock\":{\"title\":false,\"body\":1800000000000},\"deletedAt\":true}"
+        let decoded = try NoteSyncPayload.decode(Data(json.utf8))
+        precondition(decoded.deletedAt == nil, "a boolean deletedAt is not a tombstone")
+        precondition(decoded.clock.stamps["title"] == nil, "a boolean stamp is skipped")
+        precondition(decoded.clock.stamps["body"] == Date(timeIntervalSince1970: 1_800_000_000))
+        precondition(decoded.fields["at"] == .date(Date(timeIntervalSince1970: 1_800_000_000)))
+        guard case .raw? = decoded.fields["when"] else {
+            preconditionFailure("a boolean date value stays raw")
+        }
     }
 
     static func testOnlyExactIntegersReadAsInt() throws {

@@ -526,10 +526,14 @@ final class CalendarRecordingReminderScheduler {
         "\(calendarID):\(eventID):\(startTimestamp)"
     }
 
+    /// A boolean bridges to NSNumber and to Double too, so it is checked
+    /// first; it isn't a time (#673).
     private nonisolated static func timeIntervalValue(_ value: Any?) -> TimeInterval? {
-        if let value = value as? TimeInterval { return value }
-        if let value = value as? NSNumber { return value.doubleValue }
-        return nil
+        if let number = value as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            return number.doubleValue
+        }
+        return value as? TimeInterval
     }
 
     nonisolated static func isCalendarReminderIdentifier(_ identifier: String) -> Bool {

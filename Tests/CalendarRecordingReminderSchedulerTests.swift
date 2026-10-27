@@ -5,6 +5,7 @@ import UserNotifications
 struct CalendarRecordingReminderSchedulerTests {
     static func main() async throws {
         testLeadMinutesAffectFireDate()
+        testBooleanEventStartIsNotATime()
         testMultipleLeadMinutesCreateMultipleSchedules()
         testPastReminderTimeForUpcomingMeetingBecomesImmediate()
         testRecentlyStartedMeetingBecomesImmediate()
@@ -36,6 +37,22 @@ struct CalendarRecordingReminderSchedulerTests {
         await testScheduledReminderDelaysLocalFallbackPastInAppFireDate()
         await testExternallyHandledReminderSuppressesSameEventInAppPresentation()
         print("CalendarRecordingReminderSchedulerTests passed")
+    }
+
+    /// #673: a boolean bridges to NSNumber and Double, but isn't a time.
+    static func testBooleanEventStartIsNotATime() {
+        let base: [AnyHashable: Any] = ["calendarID": "calendar-1", "eventID": "event-1"]
+        var number = base
+        number["eventStart"] = 1_800_000_000.4
+        precondition(
+            CalendarRecordingReminderScheduler.reminderGroupIdentifier(from: number) == "calendar-1:event-1:1800000000"
+        )
+        var boolean = base
+        boolean["eventStart"] = true
+        precondition(CalendarRecordingReminderScheduler.reminderGroupIdentifier(from: boolean) == nil)
+        var nsBoolean = base
+        nsBoolean["eventStart"] = NSNumber(value: false)
+        precondition(CalendarRecordingReminderScheduler.reminderGroupIdentifier(from: nsBoolean) == nil)
     }
 
     private static func testLeadMinutesAffectFireDate() {
