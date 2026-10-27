@@ -60,10 +60,13 @@ public enum CloudProviderURL {
 
     /// The unit that consent and keys belong to (scheme, host, and port). A
     /// different path is the same provider; a different scheme or port is not.
+    /// An IPv6 host keeps its brackets, so `[::1]:8080` and `[::1:8080]`
+    /// stay apart.
     public static func origin(of value: String) -> String? {
         guard let url = try? normalized(value), let scheme = url.scheme, let host = url.host else { return nil }
-        if let port = url.port { return "\(scheme)://\(host):\(port)" }
-        return "\(scheme)://\(host)"
+        let hostText = host.contains(":") ? "[\(host)]" : host
+        if let port = url.port { return "\(scheme)://\(hostText):\(port)" }
+        return "\(scheme)://\(hostText)"
     }
 
     private static func defaultPort(for scheme: String) -> Int? {
