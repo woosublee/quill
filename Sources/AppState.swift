@@ -433,6 +433,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var recordingStartedAt: Date?
         var recordingEndedAt: Date?
         var isImportedAudio: Bool
+        /// The event a meeting reminder started this recording for.
+        var calendarSnapshot: RecordingCalendarSnapshot?
     }
 
     private enum ActiveAudioInterruption {
@@ -6679,7 +6681,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextTask: Task<AppContext?, Never>?,
         recordingStartedAt: Date? = nil,
         recordingEndedAt: Date? = nil,
-        isImportedAudio: Bool = false
+        isImportedAudio: Bool = false,
+        calendarSnapshot: RecordingCalendarSnapshot? = nil
     ) {
         activeTranscriptionJobs[id] = TranscriptionJob(
             id: id,
@@ -6692,7 +6695,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             liveNoteID: nil,
             recordingStartedAt: recordingStartedAt,
             recordingEndedAt: recordingEndedAt,
-            isImportedAudio: isImportedAudio
+            isImportedAudio: isImportedAudio,
+            calendarSnapshot: calendarSnapshot
         )
         foregroundTranscriptionJobID = id
         refreshTranscribingState()
@@ -12880,7 +12884,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextTask: inFlightContextTask,
             recordingStartedAt: recordingStartedAt,
             recordingEndedAt: recordingEndedAt,
-            isImportedAudio: false
+            isImportedAudio: false,
+            calendarSnapshot: recordingCalendarSnapshot
         )
         updateTranscriptionJob(jobID) { $0.liveNoteID = liveNoteID }
         capturedContext = nil
@@ -14330,43 +14335,52 @@ final class AppState: ObservableObject, @unchecked Sendable {
         recordingEndedAt: Date,
         calendarSnapshot: RecordingCalendarSnapshot?
     ) async -> CalendarEventMatch? {
-        if let calendarSnapshot,
-           let calendarID = calendarSnapshot.calendarID,
-           let eventID = calendarSnapshot.eventID,
-           let title = calendarSnapshot.title,
-           let start = calendarSnapshot.startDate,
-           let end = calendarSnapshot.endDate {
-            let matchSource = CalendarMatchSource(
-                rawValue: calendarSnapshot.matchSource ?? ""
-            ) ?? .calendarNotification
-            let attendees = calendarSnapshot.attendeeNames.map {
-                CalendarEventAttendee(
-                    displayName: $0,
-                    email: nil,
-                    responseStatus: nil,
-                    isOptional: false,
-                    isSelf: false
-                )
-            }
-            let provider = calendarSnapshot.provider.flatMap(CalendarProvider.init(rawValue:))
-            return CalendarEventMatch(
-                accountID: provider == .apple ? Self.appleCalendarAccountID : nil,
-                calendarID: calendarID,
-                eventID: eventID,
-                title: title,
-                start: start,
-                end: end,
-                attendees: attendees,
-                matchSource: matchSource,
-                titleState: .applied,
-                provider: provider
-            )
+        if let match = Self.calendarMatch(from: calendarSnapshot) {
+            return match
         }
 
         guard let recordingStartedAt else { return nil }
         return await calendarEventMatch(
             recordingStartedAt: recordingStartedAt,
             recordingEndedAt: recordingEndedAt
+        )
+    }
+
+    /// The event a recording was started for, from a meeting reminder.
+    /// Nil when there is no snapshot or it is missing a field.
+    static func calendarMatch(from calendarSnapshot: RecordingCalendarSnapshot?) -> CalendarEventMatch? {
+        guard let calendarSnapshot,
+              let calendarID = calendarSnapshot.calendarID,
+              let eventID = calendarSnapshot.eventID,
+              let title = calendarSnapshot.title,
+              let start = calendarSnapshot.startDate,
+              let end = calendarSnapshot.endDate else {
+            return nil
+        }
+        let matchSource = CalendarMatchSource(
+            rawValue: calendarSnapshot.matchSource ?? ""
+        ) ?? .calendarNotification
+        let attendees = calendarSnapshot.attendeeNames.map {
+            CalendarEventAttendee(
+                displayName: $0,
+                email: nil,
+                responseStatus: nil,
+                isOptional: false,
+                isSelf: false
+            )
+        }
+        let provider = calendarSnapshot.provider.flatMap(CalendarProvider.init(rawValue:))
+        return CalendarEventMatch(
+            accountID: provider == .apple ? Self.appleCalendarAccountID : nil,
+            calendarID: calendarID,
+            eventID: eventID,
+            title: title,
+            start: start,
+            end: end,
+            attendees: attendees,
+            matchSource: matchSource,
+            titleState: .applied,
+            provider: provider
         )
     }
 
@@ -14528,6 +14542,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !job.isImportedAudio else {
             os_log(.info, log: calendarLog, "Calendar match skipped: imported audio job %{public}@", jobID.uuidString)
             return nil
+        }
+        // A recording started from a meeting reminder keeps that event, like
+        // a record-only or recovered one (#622).
+        if let match = Self.calendarMatch(from: job.calendarSnapshot) {
+            return match
         }
         guard let recordingStartedAt = job.recordingStartedAt,
               let recordingEndedAt = job.recordingEndedAt else {
