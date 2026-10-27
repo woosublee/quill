@@ -48,17 +48,7 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     }
 
     static func code(forSummaryOutput outputLanguage: String?) -> String? {
-        switch outputLanguage {
-        case "Korean": "ko"
-        case "English": "en"
-        case "Japanese": "ja"
-        case "Chinese": "zh"
-        case "Spanish": "es"
-        case "French": "fr"
-        case "German": "de"
-        case "Portuguese": "pt"
-        default: nil
-        }
+        MeetingSummaryPromptLanguage.code(forSetting: outputLanguage)
     }
 
     static func summaryPromptLanguage(for code: String?) -> String? {

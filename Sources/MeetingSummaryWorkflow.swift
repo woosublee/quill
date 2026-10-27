@@ -220,32 +220,19 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             )
             return .persistenceFailed
         }
-        let envelope = MeetingSummaryEnvelope(
-            schemaVersion: MeetingSummaryEnvelope.currentSchemaVersion,
-            promptVersion: result.promptVersion,
-            generatedAt: dependencies.now(),
+        let envelope = MeetingSummaryRecordBuilder.successEnvelope(
+            result: result,
             sourceFingerprint: sourceFingerprint,
-            modelID: result.modelID,
-            backendKind: result.backendKind,
             languageContext: source.languageContext,
-            evidenceVerification: result.evidenceVerification == .unverified
-                ? .unverified
-                : nil,
-            content: result.draft.materialized()
-        ).preservingCompletion(from: currentItem.meetingSummary)
-        let attempt = MeetingSummaryAttempt(
-            occurredAt: dependencies.now(),
-            outcome: .succeeded,
-            backendKind: result.backendKind,
-            modelID: result.modelID,
-            // The service reports the host it used, which for a cloud
-            // fallback of a local model isn't the configured one.
-            providerHost: result.backendKind == .cloud
-                ? result.providerHost ?? request.providerHost
-                : nil,
-            language: source.languageContext,
-            issue: nil,
-            sourceFingerprint: sourceFingerprint
+            generatedAt: dependencies.now(),
+            previous: currentItem.meetingSummary
+        )
+        let attempt = MeetingSummaryRecordBuilder.successAttempt(
+            result: result,
+            configuredProviderHost: request.providerHost,
+            languageContext: source.languageContext,
+            sourceFingerprint: sourceFingerprint,
+            occurredAt: dependencies.now()
         )
         // The same text leaves nothing to choose: it is saved directly,
         // keeping what is on screen, like a retranscription with the same
@@ -357,15 +344,11 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
                 title: match.title,
                 start: match.start,
                 end: match.end,
-                attendees: match.attendees.compactMap { attendee in
-                    let name = attendee.displayName?.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ) ?? ""
-                    if !name.isEmpty { return name }
-                    let email = attendee.email?.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ) ?? ""
-                    return email.isEmpty ? nil : email
+                attendees: match.attendees.compactMap {
+                    MeetingSummaryCalendarContext.attendeeLabel(
+                        displayName: $0.displayName,
+                        email: $0.email
+                    )
                 }
             )
         }
@@ -397,83 +380,18 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         context: MeetingSummaryLanguageContext,
         resolvedSpokenLanguage: SpokenLanguageResolution?
     ) {
-        let requested = requestedOutputLanguage.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        if let explicitCode = TranscriptionLanguage.code(
-            forSummaryOutput: requested
-        ) {
-            return (
-                MeetingSummaryLanguageContext(
-                    requestedOutputLanguage: requested,
-                    appliedLanguageCode: explicitCode,
-                    resolutionSource: .configured
-                ),
-                nil
-            )
-        }
-        let existingSpokenLanguage = item.spokenLanguage
-        let requiresTranscriptResolution =
-            existingSpokenLanguage?.source == .transcriptInferred
-                || existingSpokenLanguage?.source == .unavailable
-        let spoken = requiresTranscriptResolution
-            ? SpokenLanguageResolver.resolve(
-                requestedLanguageCode: item.transcriptionLanguageCode,
-                engineLanguageCode: nil,
+        let decision: MeetingSummaryLanguageDecision
+        do {
+            decision = try MeetingSummaryLanguageDecision.resolve(
+                requestedOutputLanguage: requestedOutputLanguage,
+                spokenLanguage: item.spokenLanguage,
+                transcriptionLanguageCode: item.transcriptionLanguageCode,
                 transcript: transcript
             )
-            : existingSpokenLanguage ?? SpokenLanguageResolver.resolve(
-                requestedLanguageCode: item.transcriptionLanguageCode,
-                engineLanguageCode: nil,
-                transcript: transcript
-            )
-        guard let code = spoken.languageCode else {
+        } catch MeetingSummaryLanguageError.unavailable {
             throw QuillUserIssueError.meetingSummaryLanguageUnavailable()
         }
-        return (
-            MeetingSummaryLanguageContext(
-                requestedOutputLanguage: "",
-                appliedLanguageCode: code,
-                resolutionSource: spoken.source
-            ),
-            requiresTranscriptResolution || existingSpokenLanguage == nil
-                ? spoken
-                : nil
-        )
-    }
-
-    static func providerHost(
-        backendKind: MeetingSummaryBackendKind,
-        configuredProviderHost: String?
-    ) -> String? {
-        backendKind == .cloud ? configuredProviderHost : nil
-    }
-
-    static func issue(
-        for error: Error,
-        providerHost: String?,
-        backendKind: MeetingSummaryBackendKind,
-        modelID: String
-    ) -> QuillUserIssueRecord {
-        if let issue = error as? QuillUserIssueError {
-            return issue.record
-        }
-        let localBackend = backendKind == .local ? "Local AI" : nil
-        if let summaryError = error as? MeetingSummaryError {
-            return summaryError.userIssue(
-                providerHost: providerHost,
-                modelID: modelID,
-                localBackend: localBackend
-            )
-        }
-        return QuillUserIssueRecord(
-            code: .meetingSummaryUnavailable,
-            context: QuillUserIssueContext(
-                providerHost: providerHost,
-                modelID: modelID,
-                localBackend: localBackend
-            )
-        )
+        return (decision.context, decision.resolvedSpokenLanguage)
     }
 
     @MainActor
@@ -507,27 +425,15 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             return .sourceChanged
         }
 
-        let effectiveModelID = (error as? MeetingSummaryError)
-            .map { $0.effectiveModelID(fallback: request.configuredModelID) }
-            ?? request.configuredModelID
-        let providerHost = Self.providerHost(
+        let attempt = MeetingSummaryRecordBuilder.failureAttempt(
+            error: error,
+            issue: (error as? QuillUserIssueError)?.record,
             backendKind: request.configuredBackendKind,
-            configuredProviderHost: request.providerHost
-        )
-        let attempt = MeetingSummaryAttempt(
-            occurredAt: dependencies.now(),
-            outcome: .failed,
-            backendKind: request.configuredBackendKind,
-            modelID: effectiveModelID,
-            providerHost: providerHost,
-            language: languageContext,
-            issue: Self.issue(
-                for: error,
-                providerHost: providerHost,
-                backendKind: request.configuredBackendKind,
-                modelID: effectiveModelID
-            ),
-            sourceFingerprint: sourceFingerprint
+            configuredModelID: request.configuredModelID,
+            configuredProviderHost: request.providerHost,
+            languageContext: languageContext,
+            sourceFingerprint: sourceFingerprint,
+            occurredAt: dependencies.now()
         )
         let updated = currentItem.withMeetingSummaryAttempt(attempt)
         do {
