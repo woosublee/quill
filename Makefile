@@ -1042,11 +1042,24 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 		exit "$$status"
 
 # Separate shard so CI compiles the two full-source runners on parallel runners.
+# UserDefaults go through the user's cfprefsd even with an isolated home, so
+# two app-state runs at once (from two worktrees) read each other's settings
+# (#676). The shard takes a lock and waits for the other run; a lock left by
+# a run that is gone is taken over.
+APP_STATE_TEST_LOCK = /tmp/quill-app-state-tests.lock
+
 _test-app-state: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_APP_STATE_RUNNER) | $(TEST_BUILD_DIR)
 	@start="$$(date +%s)"; status=0; \
+		lock_dir="$(APP_STATE_TEST_LOCK)"; \
+		until mkdir "$$lock_dir" 2>/dev/null; do \
+			holder="$$(cat "$$lock_dir/pid" 2>/dev/null)"; \
+			if [ -n "$$holder" ] && ! kill -0 "$$holder" 2>/dev/null; then rm -rf "$$lock_dir"; continue; fi; \
+			sleep 2; \
+		done; \
+		echo "$$$$" > "$$lock_dir/pid"; \
 		isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; \
-		test -n "$$isolated_home" || exit 1; \
-		trap 'rm -rf "$$isolated_home"' EXIT; \
+		test -n "$$isolated_home" || { rm -rf "$$lock_dir"; exit 1; }; \
+		trap 'rm -rf "$$isolated_home" "$$lock_dir"' EXIT; \
 		mkdir -p "$$isolated_home/tmp"; \
 		CFFIXED_USER_HOME="$$isolated_home" TMPDIR="$$isolated_home/tmp" $(FULL_SOURCE_APP_STATE_RUNNER) || status=$$?; \
 		end="$$(date +%s)"; \
