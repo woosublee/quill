@@ -207,6 +207,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testSettingsModelFirstTranscriptionUsesExistingChoiceSetter()
         try testSettingsLegacyManagementKeepsExistingModelRows()
         try testSettingsGlobalAPIKeyCanBeCleared()
+        testAPIKeyCheckReasonsMatchTheResult()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
         await testRemovingAPIKeyPreservesSelectedAPIMode()
@@ -2843,6 +2844,17 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!models.contains("TranscriptionModel.find(id: \"apple-speech\")"))
     }
 
+    // A rejected key keeps the existing copy; every other failure says why.
+    private static func testAPIKeyCheckReasonsMatchTheResult() {
+        precondition(APIKeyCheckCopy.reason(for: .valid) == nil)
+        precondition(APIKeyCheckCopy.reason(for: .rejected) == nil)
+        precondition(APIKeyCheckCopy.reason(for: .notFound)?.contains("/openai/v1") == true)
+        precondition(APIKeyCheckCopy.reason(for: .rateLimited)?.contains("Too many requests") == true)
+        precondition(APIKeyCheckCopy.reason(for: .unreachable)?.contains("Couldn't reach the provider") == true)
+        precondition(APIKeyCheckCopy.reason(for: .insecureConnection) == APIKeyCheckCopy.reason(for: .unreachable))
+        precondition(APIKeyCheckCopy.reason(for: .invalidURL)?.contains("http or https") == true)
+    }
+
     private static func testSettingsGlobalAPIKeyCanBeCleared() throws {
         let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         let providerSection = sourceBlock(
@@ -2856,7 +2868,7 @@ struct AppStateTranscriptionConfigurationTests {
             to: "\n    // MARK: System Prompt"
         )
         guard let emptyKeyRange = saveKeyBody.range(of: "if key.isEmpty"),
-              let validationRange = saveKeyBody.range(of: "TranscriptionService.validateAPIKey") else {
+              let validationRange = saveKeyBody.range(of: "TranscriptionService.checkAPIKey") else {
             preconditionFailure("Expected global API key clear branch before validation")
         }
 
