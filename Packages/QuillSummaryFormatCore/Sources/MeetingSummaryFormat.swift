@@ -115,16 +115,21 @@ public struct MeetingSummarySource: Equatable, Sendable {
         MeetingSummarySource(transcript: transcript, calendar: nil, languageContext: languageContext)
     }
 
-    public var fingerprint: String {
-
+    // ISO8601DateFormatter is safe to share across threads, and nothing
+    // changes its options after this.
+    nonisolated(unsafe) private static let fingerprintDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [
             .withInternetDateTime,
             .withFractionalSeconds
         ]
+        return formatter
+    }()
 
+    public var fingerprint: String {
         let calendarText: String
         if let calendar {
+            let formatter = Self.fingerprintDateFormatter
             calendarText = [
                 calendar.title,
                 formatter.string(from: calendar.start),
