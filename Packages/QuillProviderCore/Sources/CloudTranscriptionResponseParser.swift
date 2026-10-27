@@ -51,19 +51,44 @@ public enum CloudTranscriptionResponseParser {
         /// Trim byte order marks from both ends of a plain-text reply before
         /// its empty check, instead of one leading mark. The iPhone does.
         public var trimsEveryByteOrderMark: Bool
+        /// Read `no_speech_prob` from any JSON number, instead of only one that
+        /// converts exactly to a Double. The iPhone does.
+        public var readsAnyNumericNoSpeechProbability: Bool
+        /// Read each segment's start, end, and text. Only the iPhone uses them.
+        public var readsSegments: Bool
 
-        public init(acceptsNonFiniteNumbers: Bool = false, trimsEveryByteOrderMark: Bool = false) {
+        public init(
+            acceptsNonFiniteNumbers: Bool = false,
+            trimsEveryByteOrderMark: Bool = false,
+            readsAnyNumericNoSpeechProbability: Bool = false,
+            readsSegments: Bool = false
+        ) {
             self.acceptsNonFiniteNumbers = acceptsNonFiniteNumbers
             self.trimsEveryByteOrderMark = trimsEveryByteOrderMark
+            self.readsAnyNumericNoSpeechProbability = readsAnyNumericNoSpeechProbability
+            self.readsSegments = readsSegments
         }
 
         public static let mac = Options()
-        public static let iPhone = Options(acceptsNonFiniteNumbers: true, trimsEveryByteOrderMark: true)
+        public static let iPhone = Options(
+            acceptsNonFiniteNumbers: true,
+            trimsEveryByteOrderMark: true,
+            readsAnyNumericNoSpeechProbability: true,
+            readsSegments: true
+        )
     }
 
     public struct Result: Equatable, Sendable {
         public let response: CloudTranscriptionResponse
         public let hallucinationFilterSkip: CloudTranscriptionHallucinationFilterSkip?
+
+        public init(
+            response: CloudTranscriptionResponse,
+            hallucinationFilterSkip: CloudTranscriptionHallucinationFilterSkip?
+        ) {
+            self.response = response
+            self.hallucinationFilterSkip = hallucinationFilterSkip
+        }
     }
 
     private static let hallucinationPhrases: Set<String> = [
@@ -109,12 +134,12 @@ public enum CloudTranscriptionResponseParser {
               let text = json["text"] as? String else {
             throw CloudTranscriptionResponseParsingError.invalidResponse
         }
-        let filter = hallucinationCheck(text: text, json: json)
+        let filter = hallucinationCheck(text: text, json: json, options: options)
         return Result(
             response: CloudTranscriptionResponse(
                 text: filter.isHallucination ? "" : text,
                 language: json["language"] as? String,
-                segments: filter.isHallucination ? [] : segments(from: json)
+                segments: filter.isHallucination || !options.readsSegments ? [] : segments(from: json)
             ),
             hallucinationFilterSkip: filter.skip
         )
@@ -183,7 +208,8 @@ public enum CloudTranscriptionResponseParser {
 
     private static func hallucinationCheck(
         text: String,
-        json: [String: Any]
+        json: [String: Any],
+        options: Options
     ) -> (isHallucination: Bool, skip: CloudTranscriptionHallucinationFilterSkip?) {
         let normalized = text
             .lowercased()
@@ -194,7 +220,11 @@ public enum CloudTranscriptionResponseParser {
         guard let segments = json["segments"] as? [[String: Any]] else {
             return (false, .noSegments)
         }
-        guard let noSpeechProb = (segments.first?["no_speech_prob"] as? NSNumber)?.doubleValue else {
+        let value = segments.first?["no_speech_prob"]
+        let noSpeechProb = options.readsAnyNumericNoSpeechProbability
+            ? (value as? NSNumber)?.doubleValue
+            : value as? Double
+        guard let noSpeechProb else {
             return (false, .noNoSpeechProbability)
         }
         return (noSpeechProb >= hallucinationNoSpeechThreshold, nil)

@@ -215,6 +215,34 @@ struct TranscriptTextCoreTests {
             (try? CloudTranscriptionResponseParser.parse(noMetadata))?.hallucinationFilterSkip,
             .noSegments
         )
+        let noProbability = Data(#"{"text":"Thank you.","segments":[{"start":0,"end":1,"text":"Thank you."}]}"#.utf8)
+        let skipped = try? CloudTranscriptionResponseParser.parse(noProbability)
+        expectEqual(skipped?.hallucinationFilterSkip, .noNoSpeechProbability)
+        expectEqual(skipped?.response.text, "Thank you.")
+
+        // The Mac reads no_speech_prob only when it converts exactly to a
+        // Double; the iPhone reads any JSON number.
+        let wholeNumber = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":9007199254740993}]}"#.utf8)
+        expectEqual((try? CloudTranscriptionResponseParser.parse(wholeNumber, options: .mac))?.response.text, "Thank you.")
+        expectEqual((try? CloudTranscriptionResponseParser.parse(wholeNumber, options: .iPhone))?.response.text, "")
+
+        // Only the iPhone reads segment times.
+        let timed = Data(#"{"text":"Hello there.","segments":[{"start":0,"end":1,"text":"Hello there.","no_speech_prob":0.01}]}"#.utf8)
+        expectEqual((try? CloudTranscriptionResponseParser.parse(timed, options: .mac))?.response.segments, [])
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parse(timed, options: .iPhone))?.response.segments,
+            [.init(start: 0, end: 1, text: "Hello there.")]
+        )
+
+        // A JSON-only read rejects plain text.
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parseJSON(Data("Hello there.".utf8)))?.response.text,
+            nil
+        )
+        expectEqual(
+            (try? TranscriptionResponseParser.parseJSONTranscript(timed))?.text,
+            "Hello there."
+        )
     }
 
     private static func expectInvalidResponse(_ data: Data) {
