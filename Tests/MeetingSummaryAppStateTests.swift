@@ -40,7 +40,53 @@ struct MeetingSummaryAppStateTests {
         try await testFailedSummaryDeletePreservesStateWhenDurableWriteFails()
         try await testDeleteMeetingSummaryWithoutExistingSummaryThrows()
         try await testSuccessfulGenerationMarksPendingRevealConsumableOnce()
+        try await testSourceFingerprintIsReusedUntilTheSourceChanges()
         print("MeetingSummaryAppStateTests passed")
+    }
+
+    /// #654: the note view reads the availability fingerprint on every
+    /// refresh. It is the same as hashing the source, and it changes as soon
+    /// as the transcript or the calendar match does.
+    private static func testSourceFingerprintIsReusedUntilTheSourceChanges() async throws {
+        let fixture = try configuredAppStateFixture()
+        defer { fixture.cleanup() }
+        let item = makeItem()
+        let appState = try await configuredAppState(
+            item: item,
+            store: fixture.store,
+            generator: MeetingSummaryGeneratorStub { _ in makeGenerationResult(overview: "unused") },
+            storageLayout: fixture.storageLayout
+        )
+        await MainActor.run {
+            let direct = appState.meetingSummarySource(for: item).fingerprint
+            precondition(appState.meetingSummarySourceFingerprint(for: item) == direct)
+            precondition(appState.meetingSummarySourceFingerprint(for: item) == direct, "reused")
+
+            let edited = PipelineHistoryItem(
+                id: item.id, timestamp: item.timestamp, rawTranscript: item.rawTranscript,
+                postProcessedTranscript: "Decision: ship Monday.", postProcessingPrompt: nil,
+                contextSummary: "", contextScreenshotDataURL: nil, contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: "", debugStatus: "", customVocabulary: ""
+            )
+            let editedFingerprint = appState.meetingSummarySourceFingerprint(for: edited)
+            precondition(editedFingerprint == appState.meetingSummarySource(for: edited).fingerprint)
+            precondition(editedFingerprint != direct, "an edited transcript is hashed again")
+
+            let linked = PipelineHistoryItem(
+                id: item.id, timestamp: item.timestamp,
+                calendarMatch: CalendarEventMatch(
+                    calendarID: "calendar-1", eventID: "event-1", title: "Synthetic review",
+                    start: Date(timeIntervalSince1970: 900), end: Date(timeIntervalSince1970: 2_700),
+                    matchSource: .overlapSuggestion, titleState: .applied
+                ),
+                rawTranscript: item.rawTranscript, postProcessedTranscript: "Decision: ship Monday.",
+                postProcessingPrompt: nil, contextSummary: "", contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot", postProcessingStatus: "", debugStatus: "", customVocabulary: ""
+            )
+            let linkedFingerprint = appState.meetingSummarySourceFingerprint(for: linked)
+            precondition(linkedFingerprint == appState.meetingSummarySource(for: linked).fingerprint)
+            precondition(linkedFingerprint != editedFingerprint, "a new calendar match is hashed again")
+        }
     }
 
     private static func testAppStateInstancesUseIndependentSummaryGenerators() async throws {

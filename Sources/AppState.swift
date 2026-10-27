@@ -8666,7 +8666,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// the Summary tab shows such a summary as stale.
     @MainActor
     func isMeetingSummaryStale(_ summary: MeetingSummaryEnvelope, for item: PipelineHistoryItem) -> Bool {
-        summary.sourceFingerprint != meetingSummarySource(for: item).fingerprint
+        summary.sourceFingerprint != meetingSummarySourceFingerprint(for: item)
     }
 
     @MainActor
@@ -8674,6 +8674,35 @@ final class AppState: ObservableObject, @unchecked Sendable {
         for item: PipelineHistoryItem
     ) -> MeetingSummarySource {
         MeetingSummaryWorkflow.availabilitySource(for: item)
+    }
+
+    /// What the availability source fingerprint is computed from.
+    private struct MeetingSummarySourceKey: Equatable {
+        let rawTranscript: String
+        let postProcessedTranscript: String
+        let calendarMatch: CalendarEventMatch?
+    }
+
+    /// The note's last availability fingerprint and what it was made from.
+    /// Views read it on every refresh, so it is hashed again only when the
+    /// transcript or calendar match changed (#654).
+    private var meetingSummarySourceFingerprints: [UUID: (key: MeetingSummarySourceKey, fingerprint: String)] = [:]
+
+    /// `meetingSummarySource(for:).fingerprint`, reused while the note's
+    /// transcript and calendar match are unchanged.
+    @MainActor
+    func meetingSummarySourceFingerprint(for item: PipelineHistoryItem) -> String {
+        let key = MeetingSummarySourceKey(
+            rawTranscript: item.rawTranscript,
+            postProcessedTranscript: item.postProcessedTranscript,
+            calendarMatch: item.calendarMatch
+        )
+        if let cached = meetingSummarySourceFingerprints[item.id], cached.key == key {
+            return cached.fingerprint
+        }
+        let fingerprint = meetingSummarySource(for: item).fingerprint
+        meetingSummarySourceFingerprints[item.id] = (key, fingerprint)
+        return fingerprint
     }
 
     @MainActor
