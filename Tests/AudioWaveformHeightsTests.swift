@@ -10,6 +10,8 @@ struct AudioWaveformHeightsTests {
             try returnsNoHeightsForEmptySamples()
             try fitsBarsInsideAvailableWidth()
             try clampsNegativePreferredGap()
+            try meterLevelFollowsAFixedSequence()
+            try meterStaysQuietInSilenceAndVisibleWhenLoud()
             print("AudioWaveformHeightsTests passed")
         } catch {
             fputs("AudioWaveformHeightsTests failed: \(error)\n", stderr)
@@ -58,6 +60,37 @@ struct AudioWaveformHeightsTests {
 
         try expect(layout.gap >= 0, "negative preferred gap should be clamped to non-negative spacing")
         try expect(totalWidth <= 96.0001, "negative preferred gap layout should still fit inside available width")
+    }
+
+    // Values from the meter before it moved to QuillAudioLevelCore.
+    private static func meterLevelFollowsAFixedSequence() throws {
+        var normalizer = LiveAudioLevelNormalizer()
+        let levels = [Float(0), 0.001, 0.02, 0.2, 0.2, 0.05, 0.001, 0].map {
+            normalizer.normalizedLevel(forRMS: $0)
+        }
+        try expectEqual(
+            levels,
+            [0, 0, 0.361674, 0.648921, 0.774212, 0.764227, 0.672519, 0.591817],
+            "meter levels"
+        )
+        normalizer.reset()
+        var fresh = LiveAudioLevelNormalizer()
+        try expect(
+            normalizer.normalizedLevel(forRMS: 0.02) == fresh.normalizedLevel(forRMS: 0.02),
+            "reset restores the starting state"
+        )
+    }
+
+    private static func meterStaysQuietInSilenceAndVisibleWhenLoud() throws {
+        var silent = LiveAudioLevelNormalizer()
+        var silentLevel: Float = 1
+        for _ in 0..<50 { silentLevel = silent.normalizedLevel(forRMS: 0) }
+        try expect(silentLevel == 0, "silence stays at 0")
+
+        var loud = LiveAudioLevelNormalizer()
+        var loudLevel: Float = 0
+        for _ in 0..<50 { loudLevel = loud.normalizedLevel(forRMS: 0.3) }
+        try expect(loudLevel >= 0.12 && loudLevel <= 1, "a sustained loud signal stays visible and in range")
     }
 
     private static func expect(_ condition: Bool, _ label: String) throws {

@@ -6,6 +6,12 @@ public enum AudioWaveformHeights {
         public let barCount: Int
         public let barWidth: CGFloat
         public let gap: CGFloat
+
+        public init(barCount: Int, barWidth: CGFloat, gap: CGFloat) {
+            self.barCount = barCount
+            self.barWidth = barWidth
+            self.gap = gap
+        }
     }
 
     public static func layout(width: CGFloat, barCount: Int = 80, preferredGap: CGFloat = 2) -> Layout {

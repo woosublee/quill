@@ -1,5 +1,4 @@
 import Foundation
-import QuillAudioLevelCore
 
 /// Informational recording-overlay hints about the microphone (#214).
 ///
