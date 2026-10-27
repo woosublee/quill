@@ -687,25 +687,19 @@ Behavior:
         if fromLocal, AIProcessingFallbackPolicy.isLocalRuntimeFailure(error) {
             return true
         }
-        let reachesAnotherHost = fromLocal || toLocal
-        if AIProcessingFallbackPolicy.isNetworkFailure(error) { return reachesAnotherHost }
-        guard let error = error as? PostProcessingError else { return false }
-        switch error {
-        case .rateLimited:
-            return !fromLocal
-        case .requestFailed(let statusCode, _):
-            return (!fromLocal && statusCode == 429)
-                || AIProcessingFallbackPolicy.isServerError(statusCode: statusCode)
-        case .requestTimedOut:
-            return reachesAnotherHost
-        case .emptyOutput:
-            return fromLocal || retriesEmptyCloudOutput
-        case .invalidResponse:
-            return fromLocal
-        case .invalidInput, .contextBudgetExceeded,
-             .suspectedInstructionExecution, .outputRejected:
-            return false
+        if AIProcessingFallbackPolicy.isNetworkFailure(error) {
+            return PostProcessingFallbackPolicy.shouldFallBackAfterNetworkFailure(
+                fromLocal: fromLocal,
+                toLocal: toLocal
+            )
         }
+        guard let error = error as? PostProcessingError else { return false }
+        return PostProcessingFallbackPolicy.shouldFallBack(
+            after: error,
+            fromLocal: fromLocal,
+            toLocal: toLocal,
+            retriesEmptyCloudOutput: retriesEmptyCloudOutput
+        )
     }
 
     private static func isRateLimited(_ error: Error) -> Bool {

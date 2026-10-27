@@ -25,8 +25,9 @@ otherwise.
   post-processing prompt policy, vocabulary parsing, the instruction-execution
   detector, the post-processing output validator, the prompt data envelope,
   the local-model token budget, and transcript cleanup (its prompt, splitter,
-  and the chunk runner). Cleanup requests, fallbacks, and Edit Mode stay in
-  `Sources/PostProcessingService.swift`.
+  and the chunk runner), and which cleanup errors try the fallback model
+  (`PostProcessingFallbackPolicy`). Cleanup requests, the fallback model
+  choice, and Edit Mode stay in `Sources/PostProcessingService.swift`.
 - `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
   severity, context, the provider diagnostic code allow-list) and its
   persisted status string (`user-issue:v1:`). Its on-screen

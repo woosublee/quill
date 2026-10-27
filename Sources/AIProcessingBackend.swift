@@ -1,6 +1,7 @@
 import Foundation
 import QuillUserIssueCore
 import QuillProviderCore
+import QuillAITextCore
 
 enum AIProcessingFeature: String, CaseIterable, Hashable, Sendable {
     case postProcessing
@@ -303,7 +304,7 @@ enum AIProcessingFallbackPolicy {
     }
 
     static func isServerError(statusCode: Int) -> Bool {
-        (500...599).contains(statusCode)
+        PostProcessingFallbackPolicy.isServerError(statusCode: statusCode)
     }
 
     /// The local runtime couldn't run the request: unknown or unsupported
