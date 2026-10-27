@@ -1,13 +1,20 @@
 import Foundation
 
-enum AudioWaveformHeights {
-    struct Layout {
-        let barCount: Int
-        let barWidth: CGFloat
-        let gap: CGFloat
+/// Bar layout and heights for the recording waveform.
+public enum AudioWaveformHeights {
+    public struct Layout: Sendable {
+        public let barCount: Int
+        public let barWidth: CGFloat
+        public let gap: CGFloat
+
+        public init(barCount: Int, barWidth: CGFloat, gap: CGFloat) {
+            self.barCount = barCount
+            self.barWidth = barWidth
+            self.gap = gap
+        }
     }
 
-    static func layout(width: CGFloat, barCount: Int = 80, preferredGap: CGFloat = 2) -> Layout {
+    public static func layout(width: CGFloat, barCount: Int = 80, preferredGap: CGFloat = 2) -> Layout {
         guard width > 0, barCount > 0 else {
             return Layout(barCount: 0, barWidth: 0, gap: 0)
         }
@@ -24,7 +31,7 @@ enum AudioWaveformHeights {
         return Layout(barCount: barCount, barWidth: barWidth, gap: gap)
     }
 
-    static func heights(from samples: [Float], barCount: Int = 80) -> [Float] {
+    public static func heights(from samples: [Float], barCount: Int = 80) -> [Float] {
         guard !samples.isEmpty, barCount > 0 else { return [] }
 
         let bucketSize = max(1, samples.count / barCount)

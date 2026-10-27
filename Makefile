@@ -73,13 +73,14 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SUMMARY_FORMAT_CORE_SOURCES = $(shell find Packages/QuillSummaryFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SUMMARY_GENERATION_CORE_SOURCES = $(shell find Packages/QuillSummaryGenerationCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 PROVIDER_CORE_SOURCES = $(shell find Packages/QuillProviderCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
+AUDIO_LEVEL_CORE_SOURCES = $(shell find Packages/QuillAudioLevelCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 # Every architecture the app or a test executable can build for.
 SHARED_CORE_ARCHS = arm64 x86_64
@@ -259,6 +260,10 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) M
 $(SHARED_CORE_BUILD_DIR)/%/libQuillProviderCore.a: $(PROVIDER_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillProviderCore,$(PROVIDER_CORE_SOURCES))
+
+$(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a: $(AUDIO_LEVEL_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+	@mkdir -p "$(@D)"
+	$(call shared_core_compile,QuillAudioLevelCore,$(AUDIO_LEVEL_CORE_SOURCES))
 
 # Keep every shared library. A target that names only some of them, such as
 # one module's library, reaches the rest through pattern rules alone, and make
@@ -931,7 +936,7 @@ _test-recording: $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/AudioMixdownServiceTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) "$(CURDIR)/Sources/AudioImportConversionService.swift" "$(CURDIR)/Tests/AudioImportConversionServiceTests.swift" -o $(TEST_BUILD_DIR)/AudioImportConversionServiceTests
 	@$(TEST_BUILD_DIR)/AudioImportConversionServiceTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/AudioWaveformHeights.swift Tests/AudioWaveformHeightsTests.swift -o $(TEST_BUILD_DIR)/AudioWaveformHeightsTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Tests/AudioWaveformHeightsTests.swift -o $(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@$(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) Sources/AudioInputDevice.swift Tests/SystemAudioAppStateRoutingTests.swift -o $(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
 	@$(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests

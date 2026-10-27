@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import os.log
+import QuillAudioLevelCore
 
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 
