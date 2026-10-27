@@ -13668,6 +13668,22 @@
         }
       }
     },
+    "This http URL was blocked. Enter an https URL.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This http URL was blocked. Enter an https URL."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 http 주소는 막혔어요. https 주소를 넣어 주세요."
+          }
+        }
+      }
+    },
     "No API was found at this URL. Check the path at the end, like /openai/v1.": {
       "localizations": {
         "en": {
@@ -13700,34 +13716,34 @@
         }
       }
     },
-    "Couldn't reach the provider. Check your internet connection and try again.": {
+    "Couldn't reach the provider, or it answered with an error. Try again in a moment.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't reach the provider. Check your internet connection and try again."
+            "value": "Couldn't reach the provider, or it answered with an error. Try again in a moment."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "업체에 연결하지 못했어요. 인터넷 연결을 확인한 뒤 다시 해 주세요."
+            "value": "업체에 연결하지 못했거나 업체가 오류로 답했어요. 잠시 뒤 다시 해 주세요."
           }
         }
       }
     },
-    "Check the API URL. It must start with http or https.": {
+    "Check the API URL. Enter an http or https address without a username, password, or query.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check the API URL. It must start with http or https."
+            "value": "Check the API URL. Enter an http or https address without a username, password, or query."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "API 주소를 확인해 주세요. http나 https로 시작해야 해요."
+            "value": "API 주소를 확인해 주세요. 계정 정보나 ? 뒤 값 없이 http나 https 주소를 넣어 주세요."
           }
         }
       }

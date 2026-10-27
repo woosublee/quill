@@ -1,8 +1,7 @@
 import Foundation
 
-/// The API key check result. The Mac shows only pass or fail; the iPhone also
-/// tells a rejected key from an unreachable provider. Both use the same request
-/// and the same pass rule.
+/// The API key check result. Both apps show why a check failed. A status other
+/// than 200, 401, 403, 404, or 429 counts as `unreachable`.
 public enum CloudAPIKeyValidationResult: Equatable, Sendable {
     case valid
     case rejected

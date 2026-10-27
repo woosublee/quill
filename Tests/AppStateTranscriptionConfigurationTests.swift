@@ -2850,9 +2850,12 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(APIKeyCheckCopy.reason(for: .rejected) == nil)
         precondition(APIKeyCheckCopy.reason(for: .notFound)?.contains("/openai/v1") == true)
         precondition(APIKeyCheckCopy.reason(for: .rateLimited)?.contains("Too many requests") == true)
-        precondition(APIKeyCheckCopy.reason(for: .unreachable)?.contains("Couldn't reach the provider") == true)
-        precondition(APIKeyCheckCopy.reason(for: .insecureConnection) == APIKeyCheckCopy.reason(for: .unreachable))
-        precondition(APIKeyCheckCopy.reason(for: .invalidURL)?.contains("http or https") == true)
+        precondition(APIKeyCheckCopy.reason(for: .unreachable)?.contains("answered with an error") == true)
+        precondition(APIKeyCheckCopy.reason(for: .insecureConnection)?.contains("https URL") == true)
+        precondition(APIKeyCheckCopy.reason(for: .invalidURL)?.contains("without a username") == true)
+        let reasons = [.notFound, .rateLimited, .unreachable, .insecureConnection, .invalidURL]
+            .compactMap { APIKeyCheckCopy.reason(for: $0 as CloudAPIKeyValidationResult) }
+        precondition(Set(reasons).count == 5, "each failure has its own message")
     }
 
     private static func testSettingsGlobalAPIKeyCanBeCleared() throws {
