@@ -56,7 +56,7 @@ struct CloudTranscriptionExecutionSnapshot: Sendable {
         self.language = resolvedLanguage
         self.responseFormat = normalizedResponseFormat?.isEmpty == false
             ? normalizedResponseFormat!
-            : Self.responseFormat(forModel: normalizedModel)
+            : CloudTranscriptionUpload.responseFormat(forModel: normalizedModel)
         self.encodedUploadCeilingBytes = encodedUploadCeilingBytes
     }
 
@@ -78,17 +78,6 @@ struct CloudTranscriptionExecutionSnapshot: Sendable {
         SHA256.hash(data: Data(baseURL.absoluteString.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
-    }
-
-    private static func responseFormat(forModel model: String) -> String {
-        let verboseJSONModels: Set<String> = [
-            "whisper-1",
-            "whisper-large-v3",
-            "whisper-large-v3-turbo"
-        ]
-        return verboseJSONModels.contains(model.lowercased())
-            ? "verbose_json"
-            : "json"
     }
 }
 

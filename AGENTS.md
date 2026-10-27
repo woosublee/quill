@@ -44,7 +44,8 @@ otherwise.
   cloud and local model lists and capabilities, rate-limit cooldowns, the
   temperature capability cache, the request transport, provider URL checks,
   the API key check, the cloud transcription failure categories and retry
-  policy, and the cloud transcription reply parser. Cooldowns, the
+  policy, the cloud transcription request and reply parser. Each app still
+  sends the request with its own transport and logging. Cooldowns, the
   temperature cache, and the Groq model migration read and write
   `UserDefaults`. API keys and the rest of the settings stay in the app.
 - The Makefile builds each shared module as its own Swift 6 module before the

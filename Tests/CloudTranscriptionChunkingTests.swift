@@ -1,11 +1,13 @@
 import CryptoKit
 import Foundation
+import QuillProviderCore
 
 @main
 struct CloudTranscriptionChunkingTests {
     static func main() {
         do {
             try multipartSizeMatchesEncodedBodyWithLanguage()
+            try uploadRequestAndBodyStayFixed()
             try multipartSizeMatchesEncodedBodyWithoutLanguage()
             try multipartSizeUsesExactFileMetadata()
             try sourceIdentityHashesCanonicalWAVIncrementally()
@@ -36,6 +38,64 @@ struct CloudTranscriptionChunkingTests {
         }
     }
 
+    // The cloud transcription request both apps send, byte for byte.
+    private static func uploadRequestAndBodyStayFixed() throws {
+        let request = CloudTranscriptionUpload.request(
+            baseURL: URL(string: "https://provider.invalid/openai/v1")!,
+            key: "synthetic-key",
+            timeout: 45,
+            boundary: "BOUNDARY"
+        )
+        try expectEqual(request.url?.absoluteString, "https://provider.invalid/openai/v1/audio/transcriptions", "upload URL")
+        try expectEqual(request.httpMethod, "POST", "upload method")
+        try expectEqual(request.timeoutInterval, 45, "upload timeout")
+        try expectEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-key", "upload key")
+        try expectEqual(
+            request.value(forHTTPHeaderField: "Content-Type"),
+            "multipart/form-data; boundary=BOUNDARY",
+            "upload content type"
+        )
+
+        let body = CloudTranscriptionUpload.multipartBody(
+            audioData: Data("AUDIO".utf8),
+            fileName: "meeting.wav",
+            model: "whisper-large-v3",
+            responseFormat: CloudTranscriptionUpload.responseFormat(forModel: " Whisper-Large-V3 "),
+            language: "ko",
+            boundary: "BOUNDARY"
+        )
+        let expected = "--BOUNDARY\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-large-v3\r\n"
+            + "--BOUNDARY\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\nverbose_json\r\n"
+            + "--BOUNDARY\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nko\r\n"
+            + "--BOUNDARY\r\nContent-Disposition: form-data; name=\"file\"; filename=\"meeting.wav\"\r\n"
+            + "Content-Type: audio/wav\r\n\r\nAUDIO\r\n--BOUNDARY--\r\n"
+        try expectEqual(String(decoding: body, as: UTF8.self), expected, "multipart body")
+        try expectEqual(CloudTranscriptionUpload.responseFormat(forModel: "gpt-4o-transcribe"), "json", "json format")
+        try expectEqual(CloudTranscriptionUpload.contentType(forFileName: "a.MP3"), "audio/mpeg", "mp3 type")
+        try expectEqual(CloudTranscriptionUpload.contentType(forFileName: "a.m4a"), "audio/mp4", "m4a type")
+
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: ["Retry-After": "12"]
+        )!
+        let failure = CloudTranscriptionUpload.httpFailure(
+            data: Data(#"{"error":{"code":"rate_limit_exceeded","type":"tokens","message":"synthetic user text"}}"#.utf8),
+            response: response
+        )
+        try expectEqual(
+            failure,
+            CloudTranscriptionHTTPFailure(
+                statusCode: 429,
+                retryAfterSeconds: 12,
+                providerCode: "rate_limit_exceeded",
+                providerType: "tokens"
+            ),
+            "failure keeps the code and type, not the message"
+        )
+    }
+
     private static func multipartSizeMatchesEncodedBodyWithLanguage() throws {
         let layout = CloudTranscriptionMultipartLayout(
             model: "whisper-large-v3",
@@ -44,10 +104,9 @@ struct CloudTranscriptionChunkingTests {
             boundaryByteCount: 36
         )
         let boundary = String(repeating: "b", count: 36)
-        let body = makeMultipartBody(
+        let body = CloudTranscriptionUpload.multipartBody(
             audioData: Data(repeating: 7, count: 1_337),
             fileName: "meeting.wav",
-            contentType: "audio/wav",
             model: layout.model,
             responseFormat: layout.responseFormat,
             language: layout.language,
@@ -72,10 +131,9 @@ struct CloudTranscriptionChunkingTests {
             boundaryByteCount: 36
         )
         let boundary = String(repeating: "x", count: 36)
-        let body = makeMultipartBody(
+        let body = CloudTranscriptionUpload.multipartBody(
             audioData: Data(repeating: 1, count: 64),
             fileName: "voice.mp3",
-            contentType: "audio/mpeg",
             model: layout.model,
             responseFormat: layout.responseFormat,
             language: layout.language,
@@ -773,38 +831,6 @@ struct CloudTranscriptionChunkingTests {
             readBufferByteCount: 257
         )
         return (url, layout, identity)
-    }
-
-    private static func makeMultipartBody(
-        audioData: Data,
-        fileName: String,
-        contentType: String,
-        model: String,
-        responseFormat: String,
-        language: String?,
-        boundary: String
-    ) -> Data {
-        var body = Data()
-        func append(_ value: String) { body.append(Data(value.utf8)) }
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        append("\(model)\r\n")
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
-        append("\(responseFormat)\r\n")
-        if let language, !language.isEmpty {
-            append("--\(boundary)\r\n")
-            append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-            append("\(language)\r\n")
-        }
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
-        append("Content-Type: \(contentType)\r\n\r\n")
-        body.append(audioData)
-        append("\r\n")
-        append("--\(boundary)--\r\n")
-        return body
     }
 
     private static func writeCanonicalWAV(payload: Data) throws -> URL {
