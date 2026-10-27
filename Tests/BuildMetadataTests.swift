@@ -103,10 +103,10 @@ struct BuildMetadataTests {
     private static func testAppStateRunnerRequiresIsolatedHome() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "test -n \"$$isolated_home\" || { rm -rf \"$$lock_dir\"; exit 1; }")
-        // Concurrent app-state runs wait for each other (#676).
-        assertContains(makefile, "until mkdir \"$$lock_dir\" 2>/dev/null; do")
-        assertContains(makefile, "trap 'rm -rf \"$$isolated_home\" \"$$lock_dir\"' EXIT")
+        assertContains(makefile, "test -n \"$$isolated_home\" || exit 1")
+        // Concurrent runs from two worktrees take turns on the runners (#676).
+        assertContains(makefile, "lockf -k \"$(FULL_SOURCE_TEST_LOCK)\" $(FULL_SOURCE_APP_STATE_RUNNER)")
+        assertContains(makefile, "lockf -k \"$(FULL_SOURCE_TEST_LOCK)\" $(FULL_SOURCE_TRANSCRIPTION_RUNNER)")
     }
 
     private static func testMakefileSeparatesDevRunFromInstallBuild() throws {
