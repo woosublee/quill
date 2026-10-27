@@ -196,12 +196,22 @@ public enum CloudTranscriptionResponseParser {
     private static func segments(from json: [String: Any]) -> [CloudTranscriptionResponse.Segment] {
         guard let raw = json["segments"] as? [[String: Any]] else { return [] }
         return raw.compactMap { item in
-            guard let start = (item["start"] as? NSNumber)?.doubleValue,
-                  let end = (item["end"] as? NSNumber)?.doubleValue,
+            guard let start = jsonNumber(item["start"]),
+                  let end = jsonNumber(item["end"]),
                   let text = item["text"] as? String,
                   start.isFinite, end.isFinite, end >= start else { return nil }
             return CloudTranscriptionResponse.Segment(start: start, end: end, text: text)
         }
+    }
+
+    /// A JSON number. JSON true and false also arrive as NSNumber; they
+    /// aren't numbers.
+    private static func jsonNumber(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        return number.doubleValue
     }
 
     private static func firstSignificantByte(in data: Data) -> UInt8? {
@@ -242,13 +252,8 @@ public enum CloudTranscriptionResponseParser {
         guard let segments = json["segments"] as? [[String: Any]] else {
             return (false, .noSegments)
         }
-        // JSON true and false also arrive as NSNumber; they aren't probabilities.
-        guard let number = segments.first?["no_speech_prob"] as? NSNumber,
-              CFGetTypeID(number) != CFBooleanGetTypeID() else {
-            return (false, .noNoSpeechProbability)
-        }
-        let noSpeechProb = number.doubleValue
-        guard noSpeechProb.isFinite else {
+        guard let noSpeechProb = jsonNumber(segments.first?["no_speech_prob"]),
+              noSpeechProb.isFinite else {
             return (false, .noNoSpeechProbability)
         }
         return (noSpeechProb >= hallucinationNoSpeechThreshold, nil)

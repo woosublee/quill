@@ -260,6 +260,13 @@ struct TranscriptTextCoreTests {
             [.init(start: 0, end: 1, text: "Hello there.")]
         )
 
+        // A segment whose start or end is a boolean is skipped (#669).
+        let booleanTimes = Data(#"{"text":"a b","segments":[{"start":true,"end":true,"text":"a"},{"start":0,"end":false,"text":"b"},{"start":1,"end":2,"text":"c"}]}"#.utf8)
+        expectEqual(
+            (try? CloudTranscriptionResponseParser.parse(booleanTimes, options: .iPhone))?.response.segments,
+            [.init(start: 1, end: 2, text: "c")]
+        )
+
         // A JSON-only read rejects plain text.
         expectEqual(
             (try? CloudTranscriptionResponseParser.parseJSON(Data("Hello there.".utf8)))?.response.text,
