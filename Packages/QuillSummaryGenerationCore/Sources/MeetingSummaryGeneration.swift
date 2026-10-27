@@ -555,6 +555,10 @@ public struct MeetingSummaryGenerator: Sendable {
         var records = initialRecords
         // A merge leaves the full response room, unless that leaves no
         // batch to merge; then it tries with the extraction room (#610).
+        // When the extraction room isn't smaller, that pass checks the same
+        // budgets again and ends the same way, so it is skipped (#643).
+        let compactLeavesMoreRoom = tokenBudgeter.summaryCompletionTokens
+            < tokenBudgeter.summaryMergeCompletionTokens
         var compact = false
         while records.count > 1 {
             let finalRole: LocalAITokenBudgetRole = compact
@@ -600,12 +604,12 @@ public struct MeetingSummaryGenerator: Sendable {
                     promptLanguage: promptLanguage,
                     role: batchRole
                 )
-            } catch MeetingSummaryError.invalidResponse(.mergeBudget, _) where !compact {
+            } catch MeetingSummaryError.invalidResponse(.mergeBudget, _) where !compact && compactLeavesMoreRoom {
                 compact = true
                 continue
             }
             guard batches.contains(where: { $0.count > 1 }) else {
-                if !compact {
+                if !compact && compactLeavesMoreRoom {
                     compact = true
                     continue
                 }

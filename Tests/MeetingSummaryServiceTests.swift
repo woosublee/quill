@@ -25,6 +25,7 @@ struct MeetingSummaryServiceTests {
         try testOwnerAndDueDateMayBeNull()
         try testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked()
         try await testExactChunkSizingKeepsTheFractionalByteRatio()
+        try await testCompactMergeIsSkippedWithTheSameRoom()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
         try await testFallbackTerminalFailureReportsPrimaryModel()
@@ -709,6 +710,44 @@ struct MeetingSummaryServiceTests {
             decoded.overview.sourceQuotes == ["Release review."],
             "one level of overview quotes is unwrapped"
         )
+    }
+
+    /// #643: when the extraction room isn't smaller than the merge room (the
+    /// iPhone passes the same value for both), the compact merge pass can't
+    /// fit anything new, so it isn't tried. The error is the same, with half
+    /// the merge prompts counted.
+    private static func testCompactMergeIsSkippedWithTheSameRoom() async throws {
+        func run(extractionRoom: Int) async throws -> (error: MeetingSummaryError?, mergeCounts: Int) {
+            let counter = MeetingSummaryMergeCountingTokenCounter()
+            let budgeter = LocalAITokenBudgeter(
+                contextWindow: 8_192,
+                tokenCounter: counter,
+                summaryCompletionTokens: extractionRoom,
+                summaryMergeCompletionTokens: 2_048
+            )
+            var thrown: MeetingSummaryError?
+            do {
+                _ = try await MeetingSummaryGenerator(
+                    requester: MeetingSummaryCountingRequester(),
+                    tokenBudgeter: budgeter,
+                    chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16),
+                    chunkSizing: .exactBytesPerToken
+                ).generate(source: MeetingSummarySource(
+                    transcript: "First line here.\n\nSecond line here.\n\nThird line here.",
+                    calendar: nil,
+                    languageContext: summaryLanguage
+                ))
+            } catch let error as MeetingSummaryError {
+                thrown = error
+            }
+            return (thrown, counter.mergeCounts())
+        }
+        let sameRoom = try await run(extractionRoom: 2_048)
+        let smallerRoom = try await run(extractionRoom: 1_024)
+        try expect(sameRoom.error == .invalidResponse(.mergeBudget), "the same room still ends with mergeBudget")
+        try expect(smallerRoom.error == .invalidResponse(.mergeBudget), "a smaller room tries the compact pass, then ends the same way")
+        try expect(sameRoom.mergeCounts > 0, "merge prompts are counted")
+        try expect(sameRoom.mergeCounts < smallerRoom.mergeCounts, "the same room skips the compact pass")
     }
 
     /// The 266-byte transcript counts as 140 tokens, about 1.9 bytes a
@@ -1914,6 +1953,21 @@ private extension Array {
 
 /// Counts a rendered prompt as 1,000 tokens and other text at about 1.9
 /// bytes a token.
+/// Counts every prompt as small except merge prompts, which never fit, and
+/// counts how many merge prompts were measured.
+private final class MeetingSummaryMergeCountingTokenCounter: LocalAITokenCounting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var merges = 0
+
+    func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
+        guard prompt.contains("validatedPartials") else { return 100 }
+        lock.withLock { merges += 1 }
+        return 100_000
+    }
+
+    func mergeCounts() -> Int { lock.withLock { merges } }
+}
+
 private struct MeetingSummaryRatioTokenCounter: LocalAITokenCounting {
     func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
         prompt.hasPrefix("[System]") ? 1_000 : prompt.utf8.count * 10 / 19
