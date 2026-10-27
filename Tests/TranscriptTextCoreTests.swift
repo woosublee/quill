@@ -13,7 +13,8 @@ struct TranscriptTextCoreTests {
         testInvalidTranscriptResponses()
         testHighConfidenceHallucinationsAreSuppressed()
         testPossibleRealSpeechIsPreserved()
-        testSharedParserKeepsEachAppsOptions()
+        testNonFiniteNumbersAreReadOutsideStrings()
+        testSharedParserOptionsAndSkips()
         testPostProcessedTranscriptSanitization()
         testModeSpecificSanitization()
         print("TranscriptTextCoreTests passed")
@@ -186,23 +187,41 @@ struct TranscriptTextCoreTests {
         return data
     }
 
-    // The two apps still differ here (#651): the iPhone accepts non-finite
-    // numbers and trims byte order marks from both ends; the Mac does neither.
-    private static func testSharedParserKeepsEachAppsOptions() {
-        let nonFinite = Data(#"{"text":"We ship on Friday.","segments":[{"start":0,"end":1.5,"text":"We ship on Friday.","compression_ratio":Infinity,"no_speech_prob":0.01}]}"#.utf8)
-        expectInvalidResponse(nonFinite)
-        let iPhone = try? CloudTranscriptionResponseParser.parse(nonFinite, options: .iPhone)
-        expectEqual(iPhone?.response.text, "We ship on Friday.")
-        expectEqual(iPhone?.response.segments, [.init(start: 0, end: 1.5, text: "We ship on Friday.")])
-
-        // Punctuation followed by a byte order mark: the Mac keeps the mark as
-        // content, the iPhone trims it and finds nothing left.
-        let markOnly = Data(".\u{FEFF}".utf8)
+    // One behavior for both apps (#651). A bare Infinity or NaN in a number
+    // position reads as null; the same words inside strings are kept; invalid
+    // UTF-8 is still rejected.
+    private static func testNonFiniteNumbersAreReadOutsideStrings() {
+        let nonFinite = Data(#"{"text":"The result was: NaN, again","segments":[{"start":0,"end":1.5,"text":"Infinity, NaN]","compression_ratio":Infinity,"avg_logprob":-Infinity,"temperature":NaN,"no_speech_prob":0.01}]}"#.utf8)
+        for options in [CloudTranscriptionResponseParser.Options.mac, .iPhone] {
+            let parsed = try? CloudTranscriptionResponseParser.parse(nonFinite, options: options)
+            expectEqual(parsed?.response.text, "The result was: NaN, again")
+        }
         expectEqual(
-            (try? CloudTranscriptionResponseParser.parse(markOnly, options: .mac))?.response.text,
-            ".\u{FEFF}"
+            (try? CloudTranscriptionResponseParser.parse(nonFinite, options: .iPhone))?.response.segments,
+            [.init(start: 0, end: 1.5, text: "Infinity, NaN]")]
         )
-        expectEqual((try? CloudTranscriptionResponseParser.parse(markOnly, options: .iPhone))?.response.text, nil)
+        expectEqual((try? TranscriptionResponseParser.parse(nonFinite))?.text, "The result was: NaN, again")
+        expectEqual((try? TranscriptionResponseParser.parseJSONTranscript(nonFinite))?.text, "The result was: NaN, again")
+
+        let escapedQuote = Data(#"{"text":"She said \"NaN\", Infinity","language":"en","extra":NaN}"#.utf8)
+        expectEqual((try? TranscriptionResponseParser.parse(escapedQuote))?.text, #"She said "NaN", Infinity"#)
+
+        // Only whole words are replaced, so a longer bare word stays invalid.
+        expectInvalidResponse(Data(#"{"text":"NaN","value":NaNa}"#.utf8))
+
+        var invalidUTF8 = Data(#"{"text":"We ship"#.utf8)
+        invalidUTF8.append(0xFF)
+        invalidUTF8.append(contentsOf: Array(#"","ratio":Infinity}"#.utf8))
+        expectInvalidResponse(invalidUTF8)
+
+        expectInvalidResponse(Data(#"{"text":"We ship","ratio":Infinity"#.utf8))
+    }
+
+    private static func testSharedParserOptionsAndSkips() {
+        // A plain-text reply that is only punctuation and byte order marks
+        // has no content.
+        expectInvalidResponse(Data(".\u{FEFF}".utf8))
+        expectEqual((try? TranscriptionResponseParser.parse(Data("Hi\u{FEFF}".utf8)))?.text, "Hi\u{FEFF}")
 
         let silence = Data(#"{"text":"Thank you.","segments":[{"start":0,"end":1,"text":"Thank you.","no_speech_prob":0.6}]}"#.utf8)
         for options in [CloudTranscriptionResponseParser.Options.mac, .iPhone] {
@@ -220,11 +239,9 @@ struct TranscriptTextCoreTests {
         expectEqual(skipped?.hallucinationFilterSkip, .noNoSpeechProbability)
         expectEqual(skipped?.response.text, "Thank you.")
 
-        // The Mac reads no_speech_prob only when it converts exactly to a
-        // Double; the iPhone reads any JSON number.
+        // Any JSON number counts as a no-speech probability.
         let wholeNumber = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":9007199254740993}]}"#.utf8)
-        expectEqual((try? CloudTranscriptionResponseParser.parse(wholeNumber, options: .mac))?.response.text, "Thank you.")
-        expectEqual((try? CloudTranscriptionResponseParser.parse(wholeNumber, options: .iPhone))?.response.text, "")
+        expectEqual((try? TranscriptionResponseParser.parse(wholeNumber))?.text, "")
 
         // Only the iPhone reads segment times.
         let timed = Data(#"{"text":"Hello there.","segments":[{"start":0,"end":1,"text":"Hello there.","no_speech_prob":0.01}]}"#.utf8)
@@ -239,10 +256,7 @@ struct TranscriptTextCoreTests {
             (try? CloudTranscriptionResponseParser.parseJSON(Data("Hello there.".utf8)))?.response.text,
             nil
         )
-        expectEqual(
-            (try? TranscriptionResponseParser.parseJSONTranscript(timed))?.text,
-            "Hello there."
-        )
+        expectEqual((try? TranscriptionResponseParser.parseJSONTranscript(timed))?.text, "Hello there.")
     }
 
     private static func expectInvalidResponse(_ data: Data) {

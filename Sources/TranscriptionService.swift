@@ -769,8 +769,7 @@ class TranscriptionService {
             }
 
             let rawJSONString = outputFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-            let sanitizedJSONString = rawJSONString.map(Self.sanitizeNonFiniteJSONNumbers)
-            let parsedJSONData = sanitizedJSONString?.data(using: .utf8)
+            let parsedJSONData = rawJSONString?.data(using: .utf8)
             let parsedResponse = parsedJSONData.flatMap {
                 try? TranscriptionResponseParser.parseJSONTranscript($0)
             }
@@ -1135,14 +1134,6 @@ class TranscriptionService {
         append("--\(boundary)--\r\n")
 
         return body
-    }
-
-    private static func sanitizeNonFiniteJSONNumbers(_ json: String) -> String {
-        json.replacingOccurrences(
-            of: #"(:\s*|,\s*|\[\s*)(-?Infinity|NaN)\b(?=\s*[,}\]])"#,
-            with: "$1null",
-            options: .regularExpression
-        )
     }
 
     private static func transcriptionTimeoutErrorIfNeeded(
