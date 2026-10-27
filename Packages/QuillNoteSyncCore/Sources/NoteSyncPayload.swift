@@ -26,13 +26,17 @@ public enum NoteSyncPayload {
         }
         var stamps: [String: Date] = [:]
         for (group, value) in object["clock"] as? [String: Any] ?? [:] {
-            if let ms = (value as? NSNumber)?.doubleValue { stamps[group] = date(ms) }
+            // A boolean where a time belongs means the payload is damaged; a
+            // record that dropped it could undo a deletion when merged (#673).
+            guard !isBoolean(value) else { throw NoteSyncPayloadError.malformed }
+            if let ms = number(value) { stamps[group] = date(ms) }
         }
+        guard !isBoolean(object["deletedAt"]) else { throw NoteSyncPayloadError.malformed }
         return NoteSyncRecord(
             noteID: noteID,
             fields: try fields(from: fieldsObject),
             clock: NoteFieldClock(stamps: stamps),
-            deletedAt: (object["deletedAt"] as? NSNumber).map { date($0.doubleValue) }
+            deletedAt: number(object["deletedAt"]).map(date)
         )
     }
 
@@ -76,21 +80,31 @@ public enum NoteSyncPayload {
         guard let box = value as? [String: Any], box.count == 1, let (tag, inner) = box.first else { return nil }
         switch tag {
         case "s": return (inner as? String).map(NoteSyncValue.string)
-        case "d": return (inner as? NSNumber).map { .date(date($0.doubleValue)) }
-        case "b": return (inner as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? .bool($0.boolValue) : nil }
+        case "d": return number(inner).map { .date(date($0)) }
+        case "b": return (inner as? NSNumber).flatMap { isBoolean($0) ? .bool($0.boolValue) : nil }
         case "x": return (inner as? String).flatMap { Data(base64Encoded: $0) }.map(NoteSyncValue.data)
-        case "i": return (inner as? NSNumber).flatMap(exactInteger).map(NoteSyncValue.int)
+        case "i": return number(inner).flatMap(exactInteger).map(NoteSyncValue.int)
         default: return nil
         }
     }
 
     /// Only a whole number that fits an `Int` reads as one; anything else is
     /// kept as raw JSON rather than changed.
-    private static func exactInteger(_ number: NSNumber) -> Int? {
-        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-        let value = number.doubleValue
+    private static func exactInteger(_ value: Double) -> Int? {
         guard value == value.rounded(), abs(value) < 9_007_199_254_740_992 else { return nil }
         return Int(exactly: value)
+    }
+
+    /// A JSON number. JSON true and false also arrive as NSNumber; they
+    /// aren't numbers (#673).
+    private static func number(_ value: Any?) -> Double? {
+        guard let number = value as? NSNumber, !isBoolean(number) else { return nil }
+        return number.doubleValue
+    }
+
+    private static func isBoolean(_ value: Any?) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
     private static func milliseconds(_ date: Date) -> Int64 {

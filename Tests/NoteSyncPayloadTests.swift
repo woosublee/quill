@@ -12,6 +12,7 @@ struct NoteSyncPayloadTests {
         try testFieldsAloneRoundTrip()
         try testRecordFromItemSurvivesTransportUnchanged()
         try testOnlyExactIntegersReadAsInt()
+        try testBooleansAreNotDates()
         print("NoteSyncPayloadTests passed")
     }
 
@@ -92,6 +93,39 @@ struct NoteSyncPayloadTests {
         let record = NoteSyncRecord(item: item)
         let received = try NoteSyncPayload.decode(NoteSyncPayload.encode(record))
         precondition(received == record, "a record reads back equal after transport")
+    }
+
+    /// #673: JSON true and false aren't times, so a damaged payload can't
+    /// delete a note or stamp a field at 1970.
+    static func testBooleansAreNotDates() throws {
+        func payload(clock: String, deletedAt: String? = nil, fields: String = "{}") -> Data {
+            let deletion = deletedAt.map { ",\"deletedAt\":\($0)" } ?? ""
+            return Data("{\"v\":1,\"id\":\"11111111-2222-3333-4444-555555555555\",\"fields\":\(fields),\"clock\":\(clock)\(deletion)}".utf8)
+        }
+        // A boolean tombstone or stamp means the record is damaged; it is
+        // rejected rather than merged without it, which could undo a deletion.
+        for damaged in [
+            payload(clock: "{}", deletedAt: "true"),
+            payload(clock: "{}", deletedAt: "false"),
+            payload(clock: "{\"deletion\":1800000000000,\"title\":false}"),
+        ] {
+            do {
+                _ = try NoteSyncPayload.decode(damaged)
+                preconditionFailure("a boolean time is malformed")
+            } catch NoteSyncPayloadError.malformed {
+            }
+        }
+        let decoded = try NoteSyncPayload.decode(payload(
+            clock: "{\"body\":1800000000000}",
+            deletedAt: "1800000000000",
+            fields: "{\"when\":{\"d\":true},\"at\":{\"d\":1800000000000},\"n\":{\"i\":true}}"
+        ))
+        precondition(decoded.deletedAt == Date(timeIntervalSince1970: 1_800_000_000))
+        precondition(decoded.clock.stamps["body"] == Date(timeIntervalSince1970: 1_800_000_000))
+        precondition(decoded.fields["at"] == .date(Date(timeIntervalSince1970: 1_800_000_000)))
+        guard case .raw? = decoded.fields["when"], case .raw? = decoded.fields["n"] else {
+            preconditionFailure("a boolean date or integer value stays raw")
+        }
     }
 
     static func testOnlyExactIntegersReadAsInt() throws {
