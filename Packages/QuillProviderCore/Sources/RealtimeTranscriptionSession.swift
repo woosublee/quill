@@ -45,11 +45,13 @@ public enum RealtimeTranscriptionSession {
         return components.url
     }
 
-    /// The WebSocket request, with a Bearer header when there is a key.
+    /// The WebSocket request, with a Bearer header when there is a key. The
+    /// key is trimmed first.
     public static func connectionRequest(url: URL, key: String) -> URLRequest {
         var request = URLRequest(url: url)
-        if !key.isEmpty {
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty {
+            request.setValue("Bearer \(trimmedKey)", forHTTPHeaderField: "Authorization")
         }
         return request
     }

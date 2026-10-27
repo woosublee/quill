@@ -13,6 +13,7 @@ struct TranscriptionServiceCloudChunkingTests {
             try realtimeMissingAPIKeyStopsBeforeWebSocketCreation()
             try realtimeWebSocketURLStaysFixed()
             try realtimeSessionUpdateStaysFixed()
+            try realtimeConnectionRequestCarriesTheKey()
             try await realtimeCommitRaceTimesOutWithoutHanging()
             try await realtimeCommitRaceReturnsResultBeforeTimeout()
             try await smallWAVUsesExistingSingleRequestPath()
@@ -110,7 +111,7 @@ struct TranscriptionServiceCloudChunkingTests {
         ]
         for (input, expected) in cases {
             try expectEqual(
-                realtimeWebSocketURL(input)?.absoluteString,
+                RealtimeTranscriptionSession.webSocketURL(baseURL: input)?.absoluteString,
                 expected,
                 "realtime URL for \(input)"
             )
@@ -131,21 +132,20 @@ struct TranscriptionServiceCloudChunkingTests {
             #"{"session":{"audio":{"input":{"format":{"rate":24000,"type":"audio\/pcm"},"transcription":{},"turn_detection":null}},"type":"transcription"},"type":"session.update"}"#,
             "session.update leaves out an empty model and language"
         )
+    }
+
+    private static func realtimeConnectionRequestCarriesTheKey() throws {
         let request = RealtimeTranscriptionSession.connectionRequest(
             url: URL(string: "wss://provider.invalid/v1/realtime")!,
-            key: "synthetic-key"
+            key: " synthetic-key\n"
         )
         try expectEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-key", "realtime key header")
         try expectEqual(
-            RealtimeTranscriptionSession.connectionRequest(url: URL(string: "wss://provider.invalid")!, key: "")
+            RealtimeTranscriptionSession.connectionRequest(url: URL(string: "wss://provider.invalid")!, key: " ")
                 .value(forHTTPHeaderField: "Authorization"),
             nil,
             "no header without a key"
         )
-    }
-
-    private static func realtimeWebSocketURL(_ baseURL: String) -> URL? {
-        RealtimeTranscriptionSession.webSocketURL(baseURL: baseURL)
     }
 
     private static func realtimeMissingAPIKeyStopsBeforeWebSocketCreation() throws {

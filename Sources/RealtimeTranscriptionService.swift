@@ -332,15 +332,6 @@ final class RealtimeTranscriptionService {
         )
     }
 
-
-    // MARK: URL derivation
-
-    /// Turn a provider base URL or common OpenAI-style endpoint URL into a
-    /// realtime WebSocket URL. Accepts inputs like:
-    /// - `https://host`
-    /// - `https://host/v1`
-    /// - `https://host/v1/chat/completions`
-    /// - `https://host/v1/audio/transcriptions`
     private func resumeIfReadyAfterCommit() {
         var pendingResume: (CheckedContinuation<String, Error>, String)?
         stateQueue.sync {
