@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 /// Combines events from several calendar sources. The same meeting often
 /// arrives twice when a Google account is both connected directly and added

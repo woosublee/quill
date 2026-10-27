@@ -15,6 +15,7 @@ import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillProviderCore
+import QuillNoteCore
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
 

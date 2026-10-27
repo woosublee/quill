@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 /// Calendar access as Quill uses it. Write-only and restricted access count
 /// as denied because Quill needs to read events.

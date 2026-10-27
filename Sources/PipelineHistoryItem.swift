@@ -3,6 +3,7 @@ import QuillNoteSyncCore
 import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
+import QuillNoteCore
 
 enum PipelineHistoryItemIntent: String, Codable, CaseIterable {
     case dictation

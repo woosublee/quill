@@ -15,7 +15,8 @@ let package = Package(
         .library(name: "QuillSummaryGenerationCore", targets: ["QuillSummaryGenerationCore"]),
         .library(name: "QuillProviderCore", targets: ["QuillProviderCore"]),
         .library(name: "QuillAudioLevelCore", targets: ["QuillAudioLevelCore"]),
-        .library(name: "QuillAudioFormatCore", targets: ["QuillAudioFormatCore"])
+        .library(name: "QuillAudioFormatCore", targets: ["QuillAudioFormatCore"]),
+        .library(name: "QuillNoteCore", targets: ["QuillNoteCore"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")
@@ -70,6 +71,11 @@ let package = Package(
         .target(
             name: "QuillAudioFormatCore",
             path: "Packages/QuillAudioFormatCore/Sources",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "QuillNoteCore",
+            path: "Packages/QuillNoteCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],

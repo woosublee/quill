@@ -4,6 +4,7 @@ import ServiceManagement
 import UserNotifications
 import QuillUserIssueCore
 import QuillProviderCore
+import QuillNoteCore
 
 // MARK: - Shared Helpers
 

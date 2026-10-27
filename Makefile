@@ -73,7 +73,7 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteCore
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
@@ -81,6 +81,7 @@ SUMMARY_FORMAT_CORE_SOURCES = $(shell find Packages/QuillSummaryFormatCore/Sourc
 SUMMARY_GENERATION_CORE_SOURCES = $(shell find Packages/QuillSummaryGenerationCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 PROVIDER_CORE_SOURCES = $(shell find Packages/QuillProviderCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AUDIO_LEVEL_CORE_SOURCES = $(shell find Packages/QuillAudioLevelCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
+NOTE_CORE_SOURCES = $(shell find Packages/QuillNoteCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AUDIO_FORMAT_CORE_SOURCES = $(shell find Packages/QuillAudioFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 # Every architecture the app or a test executable can build for.
@@ -270,6 +271,10 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillProviderCore.a: $(PROVIDER_CORE_SOURCES) Make
 $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a: $(AUDIO_LEVEL_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillAudioLevelCore,$(AUDIO_LEVEL_CORE_SOURCES))
+
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+	@mkdir -p "$(@D)"
+	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES))
 
 $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"

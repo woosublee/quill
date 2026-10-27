@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
@@ -58,83 +59,10 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum CalendarProvider: String, Codable, Equatable, CaseIterable {
-    case google
-    case apple
-}
-
-extension CalendarProvider: Identifiable {
-    var id: String { rawValue }
-}
-
-enum CalendarMatchSource: String, Codable, Equatable {
-    case overlapSuggestion = "overlap_suggestion"
-    case calendarNotification = "calendar_notification"
-    case importSelection = "import_selection"
-}
-
-enum CalendarTitleState: String, Codable, Equatable {
-    case suggested
-    case applied
-}
-
-struct CalendarEventAttendee: Codable, Equatable {
-    let displayName: String?
-    let email: String?
-    let responseStatus: String?
-    let isOptional: Bool
-    let isSelf: Bool
-
-    init(displayName: String? = nil, email: String? = nil, responseStatus: String? = nil, isOptional: Bool = false, isSelf: Bool = false) {
-        self.displayName = displayName
-        self.email = email
-        self.responseStatus = responseStatus
-        self.isOptional = isOptional
-        self.isSelf = isSelf
-    }
-}
-
-struct CalendarEventMatch: Codable, Equatable {
-    let accountID: String?
-    let calendarID: String
-    let eventID: String
-    let title: String
-    let start: Date
-    let end: Date
-    let attendees: [CalendarEventAttendee]
-    let matchSource: CalendarMatchSource
-    let titleState: CalendarTitleState
-    /// Missing in notes saved before Apple Calendar support; those are Google.
-    let provider: CalendarProvider?
-
-    init(accountID: String? = nil, calendarID: String, eventID: String, title: String, start: Date, end: Date, attendees: [CalendarEventAttendee] = [], matchSource: CalendarMatchSource, titleState: CalendarTitleState, provider: CalendarProvider? = nil) {
-        self.accountID = accountID
-        self.calendarID = calendarID
-        self.eventID = eventID
-        self.title = title
-        self.start = start
-        self.end = end
-        self.attendees = attendees
-        self.matchSource = matchSource
-        self.titleState = titleState
-        self.provider = provider
-    }
-
-    var resolvedProvider: CalendarProvider { provider ?? .google }
-
-    var suggestedTitle: String? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    var appliedTitle: String? {
-        guard titleState == .applied else { return nil }
-        return suggestedTitle
-    }
-
-    func applyingTitle() -> CalendarEventMatch {
-        CalendarEventMatch(accountID: accountID, calendarID: calendarID, eventID: eventID, title: title, start: start, end: end, attendees: attendees, matchSource: matchSource, titleState: .applied, provider: provider)
-    }
+// The note's calendar match types are in QuillNoteCore, shared with the
+// iPhone app.
+extension CalendarProvider: @retroactive Identifiable {
+    public var id: String { rawValue }
 }
 
 struct GoogleCalendarInfo: Identifiable, Codable, Equatable {

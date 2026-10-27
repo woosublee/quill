@@ -64,6 +64,10 @@ otherwise.
   header, validation, the canonical copy of other PCM WAV layouts, and how
   much of a cut-off recording can be read. Recording, journaling, recovery,
   and chunking stay in `Sources/`.
+- `Packages/QuillNoteCore/`: how a note's date reads in a list row and
+  its detail (`NoteTimestampFormatter`), shared with the iPhone app so a
+  synced note shows the same date on both. Reading a note's recording times
+  stays in `Sources/NoteListRowDisplayData.swift`.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

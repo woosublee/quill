@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillNoteCore
 
 enum RecordingJournalError: Error, Equatable {
     case unsupportedSchemaVersion(Int)

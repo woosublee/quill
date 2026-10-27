@@ -3,6 +3,7 @@ import QuillNoteSyncCore
 import QuillAITextCore
 import QuillSummaryFormatCore
 import QuillUserIssueCore
+import QuillNoteCore
 
 @main
 struct NoteSyncRecordTests {

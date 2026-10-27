@@ -1,5 +1,6 @@
 import Foundation
 import QuillUserIssueCore
+import QuillNoteCore
 
 @main
 struct NoteListRowDisplayDataTests {
