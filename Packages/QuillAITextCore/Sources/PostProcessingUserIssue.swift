@@ -4,7 +4,7 @@ import QuillUserIssueCore
 public extension PostProcessingError {
     /// The model the failure is about: a timeout names the model it waited
     /// on, otherwise the configured one.
-    func effectiveModelID(fallback: String) -> String {
+    internal func effectiveModelID(fallback: String) -> String {
         if case .requestTimedOut(_, let modelID) = self {
             return modelID ?? fallback
         }

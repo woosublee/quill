@@ -32,7 +32,9 @@ otherwise.
   Edit Mode stay in `Sources/PostProcessingService.swift`.
 - `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
   severity, context, the provider diagnostic code allow-list) and its
-  persisted status string (`user-issue:v1:`). Its on-screen
+  persisted status string (`user-issue:v1:`). It imports no other shared
+  module; `QuillAITextCore`, `QuillSummaryFormatCore`, and
+  `QuillSummaryGenerationCore` import it. Its on-screen
   copy and recovery actions stay in `Sources/QuillUserIssue.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
