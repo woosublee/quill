@@ -53,6 +53,9 @@ struct CalendarRecordingReminderSchedulerTests {
         var nsBoolean = base
         nsBoolean["eventStart"] = NSNumber(value: false)
         precondition(CalendarRecordingReminderScheduler.reminderGroupIdentifier(from: nsBoolean) == nil)
+        var huge = base
+        huge["eventStart"] = 1e300
+        precondition(CalendarRecordingReminderScheduler.reminderGroupIdentifier(from: huge) == nil, "too large to be a time")
     }
 
     private static func testLeadMinutesAffectFireDate() {

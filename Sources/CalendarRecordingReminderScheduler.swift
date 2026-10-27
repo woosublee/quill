@@ -514,11 +514,12 @@ final class CalendarRecordingReminderScheduler {
     nonisolated static func reminderGroupIdentifier(from userInfo: [AnyHashable: Any]) -> String? {
         guard let calendarID = userInfo["calendarID"] as? String,
               let eventID = userInfo["eventID"] as? String,
-              let eventStart = timeIntervalValue(userInfo["eventStart"]) else { return nil }
+              let eventStart = timeIntervalValue(userInfo["eventStart"]),
+              let startTimestamp = Int(exactly: eventStart.rounded()) else { return nil }
         return reminderGroupIdentifier(
             calendarID: calendarID,
             eventID: eventID,
-            startTimestamp: Int(eventStart.rounded())
+            startTimestamp: startTimestamp
         )
     }
 
@@ -526,14 +527,12 @@ final class CalendarRecordingReminderScheduler {
         "\(calendarID):\(eventID):\(startTimestamp)"
     }
 
-    /// A boolean bridges to NSNumber and to Double too, so it is checked
-    /// first; it isn't a time (#673).
+    /// Any number in userInfo arrives as NSNumber. A boolean does too, but it
+    /// isn't a time (#673).
     private nonisolated static func timeIntervalValue(_ value: Any?) -> TimeInterval? {
-        if let number = value as? NSNumber {
-            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
-            return number.doubleValue
-        }
-        return value as? TimeInterval
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        return number.doubleValue
     }
 
     nonisolated static func isCalendarReminderIdentifier(_ identifier: String) -> Bool {
