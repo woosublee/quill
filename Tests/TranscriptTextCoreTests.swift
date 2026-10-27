@@ -251,6 +251,12 @@ struct TranscriptTextCoreTests {
         // A boolean isn't a probability, so the phrase is kept.
         let boolean = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":true}]}"#.utf8)
         expectEqual((try? TranscriptionResponseParser.parse(boolean))?.text, "Thank you.")
+        let booleanFalse = Data(#"{"text":"Thank you.","segments":[{"no_speech_prob":false}]}"#.utf8)
+        for options in [CloudTranscriptionResponseParser.Options.mac, .iPhone] {
+            let result = try? CloudTranscriptionResponseParser.parse(booleanFalse, options: options)
+            expectEqual(result?.response.text, "Thank you.")
+            expectEqual(result?.hallucinationFilterSkip, .noNoSpeechProbability)
+        }
 
         // Only the iPhone reads segment times.
         let timed = Data(#"{"text":"Hello there.","segments":[{"start":0,"end":1,"text":"Hello there.","no_speech_prob":0.01}]}"#.utf8)
@@ -261,7 +267,7 @@ struct TranscriptTextCoreTests {
         )
 
         // A segment whose start or end is a boolean is skipped (#669).
-        let booleanTimes = Data(#"{"text":"a b","segments":[{"start":true,"end":true,"text":"a"},{"start":0,"end":false,"text":"b"},{"start":1,"end":2,"text":"c"}]}"#.utf8)
+        let booleanTimes = Data(#"{"text":"a b","segments":[{"start":true,"end":true,"text":"a"},{"start":0,"end":false,"text":"b"},{"start":false,"end":3,"text":"d"},{"start":1,"end":2,"text":"c"}]}"#.utf8)
         expectEqual(
             (try? CloudTranscriptionResponseParser.parse(booleanTimes, options: .iPhone))?.response.segments,
             [.init(start: 1, end: 2, text: "c")]
