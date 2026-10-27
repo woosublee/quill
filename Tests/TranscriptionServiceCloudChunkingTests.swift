@@ -11,6 +11,9 @@ struct TranscriptionServiceCloudChunkingTests {
             try await missingAPIKeyStopsBeforeCloudUpload()
             try await normalizedAPIKeyUsesTrimmedAuthorizationHeader()
             try realtimeMissingAPIKeyStopsBeforeWebSocketCreation()
+            try realtimeWebSocketURLStaysFixed()
+            try realtimeSessionUpdateStaysFixed()
+            try realtimeConnectionRequestCarriesTheKey()
             try await realtimeCommitRaceTimesOutWithoutHanging()
             try await realtimeCommitRaceReturnsResultBeforeTimeout()
             try await smallWAVUsesExistingSingleRequestPath()
@@ -89,6 +92,59 @@ struct TranscriptionServiceCloudChunkingTests {
             uploads[0].authorization,
             "Bearer test-key",
             "normalized API key authorization"
+        )
+    }
+
+    // How a provider base URL becomes the realtime WebSocket URL.
+    private static func realtimeWebSocketURLStaysFixed() throws {
+        let cases: [(String, String?)] = [
+            ("https://api.groq.com/openai/v1", "wss://api.groq.com/openai/v1/realtime?intent=transcription"),
+            (" https://api.openai.com/v1/ ", "wss://api.openai.com/v1/realtime?intent=transcription"),
+            ("https://api.example.com", "wss://api.example.com/v1/realtime?intent=transcription"),
+            ("http://localhost:8080/v1/chat/completions", "ws://localhost:8080/v1/realtime?intent=transcription"),
+            ("https://api.example.com/v1/audio/transcriptions", "wss://api.example.com/v1/realtime?intent=transcription"),
+            ("wss://api.example.com/v1/realtime", "wss://api.example.com/v1/realtime?intent=transcription"),
+            ("https://api.example.com/v1/realtime?intent=custom&x=1", "wss://api.example.com/v1/realtime?intent=custom&x=1"),
+            ("https://api.example.com/v1?region=eu", "wss://api.example.com/v1/realtime?region=eu&intent=transcription"),
+            ("ftp://api.example.com/v1", nil),
+            ("api.example.com/v1", nil),
+        ]
+        for (input, expected) in cases {
+            try expectEqual(
+                RealtimeTranscriptionSession.webSocketURL(baseURL: input)?.absoluteString,
+                expected,
+                "realtime URL for \(input)"
+            )
+        }
+    }
+
+    private static func realtimeSessionUpdateStaysFixed() throws {
+        func json(_ object: [String: Any]) throws -> String {
+            String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
+        }
+        try expectEqual(
+            try json(RealtimeTranscriptionSession.sessionUpdatePayload(model: " gpt-4o-transcribe ", language: "ko")),
+            #"{"session":{"audio":{"input":{"format":{"rate":24000,"type":"audio\/pcm"},"transcription":{"language":"ko","model":"gpt-4o-transcribe"},"turn_detection":null}},"type":"transcription"},"type":"session.update"}"#,
+            "session.update with model and language"
+        )
+        try expectEqual(
+            try json(RealtimeTranscriptionSession.sessionUpdatePayload(model: "  ", language: "")),
+            #"{"session":{"audio":{"input":{"format":{"rate":24000,"type":"audio\/pcm"},"transcription":{},"turn_detection":null}},"type":"transcription"},"type":"session.update"}"#,
+            "session.update leaves out an empty model and language"
+        )
+    }
+
+    private static func realtimeConnectionRequestCarriesTheKey() throws {
+        let request = RealtimeTranscriptionSession.connectionRequest(
+            url: URL(string: "wss://provider.invalid/v1/realtime")!,
+            key: " synthetic-key\n"
+        )
+        try expectEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-key", "realtime key header")
+        try expectEqual(
+            RealtimeTranscriptionSession.connectionRequest(url: URL(string: "wss://provider.invalid")!, key: " ")
+                .value(forHTTPHeaderField: "Authorization"),
+            nil,
+            "no header without a key"
         )
     }
 

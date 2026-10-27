@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 import os.log
 
 private let realtimeLog = OSLog(subsystem: "com.woosublee.quill", category: "RealtimeTranscription")
@@ -70,18 +71,11 @@ final class RealtimeTranscriptionService {
                 modelID: config.model
             )
         }
-        guard let wsURL = Self.deriveWebSocketURL(
-            baseURL: config.baseURL,
-            model: config.model,
-            language: config.language
-        ) else {
+        guard let wsURL = RealtimeTranscriptionSession.webSocketURL(baseURL: config.baseURL) else {
             throw RealtimeTranscriptionError.invalidBaseURL(config.baseURL)
         }
 
-        var request = URLRequest(url: wsURL)
-        if !config.apiKey.isEmpty {
-            request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
-        }
+        let request = RealtimeTranscriptionSession.connectionRequest(url: wsURL, key: config.apiKey)
 
         let task = makeWebSocketTask(request)
         stateQueue.sync {
@@ -332,76 +326,10 @@ final class RealtimeTranscriptionService {
             task
         }
         guard let currentTask else { return }
-        var transcription: [String: Any] = [:]
-        let model = config.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !model.isEmpty {
-            transcription["model"] = model
-        }
-        if let language = config.language, !language.isEmpty {
-            transcription["language"] = language
-        }
-        let session: [String: Any] = [
-            "type": "transcription",
-            "audio": [
-                "input": [
-                    "format": [
-                        "type": "audio/pcm",
-                        "rate": 24_000,
-                    ],
-                    "transcription": transcription,
-                    "turn_detection": NSNull(),
-                ],
-            ],
-        ]
-        send(["type": "session.update", "session": session], over: currentTask)
-    }
-
-    // MARK: URL derivation
-
-    /// Turn a provider base URL or common OpenAI-style endpoint URL into a
-    /// realtime WebSocket URL. Accepts inputs like:
-    /// - `https://host`
-    /// - `https://host/v1`
-    /// - `https://host/v1/chat/completions`
-    /// - `https://host/v1/audio/transcriptions`
-    static func deriveWebSocketURL(
-        baseURL: String,
-        model: String,
-        language: String?
-    ) -> URL? {
-        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: trimmed) else { return nil }
-
-        switch components.scheme?.lowercased() {
-        case "http": components.scheme = "ws"
-        case "https": components.scheme = "wss"
-        case "ws", "wss": break
-        default: return nil
-        }
-
-        var pathComponents = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        if pathComponents.suffix(2) == ["chat", "completions"] {
-            pathComponents.removeLast(2)
-        } else if pathComponents.suffix(2) == ["audio", "transcriptions"] {
-            pathComponents.removeLast(2)
-        }
-
-        if pathComponents.last == "realtime" {
-            // keep as-is
-        } else if pathComponents.last == "v1" {
-            pathComponents.append("realtime")
-        } else {
-            pathComponents.append(contentsOf: ["v1", "realtime"])
-        }
-
-        components.path = "/" + pathComponents.joined(separator: "/")
-
-        var queryItems = components.queryItems ?? []
-        if !queryItems.contains(where: { $0.name == "intent" }) {
-            queryItems.append(URLQueryItem(name: "intent", value: "transcription"))
-        }
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        return components.url
+        send(
+            RealtimeTranscriptionSession.sessionUpdatePayload(model: config.model, language: config.language),
+            over: currentTask
+        )
     }
 
     private func resumeIfReadyAfterCommit() {
