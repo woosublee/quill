@@ -14,6 +14,7 @@ struct MeetingSummaryModelsTests {
     static func main() throws {
         testFingerprintIsDeterministicAndChangesWithTranscript()
         testFingerprintIncludesCalendarMetadata()
+        testFingerprintBytesStayFixed()
         try testLegacyV1EnvelopeDecodesDisplayOnlyEvidence()
         try testLegacySummaryDecodesWithoutLanguageContext()
         try testLegacyAttemptDecodesWithoutSourceFingerprint()
@@ -75,6 +76,42 @@ struct MeetingSummaryModelsTests {
         )
 
         precondition(withoutCalendar.fingerprint != withCalendar.fingerprint)
+    }
+
+    // The fingerprint is stored and synced, so its bytes must not change.
+    // These values were computed from the canonical text with an independent
+    // SHA-256.
+    private static func testFingerprintBytesStayFixed() {
+        let transcript = "We reviewed the release plan.\r\nLaunch stays on schedule.\n"
+        let withCalendar = MeetingSummarySource(
+            transcript: transcript,
+            calendar: MeetingSummaryCalendarContext(
+                title: "Synthetic Release Sync",
+                start: Date(timeIntervalSince1970: 1_800_000_000),
+                end: Date(timeIntervalSince1970: 1_800_001_800),
+                attendees: ["Mina", "Jun"]
+            ),
+            languageContext: languageContext
+        )
+        precondition(withCalendar.fingerprint == "ffb3b8c160b335196e4cacdd369d760022d7c23d8d50a6c8e847588dc60a60f8")
+        precondition(
+            withCalendar.withoutCalendar.fingerprint
+                == "7cf42ab9951b32bc9d76745daa87249eb8a1ad22554f4107231cb993bc94888a"
+        )
+
+        // Sub-second times are rounded to milliseconds, as ISO8601DateFormatter
+        // does with fractional seconds: .9996 becomes the next whole second.
+        let fractional = MeetingSummarySource(
+            transcript: transcript,
+            calendar: MeetingSummaryCalendarContext(
+                title: "Synthetic Release Sync",
+                start: Date(timeIntervalSince1970: 1_800_000_000.9996),
+                end: Date(timeIntervalSince1970: 1_800_001_800.123456),
+                attendees: ["Mina", "Jun"]
+            ),
+            languageContext: languageContext
+        )
+        precondition(fractional.fingerprint == "08b2349465d69c84ca548db176b406fa9052dad556f2776433da2affd6891e15")
     }
 
     private static func testLegacyV1EnvelopeDecodesDisplayOnlyEvidence() throws {

@@ -115,20 +115,33 @@ public struct MeetingSummarySource: Equatable, Sendable {
         MeetingSummarySource(transcript: transcript, calendar: nil, languageContext: languageContext)
     }
 
-    public var fingerprint: String {
-
+    // One formatter for every fingerprint. The lock makes sharing it across
+    // threads safe without relying on Foundation's own thread safety.
+    nonisolated(unsafe) private static let fingerprintDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [
             .withInternetDateTime,
             .withFractionalSeconds
         ]
+        return formatter
+    }()
+    private static let fingerprintDateFormatterLock = NSLock()
 
+    private static func fingerprintDateText(_ date: Date) -> String {
+        fingerprintDateFormatterLock.withLock {
+            fingerprintDateFormatter.string(from: date)
+        }
+    }
+
+    private static let hexDigits = Array("0123456789abcdef".utf8)
+
+    public var fingerprint: String {
         let calendarText: String
         if let calendar {
             calendarText = [
                 calendar.title,
-                formatter.string(from: calendar.start),
-                formatter.string(from: calendar.end),
+                Self.fingerprintDateText(calendar.start),
+                Self.fingerprintDateText(calendar.end),
                 calendar.attendees.sorted().joined(separator: "\u{1F}")
             ].joined(separator: "\u{1E}")
         } else {
@@ -141,9 +154,13 @@ public struct MeetingSummarySource: Equatable, Sendable {
             calendarText
         ].joined(separator: "\u{1D}")
 
-        return SHA256.hash(data: Data(canonical.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
+        var hex: [UInt8] = []
+        hex.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(canonical.utf8)) {
+            hex.append(Self.hexDigits[Int(byte >> 4)])
+            hex.append(Self.hexDigits[Int(byte & 0x0F)])
+        }
+        return String(decoding: hex, as: UTF8.self)
     }
 }
 
