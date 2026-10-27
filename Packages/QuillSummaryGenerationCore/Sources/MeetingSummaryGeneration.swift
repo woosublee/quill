@@ -555,10 +555,10 @@ public struct MeetingSummaryGenerator: Sendable {
         var records = initialRecords
         // A merge leaves the full response room, unless that leaves no
         // batch to merge; then it tries with the extraction room (#610).
-        // When the extraction room isn't smaller, that pass checks the same
+        // When the extraction room isn't smaller (the iPhone, and Mac cloud
+        // summaries, use one room for both), that pass checks the same
         // budgets again and ends the same way, so it is skipped (#643).
-        let compactLeavesMoreRoom = tokenBudgeter.summaryCompletionTokens
-            < tokenBudgeter.summaryMergeCompletionTokens
+        let compactLeavesMoreRoom = tokenBudgeter.compactMergeLeavesMoreRoom
         var compact = false
         while records.count > 1 {
             let finalRole: LocalAITokenBudgetRole = compact

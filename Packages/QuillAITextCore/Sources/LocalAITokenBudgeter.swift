@@ -64,6 +64,20 @@ public struct LocalAITokenBudgeter: Sendable {
         self.summaryMergeCompletionTokens = summaryMergeCompletionTokens
     }
 
+    /// Whether a compact merge leaves more prompt room than a full merge
+    /// does. When the two answer rooms are the same, the compact pass checks
+    /// the same budgets again (#643).
+    public var compactMergeLeavesMoreRoom: Bool {
+        let rooms = { (role: LocalAITokenBudgetRole) in
+            role.maxCompletionTokens(
+                summaryCompletionTokens: summaryCompletionTokens,
+                summaryMergeCompletionTokens: summaryMergeCompletionTokens
+            )
+        }
+        return rooms(.summaryCompactMerge) < rooms(.summaryIntermediateMerge)
+            || rooms(.summaryCompactMerge) < rooms(.summaryFinalMerge)
+    }
+
     public func budget(
         forRenderedChatPrompt prompt: String,
         role: LocalAITokenBudgetRole

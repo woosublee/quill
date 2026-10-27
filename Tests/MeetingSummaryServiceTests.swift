@@ -713,7 +713,7 @@ struct MeetingSummaryServiceTests {
     }
 
     /// #643: when the extraction room isn't smaller than the merge room (the
-    /// iPhone passes the same value for both), the compact merge pass can't
+    /// iPhone and Mac cloud summaries use one value for both), the compact merge pass can't
     /// fit anything new, so it isn't tried. The error is the same, with half
     /// the merge prompts counted.
     private static func testCompactMergeIsSkippedWithTheSameRoom() async throws {
@@ -1951,8 +1951,6 @@ private extension Array {
     }
 }
 
-/// Counts a rendered prompt as 1,000 tokens and other text at about 1.9
-/// bytes a token.
 /// Counts every prompt as small except merge prompts, which never fit, and
 /// counts how many merge prompts were measured.
 private final class MeetingSummaryMergeCountingTokenCounter: LocalAITokenCounting, @unchecked Sendable {
@@ -1968,6 +1966,8 @@ private final class MeetingSummaryMergeCountingTokenCounter: LocalAITokenCountin
     func mergeCounts() -> Int { lock.withLock { merges } }
 }
 
+/// Counts a rendered prompt as 1,000 tokens and other text at about 1.9
+/// bytes a token.
 private struct MeetingSummaryRatioTokenCounter: LocalAITokenCounting {
     func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
         prompt.hasPrefix("[System]") ? 1_000 : prompt.utf8.count * 10 / 19
