@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import QuillAudioFormatCore
 
 struct AudioMixdownSource: Equatable {
     let url: URL
@@ -330,7 +331,7 @@ public struct AudioMixdownService {
     ) throws -> UInt32 {
         do {
             return try CanonicalPCM16WAV.dataByteCount(forFrameCount: frameCount)
-        } catch CanonicalPCM16WAVError.outputTooLarge {
+        } catch CanonicalPCM16WAVError.sizeOverflow {
             throw AudioMixdownServiceError.outputTooLarge
         }
     }

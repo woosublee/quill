@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillAudioFormatCore
 import QuillProviderCore
 
 @main
@@ -841,7 +842,7 @@ struct CloudTranscriptionChunkingTests {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        var data = CanonicalPCM16WAV.header(dataByteCount: UInt32(payload.count))
+        var data = try CanonicalPCM16WAV.header(dataByteCount: UInt32(payload.count))
         data.append(payload)
         try data.write(to: url, options: .atomic)
         return url

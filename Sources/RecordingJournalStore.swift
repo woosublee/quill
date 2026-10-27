@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillAudioFormatCore
 
 struct RecordingJournalCreateRequest: Equatable {
     var recordingID: UUID
@@ -125,8 +126,8 @@ struct RecordingJournalManifestWriter {
 enum RecordingCanonicalWAV {
     static let headerByteCount = Int(CanonicalPCM16WAV.headerByteCount)
 
-    static func header(dataByteCount: UInt32) -> Data {
-        CanonicalPCM16WAV.header(dataByteCount: dataByteCount)
+    static func header(dataByteCount: UInt32) throws -> Data {
+        try CanonicalPCM16WAV.header(dataByteCount: dataByteCount)
     }
 
     static func dataByteCount(in data: Data) -> UInt32? {

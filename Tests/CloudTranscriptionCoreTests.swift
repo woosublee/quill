@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import QuillProviderCore
 
 @main
@@ -590,7 +591,7 @@ struct CloudTranscriptionCoreTests {
         let sourceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        var sourceData = CanonicalPCM16WAV.header(dataByteCount: 12)
+        var sourceData = try CanonicalPCM16WAV.header(dataByteCount: 12)
         for sample in [Int16(1), 1, 2, 2, 3, 3] {
             let bits = UInt16(bitPattern: sample)
             sourceData.append(UInt8(bits & 0xff))
@@ -672,7 +673,7 @@ struct CloudTranscriptionCoreTests {
         let sourceURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        var data = CanonicalPCM16WAV.header(dataByteCount: UInt32(frameCount * 2))
+        var data = try CanonicalPCM16WAV.header(dataByteCount: UInt32(frameCount * 2))
         for _ in 0..<frameCount { data.append(contentsOf: [1, 0]) }
         try data.write(to: sourceURL, options: .atomic)
         let layout = try CanonicalPCM16WAV.validateFile(at: sourceURL)

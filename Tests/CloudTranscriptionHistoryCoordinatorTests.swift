@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 @main
 struct CloudTranscriptionHistoryCoordinatorTests {

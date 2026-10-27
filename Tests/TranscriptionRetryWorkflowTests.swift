@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
@@ -3471,7 +3472,7 @@ struct TranscriptionRetryWorkflowTests {
         samples: [Int16],
         to url: URL
     ) throws {
-        var data = CanonicalPCM16WAV.header(
+        var data = try CanonicalPCM16WAV.header(
             dataByteCount: UInt32(samples.count * 2)
         )
         for sample in samples {

@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import QuillUserIssueCore
 import QuillProviderCore
 
@@ -659,7 +660,7 @@ struct TranscriptionServiceCloudChunkingTests {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        var data = CanonicalPCM16WAV.header(
+        var data = try CanonicalPCM16WAV.header(
             dataByteCount: UInt32(samples.count * 2)
         )
         for sample in samples {

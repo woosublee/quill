@@ -54,6 +54,11 @@ otherwise.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
   heights, shared with the iPhone app. Reading RMS from the capture, the
   locking around it, and the SwiftUI drawing stay in `Sources/`.
+- `Packages/QuillAudioFormatCore/`: the canonical recording file (16 kHz mono
+  16-bit PCM with the 44-byte WAV header), shared with the iPhone app: the
+  header, validation, the canonical copy of other PCM WAV layouts, and how
+  much of a cut-off recording can be read. Recording, journaling, recovery,
+  and chunking stay in `Sources/`.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

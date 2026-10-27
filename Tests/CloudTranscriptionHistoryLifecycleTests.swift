@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main
@@ -792,7 +793,7 @@ struct CloudTranscriptionHistoryLifecycleTests {
         samples: [Int16],
         to url: URL
     ) throws {
-        var data = CanonicalPCM16WAV.header(
+        var data = try CanonicalPCM16WAV.header(
             dataByteCount: UInt32(samples.count * 2)
         )
         for sample in samples {

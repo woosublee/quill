@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 @main
 struct CloudTranscriptionJobStoreTests {
@@ -770,7 +771,7 @@ struct CloudTranscriptionJobStoreTests {
     }
 
     private static func writeCanonicalFixture(to url: URL) throws {
-        var data = CanonicalPCM16WAV.header(dataByteCount: 12)
+        var data = try CanonicalPCM16WAV.header(dataByteCount: 12)
         for sample in [Int16(1), 2, 3, 4, 5, 6] {
             let bits = UInt16(bitPattern: sample)
             data.append(UInt8(bits & 0xff))

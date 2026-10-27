@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillAudioFormatCore
 import QuillProviderCore
 
 enum CloudTranscriptionJobPhase: String, Codable, Equatable, Sendable {
