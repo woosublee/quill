@@ -5,8 +5,9 @@ import Foundation
 struct AppStateCalendarMatchTests {
     static func main() throws {
         try reminderSnapshotBecomesTheNotesEvent()
-        try incompleteSnapshotFallsBackToOverlap()
+        try incompleteSnapshotGivesNoEvent()
         try transcribedRecordingsCarryTheReminderEvent()
+        print("AppStateCalendarMatchTests passed")
     }
 
     private static let start = Date(timeIntervalSince1970: 1_800_000_000)
@@ -40,7 +41,8 @@ struct AppStateCalendarMatchTests {
         try expectEqual(match.accountID, AppState.appleCalendarAccountID, "Apple account")
     }
 
-    private static func incompleteSnapshotFallsBackToOverlap() throws {
+    /// Without a usable snapshot, the caller falls back to overlap matching.
+    private static func incompleteSnapshotGivesNoEvent() throws {
         try expectEqual(AppState.calendarMatch(from: nil) == nil, true, "no snapshot")
         try expectEqual(AppState.calendarMatch(from: snapshot(title: nil)) == nil, true, "snapshot without a title")
     }
@@ -51,18 +53,20 @@ struct AppStateCalendarMatchTests {
     /// before overlap matching.
     private static func transcribedRecordingsCarryTheReminderEvent() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        guard source.contains("isImportedAudio: false,\n            calendarSnapshot: recordingCalendarSnapshot\n") else {
+        let compact = source.filter { !$0.isWhitespace }
+        let registrations = compact.components(separatedBy: "registerTranscriptionJob(").dropFirst()
+        guard registrations.contains(where: {
+            $0.prefix(while: { $0 != ")" }).contains("calendarSnapshot:recordingCalendarSnapshot")
+        }) else {
             throw TestFailure("stopAndTranscribe must pass the reminder snapshot to the transcription job")
         }
-        guard let historyMatch = source.range(of: "private func calendarMatchForHistoryItem(jobID: UUID)"),
-              let snapshotRead = source.range(
-                  of: "Self.calendarMatch(from: job.calendarSnapshot)",
-                  range: historyMatch.upperBound..<source.endIndex
-              ),
-              let overlapRead = source.range(
-                  of: "calendarEventMatch(",
-                  range: historyMatch.upperBound..<source.endIndex
-              ),
+        guard let start = source.range(of: "private func calendarMatchForHistoryItem(jobID: UUID)"),
+              let end = source.range(of: "\n    }\n", range: start.upperBound..<source.endIndex) else {
+            throw TestFailure("calendarMatchForHistoryItem not found")
+        }
+        let body = source[start.upperBound..<end.lowerBound]
+        guard let snapshotRead = body.range(of: "Self.calendarMatch(from: job.calendarSnapshot)"),
+              let overlapRead = body.range(of: "calendarEventMatch("),
               snapshotRead.lowerBound < overlapRead.lowerBound else {
             throw TestFailure("calendarMatchForHistoryItem must prefer the job's snapshot over overlap matching")
         }
