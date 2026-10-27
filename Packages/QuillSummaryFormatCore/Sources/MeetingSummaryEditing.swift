@@ -28,26 +28,13 @@ public extension MeetingSummaryContent {
         return copy
     }
 
-    /// True when the last of `points` is an untyped row being typed in,
-    /// standing where the New Item button would be.
-    func endsWithFocusedUntypedRow(
-        _ points: KeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>,
-        focusedID: UUID?
-    ) -> Bool {
-        guard let last = self[keyPath: points].last else { return false }
-        return last.id == focusedID && Self.isUntyped(last)
-    }
-
-    /// The same as `endsWithFocusedUntypedRow` for action items.
-    func endsWithFocusedUntypedAction(focusedID: UUID?) -> Bool {
-        guard let last = actionItems.last else { return false }
-        return last.id == focusedID && Self.isUntyped(last)
-    }
-
+    /// Nothing typed in the row. An action counts as typed when it has a
+    /// task, an owner, or a due date.
     static func isUntyped(_ point: MeetingSummaryPoint) -> Bool {
         isBlank(point.text)
     }
 
+    /// Nothing typed in the action: no task, owner, or due date.
     static func isUntyped(_ action: MeetingSummaryActionItem) -> Bool {
         isBlank(action.task) && isBlank(action.owner ?? "") && isBlank(action.dueDate ?? "")
     }
