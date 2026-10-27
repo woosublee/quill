@@ -360,58 +360,27 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
         localCompletionTokens: Int?,
         localResponseFormat: String?
     ) throws -> URLRequest {
-        let url = endpoint.baseURL
-            .appendingPathComponent("chat")
-            .appendingPathComponent("completions")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = Self.requestTimeout(for: endpoint)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let token = endpoint.authorizationToken {
-            request.setValue(
-                "Bearer \(token)",
-                forHTTPHeaderField: "Authorization"
-            )
-        }
-
         let config = ModelConfiguration.config(for: endpoint.selectedModelID)
-        let localCompletionCeiling = localCompletionTokens
-            ?? tokenBudgeter.summaryCompletionTokens
-        var payload: [String: Any] = [
-            "model": endpoint.requestModelID,
-            "temperature": 0.0,
-            "max_completion_tokens": endpoint.kind == .local
-                ? localCompletionCeiling
+        let isLocal = endpoint.kind == .local
+        return try ChatCompletionRequest(
+            model: endpoint.requestModelID,
+            system: prompt.system,
+            user: prompt.user,
+            completionCeiling: isLocal
+                ? localCompletionTokens ?? tokenBudgeter.summaryCompletionTokens
                 : Self.cloudCompletionCeiling,
-            "messages": [
-                ["role": "system", "content": prompt.system],
-                ["role": "user", "content": prompt.user]
-            ]
-        ]
-        if endpoint.kind == .local {
-            payload["max_tokens"] = localCompletionCeiling
-        }
-        if let effort = config.reasoningEffort {
-            payload["reasoning_effort"] = effort
-        }
-        if let include = config.includeReasoning {
-            payload["include_reasoning"] = include
-        }
-        var body = try JSONSerialization.data(withJSONObject: payload)
-        if endpoint.kind == .local {
+            reasoningEffort: config.reasoningEffort,
+            includeReasoning: config.includeReasoning,
+            sendsLegacyCompletionCeiling: isLocal,
             // A small local model drops null keys or leaves quotes inside a
             // string unescaped; llama-server can only sample JSON that fits
-            // the shape the decoder requires (#611). Spliced in as text so
-            // the schema keeps its key order.
-            body.removeLast()
-            body.append(Data(#","response_format":"#.utf8))
-            body.append(Data(
-                (localResponseFormat ?? Self.responseFormat).utf8
-            ))
-            body.append(Data("}".utf8))
-        }
-        request.httpBody = body
-        return request
+            // the shape the decoder requires (#611).
+            responseFormatJSON: isLocal ? localResponseFormat ?? Self.responseFormat : nil
+        ).urlRequest(
+            baseURL: endpoint.baseURL,
+            authorizationToken: endpoint.authorizationToken,
+            timeout: Self.requestTimeout(for: endpoint)
+        )
     }
 
     /// The configured fallback, unless there is none, it can't run, or it
