@@ -60,9 +60,16 @@ public enum CloudProviderURL {
 
     /// The unit that consent and keys belong to (scheme, host, and port). A
     /// different path is the same provider; a different scheme or port is not.
+    /// The host is written as the URL has it, so an IP literal keeps its
+    /// brackets (`[::1]:8080` and `[::1:8080]` stay apart) and its
+    /// percent-encoding.
     public static func origin(of value: String) -> String? {
-        guard let url = try? normalized(value), let scheme = url.scheme, let host = url.host else { return nil }
-        if let port = url.port { return "\(scheme)://\(host):\(port)" }
+        guard let url = try? normalized(value),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme,
+              let host = components.percentEncodedHost,
+              !host.isEmpty else { return nil }
+        if let port = components.port { return "\(scheme)://\(host):\(port)" }
         return "\(scheme)://\(host)"
     }
 

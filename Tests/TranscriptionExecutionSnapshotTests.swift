@@ -1,5 +1,6 @@
 import Foundation
 import QuillAITextCore
+import QuillProviderCore
 
 @main
 struct TranscriptionExecutionSnapshotTests {
@@ -8,6 +9,7 @@ struct TranscriptionExecutionSnapshotTests {
         try distinguishesProviderHostAndPath()
         try rejectsProviderURLCredentialsQueryAndFragment()
         try providerURLNormalizationKeepsItsResultsAndErrors()
+        try providerOriginKeepsIPv6Brackets()
         try cloudSnapshotCapturesImmutableExecutionValues()
         try localSnapshotCapturesImmutableExecutionValues()
         try localSnapshotRetainsNativeWhisperExecution()
@@ -64,6 +66,24 @@ struct TranscriptionExecutionSnapshotTests {
             } catch is CloudTranscriptionProviderIdentityError {
                 // expected
             }
+        }
+    }
+
+    // The iPhone keys consent and API keys by this origin (private#168).
+    private static func providerOriginKeepsIPv6Brackets() throws {
+        let cases: [(String, String?)] = [
+            ("http://[::1]:8080/v1", "http://[::1]:8080"),
+            ("http://[::1:8080]/v1", "http://[::1:8080]"),
+            ("https://[2001:db8::1]/v1", "https://[2001:db8::1]"),
+            ("http://[v1.fe]/x", "http://[v1.fe]"),
+            ("http://v1.fe/x", "http://v1.fe"),
+            ("http://[fe80::1%25en0]:8080/v1", "http://[fe80::1%25en0]:8080"),
+            ("https://API.Example.com:443/v1", "https://api.example.com"),
+            ("http://192.168.0.10:8080/v1", "http://192.168.0.10:8080"),
+            ("ftp://api.example.com", nil),
+        ]
+        for (input, expected) in cases {
+            try expectEqual(CloudProviderURL.origin(of: input), expected, "origin of \(input)")
         }
     }
 
