@@ -38,8 +38,9 @@ otherwise.
   copy and recovery actions stay in `Sources/QuillUserIssue.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
-  rendering). The attempt's on-screen details stay in
-  `Sources/MeetingSummaryModels.swift`.
+  rendering) and summary editing (dropping empty rows, saving an edit,
+  reverting to the original, and keeping rows on a same-text regeneration).
+  The attempt's on-screen details stay in `Sources/MeetingSummaryModels.swift`.
 - `Packages/QuillSummaryGenerationCore/`: how a meeting summary is made: the
   prompts, chunking and merging, the strict draft decoder, evidence repair
   and output checks, and the summary errors. Model requests, fallbacks, and

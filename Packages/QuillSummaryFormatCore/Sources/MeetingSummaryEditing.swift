@@ -1,11 +1,10 @@
 import Foundation
-import QuillSummaryFormatCore
 
 // Editing a saved meeting summary in place (#262). The Summary tab edits a
 // copy of the content and saves it here; the generated content is kept the
 // first time so the person can revert to it.
 
-extension MeetingSummaryContent {
+public extension MeetingSummaryContent {
     /// The content without rows left empty while editing. An action with
     /// only an owner or due date is kept.
     func removingEmptyItems() -> MeetingSummaryContent {
@@ -136,7 +135,7 @@ extension MeetingSummaryContent {
     }
 }
 
-extension MeetingSummaryEnvelope {
+public extension MeetingSummaryEnvelope {
     var isEdited: Bool { editedAt != nil }
 
     /// The summary with the person's edited text, or nil when the text is
