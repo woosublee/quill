@@ -49,30 +49,46 @@ public enum CloudTranscriptionUpload {
         language: String?,
         boundary: String
     ) -> Data {
-        var body = Data()
-        func append(_ value: String) { body.append(Data(value.utf8)) }
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        append("\(model)\r\n")
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
-        append("\(responseFormat)\r\n")
-
-        if let language, !language.isEmpty {
-            append("--\(boundary)\r\n")
-            append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-            append("\(language)\r\n")
-        }
-
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
-        append("Content-Type: \(contentType(forFileName: fileName))\r\n\r\n")
+        let envelope = multipartEnvelope(
+            fileName: fileName,
+            contentType: contentType(forFileName: fileName),
+            model: model,
+            responseFormat: responseFormat,
+            language: language,
+            boundary: boundary
+        )
+        var body = Data(envelope.head.utf8)
         body.append(audioData)
-        append("\r\n")
-        append("--\(boundary)--\r\n")
+        body.append(Data(envelope.tail.utf8))
         return body
+    }
+
+    /// The multipart text that goes before and after the audio bytes. The
+    /// Mac's upload-size estimate counts these same parts, so the estimate and
+    /// the body can't drift apart.
+    public static func multipartEnvelope(
+        fileName: String,
+        contentType: String,
+        model: String,
+        responseFormat: String,
+        language: String?,
+        boundary: String
+    ) -> (head: String, tail: String) {
+        var head = "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
+            + "\(model)\r\n"
+            + "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"
+            + "\(responseFormat)\r\n"
+        if let language, !language.isEmpty {
+            head += "--\(boundary)\r\n"
+                + "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
+                + "\(language)\r\n"
+        }
+        head += "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n"
+            + "Content-Type: \(contentType)\r\n\r\n"
+        return (head, "\r\n--\(boundary)--\r\n")
     }
 
     /// A failed reply as a retryable failure. Only the provider's error code

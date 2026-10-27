@@ -89,7 +89,7 @@ class TranscriptionService {
     private let nativeWhisperExecution: NativeWhisperExecutionSnapshot?
     private let localAIExecution: LocalAITranscriptionExecutionSnapshot?
     private var transcriptionResponseFormat: String {
-        Self.responseFormat(forModel: transcriptionModel)
+        CloudTranscriptionUpload.responseFormat(forModel: transcriptionModel)
     }
     private var transcriptionTimeoutSeconds: TimeInterval {
         let override = UserDefaults.standard.double(forKey: "transcription_timeout_seconds")
@@ -133,10 +133,6 @@ class TranscriptionService {
         self.localAIExecution = localAIExecution
         self.cloudDependencies = cloudDependencies
         self.cloudExecutionContext = cloudExecutionContext
-    }
-
-    static func responseFormat(forModel model: String) -> String {
-        CloudTranscriptionUpload.responseFormat(forModel: model)
     }
 
     static func appleSpeechAuthorizationIssue(

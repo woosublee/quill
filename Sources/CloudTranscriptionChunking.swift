@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import QuillProviderCore
 
 struct CloudTranscriptionMultipartLayout: Equatable, Sendable {
     let model: String
@@ -27,42 +28,19 @@ struct CloudTranscriptionMultipartLayout: Equatable, Sendable {
         guard boundaryByteCount > 0 else {
             throw CloudTranscriptionChunkingError.invalidBoundaryByteCount
         }
-        let boundary = String(repeating: "b", count: boundaryByteCount)
-        var byteCount: UInt64 = 0
-
-        func append(_ value: String) throws {
-            let (next, overflow) = byteCount.addingReportingOverflow(
-                UInt64(value.utf8.count)
-            )
-            guard !overflow else {
-                throw CloudTranscriptionChunkingError.encodedByteCountOverflow
-            }
-            byteCount = next
-        }
-
-        try append("--\(boundary)\r\n")
-        try append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-        try append("\(model)\r\n")
-        try append("--\(boundary)\r\n")
-        try append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n")
-        try append("\(responseFormat)\r\n")
-        if let language, !language.isEmpty {
-            try append("--\(boundary)\r\n")
-            try append("Content-Disposition: form-data; name=\"language\"\r\n\r\n")
-            try append("\(language)\r\n")
-        }
-        try append("--\(boundary)\r\n")
-        try append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n")
-        try append("Content-Type: \(contentType)\r\n\r\n")
-        let (withAudio, audioOverflow) = byteCount.addingReportingOverflow(
-            audioDataByteCount
+        let envelope = CloudTranscriptionUpload.multipartEnvelope(
+            fileName: fileName,
+            contentType: contentType,
+            model: model,
+            responseFormat: responseFormat,
+            language: language,
+            boundary: String(repeating: "b", count: boundaryByteCount)
         )
-        guard !audioOverflow else {
+        let envelopeByteCount = UInt64(envelope.head.utf8.count + envelope.tail.utf8.count)
+        let (byteCount, overflow) = envelopeByteCount.addingReportingOverflow(audioDataByteCount)
+        guard !overflow else {
             throw CloudTranscriptionChunkingError.encodedByteCountOverflow
         }
-        byteCount = withAudio
-        try append("\r\n")
-        try append("--\(boundary)--\r\n")
         return byteCount
     }
 }

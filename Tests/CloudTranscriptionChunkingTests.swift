@@ -38,7 +38,8 @@ struct CloudTranscriptionChunkingTests {
         }
     }
 
-    // The cloud transcription request both apps send, byte for byte.
+    // The cloud transcription request the Mac sends, byte for byte. The iPhone
+    // still builds its own until it moves to the shared builder.
     private static func uploadRequestAndBodyStayFixed() throws {
         let request = CloudTranscriptionUpload.request(
             baseURL: URL(string: "https://provider.invalid/openai/v1")!,
