@@ -249,7 +249,9 @@ struct InflightRecordingRecovery {
                 diagnostics: [.missingSource]
             )
         }
-        guard sourceSize >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
+        guard let payload = try? CanonicalPCM16WAV.recoverablePayload(
+            physicalFileByteCount: sourceSize
+        ) else {
             return manualCandidate(
                 directory: directory,
                 recordingID: manifest.recordingID,
@@ -257,8 +259,7 @@ struct InflightRecordingRecovery {
             )
         }
 
-        let actualPayload = sourceSize - UInt64(RecordingCanonicalWAV.headerByteCount)
-        let evenPayload = actualPayload - (actualPayload % UInt64(CanonicalPCM16WAV.bytesPerFrame))
+        let evenPayload = payload.recoverableDataByteCount
         guard evenPayload > 0 else {
             return manualCandidate(
                 directory: directory,
@@ -274,7 +275,7 @@ struct InflightRecordingRecovery {
         } else if evenPayload < committed {
             diagnostics.insert(.sourceTruncated)
         }
-        if actualPayload != evenPayload {
+        if payload.removedTrailingByte {
             diagnostics.insert(.oddTrailingByte)
         }
         guard committed > 0 else {
@@ -426,19 +427,15 @@ struct InflightRecordingRecovery {
                 diagnostics.insert(.missingSource)
                 continue
             }
-            guard sourceSize
-                    >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
+            guard let payload = try? CanonicalPCM16WAV.recoverablePayload(
+                physicalFileByteCount: sourceSize
+            ) else {
                 diagnostics.insert(.sourceTooShort)
                 continue
             }
 
-            let actualPayload = sourceSize
-                - UInt64(RecordingCanonicalWAV.headerByteCount)
-            let frameSize = UInt64(
-                CanonicalPCM16WAV.bytesPerFrame
-            )
-            let evenPayload = actualPayload - (actualPayload % frameSize)
-            if actualPayload != evenPayload {
+            let evenPayload = payload.recoverableDataByteCount
+            if payload.removedTrailingByte {
                 diagnostics.insert(.oddTrailingByte)
             }
             if evenPayload > source.committedDataByteCount {
@@ -548,15 +545,14 @@ struct InflightRecordingRecovery {
                 diagnostics.insert(.missingSource)
                 continue
             }
-            guard sourceSize >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
+            guard let payload = try? CanonicalPCM16WAV.recoverablePayload(
+                physicalFileByteCount: sourceSize
+            ) else {
                 diagnostics.insert(.sourceTooShort)
                 continue
             }
-            let actualPayload = sourceSize
-                - UInt64(RecordingCanonicalWAV.headerByteCount)
-            let frameSize = UInt64(CanonicalPCM16WAV.bytesPerFrame)
-            let evenPayload = actualPayload - (actualPayload % frameSize)
-            if actualPayload != evenPayload {
+            let evenPayload = payload.recoverableDataByteCount
+            if payload.removedTrailingByte {
                 diagnostics.insert(.oddTrailingByte)
             }
             if evenPayload > source.committedDataByteCount {

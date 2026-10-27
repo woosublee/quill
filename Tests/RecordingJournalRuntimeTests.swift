@@ -48,6 +48,7 @@ struct RecordingJournalRuntimeTests {
             try scannerRequiresPermanentArtifactForPromotedState()
             try scannerPlansPersistFinalizeAndCleanupAfterValidPromotion()
             try scannerIsReadOnlyAndIdempotent()
+            try scannerSourceSizeOutcomesStayFixed()
             print("RecordingJournalRuntimeTests passed")
         } catch {
             fputs("RecordingJournalRuntimeTests failed: \(error)\n", stderr)
@@ -1675,6 +1676,109 @@ struct RecordingJournalRuntimeTests {
             try expectEqual(before, middle, "first scan preservation")
             try expectEqual(middle, after, "second scan preservation")
         }
+    }
+
+    private enum ScannerManifestShape: String, CaseIterable {
+        case single
+        case combined
+        case segmented
+    }
+
+    /// What the scanner decides for a source cut off at each length, in each
+    /// manifest shape. Combined and segmented recordings also have a second
+    /// source, left at an empty header or two bytes of audio. The expected
+    /// lines were generated from the scanner before it used the shared
+    /// `CanonicalPCM16WAV.recoverablePayload`.
+    private static func scannerSourceSizeOutcomesStayFixed() throws {
+        let sizes = [0, 10, 43, 44, 45, 46, 47, 50]
+        var lines: [String] = []
+        for shape in ScannerManifestShape.allCases {
+            let otherSizes: [Int?] = shape == .single ? [nil] : [44, 46]
+            for otherSize in otherSizes {
+                for size in sizes {
+                    try withFixture { fixture in
+                        let sourceURL: URL
+                        var otherURL: URL?
+                        switch shape {
+                        case .single:
+                            sourceURL = try fixture.store.createSingleSource(fixture.request).sourceURL
+                        case .combined:
+                            let session = try fixture.store.createCombined(combinedRequest(fixture))
+                            sourceURL = session.systemAudioSession.sourceURL
+                            otherURL = session.microphoneSession.sourceURL
+                        case .segmented:
+                            let session = try fixture.store.createSegmented(segmentedRequest(
+                                fixture,
+                                sources: [
+                                    RecordingJournalSegmentSourceRequest(id: fixture.sourceID, kind: .microphone),
+                                    RecordingJournalSegmentSourceRequest(
+                                        id: fixture.systemAudioSourceID,
+                                        kind: .systemAudio
+                                    )
+                                ]
+                            ))
+                            sourceURL = session.sources[1].session.sourceURL
+                            otherURL = session.sources[0].session.sourceURL
+                        }
+                        try Data(repeating: 0, count: size).write(to: sourceURL)
+                        if let otherURL, let otherSize {
+                            try Data(repeating: 0, count: otherSize).write(to: otherURL)
+                        }
+                        let candidate = try requireCandidate(recordingID: fixture.recordingID, store: fixture.store)
+                        let diagnostics = candidate.diagnostics.map(\.rawValue).sorted().joined(separator: ",")
+                        let label = otherSize.map { "\(shape.rawValue)+\($0)" } ?? shape.rawValue
+                        lines.append(
+                            "\(label) \(size): \(candidate.action.rawValue)"
+                                + " bytes=\(candidate.recoverableDataByteCount.map { "\($0)" } ?? "nil")"
+                                + " [\(diagnostics)]"
+                        )
+                    }
+                }
+            }
+        }
+        let expected: [String] = [
+            "single 0: manualRecoveryRequired bytes=nil [sourceTooShort]",
+            "single 10: manualRecoveryRequired bytes=nil [sourceTooShort]",
+            "single 43: manualRecoveryRequired bytes=nil [sourceTooShort]",
+            "single 44: manualRecoveryRequired bytes=nil [emptySource]",
+            "single 45: manualRecoveryRequired bytes=nil [emptySource]",
+            "single 46: manualRecoveryRequired bytes=nil [emptySource,manifestBehind]",
+            "single 47: manualRecoveryRequired bytes=nil [emptySource,manifestBehind,oddTrailingByte]",
+            "single 50: manualRecoveryRequired bytes=nil [emptySource,manifestBehind]",
+            "combined+44 0: finalizeCombined bytes=0 [emptySource,sourceTooShort]",
+            "combined+44 10: finalizeCombined bytes=0 [emptySource,sourceTooShort]",
+            "combined+44 43: finalizeCombined bytes=0 [emptySource,sourceTooShort]",
+            "combined+44 44: finalizeCombined bytes=0 [emptySource]",
+            "combined+44 45: finalizeCombined bytes=0 [emptySource,oddTrailingByte]",
+            "combined+44 46: finalizeCombined bytes=0 [emptySource,manifestBehind]",
+            "combined+44 47: finalizeCombined bytes=0 [emptySource,manifestBehind,oddTrailingByte]",
+            "combined+44 50: finalizeCombined bytes=0 [emptySource,manifestBehind]",
+            "combined+46 0: finalizeCombined bytes=0 [manifestBehind,sourceTooShort]",
+            "combined+46 10: finalizeCombined bytes=0 [manifestBehind,sourceTooShort]",
+            "combined+46 43: finalizeCombined bytes=0 [manifestBehind,sourceTooShort]",
+            "combined+46 44: finalizeCombined bytes=0 [emptySource,manifestBehind]",
+            "combined+46 45: finalizeCombined bytes=0 [emptySource,manifestBehind,oddTrailingByte]",
+            "combined+46 46: finalizeCombined bytes=0 [manifestBehind]",
+            "combined+46 47: finalizeCombined bytes=0 [manifestBehind,oddTrailingByte]",
+            "combined+46 50: finalizeCombined bytes=0 [manifestBehind]",
+            "segmented+44 0: finalizeSegmented bytes=0 [emptySource,sourceTooShort]",
+            "segmented+44 10: finalizeSegmented bytes=0 [emptySource,sourceTooShort]",
+            "segmented+44 43: finalizeSegmented bytes=0 [emptySource,sourceTooShort]",
+            "segmented+44 44: finalizeSegmented bytes=0 [emptySource]",
+            "segmented+44 45: finalizeSegmented bytes=0 [emptySource,oddTrailingByte]",
+            "segmented+44 46: finalizeSegmented bytes=0 [emptySource,manifestBehind]",
+            "segmented+44 47: finalizeSegmented bytes=0 [emptySource,manifestBehind,oddTrailingByte]",
+            "segmented+44 50: finalizeSegmented bytes=0 [emptySource,manifestBehind]",
+            "segmented+46 0: finalizeSegmented bytes=0 [manifestBehind,sourceTooShort]",
+            "segmented+46 10: finalizeSegmented bytes=0 [manifestBehind,sourceTooShort]",
+            "segmented+46 43: finalizeSegmented bytes=0 [manifestBehind,sourceTooShort]",
+            "segmented+46 44: finalizeSegmented bytes=0 [emptySource,manifestBehind]",
+            "segmented+46 45: finalizeSegmented bytes=0 [emptySource,manifestBehind,oddTrailingByte]",
+            "segmented+46 46: finalizeSegmented bytes=0 [manifestBehind]",
+            "segmented+46 47: finalizeSegmented bytes=0 [manifestBehind,oddTrailingByte]",
+            "segmented+46 50: finalizeSegmented bytes=0 [manifestBehind]",
+        ]
+        try expectEqual(lines, expected, "scanner outcomes by source size")
     }
 
     private static func requireCandidate(
