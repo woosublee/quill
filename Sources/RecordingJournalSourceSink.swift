@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import os
 
 enum RecordingFrameOffset {
@@ -65,7 +66,7 @@ final class RecordingJournalSourceSink: NormalizedPCM16Sink {
         let candidate = RecordingFrameOffset.frames(
             firstFrameMonotonicNanoseconds: firstFrameMonotonicNanoseconds,
             monotonicAnchorNanoseconds: monotonicAnchorNanoseconds,
-            sampleRate: RecordingPCMFormat.canonical.sampleRate
+            sampleRate: CanonicalPCM16WAV.sampleRate
         )
         writer.enqueue(
             copiedPCM16LE,

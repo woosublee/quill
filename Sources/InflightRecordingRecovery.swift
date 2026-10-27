@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 
 enum InflightRecordingRecoveryAction: String, Equatable {
     case markRecoverable
@@ -257,7 +258,7 @@ struct InflightRecordingRecovery {
         }
 
         let actualPayload = sourceSize - UInt64(RecordingCanonicalWAV.headerByteCount)
-        let evenPayload = actualPayload - (actualPayload % UInt64(RecordingPCMFormat.canonical.bytesPerFrame))
+        let evenPayload = actualPayload - (actualPayload % UInt64(CanonicalPCM16WAV.bytesPerFrame))
         guard evenPayload > 0 else {
             return manualCandidate(
                 directory: directory,
@@ -434,7 +435,7 @@ struct InflightRecordingRecovery {
             let actualPayload = sourceSize
                 - UInt64(RecordingCanonicalWAV.headerByteCount)
             let frameSize = UInt64(
-                RecordingPCMFormat.canonical.bytesPerFrame
+                CanonicalPCM16WAV.bytesPerFrame
             )
             let evenPayload = actualPayload - (actualPayload % frameSize)
             if actualPayload != evenPayload {
@@ -553,7 +554,7 @@ struct InflightRecordingRecovery {
             }
             let actualPayload = sourceSize
                 - UInt64(RecordingCanonicalWAV.headerByteCount)
-            let frameSize = UInt64(RecordingPCMFormat.canonical.bytesPerFrame)
+            let frameSize = UInt64(CanonicalPCM16WAV.bytesPerFrame)
             let evenPayload = actualPayload - (actualPayload % frameSize)
             if actualPayload != evenPayload {
                 diagnostics.insert(.oddTrailingByte)
