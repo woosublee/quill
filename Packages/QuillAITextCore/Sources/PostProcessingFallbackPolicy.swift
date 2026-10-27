@@ -9,6 +9,13 @@ public enum PostProcessingFallbackPolicy {
         (500...599).contains(statusCode)
     }
 
+    /// A network failure (offline, host not found, a timeout before any
+    /// reply) is worth retrying only on another host: a local model, or a
+    /// cloud model after a local one.
+    public static func shouldFallBackAfterNetworkFailure(fromLocal: Bool, toLocal: Bool) -> Bool {
+        fromLocal || toLocal
+    }
+
     /// - Parameters:
     ///   - fromLocal: the failed run used a local model.
     ///   - toLocal: the fallback is a local model.
@@ -20,7 +27,7 @@ public enum PostProcessingFallbackPolicy {
         toLocal: Bool,
         retriesEmptyCloudOutput: Bool
     ) -> Bool {
-        let reachesAnotherHost = fromLocal || toLocal
+        let reachesAnotherHost = shouldFallBackAfterNetworkFailure(fromLocal: fromLocal, toLocal: toLocal)
         switch error {
         case .rateLimited:
             return !fromLocal

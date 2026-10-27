@@ -687,7 +687,12 @@ Behavior:
         if fromLocal, AIProcessingFallbackPolicy.isLocalRuntimeFailure(error) {
             return true
         }
-        if AIProcessingFallbackPolicy.isNetworkFailure(error) { return fromLocal || toLocal }
+        if AIProcessingFallbackPolicy.isNetworkFailure(error) {
+            return PostProcessingFallbackPolicy.shouldFallBackAfterNetworkFailure(
+                fromLocal: fromLocal,
+                toLocal: toLocal
+            )
+        }
         guard let error = error as? PostProcessingError else { return false }
         return PostProcessingFallbackPolicy.shouldFallBack(
             after: error,

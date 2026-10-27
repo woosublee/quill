@@ -118,43 +118,46 @@ struct PostProcessingChunkingTests {
     }
 
     /// Which cleanup errors try the fallback model, for each pair of hosts
-    /// (cloud to cloud, local to cloud, cloud to local). The table is the
-    /// Mac's rule from #580.
+    /// (cloud to cloud, local to cloud, cloud to local, local to local) and
+    /// with an empty cloud reply retried or not. The table is the Mac's rule
+    /// from #580.
     private static func testFallbackPolicyByErrorAndHosts() throws {
-        let cases: [(PostProcessingError, [Bool])] = [
-            (.rateLimited(model: "m", retryAfter: 1), [true, false, true]),
-            (.requestFailed(statusCode: 429, providerCode: nil), [true, false, true]),
-            (.requestFailed(statusCode: 500, providerCode: nil), [true, true, true]),
-            (.requestFailed(statusCode: 503, providerCode: nil), [true, true, true]),
-            (.requestFailed(statusCode: 400, providerCode: nil), [false, false, false]),
-            (.requestFailed(statusCode: 401, providerCode: nil), [false, false, false]),
-            (.requestTimedOut(30), [false, true, true]),
-            (.emptyOutput, [false, true, false]),
-            (.invalidResponse("synthetic"), [false, true, false]),
-            (.invalidInput("synthetic"), [false, false, false]),
-            (.contextBudgetExceeded, [false, false, false]),
-            (.suspectedInstructionExecution, [false, false, false]),
+        // Per host pair: [without, with] retrying an empty cloud reply.
+        let cases: [(PostProcessingError, [[Bool]])] = [
+            (.rateLimited(model: "m", retryAfter: 1), [[true, true], [false, false], [true, true], [false, false]]),
+            (.requestFailed(statusCode: 429, providerCode: nil), [[true, true], [false, false], [true, true], [false, false]]),
+            (.requestFailed(statusCode: 500, providerCode: nil), [[true, true], [true, true], [true, true], [true, true]]),
+            (.requestFailed(statusCode: 503, providerCode: nil), [[true, true], [true, true], [true, true], [true, true]]),
+            (.requestFailed(statusCode: 400, providerCode: nil), [[false, false], [false, false], [false, false], [false, false]]),
+            (.requestFailed(statusCode: 401, providerCode: nil), [[false, false], [false, false], [false, false], [false, false]]),
+            (.requestTimedOut(30), [[false, false], [true, true], [true, true], [true, true]]),
+            (.emptyOutput, [[false, true], [true, true], [false, true], [true, true]]),
+            (.invalidResponse("synthetic"), [[false, false], [true, true], [false, false], [true, true]]),
+            (.invalidInput("synthetic"), [[false, false], [false, false], [false, false], [false, false]]),
+            (.contextBudgetExceeded, [[false, false], [false, false], [false, false], [false, false]]),
+            (.suspectedInstructionExecution, [[false, false], [false, false], [false, false], [false, false]]),
+            (.outputRejected(.languageMismatch), [[false, false], [false, false], [false, false], [false, false]]),
         ]
-        let hosts: [(fromLocal: Bool, toLocal: Bool)] = [(false, false), (true, false), (false, true)]
+        let hosts: [(fromLocal: Bool, toLocal: Bool)] = [(false, false), (true, false), (false, true), (true, true)]
         for (error, expected) in cases {
             for (index, host) in hosts.enumerated() {
-                try expect(
-                    PostProcessingFallbackPolicy.shouldFallBack(
-                        after: error,
-                        fromLocal: host.fromLocal,
-                        toLocal: host.toLocal,
-                        retriesEmptyCloudOutput: false
-                    ) == expected[index],
-                    "\(error) from local \(host.fromLocal) to local \(host.toLocal)"
-                )
+                for (retryIndex, retries) in [false, true].enumerated() {
+                    try expect(
+                        PostProcessingFallbackPolicy.shouldFallBack(
+                            after: error,
+                            fromLocal: host.fromLocal,
+                            toLocal: host.toLocal,
+                            retriesEmptyCloudOutput: retries
+                        ) == expected[index][retryIndex],
+                        "\(error) from local \(host.fromLocal) to local \(host.toLocal) retrying empty \(retries)"
+                    )
+                }
             }
         }
-        try expect(
-            PostProcessingFallbackPolicy.shouldFallBack(
-                after: .emptyOutput, fromLocal: false, toLocal: false, retriesEmptyCloudOutput: true
-            ),
-            "an empty cloud reply retries when the caller allows it"
-        )
+        let networkFallbacks = hosts.map {
+            PostProcessingFallbackPolicy.shouldFallBackAfterNetworkFailure(fromLocal: $0.fromLocal, toLocal: $0.toLocal)
+        }
+        try expect(networkFallbacks == [false, true, true, true], "a network failure retries only on another host")
         try expect(!PostProcessingFallbackPolicy.isServerError(statusCode: 499), "499 isn't a server error")
         try expect(PostProcessingFallbackPolicy.isServerError(statusCode: 599), "599 is a server error")
         try expect(!PostProcessingFallbackPolicy.isServerError(statusCode: 600), "600 isn't a server error")
