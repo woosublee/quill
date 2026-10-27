@@ -2676,7 +2676,7 @@ private struct NoteDetailView: View {
     }
     private var currentSummaryAttempt: MeetingSummaryAttempt? {
         guard let summaryAttempt,
-              summaryAttempt.sourceFingerprint == appState.meetingSummarySourceFingerprint(for: item) else {
+              summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item)) else {
             return nil
         }
         return summaryAttempt

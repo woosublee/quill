@@ -155,7 +155,7 @@ struct MeetingSummaryUIContractTests {
             "summaryToolbarAction.systemImage",
             "help: summaryToolbarAction.help",
             "private var currentSummaryAttempt: MeetingSummaryAttempt? {",
-            "summaryAttempt.sourceFingerprint == appState.meetingSummarySourceFingerprint(for: item)",
+            "summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))",
             "private var showsSummaryTab: Bool {",
             "summaryEnvelope != nil || (currentSummaryAttempt?.outcome == .failed && currentSummaryAttempt?.issue != nil) || summaryIssue != nil",
             "summaryActionIsDisabled",

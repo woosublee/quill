@@ -83,6 +83,24 @@ struct MeetingSummaryAppStateTests {
                 postProcessingPrompt: nil, contextSummary: "", contextScreenshotDataURL: nil,
                 contextScreenshotStatus: "No screenshot", postProcessingStatus: "", debugStatus: "", customVocabulary: ""
             )
+            // The fingerprint hashes UTF-8 bytes: an NFD transcript isn't the
+            // same source as the NFC one, though String == says it is.
+            let composed = "결정: 금요일에 출시."
+            let decomposed = composed.decomposedStringWithCanonicalMapping
+            precondition(composed == decomposed && Array(composed.utf8) != Array(decomposed.utf8))
+            func note(_ text: String) -> PipelineHistoryItem {
+                PipelineHistoryItem(
+                    id: item.id, timestamp: item.timestamp, rawTranscript: text, postProcessedTranscript: text,
+                    postProcessingPrompt: nil, contextSummary: "", contextScreenshotDataURL: nil,
+                    contextScreenshotStatus: "No screenshot", postProcessingStatus: "", debugStatus: "", customVocabulary: ""
+                )
+            }
+            let nfc = appState.meetingSummarySourceFingerprint(for: note(composed))
+            let nfd = appState.meetingSummarySourceFingerprint(for: note(decomposed))
+            precondition(nfc == appState.meetingSummarySource(for: note(composed)).fingerprint)
+            precondition(nfd == appState.meetingSummarySource(for: note(decomposed)).fingerprint)
+            precondition(nfc != nfd, "an NFD transcript is hashed again")
+
             let linkedFingerprint = appState.meetingSummarySourceFingerprint(for: linked)
             precondition(linkedFingerprint == appState.meetingSummarySource(for: linked).fingerprint)
             precondition(linkedFingerprint != editedFingerprint, "a new calendar match is hashed again")

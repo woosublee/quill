@@ -8676,32 +8676,60 @@ final class AppState: ObservableObject, @unchecked Sendable {
         MeetingSummaryWorkflow.availabilitySource(for: item)
     }
 
-    /// What the availability source fingerprint is computed from.
+    /// What the availability fingerprint hashes: the summary transcript and
+    /// the calendar context. Compared byte for byte, since the fingerprint
+    /// hashes UTF-8 bytes and String `==` treats NFC and NFD as equal.
     private struct MeetingSummarySourceKey: Equatable {
-        let rawTranscript: String
-        let postProcessedTranscript: String
-        let calendarMatch: CalendarEventMatch?
+        let transcript: String
+        let calendar: MeetingSummaryCalendarContext?
+
+        init(_ source: MeetingSummarySource) {
+            transcript = source.transcript
+            calendar = source.calendar
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.transcript.utf8.elementsEqual(rhs.transcript.utf8)
+                && sameBytes(lhs.calendar, rhs.calendar)
+        }
+
+        private static func sameBytes(_ lhs: MeetingSummaryCalendarContext?, _ rhs: MeetingSummaryCalendarContext?) -> Bool {
+            switch (lhs, rhs) {
+            case (nil, nil): return true
+            case let (lhs?, rhs?):
+                return lhs.title.utf8.elementsEqual(rhs.title.utf8)
+                    && lhs.start == rhs.start && lhs.end == rhs.end
+                    && lhs.attendees.count == rhs.attendees.count
+                    && zip(lhs.attendees, rhs.attendees).allSatisfy { $0.utf8.elementsEqual($1.utf8) }
+            default: return false
+            }
+        }
     }
 
-    /// The note's last availability fingerprint and what it was made from.
-    /// Views read it on every refresh, so it is hashed again only when the
-    /// transcript or calendar match changed (#654).
+    /// The last availability fingerprints, for the notes viewed most
+    /// recently. Views read the fingerprint on every refresh, so it is
+    /// hashed again only when what it hashes changed (#654). Only a few
+    /// notes are kept, so deleted notes' text doesn't stay here.
     private var meetingSummarySourceFingerprints: [UUID: (key: MeetingSummarySourceKey, fingerprint: String)] = [:]
+    private var meetingSummarySourceFingerprintOrder: [UUID] = []
+    private static let meetingSummarySourceFingerprintLimit = 8
 
     /// `meetingSummarySource(for:).fingerprint`, reused while the note's
-    /// transcript and calendar match are unchanged.
+    /// summary transcript and calendar context are unchanged.
     @MainActor
     func meetingSummarySourceFingerprint(for item: PipelineHistoryItem) -> String {
-        let key = MeetingSummarySourceKey(
-            rawTranscript: item.rawTranscript,
-            postProcessedTranscript: item.postProcessedTranscript,
-            calendarMatch: item.calendarMatch
-        )
+        let source = meetingSummarySource(for: item)
+        let key = MeetingSummarySourceKey(source)
         if let cached = meetingSummarySourceFingerprints[item.id], cached.key == key {
             return cached.fingerprint
         }
-        let fingerprint = meetingSummarySource(for: item).fingerprint
+        let fingerprint = source.fingerprint
         meetingSummarySourceFingerprints[item.id] = (key, fingerprint)
+        meetingSummarySourceFingerprintOrder.removeAll { $0 == item.id }
+        meetingSummarySourceFingerprintOrder.append(item.id)
+        while meetingSummarySourceFingerprintOrder.count > Self.meetingSummarySourceFingerprintLimit {
+            meetingSummarySourceFingerprints.removeValue(forKey: meetingSummarySourceFingerprintOrder.removeFirst())
+        }
         return fingerprint
     }
 
