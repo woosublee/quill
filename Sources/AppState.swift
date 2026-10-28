@@ -6257,6 +6257,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
             meetingSummaryWorkflow.forgetAll()
+            forgetMeetingSummarySourceFingerprints()
             forgetAllWarningBannerState()
         case .recovered(let historyStore, let history):
             pipelineHistoryStore = historyStore
@@ -8215,6 +8216,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             transcriptionRetryWorkflow.forgetAll()
             meetingSummaryWorkflow.forgetAll()
+            forgetMeetingSummarySourceFingerprints()
             forgetAllWarningBannerState()
             discardUnrecoveredRecordingPieces(recordingIDs: unrecoveredRecordingIDs)
         } catch {
@@ -8373,6 +8375,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 store: cloudTranscriptionJobStore
             )
             meetingSummaryWorkflow.forget(noteID: id)
+            forgetMeetingSummarySourceFingerprints(noteID: id)
             forgetWarningBannerState(for: id)
             return item
         } catch {
@@ -8410,6 +8413,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             pipelineHistory.remove(at: index)
             meetingSummaryWorkflow.forget(noteID: id)
+            forgetMeetingSummarySourceFingerprints(noteID: id)
             forgetWarningBannerState(for: id)
             return (item, deletedAssets)
         } catch {
@@ -8670,6 +8674,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// the Summary tab shows such a summary as stale.
     @MainActor
     func isMeetingSummaryStale(_ summary: MeetingSummaryEnvelope, for item: PipelineHistoryItem) -> Bool {
+        summary.sourceFingerprint != meetingSummarySourceFingerprint(for: item)
+    }
+
+    /// The same as `isMeetingSummaryStale` without keeping the note's text,
+    /// for one-off reads of notes that aren't on screen (MCP `get_note`).
+    @MainActor
+    func isMeetingSummaryStaleUncached(_ summary: MeetingSummaryEnvelope, for item: PipelineHistoryItem) -> Bool {
         summary.sourceFingerprint != meetingSummarySource(for: item).fingerprint
     }
 
@@ -8679,6 +8690,78 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> MeetingSummarySource {
         MeetingSummaryWorkflow.availabilitySource(for: item)
     }
+
+    /// What the availability fingerprint hashes: the summary transcript and
+    /// the calendar context. Compared byte for byte, since the fingerprint
+    /// hashes UTF-8 bytes and String `==` treats NFC and NFD as equal.
+    private struct MeetingSummarySourceKey: Equatable {
+        let transcript: String
+        let calendar: MeetingSummaryCalendarContext?
+
+        init(_ source: MeetingSummarySource) {
+            transcript = source.transcript
+            calendar = source.calendar
+        }
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.transcript.utf8.elementsEqual(rhs.transcript.utf8)
+                && sameBytes(lhs.calendar, rhs.calendar)
+        }
+
+        private static func sameBytes(_ lhs: MeetingSummaryCalendarContext?, _ rhs: MeetingSummaryCalendarContext?) -> Bool {
+            switch (lhs, rhs) {
+            case (nil, nil): return true
+            case let (lhs?, rhs?):
+                return lhs.title.utf8.elementsEqual(rhs.title.utf8)
+                    && lhs.start == rhs.start && lhs.end == rhs.end
+                    && lhs.attendees.count == rhs.attendees.count
+                    && zip(lhs.attendees, rhs.attendees).allSatisfy { $0.utf8.elementsEqual($1.utf8) }
+            default: return false
+            }
+        }
+    }
+
+    /// The last availability fingerprints, for the notes viewed most
+    /// recently. Views read the fingerprint on every refresh, so it is
+    /// hashed again only when what it hashes changed (#654). Only a few
+    /// notes are kept, and a deleted note's entry is dropped with it.
+    private var meetingSummarySourceFingerprints: [UUID: (key: MeetingSummarySourceKey, fingerprint: String)] = [:]
+    private var meetingSummarySourceFingerprintOrder: [UUID] = []
+    private static let meetingSummarySourceFingerprintLimit = 8
+
+    /// `meetingSummarySource(for:).fingerprint`, reused while the note's
+    /// summary transcript and calendar context are unchanged.
+    @MainActor
+    func meetingSummarySourceFingerprint(for item: PipelineHistoryItem) -> String {
+        let source = meetingSummarySource(for: item)
+        let key = MeetingSummarySourceKey(source)
+        if meetingSummarySourceFingerprintOrder.last != item.id {
+            meetingSummarySourceFingerprintOrder.removeAll { $0 == item.id }
+            meetingSummarySourceFingerprintOrder.append(item.id)
+        }
+        if let cached = meetingSummarySourceFingerprints[item.id], cached.key == key {
+            return cached.fingerprint
+        }
+        let fingerprint = source.fingerprint
+        meetingSummarySourceFingerprints[item.id] = (key, fingerprint)
+        while meetingSummarySourceFingerprintOrder.count > Self.meetingSummarySourceFingerprintLimit {
+            meetingSummarySourceFingerprints.removeValue(forKey: meetingSummarySourceFingerprintOrder.removeFirst())
+        }
+        return fingerprint
+    }
+
+    private func forgetMeetingSummarySourceFingerprints(noteID: UUID) {
+        meetingSummarySourceFingerprints.removeValue(forKey: noteID)
+        meetingSummarySourceFingerprintOrder.removeAll { $0 == noteID }
+    }
+
+    private func forgetMeetingSummarySourceFingerprints() {
+        meetingSummarySourceFingerprints.removeAll()
+        meetingSummarySourceFingerprintOrder.removeAll()
+    }
+
+    /// How many notes' fingerprints are kept, for tests.
+    var meetingSummarySourceFingerprintCountForTesting: Int { meetingSummarySourceFingerprints.count }
 
     @MainActor
     private func meetingSummaryWorkflowRequest(
@@ -14145,6 +14228,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 // that came back since.
                 transcriptionRetryWorkflow.cancel(noteID: id)
                 meetingSummaryWorkflow.forget(noteID: id)
+                forgetMeetingSummarySourceFingerprints(noteID: id)
                 forgetWarningBannerState(for: id)
             } catch {
                 failure = failure ?? error

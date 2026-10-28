@@ -2676,7 +2676,7 @@ private struct NoteDetailView: View {
     }
     private var currentSummaryAttempt: MeetingSummaryAttempt? {
         guard let summaryAttempt,
-              summaryAttempt.isCurrent(for: appState.meetingSummarySource(for: item)) else {
+              summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item)) else {
             return nil
         }
         return summaryAttempt
@@ -3587,7 +3587,7 @@ private struct NoteDetailView: View {
         case .failure:
             return "\(currentSummaryAttempt?.occurredAt.timeIntervalSince1970 ?? 0)"
         case .stale:
-            return appState.meetingSummarySource(for: item).fingerprint
+            return appState.meetingSummarySourceFingerprint(for: item)
         case .unverifiedEvidence, .featureDisabled, .modelUnavailable:
             return "\(summaryEnvelope?.generatedAt.timeIntervalSince1970 ?? 0)"
         }

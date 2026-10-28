@@ -155,7 +155,7 @@ struct MeetingSummaryUIContractTests {
             "summaryToolbarAction.systemImage",
             "help: summaryToolbarAction.help",
             "private var currentSummaryAttempt: MeetingSummaryAttempt? {",
-            "summaryAttempt.isCurrent(for: appState.meetingSummarySource(for: item))",
+            "summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))",
             "private var showsSummaryTab: Bool {",
             "summaryEnvelope != nil || (currentSummaryAttempt?.outcome == .failed && currentSummaryAttempt?.issue != nil) || summaryIssue != nil",
             "summaryActionIsDisabled",
@@ -442,7 +442,7 @@ struct MeetingSummaryUIContractTests {
         }
         precondition(order == order.sorted(), "Summary notices must keep their priority order")
         precondition(
-            notices.contains("case .stale:\n            return appState.meetingSummarySource(for: item).fingerprint"),
+            notices.contains("case .stale:\n            return appState.meetingSummarySourceFingerprint(for: item)"),
             "Dismissing the stale notice must last only until the transcript changes again"
         )
         // #619: the note view is rebuilt per note, so dismissals live in

@@ -65,7 +65,13 @@ public struct MeetingSummaryAttempt: Codable, Equatable, Sendable {
     }
 
     public func isCurrent(for source: MeetingSummarySource) -> Bool {
-        sourceFingerprint == source.fingerprint
+        isCurrent(sourceFingerprint: source.fingerprint)
+    }
+
+    /// The same as `isCurrent(for:)` with the source's fingerprint already
+    /// worked out.
+    public func isCurrent(sourceFingerprint fingerprint: String) -> Bool {
+        sourceFingerprint == fingerprint
     }
 }
 
