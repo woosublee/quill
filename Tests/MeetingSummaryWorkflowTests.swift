@@ -1,7 +1,9 @@
 import Foundation
+import QuillUserIssueCore
 import QuillAITextCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
+import QuillNoteCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main
@@ -28,6 +30,8 @@ struct MeetingSummaryWorkflowTests {
         try await testStaleFailureCompletionsAreRejected()
         try await testStaleGenerationCannotClearNewerGenerationState()
         try await testMissingDurableStartRejectsCompletionAfterGeneratorRuns()
+        try await testStoredRecordsStayFixed()
+        try await testSharedRecordBuilderBranches()
         print("MeetingSummaryWorkflowTests passed")
     }
 
@@ -947,6 +951,314 @@ struct MeetingSummaryWorkflowTests {
 }
 
 @MainActor
+extension MeetingSummaryWorkflowTests {
+    /// Branches of the shared record builder that the Mac workflow doesn't
+    /// reach: the language error the iPhone passes as it is, and an explicit
+    /// severity.
+    static func testSharedRecordBuilderBranches() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        func attempt(
+            _ error: Error,
+            issue: QuillUserIssueRecord? = nil,
+            backend: MeetingSummaryBackendKind = .cloud,
+            severity: QuillUserIssueSeverity? = nil
+        ) -> MeetingSummaryAttempt {
+            MeetingSummaryRecordBuilder.failureAttempt(
+                error: error,
+                issue: issue,
+                backendKind: backend,
+                configuredModelID: "configured/model",
+                configuredProviderHost: "api.example.com",
+                languageContext: nil,
+                sourceFingerprint: "fingerprint",
+                occurredAt: now,
+                severity: severity
+            )
+        }
+
+        let language = attempt(MeetingSummaryLanguageError.unavailable)
+        try expect(language.issue == QuillUserIssueError.meetingSummaryLanguageUnavailable().record,
+                   "the shared language error stores the Mac's record")
+        try expect(language.providerHost == "api.example.com", "a cloud failure keeps the host")
+        try expect(attempt(MeetingSummaryLanguageError.unavailable, backend: .local).providerHost == nil,
+                   "a local failure has no host")
+
+        let summaryError = MeetingSummaryError.requestFailed(statusCode: 503, providerCode: nil)
+        try expect(attempt(summaryError).issue?.severity == .warning, "the default severity")
+        try expect(attempt(summaryError, severity: .error).issue?.severity == .error,
+                   "an explicit severity wins for a summary error")
+        try expect(attempt(CocoaError(.fileReadUnknown), severity: .error).issue?.severity == .error,
+                   "an explicit severity wins for another error")
+        try expect(attempt(MeetingSummaryLanguageError.unavailable, severity: .warning).issue?.severity == .warning,
+                   "an explicit severity wins for the language error")
+        let ownIssue = QuillUserIssueRecord(code: .meetingSummaryUnavailable, severity: .warning)
+        try expect(attempt(summaryError, issue: ownIssue, severity: .error).issue == ownIssue,
+                   "a passed issue is stored as it is")
+
+        try expect(MeetingSummarySource.transcript(raw: "raw", edited: "  edited \n") == "edited",
+                   "the edited transcript without surrounding whitespace")
+        try expect(MeetingSummarySource.transcript(raw: "raw", edited: " \n ") == "raw",
+                   "a blank edit falls back to the raw transcript")
+        try expect(MeetingSummaryCalendarContext.attendeeLabel(displayName: " ", email: " a@example.com ") == "a@example.com",
+                   "a blank name falls back to the email")
+        try expect(MeetingSummaryCalendarContext.attendeeLabel(displayName: nil, email: "") == nil,
+                   "an attendee with neither is left out")
+    }
+}
+
+extension MeetingSummaryWorkflowTests {
+    /// The summary source each case hands the generator and the summary,
+    /// attempt, and spoken language each case stores. The expected lines were
+    /// generated from `MeetingSummaryWorkflow` before its source, language, and
+    /// record code moved to the shared core (#634).
+    @MainActor
+    static func testStoredRecordsStayFixed() async throws {
+        let actionID = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+        let noteID = UUID(uuidString: "00000000-0000-0000-0000-0000000000B1")!
+        let calendar = CalendarEventMatch(
+            accountID: nil,
+            calendarID: "calendar-1",
+            eventID: "event-1",
+            title: "Synthetic review",
+            start: Date(timeIntervalSince1970: 900),
+            end: Date(timeIntervalSince1970: 2_700),
+            attendees: [
+                CalendarEventAttendee(displayName: " Alex ", email: "alex@example.com"),
+                CalendarEventAttendee(displayName: "  ", email: " sam@example.com "),
+                CalendarEventAttendee(displayName: nil, email: nil),
+                CalendarEventAttendee(displayName: nil, email: "kim@example.com"),
+            ],
+            matchSource: .overlapSuggestion,
+            titleState: .applied,
+            provider: .google
+        )
+        func item(
+            transcript: String = "Decision: ship Friday.",
+            edited: String? = nil,
+            spokenLanguageCode: String? = "en",
+            resolution: SpokenLanguageResolutionSource? = .engineDetected,
+            calendarMatch: CalendarEventMatch? = nil
+        ) -> PipelineHistoryItem {
+            PipelineHistoryItem(
+                id: noteID,
+                timestamp: Date(timeIntervalSince1970: 1_000),
+                calendarMatch: calendarMatch,
+                rawTranscript: transcript,
+                postProcessedTranscript: edited ?? transcript,
+                postProcessingPrompt: nil,
+                contextSummary: "Excluded context",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: "Post-processing succeeded",
+                debugStatus: "Done",
+                customVocabulary: "",
+                usedPostProcessing: false,
+                transcriptionLanguageCode: "auto",
+                spokenLanguageCode: spokenLanguageCode,
+                spokenLanguageResolution: resolution
+            )
+        }
+        func request(
+            _ item: PipelineHistoryItem,
+            language: String = "English",
+            backend: MeetingSummaryBackendKind = .cloud,
+            host: String? = "api.example.com"
+        ) -> MeetingSummaryWorkflowRequest {
+            MeetingSummaryWorkflowRequest(
+                noteID: item.id,
+                initialItem: item,
+                requestedOutputLanguage: language,
+                configuredBackendKind: backend,
+                configuredModelID: "configured/model",
+                providerHost: host,
+                generatorConfiguration: makeWorkflowGeneratorConfiguration()
+            )
+        }
+        func result(
+            backend: MeetingSummaryBackendKind = .cloud,
+            host: String? = nil,
+            evidence: MeetingSummaryEvidenceVerification = .verified
+        ) -> MeetingSummaryGenerationResult {
+            let base = makeWorkflowGenerationResult(actionID: actionID, evidenceVerification: evidence)
+            return MeetingSummaryGenerationResult(
+                draft: base.draft,
+                promptVersion: base.promptVersion,
+                modelID: backend == .local ? "local/model" : base.modelID,
+                backendKind: backend,
+                evidenceVerification: evidence,
+                providerHost: host
+            )
+        }
+        func returning(
+            _ result: MeetingSummaryGenerationResult
+        ) -> @Sendable (MeetingSummarySource) throws -> MeetingSummaryGenerationResult {
+            { _ in result }
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        func text(_ value: some Encodable) -> String {
+            (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "unencodable"
+        }
+
+        let cases: [(String, PipelineHistoryItem, MeetingSummaryWorkflowRequest, @Sendable (MeetingSummarySource) throws -> MeetingSummaryGenerationResult)] = {
+            let calendarItem = item(calendarMatch: calendar)
+            let completed = item().withMeetingSummary(makeWorkflowEnvelope(actionID: actionID, completed: true))
+            let local = item()
+            let spoken = item(spokenLanguageCode: "ko", resolution: .engineDetected)
+            let inferred = item(transcript: "결정: 금요일에 출시합니다.", spokenLanguageCode: nil, resolution: nil)
+            let reinfer = item(transcript: "결정: 금요일에 출시합니다.", spokenLanguageCode: "en", resolution: .transcriptInferred)
+            let whitespaceEdit = item(edited: "   ")
+            let paddedEdit = item(edited: "  Decision: ship Monday.\n")
+            let unknown = item(transcript: "1234 5678", spokenLanguageCode: nil, resolution: nil)
+            return [
+                ("cloud calendar", calendarItem, request(calendarItem), returning(result())),
+                ("keeps completion", completed, request(completed), returning(result())),
+                ("unverified", local, request(local), returning(result(evidence: .unverified))),
+                ("local", local, request(local, backend: .local, host: nil), returning(result(backend: .local))),
+                ("local to cloud", local, request(local, backend: .local, host: nil),
+                 returning(result(backend: .cloud, host: "fallback.example.com"))),
+                ("cloud host from result", local, request(local), returning(result(host: "used.example.com"))),
+                ("spoken language", spoken, request(spoken, language: ""), returning(result())),
+                ("inferred language", inferred, request(inferred, language: " "), returning(result())),
+                ("re-inferred language", reinfer, request(reinfer, language: "Auto"), returning(result())),
+                ("whitespace edit", whitespaceEdit, request(whitespaceEdit), returning(result())),
+                ("padded edit", paddedEdit, request(paddedEdit), returning(result())),
+                ("rate limited", local, request(local),
+                 { _ in throw MeetingSummaryError.rateLimited(model: "limited/model", retryAfter: 30, providerCode: "rate_limit_exceeded") }),
+                ("request failed", local, request(local),
+                 { _ in throw MeetingSummaryError.requestFailed(statusCode: 503, providerCode: nil) }),
+                ("invalid response local", local, request(local, backend: .local, host: nil),
+                 { _ in throw MeetingSummaryError.invalidResponse(.jsonSchema, modelID: "local/model") }),
+                ("timed out", local, request(local), { _ in throw MeetingSummaryError.requestTimedOut(120) }),
+                ("cooling down", local, request(local), { _ in throw MeetingSummaryError.allModelsCoolingDown }),
+                ("other error cloud", local, request(local), { _ in throw CocoaError(.fileReadUnknown) }),
+                ("other error local", local, request(local, backend: .local, host: nil),
+                 { _ in throw CocoaError(.fileReadUnknown) }),
+                ("unknown language", unknown, request(unknown, language: ""), returning(result())),
+            ]
+        }()
+
+        var lines: [String] = []
+        for (label, initial, request, generate) in cases {
+            let history = MeetingSummaryWorkflowHistoryRecorder(item: initial)
+            let sources = MeetingSummaryWorkflowSourceRecorder()
+            let workflow = MeetingSummaryWorkflow(
+                dependencies: .init(
+                    makeGenerator: { _ in
+                        MeetingSummaryWorkflowGeneratorStub { source in
+                            await sources.record(source)
+                            return try generate(source)
+                        }
+                    },
+                    now: { Date(timeIntervalSince1970: 2_000) }
+                )
+            )
+            _ = await workflow.generate(request: request, history: history.access)
+            let stored = history.storedItem
+            let source = await sources.latest().map { source in
+                "transcript=\(source.transcript) calendar=\(source.calendar.map(text) ?? "nil")"
+                    + " language=\(text(source.languageContext)) fingerprint=\(source.fingerprint)"
+            } ?? "none"
+            lines.append("\(label): source \(source)")
+            // The stored bytes come from JSONEncoder() without sorted keys,
+            // so their key order isn't fixed; the values are compared.
+            let summary = stored?.meetingSummaryJSON
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) }
+                .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+                .map { String(decoding: $0, as: UTF8.self) }
+            lines.append("\(label): summary \(summary ?? "nil")")
+            lines.append("\(label): attempt \(stored?.meetingSummaryAttempt.map(text) ?? "nil")")
+            lines.append("\(label): spoken \(stored?.spokenLanguageCode ?? "nil") \(stored?.spokenLanguageResolution?.rawValue ?? "nil")")
+        }
+        let expected: [String] = [
+            "cloud calendar: source transcript=Decision: ship Friday. calendar={\"attendees\":[\"Alex\",\"sam@example.com\",\"kim@example.com\"],\"end\":-978304500,\"start\":-978306300,\"title\":\"Synthetic review\"} language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=0a4ae59546108163a423599c9cb7c11f11e76f37ad1317a8b2385350179c0340",
+            "cloud calendar: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"0a4ae59546108163a423599c9cb7c11f11e76f37ad1317a8b2385350179c0340\"}",
+            "cloud calendar: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"0a4ae59546108163a423599c9cb7c11f11e76f37ad1317a8b2385350179c0340\"}",
+            "cloud calendar: spoken en engineDetected",
+            "keeps completion: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "keeps completion: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":true,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "keeps completion: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "keeps completion: spoken en engineDetected",
+            "unverified: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "unverified: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"evidenceVerification\":\"unverified\",\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "unverified: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "unverified: spoken en engineDetected",
+            "local: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "local: summary {\"backendKind\":\"local\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"local\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "local: attempt {\"backendKind\":\"local\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"local\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "local: spoken en engineDetected",
+            "local to cloud: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "local to cloud: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "local to cloud: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"fallback.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "local to cloud: spoken en engineDetected",
+            "cloud host from result: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "cloud host from result: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "cloud host from result: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"used.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "cloud host from result: spoken en engineDetected",
+            "spoken language: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"engineDetected\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "spoken language: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"engineDetected\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "spoken language: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"engineDetected\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "spoken language: spoken ko engineDetected",
+            "inferred language: source transcript=결정: 금요일에 출시합니다. calendar=nil language={\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"transcriptInferred\"} fingerprint=5251ab945499f3f032afa281b16aefee49befc04455c54371907c325461f7ad7",
+            "inferred language: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"transcriptInferred\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"5251ab945499f3f032afa281b16aefee49befc04455c54371907c325461f7ad7\"}",
+            "inferred language: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"transcriptInferred\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"5251ab945499f3f032afa281b16aefee49befc04455c54371907c325461f7ad7\"}",
+            "inferred language: spoken ko transcriptInferred",
+            "re-inferred language: source transcript=결정: 금요일에 출시합니다. calendar=nil language={\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"transcriptInferred\"} fingerprint=5251ab945499f3f032afa281b16aefee49befc04455c54371907c325461f7ad7",
+            "re-inferred language: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"transcriptInferred\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"5251ab945499f3f032afa281b16aefee49befc04455c54371907c325461f7ad7\"}",
+            "re-inferred language: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"ko\",\"requestedOutputLanguage\":\"\",\"resolutionSource\":\"transcriptInferred\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"5251ab945499f3f032afa281b16aefee49befc04455c54371907c325461f7ad7\"}",
+            "re-inferred language: spoken ko transcriptInferred",
+            "whitespace edit: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "whitespace edit: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "whitespace edit: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "whitespace edit: spoken en engineDetected",
+            "padded edit: source transcript=Decision: ship Monday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=5040e66036d1a8bc8469d9f8c6e7d73ec177bd6a34fb62a7a0b081b9ee8639e7",
+            "padded edit: summary {\"backendKind\":\"cloud\",\"content\":{\"actionItems\":[{\"id\":\"00000000-0000-0000-0000-0000000000A1\",\"isCompleted\":false,\"sourceQuote\":\"Decision: ship Friday.\",\"task\":\"Write release notes\"}],\"decisions\":[],\"keyPoints\":[],\"openQuestions\":[],\"overview\":{\"sourceQuotes\":[\"Decision: ship Friday.\"],\"text\":\"Release review\"}},\"generatedAt\":-978305200,\"languageContext\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"promptVersion\":1,\"schemaVersion\":4,\"sourceFingerprint\":\"5040e66036d1a8bc8469d9f8c6e7d73ec177bd6a34fb62a7a0b081b9ee8639e7\"}",
+            "padded edit: attempt {\"backendKind\":\"cloud\",\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"summary\\/model\",\"occurredAt\":-978305200,\"outcome\":\"succeeded\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"5040e66036d1a8bc8469d9f8c6e7d73ec177bd6a34fb62a7a0b081b9ee8639e7\"}",
+            "padded edit: spoken en engineDetected",
+            "rate limited: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "rate limited: summary nil",
+            "rate limited: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"httpStatus\":429,\"modelID\":\"limited\\/model\",\"providerCode\":\"rate_limit_exceeded\",\"providerHost\":\"api.example.com\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"limited\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "rate limited: spoken en engineDetected",
+            "request failed: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "request failed: summary nil",
+            "request failed: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"httpStatus\":503,\"modelID\":\"configured\\/model\",\"providerHost\":\"api.example.com\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"configured\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "request failed: spoken en engineDetected",
+            "invalid response local: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "invalid response local: summary nil",
+            "invalid response local: attempt {\"backendKind\":\"local\",\"issue\":{\"code\":\"meeting-summary-invalid-response\",\"context\":{\"localBackend\":\"Local AI\",\"meetingSummaryFailureSubtype\":\"jsonSchema\",\"modelID\":\"local\\/model\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"local\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "invalid response local: spoken en engineDetected",
+            "timed out: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "timed out: summary nil",
+            "timed out: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"modelID\":\"configured\\/model\",\"providerHost\":\"api.example.com\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"configured\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "timed out: spoken en engineDetected",
+            "cooling down: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "cooling down: summary nil",
+            "cooling down: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"httpStatus\":429,\"modelID\":\"configured\\/model\",\"providerHost\":\"api.example.com\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"configured\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "cooling down: spoken en engineDetected",
+            "other error cloud: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "other error cloud: summary nil",
+            "other error cloud: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"modelID\":\"configured\\/model\",\"providerHost\":\"api.example.com\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"configured\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "other error cloud: spoken en engineDetected",
+            "other error local: source transcript=Decision: ship Friday. calendar=nil language={\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"} fingerprint=45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1",
+            "other error local: summary nil",
+            "other error local: attempt {\"backendKind\":\"local\",\"issue\":{\"code\":\"meeting-summary-unavailable\",\"context\":{\"localBackend\":\"Local AI\",\"modelID\":\"configured\\/model\"},\"schemaVersion\":1,\"severity\":\"warning\"},\"language\":{\"appliedLanguageCode\":\"en\",\"requestedOutputLanguage\":\"English\",\"resolutionSource\":\"configured\"},\"modelID\":\"configured\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"sourceFingerprint\":\"45c3e77fbbc28e66c15892258c69898a084a15e20dce9ca0187d12a43d50fdb1\"}",
+            "other error local: spoken en engineDetected",
+            "unknown language: source none",
+            "unknown language: summary nil",
+            "unknown language: attempt {\"backendKind\":\"cloud\",\"issue\":{\"code\":\"meeting-summary-language-unavailable\",\"context\":{},\"schemaVersion\":1,\"severity\":\"error\"},\"modelID\":\"configured\\/model\",\"occurredAt\":-978305200,\"outcome\":\"failed\",\"providerHost\":\"api.example.com\",\"sourceFingerprint\":\"c4e559c077da22dd26a1bac942a0d118812f5509cfc74b11593b885027fc555e\"}",
+            "unknown language: spoken nil nil",
+        ]
+        guard lines == expected else {
+            let firstDifference = lines.indices.first { $0 >= expected.count || lines[$0] != expected[$0] }
+                ?? lines.count
+            throw MeetingSummaryWorkflowTestFailure(
+                description: "stored records changed at line \(firstDifference); got:\n"
+                    + lines.joined(separator: "\n")
+            )
+        }
+    }
+}
+
 private final class MeetingSummaryWorkflowHistoryRecorder {
     var storedItem: PipelineHistoryItem?
     var durabilityValue: PipelineHistoryDurability = .durable
