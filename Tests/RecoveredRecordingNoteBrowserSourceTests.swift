@@ -140,7 +140,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
     ) throws {
         let retryAction = block(
             source,
-            from: "private func retryTranscription()",
+            from: "private func retryTranscription(afterDownload: Bool = false)",
             to: "private func showToast("
         )
         // An unready or unusable selected model opens the transcription

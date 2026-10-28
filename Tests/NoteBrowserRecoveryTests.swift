@@ -206,6 +206,16 @@ struct NoteBrowserRecoveryTests {
         precondition(waiting.suggestion == "Synthetic: still uploading.")
         precondition(!uploading.showsRetryButton, "the toolbar has no retry either")
 
+        // No audio at all: it says the audio is unavailable, not "try again".
+        let missing = NoteBrowserRecoveryPresentation.presentation(
+            for: record,
+            actionState: NoteBrowserActionState(hasStoredAudio: false, transcript: "", retryAvailability: .noAudio),
+            language: "en",
+            bundle: .main
+        )
+        precondition(missing.recoveryAction == .none)
+        precondition(missing.suggestion == "This recording's audio file is unavailable, so it can't be transcribed.")
+
         let downloadable = NoteBrowserActionState(
             hasStoredAudio: false,
             transcript: "",

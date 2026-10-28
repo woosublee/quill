@@ -22,6 +22,11 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         let noteBrowser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         precondition(noteBrowser.contains("recoveryAction: hasAudio ? .retryTranscription : .none,"))
         precondition(noteBrowser.contains("action: retryAvailability == .noAudio ? nil : { retryTranscription() }"))
+        // #688: a retry after downloading the audio runs once: it doesn't
+        // stop on its own download flag, and it never downloads again.
+        precondition(noteBrowser.contains("retryTranscription(afterDownload: true)"))
+        precondition(noteBrowser.contains("guard !afterDownload else {"))
+        precondition(!noteBrowser.contains("defer { isDownloadingToRetry = false }"))
         try verifiesImportPlaceholderPrecedesCloudExecution(appState)
         try verifiesRecordingPlaceholderPrecedesCloudExecution(appState)
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)

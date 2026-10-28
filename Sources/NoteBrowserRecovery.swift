@@ -69,7 +69,11 @@ enum NoteBrowserRecoveryPresentation {
             return QuillUserIssuePresentation(
                 title: original.title,
                 body: original.body,
-                suggestion: actionState.audioUnavailableMessage ?? original.suggestion,
+                suggestion: actionState.audioUnavailableMessage ?? localizedCatalogString(
+                    "This recording's audio file is unavailable, so it can't be transcribed.",
+                    language: language,
+                    bundle: bundle
+                ),
                 compactMessage: original.compactMessage,
                 detailsRows: original.detailsRows,
                 recoveryAction: .none,
