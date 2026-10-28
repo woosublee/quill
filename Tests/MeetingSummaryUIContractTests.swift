@@ -278,6 +278,11 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("appState.cancelTranscriptionRetry(item: item)"))
         precondition(noteBrowser.contains("Image(systemName: isRetrying ? \"xmark.circle\" : \"arrow.clockwise\")"))
         precondition(noteBrowser.contains("help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp"))
+        precondition(noteBrowser.contains("disabled: isRetrying && !canCancelRetry,"), "post-processing shows a spinner, off")
+        precondition(noteBrowser.contains("guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }"), "a double press isn't a Cancel")
+        let appStateSource = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
+        precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
+        precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
         // #690 retranscription row: transcript tab keeps only Cancel on;
         // the summary tab keeps Copy and Save; Regenerate, Create summary,
         // and Delete are off on both.

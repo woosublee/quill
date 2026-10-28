@@ -2572,6 +2572,10 @@ private struct NoteDetailView: View {
     /// The toolbar during a retranscription (#689, the table in #690): on
     /// the transcript tab only Cancel stays on; on the summary tab Copy and
     /// Save stay on. Regenerate, Create summary, and Delete are off on both.
+    @State private var retryPressedAt = Date.distantPast
+    private var canCancelRetry: Bool {
+        appState.canCancelTranscriptionRetry(item)
+    }
     private var isRetryingOnTranscriptTab: Bool {
         isRetrying && !isShowingSummaryTab
     }
@@ -4063,17 +4067,26 @@ private struct NoteDetailView: View {
                 toolbarButton(
                     action: {
                         if isRetrying {
+                            // A quick second press on Retry isn't a Cancel.
+                            guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }
                             appState.cancelTranscriptionRetry(item: item)
                         } else {
+                            retryPressedAt = Date()
                             retryTranscription()
                         }
                     },
                     label: {
-                        Image(systemName: isRetrying ? "xmark.circle" : "arrow.clockwise")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(isRetrying ? Color.primary : Color.orange)
+                        if isRetrying, !canCancelRetry {
+                            // Post-processing, or work that can't be cancelled
+                            // here: a spinner, off (#690).
+                            ProgressView().controlSize(.mini).frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: isRetrying ? "xmark.circle" : "arrow.clockwise")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(isRetrying ? Color.primary : Color.orange)
+                        }
                     },
-                    disabled: false,
+                    disabled: isRetrying && !canCancelRetry,
                     help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp
                 )
                 toolbarDivider
