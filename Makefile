@@ -645,6 +645,9 @@ $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests: Sources/RecordingJournalFailure.s
 $(TEST_BUILD_DIR)/NoteToolbarStateTests: Tests/NoteToolbarStateTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteToolbarStateTests.swift -o "$@"
 
+$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests: Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(STANDALONE_TEST_TARGET) Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift -o "$@"
+
 $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests: Tests/MeetingSummaryUIContractTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/MeetingSummaryUIContractTests.swift -o "$@"
 
@@ -801,7 +804,7 @@ test: check-test-wiring
 	@$(call RUN_TIMED_TARGET,_test-transcription,transcription)
 	@$(call RUN_TIMED_TARGET,_test-app-state,app-state)
 
-_test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/LocalizationResourceTests $(TEST_BUILD_DIR)/UpdateSnapshotStoreTests $(TEST_BUILD_DIR)/MeetingSummaryModelsTests $(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests $(TEST_BUILD_DIR)/SpokenLanguageResolutionTests $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests $(TEST_BUILD_DIR)/NoteToolbarStateTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+_test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/LocalizationResourceTests $(TEST_BUILD_DIR)/UpdateSnapshotStoreTests $(TEST_BUILD_DIR)/MeetingSummaryModelsTests $(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests $(TEST_BUILD_DIR)/SpokenLanguageResolutionTests $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests $(TEST_BUILD_DIR)/NoteToolbarStateTests $(TEST_BUILD_DIR)/PostProcessingStopSwitchTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/UpdateSnapshotStoreTests
 	@python3 Tests/StableReleaseValidationTests.py
 	@bash Tests/SparkleKeyValidationTests.sh
@@ -812,6 +815,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/SpokenLanguageResolutionTests
 	@$(TEST_BUILD_DIR)/MeetingSummaryUIContractTests
 	@$(TEST_BUILD_DIR)/NoteToolbarStateTests
+	@$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o $(TEST_BUILD_DIR)/CalendarEventMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o $(TEST_BUILD_DIR)/ShortcutMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o $(TEST_BUILD_DIR)/ShortcutCaptureKeyHandlingTests

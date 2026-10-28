@@ -243,6 +243,8 @@ struct StoppedTranscriptionCompletionSummary {
     let shouldPressEnterAfterPaste: Bool
     let spokenLanguage: SpokenLanguageResolution?
     let aiProcessingOutcome: AIProcessingOutcome
+    /// The person stopped the cleanup step (#699).
+    let postProcessingStopped: Bool
 
     init(
         rawTranscript: String,
@@ -251,7 +253,8 @@ struct StoppedTranscriptionCompletionSummary {
         processingStatus: String,
         shouldPressEnterAfterPaste: Bool,
         spokenLanguage: SpokenLanguageResolution? = nil,
-        aiProcessingOutcome: AIProcessingOutcome = .succeeded
+        aiProcessingOutcome: AIProcessingOutcome = .succeeded,
+        postProcessingStopped: Bool = false
     ) {
         self.rawTranscript = rawTranscript
         self.finalTranscript = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -260,6 +263,7 @@ struct StoppedTranscriptionCompletionSummary {
         self.shouldPressEnterAfterPaste = shouldPressEnterAfterPaste
         self.spokenLanguage = spokenLanguage
         self.aiProcessingOutcome = aiProcessingOutcome
+        self.postProcessingStopped = postProcessingStopped
     }
 }
 
@@ -2991,6 +2995,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Note Browser can label them apart from notes that are still transcribing.
     @Published private(set) var postProcessingNoteIDs: Set<UUID> = []
     private var postProcessingNoteIDByJobID: [UUID: UUID] = [:]
+    /// What stops each running cleanup, for Cancel Post-processing (#699).
+    private var postProcessingStopSwitches: [UUID: PostProcessingStopSwitch] = [:]
+    private var postProcessingStopSwitchByJobID: [UUID: PostProcessingStopSwitch] = [:]
     private var pendingAudioImportJobIDs: Set<UUID> = []
     let localAIServerManager: LocalAIServerManager
     private let localAIWorkflow: LocalAIModelWorkflow
@@ -6161,9 +6168,98 @@ final class AppState: ObservableObject, @unchecked Sendable {
         markStoppedCloudTranscriptions(among: [item.id])
     }
 
+    /// The cleanup step runs for this note and the person hasn't stopped it
+    /// yet (#699).
+    @MainActor
+    func canCancelPostProcessing(noteID: UUID) -> Bool {
+        postProcessingNoteIDs.contains(noteID)
+            && postProcessingStopSwitches[noteID]?.isStopped == false
+    }
+
+    /// Stops only the cleanup step (#699). After a transcription, the note
+    /// keeps the transcript as it is, recorded as not post-processed, with
+    /// no warning. A stopped Retry Post-processing leaves the note as it was.
+    @MainActor
+    func cancelPostProcessing(noteID: UUID) {
+        guard canCancelPostProcessing(noteID: noteID) else { return }
+        // The switch isn't published: redraw so ✕ turns into progress.
+        objectWillChange.send()
+        postProcessingStopSwitches[noteID]?.stop()
+    }
+
+    /// The first transcription after recording or import runs for this
+    /// note, before its cleanup, and the note and its audio are saved, so
+    /// stopping can keep them (#699).
+    @MainActor
+    func canCancelFirstTranscription(noteID: UUID) -> Bool {
+        firstTranscriptionJobID(noteID: noteID) != nil
+    }
+
+    @MainActor
+    private func firstTranscriptionJobID(noteID: UUID) -> UUID? {
+        guard let job = activeTranscriptionJobs.values.first(where: {
+                  ($0.liveNoteID ?? $0.id) == noteID
+              }),
+              !postProcessingNoteIDs.contains(noteID),
+              !isRecordingNote(noteID: noteID),
+              let item = pipelineHistory.first(where: { $0.id == noteID }),
+              item.audioFileName != nil,
+              item.rawTranscript.isEmpty,
+              item.postProcessedTranscript.isEmpty else { return nil }
+        return job.id
+    }
+
+    /// Stops the first transcription and keeps the note as audio only, the
+    /// same as recording with transcription off (#699): no warning, and no
+    /// saved job resumes it at the next launch. Unlike the Esc cancel, the
+    /// note and its audio stay.
+    @MainActor
+    func cancelFirstTranscription(noteID: UUID) {
+        guard let jobID = firstTranscriptionJobID(noteID: noteID),
+              let job = activeTranscriptionJobs[jobID],
+              let item = pipelineHistory.first(where: { $0.id == noteID }),
+              let audioOnly = item.keepingOnlyAudio() else { return }
+        job.task?.cancel()
+        // The same stop a retry uses for a running cloud or Local AI job,
+        // and the saved job must not resume at the next launch.
+        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+            historyID: noteID,
+            store: cloudTranscriptionJobStore
+        )
+        try? cloudTranscriptionJobStore.delete(historyID: noteID, session: nil)
+        cloudTranscriptionProgressByHistoryID.removeValue(forKey: noteID)
+        do {
+            let removedStoredFiles = try pipelineHistoryStore.upsert(
+                audioOnly,
+                maxCount: maxPipelineHistoryCount
+            )
+            for removedAssets in removedStoredFiles {
+                cleanupDeletedPipelineHistoryAssets(removedAssets)
+            }
+            updatePipelineHistoryItem(audioOnly)
+            // The recording is settled; don't offer it again as recovered.
+            if let journalRecordingID = audioOnly.audioFileName.flatMap(
+                recordingJournalID(forAudioFileName:)
+            ) {
+                discardRecordingJournalAfterSuccessfulTranscription(
+                    recordingID: journalRecordingID
+                )
+            }
+        } catch {
+            errorMessage = QuillUserIssueRecord(code: .historyPersistenceUnavailable)
+                .presentation().compactMessage
+        }
+        if foregroundTranscriptionJobID == jobID, !isRecording {
+            dismissTranscribingOverlay(resetOverlayOwner: true)
+        }
+        // The cancelled task finishes its job too; finishing here keeps the
+        // note from showing work while that task winds down.
+        finishTranscriptionJob(jobID)
+    }
+
     /// The transcription workflow runs for this note and hasn't reached
-    /// post-processing (#690: post-processing shows a spinner, not Cancel).
-    /// Retry Post-processing alone isn't a transcription and has no Cancel.
+    /// post-processing, which has its own Cancel (#699).
+    /// Retry Post-processing alone isn't a transcription.
     @MainActor
     func canCancelTranscriptionRetry(_ item: PipelineHistoryItem) -> Bool {
         transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)
@@ -6744,7 +6840,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         activeTranscriptionJobs.removeValue(forKey: id)
         if let noteID = postProcessingNoteIDByJobID.removeValue(forKey: id) {
-            postProcessingNoteIDs.remove(noteID)
+            endPostProcessing(
+                noteID: noteID,
+                stopSwitch: postProcessingStopSwitchByJobID.removeValue(forKey: id)
+            )
         }
         if foregroundTranscriptionJobID == id {
             foregroundTranscriptionJobID = activeTranscriptionJobs.values.max(by: { $0.startedAt < $1.startedAt })?.id
@@ -6753,12 +6852,46 @@ final class AppState: ObservableObject, @unchecked Sendable {
         terminateIfReady()
     }
 
+    /// Returns the switch that lets the person stop this cleanup (#699).
+    @discardableResult
     @MainActor
-    private func markTranscriptionJobPostProcessing(_ jobID: UUID) {
-        guard activeTranscriptionJobs[jobID] != nil else { return }
+    private func markTranscriptionJobPostProcessing(
+        _ jobID: UUID,
+        intent: SessionIntent = .dictation
+    ) -> PostProcessingStopSwitch? {
+        guard activeTranscriptionJobs[jobID] != nil else { return nil }
         let noteID = activeTranscriptionJobs[jobID]?.liveNoteID ?? jobID
         postProcessingNoteIDByJobID[jobID] = noteID
+        let stopSwitch = beginPostProcessing(noteID: noteID, intent: intent)
+        postProcessingStopSwitchByJobID[jobID] = stopSwitch
+        return stopSwitch
+    }
+
+    /// Edit Mode's transform isn't a cleanup the person can stop alone, so
+    /// it gets no switch and the toolbar shows progress.
+    @MainActor
+    private func beginPostProcessing(
+        noteID: UUID,
+        intent: SessionIntent
+    ) -> PostProcessingStopSwitch? {
         postProcessingNoteIDs.insert(noteID)
+        if case .command = intent {
+            postProcessingStopSwitches.removeValue(forKey: noteID)
+            return nil
+        }
+        let stopSwitch = PostProcessingStopSwitch()
+        postProcessingStopSwitches[noteID] = stopSwitch
+        return stopSwitch
+    }
+
+    /// Ends the cleanup `beginPostProcessing` started. A newer cleanup of the
+    /// same note keeps its own switch.
+    @MainActor
+    private func endPostProcessing(noteID: UUID, stopSwitch: PostProcessingStopSwitch?) {
+        postProcessingNoteIDs.remove(noteID)
+        if let stopSwitch, postProcessingStopSwitches[noteID] === stopSwitch {
+            postProcessingStopSwitches.removeValue(forKey: noteID)
+        }
     }
 
     /// User-facing processing stage of the foreground job for the menu bar.
@@ -9316,6 +9449,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         from: transcription.text,
                         pressEnterCommandEnabled: configuration.pressEnterCommandEnabled
                     )
+                    let stopSwitch = configuration.postProcessingEnabled
+                        ? self.markTranscriptionJobPostProcessing(jobID)
+                        : nil
                     let result = await Self.processTranscript(
                         parsedTranscript.transcript,
                         intent: .dictation,
@@ -9326,7 +9462,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: configuration.customSystemPrompt,
                         outputLanguage: configuration.outputLanguage,
                         spokenLanguage: transcription.spokenLanguage,
-                        postProcessingEnabled: configuration.postProcessingEnabled
+                        postProcessingEnabled: configuration.postProcessingEnabled,
+                        stopSwitch: stopSwitch
                     )
                     try Task.checkCancellation()
                     guard isCurrentCloudTranscriptionExecution(
@@ -9355,7 +9492,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.historyLocalTranscriptionModelID,
                         usedContextCaptureOverride: false,
-                        usedPostProcessingOverride: configuration.postProcessingEnabled,
+                        usedPostProcessingOverride: configuration.postProcessingEnabled
+                            && !Self.wasPostProcessingStopped(result.outcome),
                         transcriptionLanguageCodeOverride: configuration.transcriptionLanguage.code,
                         spokenLanguage: transcription.spokenLanguage,
                         customVocabularyOverride: configuration.customVocabulary,
@@ -9763,7 +9901,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcript: rawTranscript
         )
         retryingItemIDs.insert(noteID)
-        postProcessingNoteIDs.insert(noteID)
+        let stopSwitch = beginPostProcessing(noteID: noteID, intent: restored.intent)
 
         Task { @MainActor [weak self] in
             let processing = await Self.processRetryTranscription(
@@ -9775,16 +9913,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customVocabulary: restored.customVocabulary,
                 customSystemPrompt: restored.customSystemPrompt,
                 completion: completion,
-                trimsFinalTranscript: true
+                trimsFinalTranscript: true,
+                stopSwitch: stopSwitch
             )
             guard let self else { return }
             defer {
                 self.retryingItemIDs.remove(noteID)
-                self.postProcessingNoteIDs.remove(noteID)
+                self.endPostProcessing(noteID: noteID, stopSwitch: stopSwitch)
             }
             // The transcript changed meanwhile (edited, cleared, or
             // transcribed again): this result would replace newer text.
-            guard let current = self.pipelineHistory.first(where: { $0.id == noteID }),
+            // Stopped (#699): the note keeps its cleanup warning, and with
+            // it Retry Post-processing.
+            guard !processing.postProcessingStopped,
+                  let current = self.pipelineHistory.first(where: { $0.id == noteID }),
                   current.rawTranscript == storedRawTranscript,
                   current.postProcessedTranscript == storedEditedTranscript else { return }
             // Keep the note's raw transcript and audio; replace only the
@@ -9929,12 +10071,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // Mark the note as post-processing while the retry cleans up the
             // transcript, so the Note Browser says "Post-processing…".
             let marksPostProcessing = capturedCompletion.postProcessingEnabled
-            if marksPostProcessing {
-                self?.postProcessingNoteIDs.insert(retryNoteID)
-            }
+            let stopSwitch = marksPostProcessing
+                ? self?.beginPostProcessing(noteID: retryNoteID, intent: capturedIntent)
+                : nil
             defer {
                 if marksPostProcessing {
-                    self?.postProcessingNoteIDs.remove(retryNoteID)
+                    self?.endPostProcessing(noteID: retryNoteID, stopSwitch: stopSwitch)
                 }
             }
             return await Self.processRetryTranscription(
@@ -9946,7 +10088,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customVocabulary: capturedVocabulary,
                 customSystemPrompt: capturedSystemPrompt,
                 completion: capturedCompletion,
-                trimsFinalTranscript: true
+                trimsFinalTranscript: true,
+                stopSwitch: stopSwitch
             )
         }
 
@@ -10036,7 +10179,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabulary: String,
         customSystemPrompt: String,
         completion: TranscriptionCompletionSnapshot,
-        trimsFinalTranscript: Bool
+        trimsFinalTranscript: Bool,
+        stopSwitch: PostProcessingStopSwitch? = nil
     ) async -> TranscriptionRetryProcessingResult {
         let parsedTranscript = parseTranscriptCommands(
             from: transcription.text,
@@ -10058,7 +10202,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: customSystemPrompt,
             outputLanguage: completion.outputLanguage,
             spokenLanguage: transcription.spokenLanguage,
-            postProcessingEnabled: completion.postProcessingEnabled
+            postProcessingEnabled: completion.postProcessingEnabled,
+            stopSwitch: stopSwitch
         )
         let disposition: TranscriptionRetryProcessingDisposition
         switch result.outcome {
@@ -10087,8 +10232,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingStatus: status,
             aiProcessingOutcome: result.aiProcessingOutcome,
             spokenLanguage: transcription.spokenLanguage,
-            disposition: disposition
+            disposition: disposition,
+            postProcessingStopped: Self.wasPostProcessingStopped(result.outcome)
         )
+    }
+
+    /// The person stopped the cleanup (#699): the note then records no
+    /// post-processing.
+    private static func wasPostProcessingStopped(
+        _ outcome: TranscriptProcessingOutcome
+    ) -> Bool {
+        guard case .postProcessingStopped = outcome else { return false }
+        return true
     }
 
     func updatePermissionStatus(accessibility: Bool, screenRecording: Bool) {
@@ -12516,6 +12671,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case skippedEmptyRawTranscript
         case voiceMacro(command: String)
         case postProcessingDisabled
+        /// The person stopped the cleanup step (#699).
+        case postProcessingStopped
         case postProcessingSucceeded
         case postProcessingSkippedCooldown
         case postProcessingRawFallback(reason: AIValidationFailure)
@@ -12532,6 +12689,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return "Voice macro used: \(command)"
             case .postProcessingDisabled:
                 return "Post-processing disabled"
+            case .postProcessingStopped:
+                return "Post-processing stopped"
             case .postProcessingSucceeded:
                 return isRetry ? "Post-processing succeeded (retried)" : "Post-processing succeeded"
             case .postProcessingSkippedCooldown:
@@ -12562,7 +12721,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customSystemPrompt: String,
         outputLanguage: String,
         spokenLanguage: SpokenLanguageResolution,
-        postProcessingEnabled: Bool
+        postProcessingEnabled: Bool,
+        stopSwitch: PostProcessingStopSwitch? = nil
     ) async -> (
         finalTranscript: String,
         outcome: TranscriptProcessingOutcome,
@@ -12628,14 +12788,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         do {
-            let result = try await postProcessingService.postProcess(
-                transcript: trimmedRawTranscript,
-                context: context,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage,
-                spokenLanguage: spokenLanguage
-            )
+            let cleanup = { @Sendable in
+                try await postProcessingService.postProcess(
+                    transcript: trimmedRawTranscript,
+                    context: context,
+                    customVocabulary: customVocabulary,
+                    customSystemPrompt: customSystemPrompt,
+                    outputLanguage: outputLanguage,
+                    spokenLanguage: spokenLanguage
+                )
+            }
+            let stoppedResult: PostProcessingResult?
+            if let stopSwitch {
+                stoppedResult = try await stopSwitch.run(cleanup)
+            } else {
+                stoppedResult = try await cleanup()
+            }
+            // The person stopped the cleanup: keep the transcript as it is,
+            // the same as post-processing off, with no warning (#699).
+            guard let result = stoppedResult else {
+                return (rawTranscript, .postProcessingStopped, "", nil, .succeeded)
+            }
             let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
                 ? .postProcessingSkippedCooldown
                 : .postProcessingSucceeded
@@ -12761,7 +12934,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customSystemPrompt: String,
         outputLanguage: String,
         postProcessingEnabled: Bool,
-        pressEnterCommandEnabled: Bool
+        pressEnterCommandEnabled: Bool,
+        stopSwitch: PostProcessingStopSwitch? = nil
     ) async throws -> StoppedTranscriptionCompletionSummary {
         let parsedTranscript = Self.parseTranscriptCommands(
             from: transcription.text,
@@ -12781,7 +12955,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
             spokenLanguage: transcription.spokenLanguage,
-            postProcessingEnabled: postProcessingEnabled
+            postProcessingEnabled: postProcessingEnabled,
+            stopSwitch: stopSwitch
         )
         try Task.checkCancellation()
         let processingStatus = result.userIssueRecord?.persistedStatus
@@ -12797,7 +12972,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             processingStatus: processingStatus,
             shouldPressEnterAfterPaste: parsedTranscript.shouldPressEnterAfterPaste,
             spokenLanguage: transcription.spokenLanguage,
-            aiProcessingOutcome: result.aiProcessingOutcome
+            aiProcessingOutcome: result.aiProcessingOutcome,
+            postProcessingStopped: Self.wasPostProcessingStopped(result.outcome)
         )
     }
 
@@ -12842,7 +13018,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 useLocalTranscriptionOverride: settings.useLocalTranscription,
                 localTranscriptionModelIDOverride: settings.historyLocalTranscriptionModelID,
                 usedContextCaptureOverride: settings.usedContextCapture,
-                usedPostProcessingOverride: settings.usedPostProcessing,
+                usedPostProcessingOverride: settings.usedPostProcessing
+                    && !completion.postProcessingStopped,
                 transcriptionLanguageCodeOverride: settings.transcriptionLanguage.code,
                 spokenLanguage: completion.spokenLanguage,
                 customVocabularyOverride: settings.customVocabulary,
@@ -13108,11 +13285,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
                     }
                     try Task.checkCancellation()
-                    await MainActor.run {
+                    let stopSwitch = await MainActor.run { () -> PostProcessingStopSwitch? in
                         self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
-                        if capturedSettings.usedPostProcessing {
-                            self.markTranscriptionJobPostProcessing(jobID)
-                        }
+                        return capturedSettings.usedPostProcessing
+                            ? self.markTranscriptionJobPostProcessing(jobID, intent: sessionIntent)
+                            : nil
                     }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
@@ -13127,7 +13304,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedSettings.usedPostProcessing,
-                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled
+                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled,
+                        stopSwitch: stopSwitch
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
                         jobID: jobID,
@@ -13357,11 +13535,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     guard isCurrentCloudExecution else { return }
                     let rawTranscript = transcription.text
-                    await MainActor.run {
+                    let stopSwitch = await MainActor.run { () -> PostProcessingStopSwitch? in
                         self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
-                        if capturedSettings.usedPostProcessing {
-                            self.markTranscriptionJobPostProcessing(jobID)
-                        }
+                        return capturedSettings.usedPostProcessing
+                            ? self.markTranscriptionJobPostProcessing(jobID, intent: sessionIntent)
+                            : nil
                     }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
@@ -13376,7 +13554,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedSettings.usedPostProcessing,
-                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled
+                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled,
+                        stopSwitch: stopSwitch
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
                         jobID: jobID,
@@ -13411,11 +13590,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
                     await MainActor.run {
-                        guard self.isCurrentCloudTranscriptionExecution(
-                            historyID: cloudHistoryID,
-                            context: cloudExecutionContext,
-                            requiresCloudExecution: capturedUsesJobStore
-                        ) else {
+                        // A cancelled run can fail on its way out; the
+                        // person's cancel already decided the note (#699).
+                        guard !Task.isCancelled,
+                              self.isCurrentCloudTranscriptionExecution(
+                                historyID: cloudHistoryID,
+                                context: cloudExecutionContext,
+                                requiresCloudExecution: capturedUsesJobStore
+                              ) else {
                             self.finishTranscriptionJob(
                                 jobID,
                                 overlayID: myOverlayID

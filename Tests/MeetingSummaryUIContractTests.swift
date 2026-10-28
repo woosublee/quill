@@ -271,9 +271,18 @@ struct MeetingSummaryUIContractTests {
         // comes first, and Summary work started elsewhere opens its tab.
         // The note toolbar is the shared QuillNoteUI view and #690 table
         // (#697); the Note Browser only maps its state and actions.
-        precondition(noteBrowser.contains("NoteFloatingToolbar(\n            state: NoteToolbarState.make(toolbarInput),"))
+        precondition(noteBrowser.contains("let state = NoteToolbarState.make(toolbarInput)\n        return NoteFloatingToolbar(\n            state: state,"))
         precondition(noteBrowser.contains("transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,"))
-        precondition(noteBrowser.contains("canCancelWork: isRetrying && canCancelRetry && toolbarWork != .postProcessing,"), "post-processing never offers a Cancel that does nothing")
+        // #699: the first transcription and a cleanup alone stop from the
+        // same ✕ the iPhone shows, each keeping what's saved.
+        precondition(noteBrowser.contains("canCancelWork: canCancelToolbarWork,"))
+        precondition(noteBrowser.contains("return appState.canCancelPostProcessing(noteID: item.id)"), "a cleanup offers ✕ only while it can stop")
+        precondition(noteBrowser.contains(": appState.canCancelFirstTranscription(noteID: item.id)"))
+        precondition(noteBrowser.contains("appState.cancelFirstTranscription(noteID: item.id)"))
+        precondition(noteBrowser.contains("appState.cancelPostProcessing(noteID: item.id)"))
+        // A press meant for the last button (or a quick second press) isn't a Cancel.
+        precondition(noteBrowser.contains("&& now.timeIntervalSince(firstSlotChangedAt) > 0.6"))
+        precondition(noteBrowser.contains(".onChange(of: state.firstSlot) { _ in\n            firstSlotChangedAt = Date()"))
         precondition(noteBrowser.contains("return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none"), "the first transcription shows the toolbar")
         // #689: while a transcription runs, the same slot cancels it, like
         // the iPhone. Nothing is saved, so the current transcript stays.
@@ -291,7 +300,7 @@ struct MeetingSummaryUIContractTests {
         // to shrink to its widest row during a retranscription).
         let summaryView = (try? String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)) ?? ""
         precondition(summaryView.contains(".frame(maxWidth: .infinity, alignment: .leading)\n            .frame(maxWidth: 760, alignment: .leading)"))
-        precondition(noteBrowser.contains("guard Date().timeIntervalSince(firstSlotPressedAt) > 0.6 else { return }"), "a double press isn't a Cancel")
+        precondition(noteBrowser.contains("return now.timeIntervalSince(firstSlotPressedAt) > 0.6"), "a double press isn't a Cancel")
         let appStateSource = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
         precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))

@@ -186,8 +186,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(!applyState.contains("retryingItemIDs.formUnion("))
         precondition(applyState.contains("retryingItemIDs = retryingIDs"))
         precondition(applyState.contains("cloudTranscriptionProgressByHistoryID = progressByHistoryID"))
-        precondition(appStateSource.contains("self?.postProcessingNoteIDs.insert(retryNoteID)"))
-        precondition(appStateSource.contains("self?.postProcessingNoteIDs.remove(retryNoteID)"))
+        precondition(appStateSource.contains("? self?.beginPostProcessing(noteID: retryNoteID, intent: capturedIntent)"))
+        precondition(appStateSource.contains("self?.endPostProcessing(noteID: retryNoteID, stopSwitch: stopSwitch)"))
 
         // The Settings run log offers the same picker when retry needs a model.
         let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)

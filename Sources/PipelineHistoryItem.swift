@@ -373,7 +373,10 @@ struct PipelineHistoryItem: Identifiable, Codable {
         calendarMatch: CalendarEventMatch?,
         audioFileName: String,
         transcriptionLanguageCode: String,
-        localTranscriptionModelID: String
+        localTranscriptionModelID: String,
+        customTitle: String? = nil,
+        deletedAt: Date? = nil,
+        fieldClock: NoteFieldClock? = nil
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: .dictation,
@@ -407,7 +410,29 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextAppName: nil,
             contextBundleIdentifier: nil,
             contextWindowTitle: nil,
-            customTitle: nil
+            customTitle: customTitle,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
+        )
+    }
+
+    /// This note as audio only, the state transcription off leaves, for a
+    /// first transcription the person stopped (#699). Nil without audio.
+    func keepingOnlyAudio() -> PipelineHistoryItem? {
+        guard let audioFileName else { return nil }
+        // Keep what the note already has for its title and for sync.
+        return Self.audioOnly(
+            id: id,
+            timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            audioFileName: audioFileName,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            localTranscriptionModelID: localTranscriptionModelID,
+            customTitle: customTitle,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
         )
     }
 

@@ -504,14 +504,16 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         let stop = try body(startingWith: "func stopAndTranscribe(", in: source)
 
         let marker = """
-                        if capturedSettings.usedPostProcessing {
-                            self.markTranscriptionJobPostProcessing(jobID)
-                        }
+                        return capturedSettings.usedPostProcessing
+                            ? self.markTranscriptionJobPostProcessing(jobID, intent: sessionIntent)
+                            : nil
 """
         precondition(stop.components(separatedBy: marker).count == 3, "both stop paths mark post-processing")
         let finish = try body(startingWith: "private func finishTranscriptionJob(_ id: UUID)", in: source)
         precondition(finish.contains("postProcessingNoteIDByJobID.removeValue(forKey: id)"))
-        precondition(finish.contains("postProcessingNoteIDs.remove(noteID)"))
+        // #699: ends the stage and drops only this job's cleanup stop.
+        precondition(finish.contains("endPostProcessing(\n                noteID: noteID,\n                stopSwitch: postProcessingStopSwitchByJobID.removeValue(forKey: id)"))
+        precondition(source.contains("postProcessingNoteIDs.remove(noteID)\n        if let stopSwitch, postProcessingStopSwitches[noteID] === stopSwitch {"))
         // The row never names the stage; the note detail reads postProcessingNoteIDs.
         precondition(!noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
         precondition(noteBrowser.contains("appState.postProcessingNoteIDs.contains(item.id)"))

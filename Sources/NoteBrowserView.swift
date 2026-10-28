@@ -2572,6 +2572,7 @@ private struct NoteDetailView: View {
     /// stays on. Save and Delete open the same picker from either tab, so
     /// they're off on both, with Regenerate and Create summary.
     @State private var firstSlotPressedAt = Date.distantPast
+    @State private var firstSlotChangedAt = Date.distantPast
     private var canCancelRetry: Bool {
         appState.canCancelTranscriptionRetry(item)
     }
@@ -4015,8 +4016,9 @@ private struct NoteDetailView: View {
     /// The toolbar follows the open tab (#262): each tab's "make again"
     /// action sits first, before the divider, and runs where you can see it.
     private var floatingToolbar: some View {
-        NoteFloatingToolbar(
-            state: NoteToolbarState.make(toolbarInput),
+        let state = NoteToolbarState.make(toolbarInput)
+        return NoteFloatingToolbar(
+            state: state,
             labels: toolbarLabels,
             actions: NoteToolbarActions(
                 firstAction: { handleToolbarFirstAction($0) },
@@ -4031,6 +4033,11 @@ private struct NoteDetailView: View {
         .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
         .overrideCursor(.arrow)
+        // A press meant for the slot's last button mustn't land as the next
+        // one: transcription can turn into post-processing under the cursor.
+        .onChange(of: state.firstSlot) { _ in
+            firstSlotChangedAt = Date()
+        }
     }
 
     /// What this note's toolbar shows, for the shared #690 table.
@@ -4038,9 +4045,7 @@ private struct NoteDetailView: View {
         NoteToolbarInput(
             tab: isShowingSummaryTab ? .summary : .transcript,
             work: toolbarWork,
-            // The Mac can't stop only the cleanup step, so post-processing
-            // never offers ✕ (the table shows progress).
-            canCancelWork: isRetrying && canCancelRetry && toolbarWork != .postProcessing,
+            canCancelWork: canCancelToolbarWork,
             transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
@@ -4062,6 +4067,21 @@ private struct NoteDetailView: View {
             return isAudioOnly ? .transcribing : .retranscribing
         }
         return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none
+    }
+
+    /// Whether this note's running work can stop from here: a cleanup
+    /// alone, a retranscription, or the first transcription (#699).
+    private var canCancelToolbarWork: Bool {
+        switch toolbarWork {
+        case .postProcessing:
+            return appState.canCancelPostProcessing(noteID: item.id)
+        case .transcribing, .retranscribing:
+            return isRetrying
+                ? canCancelRetry
+                : appState.canCancelFirstTranscription(noteID: item.id)
+        case .none, .waitingToTranscribe, .cancelling:
+            return false
+        }
     }
 
     private var toolbarLabels: NoteToolbarLabels {
@@ -4097,17 +4117,27 @@ private struct NoteDetailView: View {
             firstSlotPressedAt = Date()
             handleSummaryAction()
         case .cancelTranscription, .cancelRetranscription:
-            // A quick second press on the same slot isn't a Cancel.
-            guard Date().timeIntervalSince(firstSlotPressedAt) > 0.6 else { return }
-            appState.cancelTranscriptionRetry(item: item)
+            guard isFirstSlotSettled else { return }
+            if isRetrying {
+                appState.cancelTranscriptionRetry(item: item)
+            } else {
+                appState.cancelFirstTranscription(noteID: item.id)
+            }
         case .cancelPostProcessing:
-            // The Mac can't stop only the cleanup step yet, so the table shows
-            // progress instead (`canCancelWork` is false then).
-            break
+            guard isFirstSlotSettled else { return }
+            appState.cancelPostProcessing(noteID: item.id)
         case .cancelSummary:
-            guard Date().timeIntervalSince(firstSlotPressedAt) > 0.6 else { return }
+            guard isFirstSlotSettled else { return }
             appState.cancelMeetingSummary(noteID: item.id)
         }
+    }
+
+    /// A quick second press on the same slot, or one just after it changed,
+    /// isn't a Cancel.
+    private var isFirstSlotSettled: Bool {
+        let now = Date()
+        return now.timeIntervalSince(firstSlotPressedAt) > 0.6
+            && now.timeIntervalSince(firstSlotChangedAt) > 0.6
     }
 
     private func requestDelete() {

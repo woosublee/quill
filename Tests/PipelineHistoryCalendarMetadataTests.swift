@@ -11,6 +11,7 @@ struct PipelineHistoryCalendarMetadataTests {
         try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
         try testAudioOnlyRoundTripPreservesRecordingMetadata()
+        try testStoppedFirstTranscriptionKeepsOnlyTheAudio()
         try testUpsertKeepsOneRowAndUpdatesAllFields()
         try testMultipleInMemoryStoresRemainIsolated()
         try testDeletedAssetsIncludeHistoryIDForDeleteClearAndTrim()
@@ -419,6 +420,72 @@ struct PipelineHistoryCalendarMetadataTests {
         assert(loaded[0].recordingEndedAt == end)
         assert(loaded[0].audioFileName == "audio.wav")
         assert(loaded[0].transcriptFileName == nil)
+    }
+
+    /// #699: a first transcription the person stopped leaves the note as
+    /// audio only, so a relaunch sees nothing to resume and offers Transcribe.
+    private static func testStoppedFirstTranscriptionKeepsOnlyTheAudio() throws {
+        let store = PipelineHistoryStore(inMemory: true)
+        let id = UUID()
+        let start = Date(timeIntervalSince1970: 100)
+        let end = Date(timeIntervalSince1970: 200)
+        let placeholder = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
+            id: id,
+            timestamp: end,
+            recordingStartedAt: start,
+            recordingEndedAt: end,
+            intent: .dictation,
+            selectedText: nil,
+            capturedSelection: nil,
+            contextSummary: "Synthetic context",
+            contextSystemPrompt: nil,
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            systemPrompt: "system",
+            customVocabulary: "",
+            customSystemPrompt: "",
+            audioFileName: "audio.wav",
+            usedLocalTranscription: false,
+            usedContextCapture: true,
+            usedPostProcessing: true,
+            transcriptionLanguageCode: "en",
+            localTranscriptionModelID: "remembered-model",
+            contextAppName: nil,
+            contextBundleIdentifier: nil,
+            contextWindowTitle: nil,
+            postProcessingStatusOverride: PipelineHistoryItem.cloudTranscribingStatus
+        ).withCustomTitle("Synthetic title")
+        precondition(placeholder.machineStatus == .cloudTranscribing)
+        precondition(PipelineHistoryItem(
+            timestamp: end, rawTranscript: "", postProcessedTranscript: "",
+            postProcessingPrompt: nil, contextSummary: "",
+            contextScreenshotDataURL: nil, contextScreenshotStatus: "",
+            postProcessingStatus: "live-recording", debugStatus: "",
+            customVocabulary: ""
+        ).keepingOnlyAudio() == nil, "no audio, nothing to keep")
+
+        let kept = try require(placeholder.keepingOnlyAudio())
+        precondition(kept.id == id)
+        precondition(kept.machineStatus == .audioOnly)
+        precondition(kept.audioFileName == "audio.wav")
+        precondition(kept.customTitle == "Synthetic title")
+        precondition(kept.recordingStartedAt == start && kept.recordingEndedAt == end)
+        precondition(kept.transcriptionLanguageCode == "en")
+        precondition(!kept.usedPostProcessing)
+        precondition(kept.postProcessingStatus == PipelineHistoryItem.audioOnlyStatus)
+
+        _ = try store.append(placeholder, maxCount: 100)
+        _ = try store.upsert(kept, maxCount: 100)
+        let loaded = store.loadAllHistory()
+        precondition(loaded.count == 1)
+        precondition(loaded[0].machineStatus == .audioOnly)
+        precondition(loaded[0].customTitle == "Synthetic title")
+    }
+
+    private static func require<T>(_ value: T?) throws -> T {
+        guard let value else { throw CocoaError(.coderValueNotFound) }
+        return value
     }
 
     private static func testUpsertKeepsOneRowAndUpdatesAllFields() throws {

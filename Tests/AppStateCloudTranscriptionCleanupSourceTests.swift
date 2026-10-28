@@ -14,6 +14,8 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
         try verifiesTrimmedAssetsUseCommonCleanup(source)
         try verifiesActiveCloudTasksAreInstalled(source)
         try verifiesLateCloudCallbacksCannotWriteHistory(source)
+        try verifiesStoppedFirstTranscriptionKeepsAudioOnly(source)
+        try verifiesStoppedCleanupRecordsNoPostProcessing(source)
         print("AppStateCloudTranscriptionCleanupSourceTests passed")
     }
 
@@ -243,6 +245,60 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             finish.contains("isCurrentCloudTranscriptionExecution("),
             "late finish cannot invalidate a newer cloud session"
         )
+    }
+
+    /// #699: stopping the first transcription keeps the note as audio only
+    /// and leaves no saved job to resume at the next launch, with no warning.
+    private static func verifiesStoppedFirstTranscriptionKeepsAudioOnly(_ source: String) throws {
+        let cancel = block(
+            source,
+            from: "func cancelFirstTranscription(noteID: UUID) {",
+            to: "func canCancelTranscriptionRetry"
+        )
+        try expectOrdered(
+            [
+                "item.keepingOnlyAudio()",
+                "job.task?.cancel()",
+                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
+                "try? cloudTranscriptionJobStore.delete(historyID: noteID, session: nil)",
+                "try pipelineHistoryStore.upsert(",
+                "updatePipelineHistoryItem(audioOnly)",
+                "discardRecordingJournalAfterSuccessfulTranscription(",
+                "finishTranscriptionJob(jobID)"
+            ],
+            in: cancel,
+            label: "first transcription cancel order"
+        )
+        let success = cancel.components(separatedBy: "} catch {").first ?? ""
+        guard !success.contains("errorMessage") else {
+            throw TestFailure("a stopped transcription shows no warning")
+        }
+        // A cancelled run that fails on its way out can't record a failure
+        // over the audio-only note.
+        guard source.contains("guard !Task.isCancelled,\n                              self.isCurrentCloudTranscriptionExecution(") else {
+            throw TestFailure("cancelled run skips the failure entry")
+        }
+    }
+
+    /// #699: a stopped cleanup keeps the transcript, recorded as not
+    /// post-processed, on every path that runs one. A stopped Retry
+    /// Post-processing leaves the note (and its warning) as it was.
+    private static func verifiesStoppedCleanupRecordsNoPostProcessing(_ source: String) throws {
+        for marker in [
+            "usedPostProcessingOverride: settings.usedPostProcessing\n                    && !completion.postProcessingStopped,",
+            "guard !processing.postProcessingStopped,\n                  let current = self.pipelineHistory.first(where: { $0.id == noteID }),",
+            "stopSwitch: stopSwitch\n            )\n            guard let self else { return }",
+            "return (rawTranscript, .postProcessingStopped, \"\", nil, .succeeded)",
+            // Edit Mode's transform can't stop alone, so it offers no ✕.
+            "if case .command = intent {\n            postProcessingStopSwitches.removeValue(forKey: noteID)\n            return nil"
+        ] where !source.contains(marker) {
+            throw TestFailure("stopped cleanup: \(marker)")
+        }
+        let processCalls = source.components(separatedBy: "await Self.processTranscript(").count - 1
+        let stopSwitchArguments = source.components(separatedBy: "stopSwitch: stopSwitch").count - 1
+        guard processCalls == 2, stopSwitchArguments >= 5 else {
+            throw TestFailure("every cleanup gets its stop switch")
+        }
     }
 
     private static func block(
