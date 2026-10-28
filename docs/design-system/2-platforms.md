@@ -135,7 +135,7 @@ iOS 반경: 입력란·행 눌림 면 `Radius.field` 10, 오디오 카드 `Radiu
   - 세그먼트: 요약이 있거나 만드는 중이거나 실패했을 때만 보입니다.
   - 배너(`StatusBanner`): 위치를 고정하지 않고 요약 탭 안, Mac 노트 전사문 위처럼 해당 내용 바로 위에 붙습니다.
   - 요약: 편집 버튼 없이 바로 고치고 스스로 저장합니다(macOS와 같음).
-- **`NoteToolbar`**: macOS와 같은 떠 있는 유리 캡슐(`quill-universal`의 공유 뷰 `Sources/SharedUI/NoteFloatingToolbar.swift`). 순서도 같습니다: [다시 전사 / 요약 다시 만들기] | 복사 · 파일 공유 · [요약 만들기] | 삭제. 본문을 고치는 동안에는 숨깁니다.
+- **`NoteToolbar`**: macOS와 같은 떠 있는 유리 캡슐(`quill-universal`의 공유 뷰 `Sources/SharedUI/NoteFloatingToolbar.swift`). 순서도 같습니다: [다시 전사 / 요약 다시 만들기] | 복사 · 파일 공유 · [요약 만들기] | 삭제. 키보드를 올려 고치는 동안에는 숨깁니다. 상태별 모양은 `NoteToolbar`의 상태별 표(#690)를 따릅니다.
 - 삭제 확인은 가운데 알림이고, 요약이 있으면 `요약만` / `노트 전체`를 고릅니다.
 - Mac 노트 상세도 같은 틀입니다. 다시 전사하면 지금 전사문과 새 전사문을 비교해 고르는 화면이 나옵니다.
 
