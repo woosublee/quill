@@ -3,6 +3,7 @@ import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
+import QuillNoteCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main

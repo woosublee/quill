@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 enum TranscriptStatus: Equatable {
     case done, recording, transcribing, audioOnly, recovered, fail
@@ -48,123 +49,22 @@ func transcriptStatus(
     }
 }
 
-enum NoteTimestampFormatter {
-    private enum FormatterRole: Hashable {
-        case row
-        case detail
-        case interval
-    }
-
-    private struct FormatterKey: Hashable {
-        let role: FormatterRole
-        let localeIdentifier: String
-        let hourCycle: Locale.HourCycle
-        let calendarIdentifier: Calendar.Identifier
-        let timeZoneIdentifier: String
-    }
-
-    private final class FormatterCache: @unchecked Sendable {
-        private let lock = NSLock()
-        private var dateFormatters: [FormatterKey: DateFormatter] = [:]
-        private var intervalFormatters: [FormatterKey: DateIntervalFormatter] = [:]
-
-        func string(
-            from date: Date,
-            role: FormatterRole,
-            template: String,
-            locale: Locale,
-            calendar: Calendar,
-            timeZone: TimeZone
-        ) -> String {
-            lock.lock()
-            defer { lock.unlock() }
-            let key = FormatterKey(
-                role: role,
-                localeIdentifier: locale.identifier,
-                hourCycle: locale.hourCycle,
-                calendarIdentifier: calendar.identifier,
-                timeZoneIdentifier: timeZone.identifier
-            )
-            let formatter: DateFormatter
-            if let cached = dateFormatters[key] {
-                formatter = cached
-            } else {
-                let created = DateFormatter()
-                created.locale = locale
-                created.calendar = calendar
-                created.timeZone = timeZone
-                created.setLocalizedDateFormatFromTemplate(template)
-                dateFormatters[key] = created
-                formatter = created
-            }
-            return formatter.string(from: date)
-        }
-
-        func string(
-            from start: Date,
-            to end: Date,
-            template: String,
-            locale: Locale,
-            calendar: Calendar,
-            timeZone: TimeZone
-        ) -> String {
-            lock.lock()
-            defer { lock.unlock() }
-            let key = FormatterKey(
-                role: .interval,
-                localeIdentifier: locale.identifier,
-                hourCycle: locale.hourCycle,
-                calendarIdentifier: calendar.identifier,
-                timeZoneIdentifier: timeZone.identifier
-            )
-            let formatter: DateIntervalFormatter
-            if let cached = intervalFormatters[key] {
-                formatter = cached
-            } else {
-                let created = DateIntervalFormatter()
-                created.locale = locale
-                created.calendar = calendar
-                created.timeZone = timeZone
-                created.dateTemplate = template
-                intervalFormatters[key] = created
-                formatter = created
-            }
-            return formatter.string(from: start, to: end)
-        }
-    }
-
-    private static let cache = FormatterCache()
-
+// The date rules are in QuillNoteCore, shared with the iPhone app.
+// These read a note's recording times.
+extension NoteTimestampFormatter {
     static func detailTimestamp(
         for item: PipelineHistoryItem,
         locale: Locale = .current,
         calendar: Calendar = .current,
         timeZone: TimeZone = .current
     ) -> String {
-        guard let startedAt = item.recordingStartedAt,
-              let endedAt = item.recordingEndedAt,
-              endedAt >= startedAt else {
-            return normalized(
-                cache.string(
-                    from: item.timestamp,
-                    role: .detail,
-                    template: "yMMMdEEEjm",
-                    locale: locale,
-                    calendar: calendar,
-                    timeZone: timeZone
-                )
-            )
-        }
-
-        return normalized(
-            cache.string(
-                from: startedAt,
-                to: endedAt,
-                template: "yMMMdEEEjm",
-                locale: locale,
-                calendar: calendar,
-                timeZone: timeZone
-            )
+        detailTimestamp(
+            recordingStartedAt: item.recordingStartedAt,
+            recordingEndedAt: item.recordingEndedAt,
+            fallback: item.timestamp,
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
         )
     }
 
@@ -174,23 +74,12 @@ enum NoteTimestampFormatter {
         calendar: Calendar = .current,
         timeZone: TimeZone = .current
     ) -> String {
-        let timestamp = item.recordingStartedAt ?? item.timestamp
-        return normalized(
-            cache.string(
-                from: timestamp,
-                role: .row,
-                template: "MMMMdEEEjm",
-                locale: locale,
-                calendar: calendar,
-                timeZone: timeZone
-            )
+        rowTimestamp(
+            for: item.recordingStartedAt ?? item.timestamp,
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
         )
-    }
-
-    private static func normalized(_ value: String) -> String {
-        value.replacingOccurrences(of: "\u{202F}", with: " ")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-            .replacingOccurrences(of: "\u{2009}", with: " ")
     }
 }
 

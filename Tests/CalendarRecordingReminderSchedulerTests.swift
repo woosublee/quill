@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import QuillNoteCore
 
 @main
 struct CalendarRecordingReminderSchedulerTests {

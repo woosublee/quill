@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 struct GoogleCalendarEventFetchResult: Equatable {
     let events: [CalendarEvent]

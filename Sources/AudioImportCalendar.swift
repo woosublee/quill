@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import QuillNoteCore
 
 /// The span an imported file was recorded over, from the creation date
 /// recorders write into the file. Filesystem dates are not used: copying or

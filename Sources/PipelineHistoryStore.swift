@@ -3,6 +3,7 @@ import CoreData
 import QuillNoteSyncCore
 import QuillAITextCore
 import QuillSummaryFormatCore
+import QuillNoteCore
 
 struct DeletedPipelineHistoryAssets: Equatable, Sendable {
     let historyID: UUID

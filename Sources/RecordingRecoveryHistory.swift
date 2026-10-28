@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillNoteCore
 
 struct RecordingRecoveryHistory {
     let journalStore: RecordingJournalStore
