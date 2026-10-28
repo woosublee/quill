@@ -279,6 +279,10 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("Image(systemName: isRetrying ? \"xmark.circle\" : \"arrow.clockwise\")"))
         precondition(noteBrowser.contains("help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp"))
         precondition(noteBrowser.contains("disabled: isRetrying && !canCancelRetry,"), "post-processing shows a spinner, off")
+        // The summary column keeps its width whatever notices show (it used
+        // to shrink to its widest row during a retranscription).
+        let summaryView = (try? String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)) ?? ""
+        precondition(summaryView.contains(".frame(maxWidth: .infinity, alignment: .leading)\n            .frame(maxWidth: 760, alignment: .leading)"))
         precondition(noteBrowser.contains("guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }"), "a double press isn't a Cancel")
         let appStateSource = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
         precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
