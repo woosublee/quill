@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 /// Which event a note links to when a meeting reminder started its recording
 /// (#622). The events are invented.
