@@ -17,6 +17,7 @@ struct NoteBrowserRecoveryTests {
         testPostProcessingEnabledKeepsRetryGuidance()
         testPostProcessingDisabledDoesNotAffectUnrelatedIssues()
         testAudioInICloudOffersRetryAndSaving()
+        testRetryWithoutAudioExplainsInsteadOfOffering()
         print("NoteBrowserRecoveryTests passed")
     }
 
@@ -181,6 +182,51 @@ struct NoteBrowserRecoveryTests {
 
         precondition(presentation.title == record.presentation(language: "en").title)
         precondition(presentation.recoveryAction == .openModelsSettings)
+    }
+
+    /// #688: the audio isn't here or in iCloud yet (another Mac is still
+    /// uploading it). The issue says why and offers no retry button, which
+    /// would do nothing.
+    private static func testRetryWithoutAudioExplainsInsteadOfOffering() {
+        let record = QuillUserIssueRecord(code: .requestTimedOut)
+        precondition(
+            record.presentation(language: "en").recoveryAction == .retryTranscription,
+            "precondition: this issue offers a retry"
+        )
+        let uploading = NoteBrowserActionState(
+            hasStoredAudio: false,
+            transcript: "",
+            retryAvailability: .noAudio,
+            audioUnavailableMessage: "Synthetic: still uploading."
+        )
+        let waiting = NoteBrowserRecoveryPresentation.presentation(
+            for: record, actionState: uploading, language: "en", bundle: .main
+        )
+        precondition(waiting.recoveryAction == .none)
+        precondition(waiting.suggestion == "Synthetic: still uploading.")
+        precondition(!uploading.showsRetryButton, "the toolbar has no retry either")
+
+        // No audio at all: it says the audio is unavailable, not "try again".
+        let missing = NoteBrowserRecoveryPresentation.presentation(
+            for: record,
+            actionState: NoteBrowserActionState(hasStoredAudio: false, transcript: "", retryAvailability: .noAudio),
+            language: "en",
+            bundle: .main
+        )
+        precondition(missing.recoveryAction == .none)
+        precondition(missing.suggestion == "This recording's audio file is unavailable, so it can't be transcribed.")
+
+        let downloadable = NoteBrowserActionState(
+            hasStoredAudio: false,
+            transcript: "",
+            retryAvailability: .needsDownload
+        )
+        precondition(
+            NoteBrowserRecoveryPresentation.presentation(
+                for: record, actionState: downloadable, language: "en", bundle: .main
+            ).recoveryAction == .retryTranscription,
+            "audio in iCloud still offers the retry (it downloads first)"
+        )
     }
 
     private static func testLocalTranscriptionFailedHidesDebugDetails() {
