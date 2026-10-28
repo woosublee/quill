@@ -8387,8 +8387,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// so the previous summary, if any, stays and no failure is recorded.
     @MainActor
     func cancelMeetingSummary(noteID: UUID) {
+        // The model request stops too, even if the note view that started
+        // it was rebuilt since.
+        meetingSummaryGenerationTasks.removeValue(forKey: noteID)?.cancel()
         meetingSummaryWorkflow.invalidate(noteID: noteID)
     }
+
+    /// The summary run for each note, so Cancel Summary can stop it.
+    private var meetingSummaryGenerationTasks: [UUID: Task<MeetingSummaryWorkflowOutcome, Never>] = [:]
 
     /// Whether this note still belongs to a recording or its transcription:
     /// the recording in progress (plain or live), or a stopped recording
@@ -8869,10 +8875,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         var request = meetingSummaryWorkflowRequest(for: startItem)
         request.deliversCandidate = asCandidate
-        let outcome = await meetingSummaryWorkflow.generate(
-            request: request,
-            history: meetingSummaryHistoryAccess()
-        )
+        let history = meetingSummaryHistoryAccess()
+        let run = Task { @MainActor [meetingSummaryWorkflow] in
+            await meetingSummaryWorkflow.generate(request: request, history: history)
+        }
+        meetingSummaryGenerationTasks[id] = run
+        let outcome = await withTaskCancellationHandler {
+            await run.value
+        } onCancel: {
+            run.cancel()
+        }
+        if meetingSummaryGenerationTasks[id] == run {
+            meetingSummaryGenerationTasks.removeValue(forKey: id)
+        }
         switch outcome {
         case .verifiedSuccess, .unverifiedSuccess:
             return

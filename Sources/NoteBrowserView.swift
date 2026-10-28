@@ -2571,8 +2571,7 @@ private struct NoteDetailView: View {
     /// the transcript tab only Cancel stays on; on the summary tab only Copy
     /// stays on. Save and Delete open the same picker from either tab, so
     /// they're off on both, with Regenerate and Create summary.
-    @State private var retryPressedAt = Date.distantPast
-    @State private var summaryGenerationTask: Task<Void, Never>?
+    @State private var firstSlotPressedAt = Date.distantPast
     private var canCancelRetry: Bool {
         appState.canCancelTranscriptionRetry(item)
     }
@@ -4031,8 +4030,6 @@ private struct NoteDetailView: View {
         )
         .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
-        .contentShape(Capsule())
-        .allowsHitTesting(true)
         .overrideCursor(.arrow)
     }
 
@@ -4041,14 +4038,16 @@ private struct NoteDetailView: View {
         NoteToolbarInput(
             tab: isShowingSummaryTab ? .summary : .transcript,
             work: toolbarWork,
-            canCancelWork: isRetrying && canCancelRetry,
+            // The Mac can't stop only the cleanup step, so post-processing
+            // never offers ✕ (the table shows progress).
+            canCancelWork: isRetrying && canCancelRetry && toolbarWork != .postProcessing,
             transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,
-            canCreateSummary: summaryToolbarAction == .create && summaryAvailability != .transcriptUnavailable
-                ? !summaryActionIsDisabled
-                : nil,
+            // The Mac keeps ✨ dimmed when there's nothing to summarize yet
+            // (an audio-only or failed note), as before.
+            canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
             hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasSummaryToCopy: summaryEnvelope != nil,
             hasFilesToSave: actionState.canSaveFiles,
@@ -4079,9 +4078,7 @@ private struct NoteDetailView: View {
                 case .cancelSummary: localizedCatalogString("Cancel Summary")
                 }
             },
-            progress: localizedCatalogString(
-                appState.postProcessingNoteIDs.contains(item.id) ? "Post-processing..." : "Transcribing..."
-            ),
+            progress: localizedCatalogString(toolbarWork == .postProcessing ? "Post-processing..." : "Transcribing..."),
             copy: localizedCatalogString("Copy content"),
             copyUnavailable: localizedCatalogString(
                 isShowingSummaryTab ? "No summary text to copy." : "No transcript text to copy."
@@ -4095,20 +4092,22 @@ private struct NoteDetailView: View {
     private func handleToolbarFirstAction(_ action: NoteToolbarFirstAction) {
         switch action {
         case .transcribe, .retry, .retranscribe:
-            retryPressedAt = Date()
+            firstSlotPressedAt = Date()
             retryTranscription()
         case .runSummary:
+            firstSlotPressedAt = Date()
             handleSummaryAction()
         case .cancelTranscription, .cancelRetranscription:
-            // A quick second press on Retry isn't a Cancel.
-            guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }
+            // A quick second press on the same slot isn't a Cancel.
+            guard Date().timeIntervalSince(firstSlotPressedAt) > 0.6 else { return }
             appState.cancelTranscriptionRetry(item: item)
         case .cancelPostProcessing:
             // The Mac can't stop only the cleanup step yet, so the table shows
             // progress instead (`canCancelWork` is false then).
             break
         case .cancelSummary:
-            cancelSummary()
+            guard Date().timeIntervalSince(firstSlotPressedAt) > 0.6 else { return }
+            appState.cancelMeetingSummary(noteID: item.id)
         }
     }
 
@@ -4352,18 +4351,11 @@ private struct NoteDetailView: View {
 
     /// With `toCompare`, the new summary waits next to the edited one
     /// instead of replacing it (#262).
-    /// Stops making the summary (#690): the previous summary, if any, stays.
-    private func cancelSummary() {
-        summaryGenerationTask?.cancel()
-        summaryGenerationTask = nil
-        appState.cancelMeetingSummary(noteID: item.id)
-    }
-
     private func generateSummary(toCompare: Bool = false) {
         let attemptBeforeGeneration = appState.pipelineHistory.first {
             $0.id == item.id
         }?.meetingSummaryAttempt?.occurredAt
-        summaryGenerationTask = Task { @MainActor in
+        Task { @MainActor in
             do {
                 try await appState.generateMeetingSummary(id: item.id, asCandidate: toCompare)
                 summaryIssue = nil

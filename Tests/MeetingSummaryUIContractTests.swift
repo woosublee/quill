@@ -273,13 +273,15 @@ struct MeetingSummaryUIContractTests {
         // (#697); the Note Browser only maps its state and actions.
         precondition(noteBrowser.contains("NoteFloatingToolbar(\n            state: NoteToolbarState.make(toolbarInput),"))
         precondition(noteBrowser.contains("transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,"))
-        precondition(noteBrowser.contains("canCancelWork: isRetrying && canCancelRetry,"))
+        precondition(noteBrowser.contains("canCancelWork: isRetrying && canCancelRetry && toolbarWork != .postProcessing,"), "post-processing never offers a Cancel that does nothing")
         precondition(noteBrowser.contains("return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none"), "the first transcription shows the toolbar")
         // #689: while a transcription runs, the same slot cancels it, like
         // the iPhone. Nothing is saved, so the current transcript stays.
         precondition(noteBrowser.contains("appState.cancelTranscriptionRetry(item: item)"))
         // #690: Cancel Summary stops the run and keeps the previous summary.
         precondition(noteBrowser.contains("appState.cancelMeetingSummary(noteID: item.id)"))
+        let appStateForSummary = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
+        precondition(appStateForSummary.contains("meetingSummaryGenerationTasks.removeValue(forKey: noteID)?.cancel()"), "Cancel Summary stops the model request too")
         // The content picker keeps the indicator room in both segments
         // always, so neither changes width when a sign comes or goes.
         precondition(noteBrowser.contains("(Text(verbatim: Self.tabIndicatorRoom) + Text(\"Transcript\") + Text(verbatim: Self.tabIndicatorRoom))"))
@@ -289,11 +291,11 @@ struct MeetingSummaryUIContractTests {
         // to shrink to its widest row during a retranscription).
         let summaryView = (try? String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)) ?? ""
         precondition(summaryView.contains(".frame(maxWidth: .infinity, alignment: .leading)\n            .frame(maxWidth: 760, alignment: .leading)"))
-        precondition(noteBrowser.contains("guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }"), "a double press isn't a Cancel")
+        precondition(noteBrowser.contains("guard Date().timeIntervalSince(firstSlotPressedAt) > 0.6 else { return }"), "a double press isn't a Cancel")
         let appStateSource = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
         precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
-        precondition(noteBrowser.contains("canCreateSummary: summaryToolbarAction == .create && summaryAvailability != .transcriptUnavailable"))
+        precondition(noteBrowser.contains("canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
         let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""

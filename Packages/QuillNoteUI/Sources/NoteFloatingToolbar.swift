@@ -222,13 +222,13 @@ struct NoteToolbarIconButton<Label: View>: View {
                 .opacity(isEnabled ? 1 : 0.35)
                 .contentShape(Circle())
         }
-        .buttonStyle(NoteToolbarButtonStyle(isHovered: isHovered))
+        // A button turned off under the pointer drops its hover look.
+        .buttonStyle(NoteToolbarButtonStyle(isHovered: isHovered && isEnabled))
         .disabled(!isEnabled)
         #if os(macOS)
         .help(label)
         #endif
         .accessibilityLabel(Text(label))
-        .contentShape(Circle())
         .onHover { hovering in
             isHovered = hovering && isEnabled
         }
