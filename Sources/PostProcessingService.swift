@@ -32,113 +32,18 @@ extension PostProcessingError: @retroactive LocalizedError {
         }
     }
 
-    func effectiveModelID(fallback: String) -> String {
-        if case .requestTimedOut(_, let modelID) = self {
-            return modelID ?? fallback
-        }
-        return fallback
-    }
-
-    private var userIssueCode: QuillUserIssueCode {
-        switch self {
-        case .requestFailed(let statusCode, let providerCode):
-            if ProviderDiagnosticCode.normalized(providerCode) == "context_length_exceeded" {
-                return .postProcessingFailed
-            }
-            switch statusCode {
-            case 400, 404, 415, 422:
-                return .providerConfigurationInvalid
-            case 401, 403:
-                return .authenticationFailed
-            case 408:
-                return .requestTimedOut
-            case 429:
-                return .postProcessingRateLimited
-            case 413:
-                return .postProcessingPayloadTooLarge
-            default:
-                return .postProcessingFailed
-            }
-        case .rateLimited:
-            return .postProcessingRateLimited
-        case .suspectedInstructionExecution, .outputRejected:
-            return .postProcessingGuardFallback
-        case .requestTimedOut:
-            return .requestTimedOut
-        case .invalidResponse, .invalidInput, .contextBudgetExceeded, .emptyOutput:
-            return .postProcessingFailed
-        }
-    }
-
-    private var postProcessingFailureReason: PostProcessingFailureReason? {
-        switch self {
-        case .requestTimedOut:
-            return .requestTimedOut
-        case .contextBudgetExceeded:
-            return .contextBudgetExceeded
-        case .emptyOutput:
-            return .emptyOutput
-        case .invalidResponse:
-            return .invalidResponse
-        case .requestFailed:
-            switch userIssueCode {
-            case .requestTimedOut:
-                return .requestTimedOut
-            case .postProcessingFailed:
-                return ProviderDiagnosticCode.normalized(requestFailureProviderCode)
-                    == "context_length_exceeded"
-                    ? .contextBudgetExceeded
-                    : .serviceRequestFailed
-            default:
-                return nil
-            }
-        case .rateLimited, .invalidInput, .suspectedInstructionExecution,
-             .outputRejected:
-            return nil
-        }
-    }
-
-    private var requestTimeoutSeconds: TimeInterval? {
-        if case .requestTimedOut(let seconds, _) = self {
-            return seconds
-        }
-        return nil
-    }
-
-    private var requestFailureProviderCode: String? {
-        if case .requestFailed(_, let providerCode) = self {
-            return providerCode
-        }
-        return nil
-    }
-
     func userIssue(
         providerHost: String?,
         modelID: String,
         localBackend: String? = nil,
         operation: QuillUserIssueOperation = .postProcessing
     ) -> QuillUserIssueError {
-        let code = userIssueCode
-        let statusCode: Int?
-        if case .requestFailed(let status, _) = self {
-            statusCode = status
-        } else {
-            statusCode = nil
-        }
-        return QuillUserIssueError(
-            record: QuillUserIssueRecord(
-                code: code,
-                severity: .warning,
-                context: QuillUserIssueContext(
-                    httpStatus: statusCode,
-                    providerHost: providerHost,
-                    providerCode: requestFailureProviderCode,
-                    modelID: effectiveModelID(fallback: modelID),
-                    localBackend: localBackend,
-                    operation: operation,
-                    postProcessingFailureReason: postProcessingFailureReason,
-                    requestTimeoutSeconds: requestTimeoutSeconds
-                )
+        QuillUserIssueError(
+            record: userIssueRecord(
+                providerHost: providerHost,
+                modelID: modelID,
+                localBackend: localBackend,
+                operation: operation
             ),
             privateDiagnostic: localizedDescription
         )

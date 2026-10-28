@@ -36,6 +36,7 @@ let package = Package(
         ),
         .target(
             name: "QuillAITextCore",
+            dependencies: ["QuillUserIssueCore"],
             path: "Packages/QuillAITextCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

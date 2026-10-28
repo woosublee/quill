@@ -8,6 +8,7 @@ import QuillUserIssueCore
 struct PostProcessingUserIssueTests {
     static func main() throws {
         try testPostProcessingErrorsMapToWarningRecords()
+        try testSharedRecordMatchesTheMacIssue()
         try testPostProcessingFailureReasonsStayStructured()
         try testProviderContextLimitAndHTTPTimeoutUseAccurateIssues()
         try testCommandTimeoutUsesEditSpecificCopy()
@@ -15,6 +16,44 @@ struct PostProcessingUserIssueTests {
         try testRequestFailuresKeepOnlyAllowlistedProviderCode()
         try testNonSuccessResponsesDoNotStoreRawBodies()
         print("PostProcessingUserIssueTests passed")
+    }
+
+    /// The iPhone stores `userIssueRecord` directly (private#160), so it must
+    /// be the record the Mac's `userIssue` wraps, field for field.
+    private static func testSharedRecordMatchesTheMacIssue() throws {
+        let errors: [PostProcessingError] = [
+            .requestFailed(statusCode: 401, providerCode: "invalid_api_key"),
+            .requestFailed(statusCode: 400, providerCode: "context_length_exceeded"),
+            .requestFailed(statusCode: 503, providerCode: nil),
+            .rateLimited(model: "limited/model", retryAfter: 30),
+            .requestTimedOut(45, modelID: "slow/model"),
+            .emptyOutput,
+            .outputRejected(.languageMismatch),
+        ]
+        for error in errors {
+            let record = error.userIssueRecord(providerHost: "api.example.com", modelID: "configured/model")
+            let mac = error.userIssue(providerHost: "api.example.com", modelID: "configured/model").record
+            guard record == mac else {
+                throw NSError(domain: "PostProcessingUserIssueTests", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "\(error): shared \(record) differs from Mac \(mac)"
+                ])
+            }
+            guard record.severity == .warning else {
+                throw NSError(domain: "PostProcessingUserIssueTests", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "\(error): a failed cleanup is a warning"
+                ])
+            }
+        }
+        let timedOut = PostProcessingError.requestTimedOut(45, modelID: "slow/model")
+            .userIssueRecord(providerHost: nil, modelID: "configured/model", localBackend: "Local AI")
+        guard timedOut.context.modelID == "slow/model",
+              timedOut.context.requestTimeoutSeconds == 45,
+              timedOut.context.localBackend == "Local AI",
+              timedOut.context.postProcessingFailureReason == .requestTimedOut else {
+            throw NSError(domain: "PostProcessingUserIssueTests", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "timeout context: \(timedOut.context)"
+            ])
+        }
     }
 
     private static func testPostProcessingErrorsMapToWarningRecords() throws {

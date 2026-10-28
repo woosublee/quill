@@ -254,9 +254,10 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillNoteSyncCore.a: $(NOTE_SYNC_CORE_SOURCES) Mak
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteSyncCore,$(NOTE_SYNC_CORE_SOURCES))
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a: $(AI_TEXT_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+# Imports QuillUserIssueCore (the cleanup issue record).
+$(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a: $(AI_TEXT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
-	$(call shared_core_compile,QuillAITextCore,$(AI_TEXT_CORE_SOURCES))
+	$(call shared_core_compile,QuillAITextCore,$(AI_TEXT_CORE_SOURCES),-I "$(@D)")
 
 $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
