@@ -13,6 +13,7 @@ struct NoteToolbarStateTests {
         testWorkWithoutCancelPath()
         testMakingSummary()
         testFailedOrAudioOnly()
+        testModelSetupOpensSettings()
         testCreateSummaryWaitsForAllWork()
         testSummaryActionBlockedWhileComparingOrEditing()
         testHiddenOnlyForRecordingComparingAndKeyboard()
@@ -161,6 +162,39 @@ struct NoteToolbarStateTests {
         var withSummary = done(.summary)
         withSummary.transcriptAction = .transcribe
         precondition(State.make(withSummary) == State.make(done(.summary)))
+    }
+
+    /// No transcription model yet (the iPhone's ⚙︎): the first slot opens
+    /// model setup. ✨ follows what the app says about the transcript, and
+    /// running work or a summary tab still wins.
+    private static func testModelSetupOpensSettings() {
+        var untranscribed = NoteToolbarInput(tab: .transcript, transcriptAction: .openModelSetup, hasFilesToSave: true)
+        precondition(State.make(untranscribed) == State(
+            firstSlot: .button(.openModelSetup, isEnabled: true),
+            isCopyEnabled: false, isSaveEnabled: true, createSummary: .none, isDeleteEnabled: true
+        ), "nothing to summarize: no ✨")
+        precondition(!NoteToolbarFirstAction.openModelSetup.isCancel)
+
+        var transcribed = untranscribed
+        transcribed.hasTranscriptToCopy = true
+        transcribed.canCreateSummary = true
+        precondition(State.make(transcribed).createSummary == .button(isEnabled: true), "a transcript keeps ✨")
+        precondition(State.make(transcribed).isCopyEnabled)
+
+        untranscribed.isMakingSummary = true
+        precondition(
+            State.make(untranscribed).firstSlot == .button(.openModelSetup, isEnabled: true),
+            "opening Settings starts no work, so it stays on during a summary"
+        )
+
+        var withSummaryTab = transcribed
+        withSummaryTab.hasSummaryTab = true
+        precondition(State.make(withSummaryTab).createSummary == .none, "a summary tab makes it there")
+
+        var working = transcribed
+        working.work = .transcribing
+        working.canCancelWork = true
+        precondition(State.make(working).firstSlot == .button(.cancelTranscription, isEnabled: true), "Cancel wins")
     }
 
     /// A note without a summary keeps ✨ dimmed in its slot until

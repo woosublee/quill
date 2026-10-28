@@ -4090,6 +4090,7 @@ private struct NoteDetailView: View {
                 switch action {
                 case .transcribe: localizedCatalogString("Transcribe audio")
                 case .retry, .retranscribe: localizedCatalogString("Retry transcription")
+                case .openModelSetup: localizedCatalogString("Open Models Settings")
                 case .runSummary: summaryToolbarAction.helpText
                 case .cancelTranscription: localizedCatalogString("Cancel Transcription")
                 case .cancelRetranscription: localizedCatalogString("Cancel Retranscription")
@@ -4113,6 +4114,9 @@ private struct NoteDetailView: View {
         case .transcribe, .retry, .retranscribe:
             firstSlotPressedAt = Date()
             retryTranscription()
+        case .openModelSetup:
+            // Only the iPhone offers this today; the Mac routes the same way.
+            performRecoveryAction(.openModelsSettings)
         case .runSummary:
             firstSlotPressedAt = Date()
             handleSummaryAction()

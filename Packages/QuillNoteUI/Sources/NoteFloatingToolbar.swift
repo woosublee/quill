@@ -14,6 +14,12 @@ public struct NoteToolbarLabels {
     public var save: String
     public var createSummary: String
     public var delete: String
+    /// Optional accessibility hints, for VoiceOver.
+    public var firstActionHint: (NoteToolbarFirstAction) -> String?
+    public var copyHint: String?
+    public var saveHint: String?
+    public var createSummaryHint: String?
+    public var deleteHint: String?
 
     public init(
         firstAction: @escaping (NoteToolbarFirstAction) -> String,
@@ -22,7 +28,12 @@ public struct NoteToolbarLabels {
         copyUnavailable: String,
         save: String,
         createSummary: String,
-        delete: String
+        delete: String,
+        firstActionHint: @escaping (NoteToolbarFirstAction) -> String? = { _ in nil },
+        copyHint: String? = nil,
+        saveHint: String? = nil,
+        createSummaryHint: String? = nil,
+        deleteHint: String? = nil
     ) {
         self.firstAction = firstAction
         self.progress = progress
@@ -30,6 +41,27 @@ public struct NoteToolbarLabels {
         self.copyUnavailable = copyUnavailable
         self.save = save
         self.createSummary = createSummary
+        self.delete = delete
+        self.firstActionHint = firstActionHint
+        self.copyHint = copyHint
+        self.saveHint = saveHint
+        self.createSummaryHint = createSummaryHint
+        self.deleteHint = deleteHint
+    }
+}
+
+/// The colors the toolbar draws with. Each app passes its own, so both
+/// look as they did until the design tokens are shared (#623).
+public struct NoteToolbarColors {
+    /// The transcript tab's actions and the summary tab's ↻.
+    public var retry: Color
+    /// The copy checkmark.
+    public var copied: Color
+    public var delete: Color
+
+    public init(retry: Color = .orange, copied: Color = .accentColor, delete: Color = Color.red.opacity(0.8)) {
+        self.retry = retry
+        self.copied = copied
         self.delete = delete
     }
 }
@@ -57,16 +89,19 @@ public struct NoteToolbarActions {
 }
 
 public struct NoteFloatingToolbar: View {
-    /// The capsule's height (the Mac's; the iPhone's buttons are its touch
-    /// targets).
-    #if os(macOS)
+    /// The capsule's height on both platforms.
     public static let height: CGFloat = 48
+    #if os(macOS)
     static let buttonSize: CGFloat = 36
     static let saveSymbol = "square.and.arrow.down"
+    /// Pointer density on the Mac.
+    static let iconFont = Font.system(size: 13, weight: .medium)
     #else
-    public static let height: CGFloat = 56
+    /// The minimum touch target; the button grows with Dynamic Type.
     static let buttonSize: CGFloat = 44
     static let saveSymbol = "square.and.arrow.up"
+    /// Follows Dynamic Type: 13 pt leaves the 44 pt touch target looking empty.
+    static let iconFont = Font.body
     #endif
 
     let state: NoteToolbarState
@@ -76,6 +111,7 @@ public struct NoteFloatingToolbar: View {
     let showsCopyConfirmation: Bool
     /// The capsule's fill under Reduce Transparency.
     let opaqueBackground: Color
+    let colors: NoteToolbarColors
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -85,13 +121,15 @@ public struct NoteFloatingToolbar: View {
         labels: NoteToolbarLabels,
         actions: NoteToolbarActions,
         showsCopyConfirmation: Bool = false,
-        opaqueBackground: Color
+        opaqueBackground: Color,
+        colors: NoteToolbarColors = NoteToolbarColors()
     ) {
         self.state = state
         self.labels = labels
         self.actions = actions
         self.showsCopyConfirmation = showsCopyConfirmation
         self.opaqueBackground = opaqueBackground
+        self.colors = colors
     }
 
     public var body: some View {
@@ -108,9 +146,10 @@ public struct NoteFloatingToolbar: View {
                 NoteToolbarIconButton(
                     action: { actions.firstAction(action) },
                     isEnabled: isEnabled,
-                    label: labels.firstAction(action)
+                    label: labels.firstAction(action),
+                    hint: labels.firstActionHint(action)
                 ) {
-                    icon(action.isCancel ? "xmark.circle" : "arrow.clockwise", color: firstSlotColor(action, isEnabled: isEnabled))
+                    icon(firstSlotSymbol(action), color: firstSlotColor(action, isEnabled: isEnabled))
                 }
                 divider
             }
@@ -118,15 +157,18 @@ public struct NoteFloatingToolbar: View {
             NoteToolbarIconButton(
                 action: actions.copy,
                 isEnabled: state.isCopyEnabled,
-                label: state.isCopyEnabled ? labels.copy : labels.copyUnavailable
+                label: state.isCopyEnabled ? labels.copy : labels.copyUnavailable,
+                hint: labels.copyHint
             ) {
                 icon(
                     showsCopyConfirmation ? "checkmark" : "doc.on.doc",
-                    color: showsCopyConfirmation ? .accentColor : (state.isCopyEnabled ? .primary : .secondary)
+                    color: showsCopyConfirmation ? colors.copied : (state.isCopyEnabled ? .primary : .secondary)
                 )
             }
 
-            NoteToolbarIconButton(action: actions.save, isEnabled: state.isSaveEnabled, label: labels.save) {
+            NoteToolbarIconButton(
+                action: actions.save, isEnabled: state.isSaveEnabled, label: labels.save, hint: labels.saveHint
+            ) {
                 icon(Self.saveSymbol, color: state.isSaveEnabled ? .primary : .secondary)
             }
 
@@ -134,7 +176,8 @@ public struct NoteFloatingToolbar: View {
                 NoteToolbarIconButton(
                     action: actions.createSummary,
                     isEnabled: isEnabled,
-                    label: labels.createSummary
+                    label: labels.createSummary,
+                    hint: labels.createSummaryHint
                 ) {
                     icon("sparkles", color: isEnabled ? .primary : .secondary)
                 }
@@ -142,8 +185,10 @@ public struct NoteFloatingToolbar: View {
 
             divider
 
-            NoteToolbarIconButton(action: actions.delete, isEnabled: state.isDeleteEnabled, label: labels.delete) {
-                icon("trash", color: Color.red.opacity(0.8))
+            NoteToolbarIconButton(
+                action: actions.delete, isEnabled: state.isDeleteEnabled, label: labels.delete, hint: labels.deleteHint
+            ) {
+                icon("trash", color: colors.delete)
             }
         }
         .padding(.horizontal, 8)
@@ -156,17 +201,24 @@ public struct NoteFloatingToolbar: View {
         .contentShape(Capsule())
     }
 
-    /// Cancel is plain; the transcript tab's actions are orange (dimmed
-    /// when off); the summary tab's ↻ turns gray when it can't run.
+    private func firstSlotSymbol(_ action: NoteToolbarFirstAction) -> String {
+        if action.isCancel { return "xmark.circle" }
+        if action == .openModelSetup { return "gearshape.fill" }
+        return "arrow.clockwise"
+    }
+
+    /// Cancel and model setup are plain; the transcript tab's actions are
+    /// the retry color (dimmed when off); the summary tab's ↻ turns gray
+    /// when it can't run.
     private func firstSlotColor(_ action: NoteToolbarFirstAction, isEnabled: Bool) -> Color {
-        if action.isCancel { return .primary }
+        if action.isCancel || action == .openModelSetup { return .primary }
         if action == .runSummary, !isEnabled { return .secondary }
-        return .orange
+        return colors.retry
     }
 
     private func icon(_ systemName: String, color: Color) -> some View {
         Image(systemName: systemName)
-            .font(.system(size: 13, weight: .medium))
+            .font(Self.iconFont)
             .foregroundStyle(color)
     }
 
@@ -211,6 +263,7 @@ struct NoteToolbarIconButton<Label: View>: View {
     let action: () -> Void
     let isEnabled: Bool
     let label: String
+    var hint: String?
     @ViewBuilder let content: () -> Label
 
     @State private var isHovered = false
@@ -218,7 +271,11 @@ struct NoteToolbarIconButton<Label: View>: View {
     var body: some View {
         Button(action: action) {
             content()
+                #if os(macOS)
                 .frame(width: NoteFloatingToolbar.buttonSize, height: NoteFloatingToolbar.buttonSize)
+                #else
+                .frame(minWidth: NoteFloatingToolbar.buttonSize, minHeight: NoteFloatingToolbar.buttonSize)
+                #endif
                 .opacity(isEnabled ? 1 : 0.35)
                 .contentShape(Circle())
         }
@@ -229,8 +286,22 @@ struct NoteToolbarIconButton<Label: View>: View {
         .help(label)
         #endif
         .accessibilityLabel(Text(label))
+        .modifier(NoteToolbarHint(hint: hint))
         .onHover { hovering in
             isHovered = hovering && isEnabled
+        }
+    }
+}
+
+/// Adds a VoiceOver hint only when the app gives one.
+struct NoteToolbarHint: ViewModifier {
+    let hint: String?
+
+    func body(content: Content) -> some View {
+        if let hint {
+            content.accessibilityHint(Text(hint))
+        } else {
+            content
         }
     }
 }

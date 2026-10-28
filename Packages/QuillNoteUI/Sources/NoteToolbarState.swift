@@ -31,6 +31,8 @@ public enum NoteToolbarTranscriptAction: Equatable, Sendable {
     case transcribe
     case retry
     case retranscribe
+    /// No transcription model is set up yet (the iPhone's ⚙︎).
+    case openModelSetup
 }
 
 /// What the first slot does when pressed.
@@ -38,6 +40,7 @@ public enum NoteToolbarFirstAction: Equatable, Sendable {
     case transcribe
     case retry
     case retranscribe
+    case openModelSetup
     /// The summary tab's ↻ (regenerate, or retry after a failed attempt).
     case runSummary
     case cancelTranscription
@@ -48,7 +51,7 @@ public enum NoteToolbarFirstAction: Equatable, Sendable {
     public var isCancel: Bool {
         switch self {
         case .cancelTranscription, .cancelRetranscription, .cancelPostProcessing, .cancelSummary: true
-        case .transcribe, .retry, .retranscribe, .runSummary: false
+        case .transcribe, .retry, .retranscribe, .openModelSetup, .runSummary: false
         }
     }
 }
@@ -209,9 +212,11 @@ public struct NoteToolbarState: Equatable, Sendable {
             case .transcribe: .transcribe
             case .retry: .retry
             case .retranscribe: .retranscribe
+            case .openModelSetup: .openModelSetup
             }
             // While a summary is being made, nothing but its Cancel runs.
-            return .button(firstAction, isEnabled: !input.isMakingSummary)
+            // Model setup only opens Settings, so it stays on.
+            return .button(firstAction, isEnabled: firstAction == .openModelSetup || !input.isMakingSummary)
         }
         return input.canCancelWork ? .button(cancel, isEnabled: true) : .progress
     }
