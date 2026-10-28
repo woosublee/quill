@@ -80,6 +80,13 @@ otherwise.
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
   values. Reading a note's recording times stays in
   `Sources/NoteListRowDisplayData.swift`.
+- `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
+  (#697), built for macOS and iOS. So far the note toolbar: its state table
+  (`NoteToolbarState`, the #690 rules for both apps) and its view
+  (`NoteFloatingToolbar`). Each app passes the note's state, its localized
+  strings, and the actions; the view holds no app state and runs no work.
+  Platform differences stay in small `#if os` branches. The Mac's note
+  window, shortcuts, and the work itself stay in `Sources/`.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

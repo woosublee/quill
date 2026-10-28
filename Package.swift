@@ -16,7 +16,8 @@ let package = Package(
         .library(name: "QuillProviderCore", targets: ["QuillProviderCore"]),
         .library(name: "QuillAudioLevelCore", targets: ["QuillAudioLevelCore"]),
         .library(name: "QuillAudioFormatCore", targets: ["QuillAudioFormatCore"]),
-        .library(name: "QuillNoteCore", targets: ["QuillNoteCore"])
+        .library(name: "QuillNoteCore", targets: ["QuillNoteCore"]),
+        .library(name: "QuillNoteUI", targets: ["QuillNoteUI"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")
@@ -76,6 +77,12 @@ let package = Package(
         .target(
             name: "QuillNoteCore",
             path: "Packages/QuillNoteCore/Sources",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // SwiftUI views for both apps (#697). The iPhone app targets iOS 17.
+        .target(
+            name: "QuillNoteUI",
+            path: "Packages/QuillNoteUI/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],

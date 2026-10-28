@@ -26,7 +26,8 @@ struct NoteFileExportUIContractTests {
         }
 
         try expect(
-            noteBrowser.contains("Image(systemName: \"square.and.arrow.down\")"),
+            ((try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift", encoding: .utf8)) ?? "")
+                .contains("static let saveSymbol = \"square.and.arrow.down\""),
             "pill uses the save-files symbol"
         )
         try expect(

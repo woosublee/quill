@@ -16,6 +16,7 @@ import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillProviderCore
 import QuillNoteCore
+import QuillNoteUI
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
 
@@ -8363,6 +8364,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func finalizePendingSummaryDeletion() {
         pendingSummaryDeletion = nil
+    }
+
+    /// The note is being recorded, or saved after a record-only stop. Its
+    /// toolbar is hidden (#690); the recorder panel takes its place.
+    @MainActor
+    func isRecordingNote(noteID: UUID) -> Bool {
+        currentRecordingLiveNoteID == noteID || pendingAudioOnlyStopIDs.contains(noteID)
+    }
+
+    /// The note's first transcription after its recording stopped, for the
+    /// toolbar (#690): transcribing, or post-processing the new transcript.
+    @MainActor
+    func noteTranscriptionJobWork(noteID: UUID) -> NoteToolbarWork? {
+        guard !isRecordingNote(noteID: noteID),
+              activeTranscriptionJobs.values.contains(where: { $0.id == noteID || $0.liveNoteID == noteID })
+        else { return nil }
+        return postProcessingNoteIDs.contains(noteID) ? .postProcessing : .transcribing
+    }
+
+    /// Stops making a summary (#690). The run's result is dropped as stale,
+    /// so the previous summary, if any, stays and no failure is recorded.
+    @MainActor
+    func cancelMeetingSummary(noteID: UUID) {
+        meetingSummaryWorkflow.invalidate(noteID: noteID)
     }
 
     /// Whether this note still belongs to a recording or its transcription:

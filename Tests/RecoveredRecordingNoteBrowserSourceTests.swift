@@ -48,7 +48,9 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(source.contains("actionState.showsRetryButton"))
         precondition(source.contains("NoteFileExportView("))
-        precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
+        // The toolbar is the shared QuillNoteUI view; its Mac save symbol.
+        let sharedToolbar = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift", encoding: .utf8)) ?? ""
+        precondition(sharedToolbar.contains("static let saveSymbol = \"square.and.arrow.down\""))
         try testRetryWithoutReadyModelUsesToast(source)
         testEmptyHistoryShowsOneEmptyState(source)
         testNoteBrowserHeaderLayout(source)
@@ -466,9 +468,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         ).count - 1
         precondition(materialSwaps == 3, "Header, sidebar, and multi-select delete button")
         precondition(!source.contains(".background(.ultraThinMaterial)"))
-        precondition(detail.contains(
-            "if reduceTransparency {\n                Capsule().fill(QuillTransparency.opaqueBackgroundColor)"
-        ))
+        // The note toolbar is the shared QuillNoteUI view (#697): it fills
+        // the capsule with the color the Note Browser passes, the same one.
+        precondition(detail.contains("opaqueBackground: QuillTransparency.opaqueBackgroundColor"))
+        let sharedToolbarSource = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift", encoding: .utf8)) ?? ""
+        precondition(sharedToolbarSource.contains("if reduceTransparency {\n            Capsule().fill(opaqueBackground)"))
     }
 
     private static func expect(

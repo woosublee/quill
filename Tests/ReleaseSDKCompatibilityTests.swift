@@ -12,6 +12,11 @@ struct ReleaseSDKCompatibilityTests {
             !noteBrowserSource.contains("glassEffect(") || noteBrowserSource.contains("#if compiler(>=6.2)"),
             "SwiftUI glassEffect must be guarded so GitHub's Xcode 16.4 runner can compile releases"
         )
+        let sharedToolbarSource = try String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift", encoding: .utf8)
+        precondition(
+            !sharedToolbarSource.contains("glassEffect(") || sharedToolbarSource.contains("#if compiler(>=6.2)"),
+            "the shared toolbar's glassEffect is guarded the same way"
+        )
 
         precondition(
             FileManager.default.fileExists(atPath: "Sources/SystemAudioRecorder.swift"),
