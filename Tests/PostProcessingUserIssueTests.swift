@@ -16,6 +16,7 @@ struct PostProcessingUserIssueTests {
         try testRawFallbackOutcomeIsPersistedWithTheOriginalTranscript()
         try testRequestFailuresKeepOnlyAllowlistedProviderCode()
         try testNonSuccessResponsesDoNotStoreRawBodies()
+        try testSharedPresentationTranslatesEveryLineThroughTheApp()
         print("PostProcessingUserIssueTests passed")
     }
 
@@ -43,6 +44,44 @@ struct PostProcessingUserIssueTests {
                 ])
             }
         }
+    }
+
+    /// The iPhone shows the same warning as the Mac (private#191) by asking the
+    /// shared core which copy keys, rows, and action a record gets. Each app
+    /// translates with its own catalog, so every line goes through `localize`.
+    private static func testSharedPresentationTranslatesEveryLineThroughTheApp() throws {
+        let record = PostProcessingError.requestTimedOut(45, modelID: "slow/model")
+            .userIssueRecord(providerHost: "api.example.com", modelID: "slow/model")
+        let tagged = record.presentation(localize: QuillUserIssueLocalizer(
+            string: { "[\($0)]" },
+            seconds: { "<\($0)s>" }
+        ))
+        let copy = record.code.copy(for: record.context)
+        try expect(tagged.title == "[\(copy.titleKey)]", "title goes through the app's catalog")
+        try expect(tagged.body == "[\(copy.bodyKey)]", "body goes through the app's catalog")
+        try expect(tagged.suggestion == "[\(copy.suggestionKey)]", "suggestion goes through the app's catalog")
+        try expect(tagged.recoveryAction == record.recoveryAction, "same recovery action")
+        try expect(tagged.recoveryAction == .retryPostProcessing, "a failed cleanup retries cleanup only")
+        try expect(
+            tagged.detailsRows.allSatisfy { $0.label.hasPrefix("[") },
+            "every detail label is translated by the app"
+        )
+        try expect(
+            tagged.detailsRows.contains { $0.value == "<45.0s>" },
+            "the timeout uses the app's seconds format"
+        )
+        try expect(
+            QuillUserRecoveryAction.retryPostProcessing.titleKey == "Retry Post-processing",
+            "the retry button key is shared"
+        )
+        try expect(QuillUserRecoveryAction.none.titleKey == nil, "no action has no button")
+        // The Mac wrapper translates with the Mac catalog: real English, no raw keys or tags.
+        let mac = record.presentation(language: "en")
+        try expect(!mac.title.hasPrefix("["), "the Mac title is translated")
+        try expect(
+            mac.detailsRows.contains { $0.value == "45 seconds" },
+            "the Mac formats the timeout with its catalog"
+        )
     }
 
     /// The iPhone stores `userIssueRecord` directly (private#160), so it must

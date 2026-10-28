@@ -1,3 +1,4 @@
+import QuillUserIssueCore
 import SwiftUI
 
 enum QuillUserIssueViewStyle {
@@ -233,9 +234,9 @@ struct QuillUserIssueView: View {
     @ViewBuilder
     private var actionButton: some View {
         if let action,
-           actionTitleOverride != nil || presentation.recoveryAction != .none {
+           let title = actionTitleOverride ?? presentation.recoveryAction.titleKey {
             actionButton(
-                title: actionTitleOverride ?? actionTitle,
+                title: title,
                 isDisabled: actionDisabled,
                 action: action
             )
@@ -296,28 +297,6 @@ struct QuillUserIssueView: View {
             : QuillColor.issueError
     }
 
-    private var actionTitle: String {
-        let key: String
-        switch presentation.recoveryAction {
-        case .retryTranscription:
-            key = "Retry transcription"
-        case .retryPostProcessing:
-            key = "Retry Post-processing"
-        case .openModelsSettings:
-            key = "Open Models Settings"
-        case .openProviderSettings:
-            key = "Open Provider Settings"
-        case .openMicrophoneSettings:
-            key = "Open Microphone Settings"
-        case .openSpeechRecognitionSettings:
-            key = "Open Speech Recognition Settings"
-        case .openScreenRecordingSettings:
-            key = "Open Screen Recording Settings"
-        case .none:
-            key = ""
-        }
-        return key
-    }
 }
 
 /// A quiet, dismissible line for an outcome that needs no action, such as

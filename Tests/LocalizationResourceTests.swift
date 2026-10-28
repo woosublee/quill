@@ -1,4 +1,5 @@
 import Foundation
+import QuillUserIssueCore
 
 @main
 struct LocalizationResourceTests {
@@ -32,6 +33,8 @@ struct LocalizationResourceTests {
                 assert(value?.isEmpty == false, "Missing \(language) translation for \(key)")
             }
         }
+
+        try testSharedIssueCopyKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -349,6 +352,43 @@ struct LocalizationResourceTests {
         }
 
         print("LocalizationResourceTests passed")
+    }
+
+    /// The issue copy keys live in the shared core (private#191), so string
+    /// extraction can't see them. Every key any code, operation, or reason can
+    /// ask for must be in the catalog, or users see raw English keys.
+    private static func testSharedIssueCopyKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let reasons: [PostProcessingFailureReason?] = [
+            nil, .requestTimedOut, .contextBudgetExceeded, .emptyOutput, .invalidResponse, .serviceRequestFailed
+        ]
+        let operations: [QuillUserIssueOperation?] = [nil, .postProcessing, .commandTransform]
+        final class Keys: @unchecked Sendable { var all: Set<String> = [] }
+        let keys = Keys()
+        let localizer = QuillUserIssueLocalizer(
+            string: { keys.all.insert($0); return $0 },
+            seconds: { _ in keys.all.insert("%g seconds"); return "" }
+        )
+        for code in QuillUserIssueCode.allCases {
+            for operation in operations {
+                for reason in reasons {
+                    let context = QuillUserIssueContext(
+                        httpStatus: 500, providerHost: "api.example.com", providerCode: "synthetic",
+                        modelID: "synthetic/model", localBackend: "Synthetic", processExitCode: 1,
+                        retryExhausted: true, meetingSummaryFailureSubtype: .jsonSchema,
+                        operation: operation, postProcessingFailureReason: reason, requestTimeoutSeconds: 30
+                    )
+                    _ = QuillUserIssueRecord(code: code, context: context).presentation(localize: localizer)
+                    if let title = QuillUserIssueRecord(code: code, context: context).recoveryAction.titleKey {
+                        keys.all.insert(title)
+                    }
+                }
+            }
+        }
+        keys.all.insert("No")
+        let missing = keys.all.filter { !$0.isEmpty && strings[$0] == nil }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared issue copy keys missing from the catalog: \(missing)")
+        }
     }
 
     private static func assertTask3ExtractionCoverage(root: URL, catalogStrings: [String: Any]) throws {
