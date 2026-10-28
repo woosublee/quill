@@ -2569,6 +2569,21 @@ private struct NoteDetailView: View {
     private var transcriptionActionHelp: LocalizedStringKey {
         isAudioOnly ? "Transcribe audio" : "Retry transcription"
     }
+    /// The toolbar during a retranscription (#689, the table in #690): on
+    /// the transcript tab only Cancel stays on; on the summary tab only Copy
+    /// stays on. Save and Delete open the same picker from either tab, so
+    /// they're off on both, with Regenerate and Create summary.
+    @State private var retryPressedAt = Date.distantPast
+    private var canCancelRetry: Bool {
+        appState.canCancelTranscriptionRetry(item)
+    }
+    private var isRetryingOnTranscriptTab: Bool {
+        isRetrying && !isShowingSummaryTab
+    }
+    /// While it runs, the same toolbar slot stops it (#689), like the iPhone.
+    private var cancelTranscriptionHelp: LocalizedStringKey {
+        isAudioOnly ? "Cancel Transcription" : "Cancel Retranscription"
+    }
     /// Cloud transcription is running, or about to resume, for this note.
     private var isCloudTranscribing: Bool {
         item.machineStatus == .cloudTranscribing && !isCloudTranscriptionStopped
@@ -3233,16 +3248,18 @@ private struct NoteDetailView: View {
 
     // MARK: Content
 
+    private static let tabIndicatorRoom = "\u{2002}\u{2002}"
+
     private var contentModePicker: some View {
         Picker("Note Content", selection: userContentModeSelection) {
-            // Room for the sign drawn inside the segment, before the title.
-            (Text(verbatim: showsTranscriptTabIndicator ? "\u{2002}\u{2002}" : "")
-                + Text("Transcript"))
+            // Room for the sign drawn inside a segment (before "Transcript",
+            // after "Summary") is always kept, on both sides so the title
+            // stays centered, so neither segment changes width when a sign
+            // comes or goes (for example when a retranscription starts).
+            (Text(verbatim: Self.tabIndicatorRoom) + Text("Transcript") + Text(verbatim: Self.tabIndicatorRoom))
                 .tag(NoteContentMode.transcript)
             if showsSummaryTab {
-                // Room for the sign drawn inside the segment, after the title.
-                (Text("Summary")
-                    + Text(verbatim: showsSummaryTabIndicator ? "\u{2002}\u{2002}" : ""))
+                (Text(verbatim: Self.tabIndicatorRoom) + Text("Summary") + Text(verbatim: Self.tabIndicatorRoom))
                     .tag(NoteContentMode.summary)
             }
         }
@@ -3270,11 +3287,6 @@ private struct NoteDetailView: View {
         .padding(.bottom, 4)
     }
 
-    /// While the Transcript tab is open: a spinner when a summary is being
-    /// made, a dot when a new one waits to be chosen.
-    private var showsTranscriptTabIndicator: Bool {
-        isShowingSummaryTab && (isRetrying || transcriptCandidate != nil)
-    }
 
     /// While the Summary tab is open: a spinner when the note is being
     /// retranscribed, a dot when a new transcript waits to be chosen.
@@ -3301,9 +3313,6 @@ private struct NoteDetailView: View {
         selectedContentMode == .summary && showsSummaryTab
     }
 
-    private var showsSummaryTabIndicator: Bool {
-        selectedContentMode != .summary && (isGeneratingSummary || summaryCandidate != nil)
-    }
 
     @ViewBuilder
     private var summaryTabIndicator: some View {
@@ -4048,26 +4057,37 @@ private struct NoteDetailView: View {
                                 )
                         }
                     },
-                    disabled: summaryActionIsDisabled || isGeneratingSummary,
+                    disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,
                     help: summaryToolbarAction.help
                 )
                 toolbarDivider
-            } else if actionState.showsRetryButton {
+            } else if actionState.showsRetryButton || isRetrying {
+                // While it runs, the same slot cancels it (#689), like the
+                // iPhone; the progress stays on the body overlay.
                 toolbarButton(
-                    action: { retryTranscription() },
-                    label: {
-                        Group {
-                            if isRetrying {
-                                ProgressView().controlSize(.mini).frame(width: 14, height: 14)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(.orange)
-                            }
+                    action: {
+                        if isRetrying {
+                            // A quick second press on Retry isn't a Cancel.
+                            guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }
+                            appState.cancelTranscriptionRetry(item: item)
+                        } else {
+                            retryPressedAt = Date()
+                            retryTranscription()
                         }
                     },
-                    disabled: isRetrying,
-                    help: transcriptionActionHelp
+                    label: {
+                        if isRetrying, !canCancelRetry {
+                            // Post-processing, or work that can't be cancelled
+                            // here: a spinner, off (#690).
+                            ProgressView().controlSize(.mini).frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: isRetrying ? "xmark.circle" : "arrow.clockwise")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(isRetrying ? Color.primary : Color.orange)
+                        }
+                    },
+                    disabled: isRetrying && !canCancelRetry,
+                    help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp
                 )
                 toolbarDivider
             }
@@ -4086,7 +4106,7 @@ private struct NoteDetailView: View {
                                     : Color.secondary
                         )
                 },
-                disabled: !canCopyDisplayedContent,
+                disabled: !canCopyDisplayedContent || isRetryingOnTranscriptTab,
                 help: canCopyDisplayedContent
                     ? "Copy content"
                     : unavailableCopyHelp
@@ -4104,7 +4124,7 @@ private struct NoteDetailView: View {
                                 : Color.secondary
                         )
                 },
-                disabled: !actionState.canSaveFiles,
+                disabled: !actionState.canSaveFiles || isRetrying,
                 help: "Save Files"
             )
 
@@ -4127,7 +4147,7 @@ private struct NoteDetailView: View {
                                 )
                         }
                     },
-                    disabled: summaryActionIsDisabled || isGeneratingSummary,
+                    disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,
                     help: summaryToolbarAction.help
                 )
             }
@@ -4150,7 +4170,7 @@ private struct NoteDetailView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.red.opacity(0.8))
                 },
-                disabled: isRecoveringRecording,
+                disabled: isRecoveringRecording || isRetrying,
                 help: "Delete note"
             )
         }

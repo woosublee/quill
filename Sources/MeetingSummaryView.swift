@@ -72,6 +72,11 @@ struct MeetingSummaryView<Notices: View>: View {
                 }
                 summaryContent
             }
+            // Always as wide as the column allows (up to 760). Without this
+            // the column shrinks to its widest row, so it changed width when
+            // a full-width notice came or went (for example during a
+            // retranscription, or while the copy feedback showed).
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(maxWidth: 760, alignment: .leading)
             .padding(.horizontal, 40)
             .padding(.top, 14)
