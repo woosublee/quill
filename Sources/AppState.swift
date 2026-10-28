@@ -12608,32 +12608,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 "Post-processing failed: %{private}@",
                 issue.privateDiagnostic
             )
-            if case let .outputRejected(reason) = error as? PostProcessingError {
-                return (
-                    trimmedRawTranscript,
-                    .postProcessingRawFallback(reason: reason),
-                    "",
-                    issue.record,
-                    .rawFallback(reason: reason)
-                )
+            let aiOutcome = AIProcessingOutcome.afterPostProcessingFailure(error)
+            let outcome: TranscriptProcessingOutcome = switch aiOutcome {
+            case .rawFallback(let reason): .postProcessingRawFallback(reason: reason)
+            case .failed: .postProcessingFailedFallback
+            case .succeeded: .postProcessingFailedFallback
             }
-            let fallbackReason: String
-            if case .emptyOutput = error as? PostProcessingError {
-                fallbackReason = "empty-output"
-            } else {
-                fallbackReason = "post-processing-failed"
-            }
-            let failureReason = Self.aiProcessingFailureReason(
-                for: error,
-                fallback: fallbackReason
-            )
-            return (
-                trimmedRawTranscript,
-                .postProcessingFailedFallback,
-                "",
-                issue.record,
-                .failed(reason: failureReason)
-            )
+            return (trimmedRawTranscript, outcome, "", issue.record, aiOutcome)
         }
     }
 

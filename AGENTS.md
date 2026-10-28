@@ -26,10 +26,12 @@ otherwise.
   detector, the post-processing output validator, the prompt data envelope,
   the local-model token budget, transcript cleanup (its prompt, splitter,
   and the chunk runner), which cleanup errors try the fallback model
-  (`PostProcessingFallbackPolicy`), and the stored issue for a failed cleanup
-  (`PostProcessingError.userIssueRecord`, which imports
-  `QuillUserIssueCore`). Cleanup requests, the fallback model choice, and
-  Edit Mode stay in `Sources/PostProcessingService.swift`.
+  (`PostProcessingFallbackPolicy`), and what a failed cleanup stores: its
+  issue (`PostProcessingError.userIssueRecord`, which imports
+  `QuillUserIssueCore`) and its outcome
+  (`AIProcessingOutcome.afterPostProcessingFailure`). Cleanup requests, the
+  fallback model choice, and Edit Mode stay in
+  `Sources/PostProcessingService.swift`.
 - `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
   severity, context, the provider diagnostic code allow-list) and its
   persisted status string (`user-issue:v1:`). It imports no other shared
