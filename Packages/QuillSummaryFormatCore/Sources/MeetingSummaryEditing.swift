@@ -1,11 +1,10 @@
 import Foundation
-import QuillSummaryFormatCore
 
 // Editing a saved meeting summary in place (#262). The Summary tab edits a
 // copy of the content and saves it here; the generated content is kept the
 // first time so the person can revert to it.
 
-extension MeetingSummaryContent {
+public extension MeetingSummaryContent {
     /// The content without rows left empty while editing. An action with
     /// only an owner or due date is kept.
     func removingEmptyItems() -> MeetingSummaryContent {
@@ -29,26 +28,13 @@ extension MeetingSummaryContent {
         return copy
     }
 
-    /// True when the last of `points` is an untyped row being typed in,
-    /// standing where the New Item button would be.
-    func endsWithFocusedUntypedRow(
-        _ points: KeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>,
-        focusedID: UUID?
-    ) -> Bool {
-        guard let last = self[keyPath: points].last else { return false }
-        return last.id == focusedID && Self.isUntyped(last)
-    }
-
-    /// The same as `endsWithFocusedUntypedRow` for action items.
-    func endsWithFocusedUntypedAction(focusedID: UUID?) -> Bool {
-        guard let last = actionItems.last else { return false }
-        return last.id == focusedID && Self.isUntyped(last)
-    }
-
+    /// Nothing typed in the row. An action counts as typed when it has a
+    /// task, an owner, or a due date.
     static func isUntyped(_ point: MeetingSummaryPoint) -> Bool {
         isBlank(point.text)
     }
 
+    /// Nothing typed in the action: no task, owner, or due date.
     static func isUntyped(_ action: MeetingSummaryActionItem) -> Bool {
         isBlank(action.task) && isBlank(action.owner ?? "") && isBlank(action.dueDate ?? "")
     }
@@ -136,7 +122,7 @@ extension MeetingSummaryContent {
     }
 }
 
-extension MeetingSummaryEnvelope {
+public extension MeetingSummaryEnvelope {
     var isEdited: Bool { editedAt != nil }
 
     /// The summary with the person's edited text, or nil when the text is
