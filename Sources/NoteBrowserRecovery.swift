@@ -17,13 +17,17 @@ struct NoteBrowserActionState: Equatable {
     let retryAvailability: NoteBrowserRetryAvailability
     let postProcessingEnabled: Bool
     let hasSummary: Bool
+    /// Why the audio isn't here or in iCloud yet (for example, the Mac that
+    /// recorded it is still uploading it), for a retry that can't run.
+    let audioUnavailableMessage: String?
 
     init(
         hasStoredAudio: Bool,
         transcript: String,
         retryAvailability: NoteBrowserRetryAvailability,
         postProcessingEnabled: Bool = true,
-        hasSummary: Bool = false
+        hasSummary: Bool = false,
+        audioUnavailableMessage: String? = nil
     ) {
         self.hasStoredAudio = hasStoredAudio
         self.hasTranscriptText = !transcript
@@ -32,6 +36,7 @@ struct NoteBrowserActionState: Equatable {
         self.retryAvailability = retryAvailability
         self.postProcessingEnabled = postProcessingEnabled
         self.hasSummary = hasSummary
+        self.audioUnavailableMessage = audioUnavailableMessage
     }
 
     var showsRetryButton: Bool { hasStoredAudio || retryAvailability == .needsDownload }
@@ -56,6 +61,21 @@ enum NoteBrowserRecoveryPresentation {
         bundle: Bundle = .main
     ) -> QuillUserIssuePresentation {
         let original = record.presentation(language: language, bundle: bundle)
+
+        // No audio to transcribe yet, here or in iCloud (#688): the recording
+        // may still be uploading from the Mac that made it. Retrying can't
+        // run, so the issue shows why instead of a button that does nothing.
+        if original.recoveryAction == .retryTranscription, actionState.retryAvailability == .noAudio {
+            return QuillUserIssuePresentation(
+                title: original.title,
+                body: original.body,
+                suggestion: actionState.audioUnavailableMessage ?? original.suggestion,
+                compactMessage: original.compactMessage,
+                detailsRows: original.detailsRows,
+                recoveryAction: .none,
+                severity: original.severity
+            )
+        }
 
         // A historical post-processing warning no longer matches the current
         // configuration once post-processing is disabled: retrying will

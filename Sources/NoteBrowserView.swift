@@ -2762,7 +2762,8 @@ private struct NoteDetailView: View {
             transcript: displayContent,
             retryAvailability: retryAvailability,
             postProcessingEnabled: !appState.disablePostProcessing,
-            hasSummary: summaryEnvelope != nil
+            hasSummary: summaryEnvelope != nil,
+            audioUnavailableMessage: appState.noteAudioState(for: item).unavailableMessage
         )
     }
     private var issuePresentation: QuillUserIssuePresentation? {
@@ -4279,15 +4280,26 @@ private struct NoteDetailView: View {
             guard !isDownloadingToRetry else { return }
             isDownloadingToRetry = true
             Task { @MainActor in
-                defer { isDownloadingToRetry = false }
-                guard await appState.downloadNoteAudio(for: item) != nil else {
-                    if let message = appState.noteAudioState(for: item).unavailableMessage { showToast(message) }
+                let downloaded = await appState.downloadNoteAudio(for: item) != nil
+                // Cleared before retrying: the retry would otherwise see the
+                // download still running and stop without a word (#688).
+                isDownloadingToRetry = false
+                guard downloaded else {
+                    showToast(
+                        appState.noteAudioState(for: item).unavailableMessage
+                            ?? localizedCatalogString("Couldn't download this audio. Try again.")
+                    )
                     return
                 }
                 retryTranscription()
             }
         case .noAudio:
-            break
+            // The button shouldn't show then, but say why if it's pressed
+            // (#688), for example while another Mac is still uploading.
+            showToast(
+                appState.noteAudioState(for: item).unavailableMessage
+                    ?? localizedCatalogString("This recording's audio file is unavailable, so it can't be transcribed.")
+            )
         }
     }
 
