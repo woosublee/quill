@@ -279,6 +279,11 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("Image(systemName: isRetrying ? \"xmark.circle\" : \"arrow.clockwise\")"))
         precondition(noteBrowser.contains("help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp"))
         precondition(noteBrowser.contains("disabled: isRetrying && !canCancelRetry,"), "post-processing shows a spinner, off")
+        // The content picker keeps the indicator room in both segments
+        // always, so neither changes width when a sign comes or goes.
+        precondition(noteBrowser.contains("(Text(verbatim: Self.tabIndicatorRoom) + Text(\"Transcript\") + Text(verbatim: Self.tabIndicatorRoom))"))
+        precondition(noteBrowser.contains("(Text(verbatim: Self.tabIndicatorRoom) + Text(\"Summary\") + Text(verbatim: Self.tabIndicatorRoom))"))
+        precondition(!noteBrowser.contains("showsTranscriptTabIndicator ? \"\\u{2002}"), "no room that comes and goes")
         // The summary column keeps its width whatever notices show (it used
         // to shrink to its widest row during a retranscription).
         let summaryView = (try? String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)) ?? ""

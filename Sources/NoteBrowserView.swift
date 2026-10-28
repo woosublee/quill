@@ -3245,16 +3245,18 @@ private struct NoteDetailView: View {
 
     // MARK: Content
 
+    private static let tabIndicatorRoom = "\u{2002}\u{2002}"
+
     private var contentModePicker: some View {
         Picker("Note Content", selection: userContentModeSelection) {
-            // Room for the sign drawn inside the segment, before the title.
-            (Text(verbatim: showsTranscriptTabIndicator ? "\u{2002}\u{2002}" : "")
-                + Text("Transcript"))
+            // Room for the sign drawn inside a segment (before "Transcript",
+            // after "Summary") is always kept, on both sides so the title
+            // stays centered, so neither segment changes width when a sign
+            // comes or goes (for example when a retranscription starts).
+            (Text(verbatim: Self.tabIndicatorRoom) + Text("Transcript") + Text(verbatim: Self.tabIndicatorRoom))
                 .tag(NoteContentMode.transcript)
             if showsSummaryTab {
-                // Room for the sign drawn inside the segment, after the title.
-                (Text("Summary")
-                    + Text(verbatim: showsSummaryTabIndicator ? "\u{2002}\u{2002}" : ""))
+                (Text(verbatim: Self.tabIndicatorRoom) + Text("Summary") + Text(verbatim: Self.tabIndicatorRoom))
                     .tag(NoteContentMode.summary)
             }
         }
@@ -3282,11 +3284,6 @@ private struct NoteDetailView: View {
         .padding(.bottom, 4)
     }
 
-    /// While the Transcript tab is open: a spinner when a summary is being
-    /// made, a dot when a new one waits to be chosen.
-    private var showsTranscriptTabIndicator: Bool {
-        isShowingSummaryTab && (isRetrying || transcriptCandidate != nil)
-    }
 
     /// While the Summary tab is open: a spinner when the note is being
     /// retranscribed, a dot when a new transcript waits to be chosen.
@@ -3313,9 +3310,6 @@ private struct NoteDetailView: View {
         selectedContentMode == .summary && showsSummaryTab
     }
 
-    private var showsSummaryTabIndicator: Bool {
-        selectedContentMode != .summary && (isGeneratingSummary || summaryCandidate != nil)
-    }
 
     @ViewBuilder
     private var summaryTabIndicator: some View {
