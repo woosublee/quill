@@ -223,6 +223,9 @@ public struct NoteToolbarState: Equatable, Sendable {
         // A note without a summary keeps ✨ in its slot, dimmed, until
         // transcription and post-processing have both finished.
         if input.work.isRunning { return .button(isEnabled: false) }
+        // An audio-only or failed note (its action is Transcribe) has no
+        // transcript to summarize: no ✨, on both apps (2026-10-28 decision).
+        if input.transcriptAction == .transcribe { return .none }
         return input.canCreateSummary.map { .button(isEnabled: $0) } ?? .none
     }
 }

@@ -149,6 +149,15 @@ struct NoteToolbarStateTests {
             firstSlot: .button(.transcribe, isEnabled: true),
             isCopyEnabled: false, isSaveEnabled: true, createSummary: .none, isDeleteEnabled: true
         ))
+        // No ✨ there, even when the app would offer one (2026-10-28 decision):
+        // it shows dimmed only while a transcription runs, and turns on after.
+        var offered = failed
+        offered.canCreateSummary = false
+        precondition(State.make(offered).createSummary == .none)
+        offered.canCreateSummary = true
+        precondition(State.make(offered).createSummary == .none)
+        offered.work = .transcribing
+        precondition(State.make(offered).createSummary == .button(isEnabled: false))
         var withSummary = done(.summary)
         withSummary.transcriptAction = .transcribe
         precondition(State.make(withSummary) == State.make(done(.summary)))

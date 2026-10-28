@@ -4045,8 +4045,7 @@ private struct NoteDetailView: View {
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,
-            // The Mac keeps ✨ dimmed when there's nothing to summarize yet
-            // (an audio-only or failed note), as before.
+            // The shared table hides ✨ on an audio-only or failed note.
             canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
             hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasSummaryToCopy: summaryEnvelope != nil,
