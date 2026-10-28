@@ -2570,8 +2570,9 @@ private struct NoteDetailView: View {
         isAudioOnly ? "Transcribe audio" : "Retry transcription"
     }
     /// The toolbar during a retranscription (#689, the table in #690): on
-    /// the transcript tab only Cancel stays on; on the summary tab Copy and
-    /// Save stay on. Regenerate, Create summary, and Delete are off on both.
+    /// the transcript tab only Cancel stays on; on the summary tab only Copy
+    /// stays on. Save and Delete open the same picker from either tab, so
+    /// they're off on both, with Regenerate and Create summary.
     @State private var retryPressedAt = Date.distantPast
     private var canCancelRetry: Bool {
         appState.canCancelTranscriptionRetry(item)
@@ -4124,7 +4125,7 @@ private struct NoteDetailView: View {
                                 : Color.secondary
                         )
                 },
-                disabled: !actionState.canSaveFiles || isRetryingOnTranscriptTab,
+                disabled: !actionState.canSaveFiles || isRetrying,
                 help: "Save Files"
             )
 

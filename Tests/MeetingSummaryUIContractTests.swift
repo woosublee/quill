@@ -284,10 +284,10 @@ struct MeetingSummaryUIContractTests {
         precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
         // #690 retranscription row: transcript tab keeps only Cancel on;
-        // the summary tab keeps Copy and Save; Regenerate, Create summary,
-        // and Delete are off on both.
+        // the summary tab keeps only Copy. Save and Delete open the same
+        // picker from either tab, so they're off on both.
         precondition(noteBrowser.contains("disabled: !canCopyDisplayedContent || isRetryingOnTranscriptTab,"))
-        precondition(noteBrowser.contains("disabled: !actionState.canSaveFiles || isRetryingOnTranscriptTab,"))
+        precondition(noteBrowser.contains("disabled: !actionState.canSaveFiles || isRetrying,"))
         precondition(noteBrowser.components(separatedBy: "disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,").count == 3)
         precondition(noteBrowser.contains("disabled: isRecoveringRecording || isRetrying,"))
         precondition(noteBrowser.contains("if !isShowingSummaryTab, summaryToolbarAction == .create {"))
