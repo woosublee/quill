@@ -32,7 +32,7 @@ macOS 앱의 모든 화면과 그 안의 영역을 컴포넌트·토큰 이름�
 - **녹음 버튼**: 사이드바 아래 가운데, 44pt 원. 대기 `status-recording`, 녹음 중 `status-processing` + 흰 정사각형.
 - **삭제 캡슐**: 녹음 버튼 위, 유리 캡슐 + 줄어드는 취소 버튼.
 - **상세 머리**: 좌우 `space-40`, 위 32. 날짜 줄(SF Mono 10 `label-tertiary`, 예: 2026년 10월 24일 (토) 오전 9:56 + `Badge` 태그 `CLOUD · CTX · LLM · 언어`) → 제목(28 Bold, 바로 고치기, 0.5초 뒤 저장) → [캘린더 제목 제안 줄] → `AudioPlayer`(오디오가 있을 때). 아래에 구분선.
-- **상세 본문**: 가운데 세그먼트(`전사문` / `요약`, 작은 크기, 요약이 있을 때만) → `StatusBanner` → 본문(`transcript`). 아래 가운데에 `NoteToolbar`가 떠 있습니다(녹음 중인 노트, 비교 중에는 숨김). 빈 노트는 `IssueEmptyState`.
+- **상세 본문**: 가운데 세그먼트(`전사문` / `요약`, 작은 크기, 요약이 있을 때만) → `StatusBanner` → 본문(`transcript`). 아래 가운데에 `NoteToolbar`가 떠 있습니다(녹음 중인 노트, 비교 중에는 숨김. 작업 중 버튼 상태는 `NoteToolbar`의 상태별 표). 빈 노트는 `IssueEmptyState`.
 - **빈 상태**: 노트 없음(`mic`), 검색 결과 없음(`magnifyingglass`), 문서 없음(`doc.text`). 모두 80pt 원 + ultraLight 아이콘 + `empty-title` + `callout`.
 - **토스트**: 하단 가운데 `NoteBrowserToast`.
 
