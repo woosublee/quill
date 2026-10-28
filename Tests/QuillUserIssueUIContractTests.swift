@@ -49,7 +49,8 @@ struct QuillUserIssueUIContractTests {
             // Suggestion and diagnostics live behind an info popover.
             ".popover(isPresented: $showsDetails",
             "struct QuillInfoNotice: View",
-            "case .retryPostProcessing:"
+            // The button keys come from the shared core (#191).
+            "actionTitleOverride ?? presentation.recoveryAction.titleKey"
         ] {
             try expect(source.contains(marker), "shared issue renderer contains \(marker)")
         }
@@ -294,7 +295,7 @@ struct QuillUserIssueUIContractTests {
             "shared issue renderer accepts a context-specific retry title"
         )
         try expect(
-            source.contains("actionTitleOverride ?? actionTitle"),
+            source.contains("actionTitleOverride ?? presentation.recoveryAction.titleKey"),
             "summary retry copy overrides the transcription retry title"
         )
     }

@@ -34,10 +34,15 @@ otherwise.
   `Sources/PostProcessingService.swift`.
 - `Packages/QuillUserIssueCore/`: the stored user-issue record (codes,
   severity, context, the provider diagnostic code allow-list) and its
-  persisted status string (`user-issue:v1:`). It imports no other shared
-  module; `QuillAITextCore`, `QuillSummaryFormatCore`, and
-  `QuillSummaryGenerationCore` import it. Its on-screen
-  copy and recovery actions stay in `Sources/QuillUserIssue.swift`.
+  persisted status string (`user-issue:v1:`). It also decides how an issue
+  reads on screen, for both apps: the copy keys for each code
+  (`QuillUserIssueCode.copy(for:)`), the recovery action and its button key,
+  and the detail rows (`QuillUserIssueRecord.presentation(localize:)`). Each
+  app translates the keys with its own String Catalog. It imports no other
+  shared module; `QuillAITextCore`, `QuillSummaryFormatCore`, and
+  `QuillSummaryGenerationCore` import it. The Mac's catalog lookup, the
+  error constructors, and the issue views stay in `Sources/QuillUserIssue.swift`
+  and `Sources/QuillUserIssueView.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
   rendering) and summary editing (what counts as an empty row, dropping
