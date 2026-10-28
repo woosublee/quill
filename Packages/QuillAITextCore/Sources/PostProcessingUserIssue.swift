@@ -116,3 +116,21 @@ extension PostProcessingError {
         return nil
     }
 }
+
+public extension AIProcessingOutcome {
+    /// What a failed transcript cleanup records, the same on both apps: a
+    /// rejected output keeps the raw transcript for its reason, and other
+    /// failures name a timeout, an empty reply, or a general failure.
+    static func afterPostProcessingFailure(_ error: Error) -> AIProcessingOutcome {
+        switch error as? PostProcessingError {
+        case .outputRejected(let reason):
+            return .rawFallback(reason: reason)
+        case .requestTimedOut:
+            return .failed(reason: "request-timed-out")
+        case .emptyOutput:
+            return .failed(reason: "empty-output")
+        default:
+            return .failed(reason: "post-processing-failed")
+        }
+    }
+}

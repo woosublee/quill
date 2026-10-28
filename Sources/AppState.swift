@@ -12583,22 +12583,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 issue.privateDiagnostic
             )
             let aiOutcome = AIProcessingOutcome.afterPostProcessingFailure(error)
-            if case let .rawFallback(reason) = aiOutcome {
-                return (
-                    trimmedRawTranscript,
-                    .postProcessingRawFallback(reason: reason),
-                    "",
-                    issue.record,
-                    aiOutcome
-                )
+            let outcome: TranscriptProcessingOutcome = switch aiOutcome {
+            case .rawFallback(let reason): .postProcessingRawFallback(reason: reason)
+            case .failed: .postProcessingFailedFallback
+            case .succeeded: .postProcessingFailedFallback
             }
-            return (
-                trimmedRawTranscript,
-                .postProcessingFailedFallback,
-                "",
-                issue.record,
-                aiOutcome
-            )
+            return (trimmedRawTranscript, outcome, "", issue.record, aiOutcome)
         }
     }
 
