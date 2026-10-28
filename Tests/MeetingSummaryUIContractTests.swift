@@ -152,8 +152,7 @@ struct MeetingSummaryUIContractTests {
             "static let highlightScrollMargin: CGFloat = 32",
             ".accessibilityLabel(\"Note Content\")",
             "private var summaryToolbarAction: SummaryToolbarAction",
-            "summaryToolbarAction.systemImage",
-            "help: summaryToolbarAction.help",
+            "case .runSummary: summaryToolbarAction.helpText",
             "private var currentSummaryAttempt: MeetingSummaryAttempt? {",
             "summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))",
             "private var showsSummaryTab: Bool {",
@@ -172,10 +171,9 @@ struct MeetingSummaryUIContractTests {
         ] {
             precondition(noteBrowser.contains(expected), "Missing Note Browser contract: \(expected)")
         }
-        precondition(
-            !noteBrowser.contains("if showsSummaryTab {\n                toolbarButton"),
-            "Summary toolbar action is no longer gated behind showsSummaryTab"
-        )
+        // The summary toolbar action follows the open tab, not
+        // showsSummaryTab alone (the shared #690 table decides).
+        precondition(noteBrowser.contains("tab: isShowingSummaryTab ? .summary : .transcript,"))
         let generateSummaryBody = block(
             in: noteBrowser,
             from: "private func generateSummary(toCompare: Bool = false) {",
@@ -268,17 +266,31 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("Button(\"Make New Summary\") { generateSummary(toCompare: true) }"))
         precondition(noteBrowser.contains("MeetingSummaryComparisonView("))
         precondition(noteBrowser.contains("generateSummary(toCompare: savedSummary != nil)"), "every regenerate is compared first")
-        precondition(noteBrowser.contains("!(summaryCandidate != nil && isShowingSummaryTab),\n               !(showsTranscriptComparison && !isShowingSummaryTab) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
+        precondition(noteBrowser.contains("isComparingCandidates: (summaryCandidate != nil && isShowingSummaryTab)\n                    || (showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing")
         // The toolbar follows the open tab: each tab's "make again" action
         // comes first, and Summary work started elsewhere opens its tab.
-        precondition(noteBrowser.contains("if isShowingSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
-        precondition(noteBrowser.contains("} else if actionState.showsRetryButton || isRetrying {"))
+        // The note toolbar is the shared QuillNoteUI view and #690 table
+        // (#697); the Note Browser only maps its state and actions.
+        precondition(noteBrowser.contains("let state = NoteToolbarState.make(toolbarInput)\n        return NoteFloatingToolbar(\n            state: state,"))
+        precondition(noteBrowser.contains("transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,"))
+        // #699: the first transcription and a cleanup alone stop from the
+        // same ✕ the iPhone shows, each keeping what's saved.
+        precondition(noteBrowser.contains("canCancelWork: canCancelToolbarWork,"))
+        precondition(noteBrowser.contains("return appState.canCancelPostProcessing(noteID: item.id)"), "a cleanup offers ✕ only while it can stop")
+        precondition(noteBrowser.contains(": appState.canCancelFirstTranscription(noteID: item.id)"))
+        precondition(noteBrowser.contains("appState.cancelFirstTranscription(noteID: item.id)"))
+        precondition(noteBrowser.contains("appState.cancelPostProcessing(noteID: item.id)"))
+        // A press meant for the last button (or a quick second press) isn't a Cancel.
+        precondition(noteBrowser.contains("&& now.timeIntervalSince(firstSlotChangedAt) > 0.6"))
+        precondition(noteBrowser.contains(".onChange(of: state.firstSlot) { _ in\n            firstSlotChangedAt = Date()"))
+        precondition(noteBrowser.contains("return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none"), "the first transcription shows the toolbar")
         // #689: while a transcription runs, the same slot cancels it, like
         // the iPhone. Nothing is saved, so the current transcript stays.
         precondition(noteBrowser.contains("appState.cancelTranscriptionRetry(item: item)"))
-        precondition(noteBrowser.contains("Image(systemName: isRetrying ? \"xmark.circle\" : \"arrow.clockwise\")"))
-        precondition(noteBrowser.contains("help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp"))
-        precondition(noteBrowser.contains("disabled: isRetrying && !canCancelRetry,"), "post-processing shows a spinner, off")
+        // #690: Cancel Summary stops the run and keeps the previous summary.
+        precondition(noteBrowser.contains("appState.cancelMeetingSummary(noteID: item.id)"))
+        let appStateForSummary = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
+        precondition(appStateForSummary.contains("meetingSummaryGenerationTasks.removeValue(forKey: noteID)?.cancel()"), "Cancel Summary stops the model request too")
         // The content picker keeps the indicator room in both segments
         // always, so neither changes width when a sign comes or goes.
         precondition(noteBrowser.contains("(Text(verbatim: Self.tabIndicatorRoom) + Text(\"Transcript\") + Text(verbatim: Self.tabIndicatorRoom))"))
@@ -288,18 +300,11 @@ struct MeetingSummaryUIContractTests {
         // to shrink to its widest row during a retranscription).
         let summaryView = (try? String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)) ?? ""
         precondition(summaryView.contains(".frame(maxWidth: .infinity, alignment: .leading)\n            .frame(maxWidth: 760, alignment: .leading)"))
-        precondition(noteBrowser.contains("guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }"), "a double press isn't a Cancel")
+        precondition(noteBrowser.contains("return now.timeIntervalSince(firstSlotPressedAt) > 0.6"), "a double press isn't a Cancel")
         let appStateSource = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
         precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
-        // #690 retranscription row: transcript tab keeps only Cancel on;
-        // the summary tab keeps only Copy. Save and Delete open the same
-        // picker from either tab, so they're off on both.
-        precondition(noteBrowser.contains("disabled: !canCopyDisplayedContent || isRetryingOnTranscriptTab,"))
-        precondition(noteBrowser.contains("disabled: !actionState.canSaveFiles || isRetrying,"))
-        precondition(noteBrowser.components(separatedBy: "disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,").count == 3)
-        precondition(noteBrowser.contains("disabled: isRecoveringRecording || isRetrying,"))
-        precondition(noteBrowser.contains("if !isShowingSummaryTab, summaryToolbarAction == .create {"))
+        precondition(noteBrowser.contains("canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
         let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""
@@ -319,7 +324,7 @@ struct MeetingSummaryUIContractTests {
         precondition(comparison.contains("struct TranscriptComparisonView: View"))
         precondition(noteBrowser.contains("TranscriptComparisonView(\n                current: displayContent,"))
         precondition(noteBrowser.contains("private var transcriptTabIndicator: some View"))
-        precondition(noteBrowser.contains("!(showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
+        precondition(noteBrowser.contains("|| (showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
         // A retry with the same text skips the comparison and says so with the
         // Summary tab's status banner; other notices wait behind its "+1".
         precondition(noteBrowser.contains("let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]\n                    == item.displayedTranscript"), "the notice ends once the transcript changes")
@@ -367,7 +372,7 @@ struct MeetingSummaryUIContractTests {
             "case .retry, .regenerate:",
             "arrow.triangle.2.circlepath",
             "private var canDeleteSummary:",
-            "if canDeleteSummary {\n                        showDeleteChoice = true\n                    } else {\n                        showDeleteConfirmation = true\n                    }",
+            "} else if canDeleteSummary {\n            showDeleteChoice = true\n        } else {\n            showDeleteConfirmation = true\n        }",
             "deleteMeetingSummary(noteID: item.id)",
             ".frame(maxWidth: .infinity, maxHeight: .infinity)"
         ] {

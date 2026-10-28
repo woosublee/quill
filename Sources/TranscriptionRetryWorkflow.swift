@@ -31,6 +31,9 @@ struct TranscriptionRetryProcessingResult: Sendable {
     let aiProcessingOutcome: AIProcessingOutcome
     let spokenLanguage: SpokenLanguageResolution
     let disposition: TranscriptionRetryProcessingDisposition
+    /// The person stopped the cleanup step (#699): the note records no
+    /// post-processing.
+    var postProcessingStopped = false
 }
 
 struct TranscriptionRetryProcessingBehavior {
@@ -866,7 +869,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 customVocabulary: request.historyMetadata.customVocabulary,
                 customSystemPrompt: request.historyMetadata.customSystemPrompt,
                 usedLocalTranscription: request.historyMetadata.usedLocalTranscription,
-                usedPostProcessing: request.historyMetadata.usedPostProcessing,
+                usedPostProcessing: request.historyMetadata.usedPostProcessing
+                    && !processing.postProcessingStopped,
                 transcriptionLanguageCode:
                     request.historyMetadata.transcriptionLanguageCode,
                 spokenLanguage: processing.spokenLanguage,

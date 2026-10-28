@@ -273,8 +273,10 @@ struct LocalizationResourceTests {
             contentsOf: root.appendingPathComponent("Sources/NoteBrowserView.swift"),
             encoding: .utf8
         )
-        assert(noteBrowserSource.contains("help: LocalizedStringKey"))
-        assert(noteBrowserSource.contains("let help: LocalizedStringKey"))
+        // The toolbar is the shared QuillNoteUI view (#697): the Note
+        // Browser passes it strings already localized from this catalog.
+        assert(noteBrowserSource.contains("private var toolbarLabels: NoteToolbarLabels"))
+        assert(noteBrowserSource.contains("delete: localizedCatalogString(\"Delete note\")"))
 
         let noteBrowserKeys = [
             "Choose a model for retranscription",

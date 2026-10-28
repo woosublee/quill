@@ -113,7 +113,8 @@ struct QuillUserIssueUIContractTests {
             "Note Browser renders a pill-anchored toast"
         )
         try expect(
-            source.contains(".opacity(disabled ? 0.35 : 1)"),
+            ((try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift", encoding: .utf8)) ?? "")
+                .contains(".opacity(isEnabled ? 1 : 0.35)"),
             "disabled toolbar actions are visually distinct"
         )
         try expect(

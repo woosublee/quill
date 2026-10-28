@@ -1,16 +1,16 @@
 # NoteToolbar
 
-노트 상세 아래 가운데에 떠 있는 동작 캡슐입니다(`floatingToolbar`, `ToolbarIconButton`). 높이 48, 아래 여백 20, 좌우 8. 배경은 유리(macOS 26 이상 `glassEffect`, 이전은 `.ultraThinMaterial`, 투명도 줄이기에서는 불투명), 테두리 `stroke-glass` 0.6, 그림자 `shadow-glass`.
+노트 상세 아래 가운데에 떠 있는 동작 캡슐입니다. 두 앱이 같은 공유 뷰를 씁니다: 공개 `quill` 레포 `Packages/QuillNoteUI`의 `NoteFloatingToolbar`(화면)와 `NoteToolbarState`(#690 상태표, #697). 앱은 노트 상태를 `NoteToolbarInput`으로 넘기고 동작을 받기만 합니다. 높이 48(iPhone 56), 아래 여백 20, 좌우 8. 배경은 유리(macOS·iOS 26 이상 `glassEffect`, 이전은 `.ultraThinMaterial`, 투명도 줄이기에서는 불투명), 테두리 `stroke-glass` 0.6, 그림자 `shadow-glass`.
 
-- 버튼은 36pt 원형, 아이콘 13 Medium. 순서: [첫 자리] | 복사 · 파일 저장 · [요약 만들기] | 삭제. 구분선은 0.5×18, primary 12%.
+- 버튼은 36pt 원형(iPhone 44pt), 아이콘 13 Medium. 순서: [첫 자리] | 복사 · 파일 저장 · [요약 만들기] | 삭제. 구분선은 0.5×18, primary 12%. 꺼진 버튼은 자리를 지킨 채 흐려집니다(35%). 사라지지 않습니다.
 - 열린 탭을 따라갑니다(#262): 요약 탭의 첫 자리는 요약 다시 만들기, 전사 탭의 첫 자리는 다시 전사입니다. 다시 만들기 아이콘은 `status-processing`(주황), 삭제는 `status-recording` 80%.
-- 요약이 없을 때만 전사 탭에 요약 만들기(`sparkles`)가 붙습니다. 복사하면 아이콘이 잠깐 체크 표시 + `accent`.
+- 요약이 없을 때만 전사 탭에 요약 만들기(`sparkles`)가 붙습니다. 전사·후처리 중에는 흐린 채 자리를 지키다 둘 다 끝나면 켜집니다. 복사하면 아이콘이 잠깐 체크 표시 + `accent`.
 - 복사는 열린 탭의 내용(전사문 또는 요약)을 복사합니다. 파일 저장(전사문·요약·오디오)과 삭제(노트 전체·요약만)는 어느 탭에서나 같은 창을 엽니다.
-- iPhone은 이 캡슐을 옮긴 공유 뷰(`quill-universal`의 `Sources/SharedUI/NoteFloatingToolbar.swift`)와 같은 순서를 씁니다. 파일 저장 자리는 공유 시트(`square.and.arrow.up`)입니다.
+- 파일 저장 자리는 Mac `square.and.arrow.down`, iPhone 공유 시트 `square.and.arrow.up`입니다.
 
 ## 상태별 모양 (#690, 2026-10-28 결정)
 
-Mac과 iPhone이 같은 규칙을 씁니다. iPhone에 먼저 넣고, 확인한 뒤 Mac에 넣습니다(#690에서 진행 상태를 봅니다).
+Mac과 iPhone이 같은 규칙을 씁니다. 규칙은 `NoteToolbarState`(QuillNoteUI) 한 곳에 있습니다(#697). 앱이 그 노트를 취소할 길이 없으면 ✕ 대신 진행 표시를 둡니다.
 
 - 툴바를 숨기는 때는 셋뿐입니다: 녹음 중인 노트(녹음 패널이 대신), 요약·전사 후보를 비교하는 동안(고르기 막대가 대신), iPhone에서 키보드를 올려 고치는 동안(키보드를 가리지 않게). Mac은 고치는 동안에도 툴바를 둡니다.
 - 그 밖에는 작업 중에도 툴바를 두고 버튼만 켜고 끕니다. 꺼진 버튼은 흐리게 그립니다.

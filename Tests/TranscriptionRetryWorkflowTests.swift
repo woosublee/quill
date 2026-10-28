@@ -19,6 +19,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testLocalAIRecordWaitsWhenLocalModelChanged()
         try await testManualSuccessPersistsBeforeEffectsAndDelivery()
         try await testManualFallbackUsesFallbackOutcome()
+        try await testStoppedCleanupSavesTheTranscriptAsNotPostProcessed()
         try await testCandidateRetryWaitsUntilChosen()
         try await testSameTranscriptSkipsTheComparison()
         try await testSameTranscriptAfterAChangeStillCompares()
@@ -825,6 +826,46 @@ struct TranscriptionRetryWorkflowTests {
             ),
             "fallback effects"
         )
+    }
+
+    /// #699: the person stopped only the cleanup. The transcript is kept,
+    /// recorded as not post-processed, with no failed or fallback outcome.
+    @MainActor
+    private static func testStoppedCleanupSavesTheTranscriptAsNotPostProcessed()
+        async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: immediateDependencies(text: "provider raw")
+        )
+        workflow.onEvent = events.record
+        var stopped = processingResult(raw: "kept raw", final: "kept raw")
+        stopped.postProcessingStopped = true
+
+        _ = workflow.startManual(
+            request: try makeRequest(
+                item: item,
+                fixture: fixture,
+                processing: fixedProcessingBehavior(stopped)
+            ),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+
+        try await waitUntil { events.outcomes.count == 1 }
+        let saved = try require(history.persistedItems.last, "persisted stopped item")
+        guard case .succeeded? = events.outcomes.last else {
+            throw TranscriptionRetryWorkflowTestFailure("stopped cleanup outcome")
+        }
+        try expectEqual(saved.rawTranscript, "kept raw", "stopped raw")
+        try expectEqual(saved.postProcessedTranscript, "kept raw", "stopped final")
+        try expect(!saved.usedPostProcessing, "stopped cleanup isn't post-processed")
+        try expectEqual(saved.aiProcessingOutcome, "succeeded", "stopped AI outcome")
     }
 
     @MainActor

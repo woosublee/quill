@@ -7,6 +7,7 @@ import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillAudioLevelCore
 import QuillNoteCore
+import QuillNoteUI
 
 // MARK: - Cursor helper
 
@@ -2566,23 +2567,14 @@ private struct NoteDetailView: View {
     private var isAudioOnly: Bool {
         item.machineStatus == .audioOnly
     }
-    private var transcriptionActionHelp: LocalizedStringKey {
-        isAudioOnly ? "Transcribe audio" : "Retry transcription"
-    }
     /// The toolbar during a retranscription (#689, the table in #690): on
     /// the transcript tab only Cancel stays on; on the summary tab only Copy
     /// stays on. Save and Delete open the same picker from either tab, so
     /// they're off on both, with Regenerate and Create summary.
-    @State private var retryPressedAt = Date.distantPast
+    @State private var firstSlotPressedAt = Date.distantPast
+    @State private var firstSlotChangedAt = Date.distantPast
     private var canCancelRetry: Bool {
         appState.canCancelTranscriptionRetry(item)
-    }
-    private var isRetryingOnTranscriptTab: Bool {
-        isRetrying && !isShowingSummaryTab
-    }
-    /// While it runs, the same toolbar slot stops it (#689), like the iPhone.
-    private var cancelTranscriptionHelp: LocalizedStringKey {
-        isAudioOnly ? "Cancel Transcription" : "Cancel Retranscription"
     }
     /// Cloud transcription is running, or about to resume, for this note.
     private var isCloudTranscribing: Bool {
@@ -2746,24 +2738,6 @@ private struct NoteDetailView: View {
             return true
         }
     }
-    private var canCopyDisplayedContent: Bool {
-        switch selectedContentMode {
-        case .transcript:
-            return !displayContent.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ).isEmpty
-        case .summary:
-            return summaryEnvelope != nil
-        }
-    }
-    private var unavailableCopyHelp: LocalizedStringKey {
-        switch selectedContentMode {
-        case .transcript:
-            return "No transcript text to copy."
-        case .summary:
-            return "No summary text to copy."
-        }
-    }
     private var storedAudioURL: URL? {
         appState.noteBrowserStoredAudioURL(for: item)
     }
@@ -2849,9 +2823,11 @@ private struct NoteDetailView: View {
             // The recording's own note has nothing to act on yet, and
             // deleting it mid-recording would bring it back (#437).
             // While comparing summaries, the choice bar is the only action.
-            if !appState.isRecordingInProgress(noteID: item.id),
-               !(summaryCandidate != nil && isShowingSummaryTab),
-               !(showsTranscriptComparison && !isShowingSummaryTab) {
+            if !NoteToolbarState.isHidden(
+                isRecording: appState.isRecordingNote(noteID: item.id),
+                isComparingCandidates: (summaryCandidate != nil && isShowingSummaryTab)
+                    || (showsTranscriptComparison && !isShowingSummaryTab)
+            ) {
                 floatingToolbar
             }
             if let toastMessage {
@@ -3796,7 +3772,7 @@ private struct NoteDetailView: View {
     /// The floating toolbar's height plus its bottom margin. Centered empty
     /// states leave this much room so they sit in the middle of what is
     /// visible above the toolbar, not of the whole pane.
-    private static let floatingToolbarHeight: CGFloat = 48
+    private static let floatingToolbarHeight = NoteFloatingToolbar.height
     private static let floatingToolbarBottomMargin: CGFloat = 20
     private static let floatingToolbarClearance =
         floatingToolbarHeight + floatingToolbarBottomMargin
@@ -4040,192 +4016,138 @@ private struct NoteDetailView: View {
     /// The toolbar follows the open tab (#262): each tab's "make again"
     /// action sits first, before the divider, and runs where you can see it.
     private var floatingToolbar: some View {
-        HStack(spacing: 2) {
-            if isShowingSummaryTab {
-                toolbarButton(
-                    action: { handleSummaryAction() },
-                    label: {
-                        if isGeneratingSummary {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(
-                                    summaryActionIsDisabled ? Color.secondary : Color.orange
-                                )
-                        }
-                    },
-                    disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,
-                    help: summaryToolbarAction.help
-                )
-                toolbarDivider
-            } else if actionState.showsRetryButton || isRetrying {
-                // While it runs, the same slot cancels it (#689), like the
-                // iPhone; the progress stays on the body overlay.
-                toolbarButton(
-                    action: {
-                        if isRetrying {
-                            // A quick second press on Retry isn't a Cancel.
-                            guard Date().timeIntervalSince(retryPressedAt) > 0.6 else { return }
-                            appState.cancelTranscriptionRetry(item: item)
-                        } else {
-                            retryPressedAt = Date()
-                            retryTranscription()
-                        }
-                    },
-                    label: {
-                        if isRetrying, !canCancelRetry {
-                            // Post-processing, or work that can't be cancelled
-                            // here: a spinner, off (#690).
-                            ProgressView().controlSize(.mini).frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: isRetrying ? "xmark.circle" : "arrow.clockwise")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(isRetrying ? Color.primary : Color.orange)
-                        }
-                    },
-                    disabled: isRetrying && !canCancelRetry,
-                    help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp
-                )
-                toolbarDivider
-            }
-
-            // Copy
-            toolbarButton(
-                action: { copyContent() },
-                label: {
-                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(
-                            isCopied
-                                ? Color.accentColor
-                                : canCopyDisplayedContent
-                                    ? Color.primary
-                                    : Color.secondary
-                        )
-                },
-                disabled: !canCopyDisplayedContent || isRetryingOnTranscriptTab,
-                help: canCopyDisplayedContent
-                    ? "Copy content"
-                    : unavailableCopyHelp
-            )
-
-            toolbarButton(
-                action: { showFileExportSheet = true },
-                label: {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 13, weight: .medium))
-                        .accessibilityLabel(Text("Save Files"))
-                        .foregroundStyle(
-                            actionState.canSaveFiles
-                                ? Color.primary
-                                : Color.secondary
-                        )
-                },
-                disabled: !actionState.canSaveFiles || isRetrying,
-                help: "Save Files"
-            )
-
-            // Creating the first summary starts from the Transcript tab.
-            if !isShowingSummaryTab, summaryToolbarAction == .create {
-                toolbarButton(
-                    action: { handleSummaryAction() },
-                    label: {
-                        if isGeneratingSummary {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: summaryToolbarAction.systemImage)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(
-                                    summaryActionIsDisabled
-                                        ? Color.secondary
-                                        : Color.primary
-                                )
-                        }
-                    },
-                    disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,
-                    help: summaryToolbarAction.help
-                )
-            }
-
-            toolbarDivider
-
-            // Delete
-            toolbarButton(
-                action: {
-                    if keepsRecordingPieces {
-                        showUnrecoveredDeleteConfirmation = true
-                    } else if canDeleteSummary {
-                        showDeleteChoice = true
-                    } else {
-                        showDeleteConfirmation = true
-                    }
-                },
-                label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.red.opacity(0.8))
-                },
-                disabled: isRecoveringRecording || isRetrying,
-                help: "Delete note"
-            )
-        }
-        .padding(.horizontal, 8)
-        .frame(height: Self.floatingToolbarHeight)
-        .background {
-            // Opaque under Reduce Transparency.
-            if reduceTransparency {
-                Capsule().fill(QuillTransparency.opaqueBackgroundColor)
-            } else {
-                #if compiler(>=6.2)
-                if #available(macOS 26.0, *) {
-                    Color.clear.glassEffect(.regular, in: Capsule())
-                } else {
-                    Capsule().fill(.ultraThinMaterial)
-                }
-                #else
-                Capsule().fill(.ultraThinMaterial)
-                #endif
-            }
-        }
-        .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
-        .shadow(color: .white.opacity(0.05), radius: 4, x: 0, y: -1)
+        let state = NoteToolbarState.make(toolbarInput)
+        return NoteFloatingToolbar(
+            state: state,
+            labels: toolbarLabels,
+            actions: NoteToolbarActions(
+                firstAction: { handleToolbarFirstAction($0) },
+                copy: { copyContent() },
+                save: { showFileExportSheet = true },
+                createSummary: { handleSummaryAction() },
+                delete: { requestDelete() }
+            ),
+            showsCopyConfirmation: isCopied,
+            opaqueBackground: QuillTransparency.opaqueBackgroundColor
+        )
         .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
-        .contentShape(Capsule())
-        .allowsHitTesting(true)
         .overrideCursor(.arrow)
+        // A press meant for the slot's last button mustn't land as the next
+        // one: transcription can turn into post-processing under the cursor.
+        .onChange(of: state.firstSlot) { _ in
+            firstSlotChangedAt = Date()
+        }
     }
 
-    private var toolbarStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
-    }
-
-    private func toolbarButton<L: View>(
-        action: @escaping () -> Void,
-        @ViewBuilder label: @escaping () -> L,
-        disabled: Bool,
-        help: LocalizedStringKey
-    ) -> some View {
-        ToolbarIconButton(
-            action: action,
-            disabled: disabled,
-            help: help,
-            label: label
+    /// What this note's toolbar shows, for the shared #690 table.
+    private var toolbarInput: NoteToolbarInput {
+        NoteToolbarInput(
+            tab: isShowingSummaryTab ? .summary : .transcript,
+            work: toolbarWork,
+            canCancelWork: canCancelToolbarWork,
+            transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,
+            hasSummaryTab: showsSummaryTab,
+            isMakingSummary: isGeneratingSummary,
+            canRunSummary: !summaryActionIsDisabled,
+            // The shared table hides ✨ on an audio-only or failed note.
+            canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
+            hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasSummaryToCopy: summaryEnvelope != nil,
+            hasFilesToSave: actionState.canSaveFiles,
+            canDelete: !isRecoveringRecording
         )
     }
 
-    private var toolbarDivider: some View {
-        Rectangle()
-            .fill(Color.primary.opacity(0.12))
-            .frame(width: 0.5, height: 18)
-            .padding(.horizontal, 4)
+    /// The note's transcription work: a retranscription from here (or a
+    /// resumed one), or the first transcription after its recording.
+    private var toolbarWork: NoteToolbarWork {
+        if isRetrying {
+            if appState.postProcessingNoteIDs.contains(item.id) { return .postProcessing }
+            return isAudioOnly ? .transcribing : .retranscribing
+        }
+        return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none
+    }
+
+    /// Whether this note's running work can stop from here: a cleanup
+    /// alone, a retranscription, or the first transcription (#699).
+    private var canCancelToolbarWork: Bool {
+        switch toolbarWork {
+        case .postProcessing:
+            return appState.canCancelPostProcessing(noteID: item.id)
+        case .transcribing, .retranscribing:
+            return isRetrying
+                ? canCancelRetry
+                : appState.canCancelFirstTranscription(noteID: item.id)
+        case .none, .waitingToTranscribe, .cancelling:
+            return false
+        }
+    }
+
+    private var toolbarLabels: NoteToolbarLabels {
+        NoteToolbarLabels(
+            firstAction: { action in
+                switch action {
+                case .transcribe: localizedCatalogString("Transcribe audio")
+                case .retry, .retranscribe: localizedCatalogString("Retry transcription")
+                case .runSummary: summaryToolbarAction.helpText
+                case .cancelTranscription: localizedCatalogString("Cancel Transcription")
+                case .cancelRetranscription: localizedCatalogString("Cancel Retranscription")
+                case .cancelPostProcessing: localizedCatalogString("Cancel Post-processing")
+                case .cancelSummary: localizedCatalogString("Cancel Summary")
+                }
+            },
+            progress: localizedCatalogString(toolbarWork == .postProcessing ? "Post-processing..." : "Transcribing..."),
+            copy: localizedCatalogString("Copy content"),
+            copyUnavailable: localizedCatalogString(
+                isShowingSummaryTab ? "No summary text to copy." : "No transcript text to copy."
+            ),
+            save: localizedCatalogString("Save Files"),
+            createSummary: localizedCatalogString("Create Summary"),
+            delete: localizedCatalogString("Delete note")
+        )
+    }
+
+    private func handleToolbarFirstAction(_ action: NoteToolbarFirstAction) {
+        switch action {
+        case .transcribe, .retry, .retranscribe:
+            firstSlotPressedAt = Date()
+            retryTranscription()
+        case .runSummary:
+            firstSlotPressedAt = Date()
+            handleSummaryAction()
+        case .cancelTranscription, .cancelRetranscription:
+            guard isFirstSlotSettled else { return }
+            if isRetrying {
+                appState.cancelTranscriptionRetry(item: item)
+            } else {
+                appState.cancelFirstTranscription(noteID: item.id)
+            }
+        case .cancelPostProcessing:
+            guard isFirstSlotSettled else { return }
+            appState.cancelPostProcessing(noteID: item.id)
+        case .cancelSummary:
+            guard isFirstSlotSettled else { return }
+            appState.cancelMeetingSummary(noteID: item.id)
+        }
+    }
+
+    /// A quick second press on the same slot, or one just after it changed,
+    /// isn't a Cancel.
+    private var isFirstSlotSettled: Bool {
+        let now = Date()
+        return now.timeIntervalSince(firstSlotPressedAt) > 0.6
+            && now.timeIntervalSince(firstSlotChangedAt) > 0.6
+    }
+
+    private func requestDelete() {
+        if keepsRecordingPieces {
+            showUnrecoveredDeleteConfirmation = true
+        } else if canDeleteSummary {
+            showDeleteChoice = true
+        } else {
+            showDeleteConfirmation = true
+        }
     }
 
     // MARK: Actions
@@ -4471,6 +4393,8 @@ private struct NoteDetailView: View {
                 if let error = error as? MeetingSummaryError, error == .sourceChanged {
                     return
                 }
+                // Cancelled from the toolbar: nothing failed.
+                if Task.isCancelled { return }
                 let persistedAttempt = appState.pipelineHistory.first {
                     $0.id == item.id
                 }?.meetingSummaryAttempt
@@ -4585,14 +4509,11 @@ private enum SummaryToolbarAction {
         }
     }
 
-    var help: LocalizedStringKey {
+    var helpText: String {
         switch self {
-        case .create:
-            "Create Summary"
-        case .retry:
-            "Retry Summary"
-        case .regenerate:
-            "Regenerate Summary"
+        case .create: localizedCatalogString("Create Summary")
+        case .retry: localizedCatalogString("Retry Summary")
+        case .regenerate: localizedCatalogString("Regenerate Summary")
         }
     }
 }
@@ -4929,41 +4850,6 @@ struct NoteAudioPlayerView: View {
     }
 }
 
-// MARK: - Toolbar Button Style
-
-private struct ToolbarButtonStyle: ButtonStyle {
-    @Environment(\.colorScheme) private var colorScheme
-    var isHovered: Bool = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(
-                Circle()
-                    .fill(
-                        configuration.isPressed
-                            ? Color.primary.opacity(0.12)
-                            : (isHovered ? hoverFillColor : Color.clear)
-                    )
-            )
-            .overlay(
-                Circle()
-                    .strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)
-            )
-            .contentShape(Circle())
-            .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.12), value: isHovered)
-    }
-
-    private var hoverFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07)
-    }
-
-    private var hoverStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.16) : Color.primary.opacity(0.12)
-    }
-}
-
 private struct NoteBrowserToastView: View {
     let message: String
     var actionTitle: LocalizedStringKey?
@@ -5131,34 +5017,6 @@ private struct CancelCountdownFill: View {
                 .fill(Color.primary.opacity(0.12))
                 .frame(width: geometry.size.width * remaining)
         }
-    }
-}
-
-private struct ToolbarIconButton<Label: View>: View {
-    let action: () -> Void
-    let disabled: Bool
-    let help: LocalizedStringKey
-    @ViewBuilder let label: () -> Label
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            label()
-                .frame(width: 36, height: 36)
-                .opacity(disabled ? 0.35 : 1)
-                .contentShape(Circle())
-        }
-        .buttonStyle(ToolbarButtonStyle(isHovered: isHovered))
-        .disabled(disabled)
-        .help(help)
-        .accessibilityLabel(Text(help))
-        .contentShape(Circle())
-        .allowsHitTesting(true)
-        .onHover { hovering in
-            isHovered = hovering && !disabled
-        }
-        .overrideCursor(.arrow)
     }
 }
 

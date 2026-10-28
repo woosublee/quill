@@ -81,9 +81,12 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("TimelineView(.animation(minimumInterval: 0.25))"))
         precondition(!source.contains("steppingStart"), "Reduce Motion steps don't anchor to wall-clock time")
 
-        // #437: the recording's own note has no toolbar and no Delete… while
-        // it records, and asking to delete it explains why not.
-        precondition(source.contains("if !appState.isRecordingInProgress(noteID: item.id),\n               !(summaryCandidate != nil && isShowingSummaryTab),\n               !(showsTranscriptComparison && !isShowingSummaryTab) {\n                floatingToolbar"))
+        // #437: the recording's own note has no toolbar while it records
+        // (#690); while its transcript is made, the toolbar shows with Delete
+        // off (the shared table turns Delete off during any work). Asking to
+        // delete it from elsewhere explains why not.
+        precondition(source.contains("isRecording: appState.isRecordingNote(noteID: item.id),"))
+        precondition(source.contains("return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none"))
         precondition(source.contains("|| appState.isRecordingInProgress(noteID: item.id)"))
         precondition(source.contains("\"Can’t delete while recording\""), "short notices fit on one line in the sidebar")
         precondition(source.contains("\"Can’t delete while recovering\""))

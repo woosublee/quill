@@ -73,7 +73,7 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteCore
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteCore QuillNoteUI
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
@@ -82,6 +82,7 @@ SUMMARY_GENERATION_CORE_SOURCES = $(shell find Packages/QuillSummaryGenerationCo
 PROVIDER_CORE_SOURCES = $(shell find Packages/QuillProviderCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AUDIO_LEVEL_CORE_SOURCES = $(shell find Packages/QuillAudioLevelCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 NOTE_CORE_SOURCES = $(shell find Packages/QuillNoteCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
+NOTE_UI_SOURCES = $(shell find Packages/QuillNoteUI/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AUDIO_FORMAT_CORE_SOURCES = $(shell find Packages/QuillAudioFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 # Every architecture the app or a test executable can build for.
@@ -276,6 +277,11 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a: $(AUDIO_LEVEL_CORE_SOURCES)
 $(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES))
+
+# SwiftUI views shared with the iPhone app (#697).
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+	@mkdir -p "$(@D)"
+	$(call shared_core_compile,QuillNoteUI,$(NOTE_UI_SOURCES))
 
 $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
@@ -636,6 +642,12 @@ $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests: Sources/RecordingJournalFailure
 $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/HistoryRecoveryService.swift Tests/HistoryRecoveryServiceTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/HistoryRecoveryService.swift Tests/HistoryRecoveryServiceTests.swift -o "$@"
 
+$(TEST_BUILD_DIR)/NoteToolbarStateTests: Tests/NoteToolbarStateTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteToolbarStateTests.swift -o "$@"
+
+$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests: Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(STANDALONE_TEST_TARGET) Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift -o "$@"
+
 $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests: Tests/MeetingSummaryUIContractTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/MeetingSummaryUIContractTests.swift -o "$@"
 
@@ -792,7 +804,7 @@ test: check-test-wiring
 	@$(call RUN_TIMED_TARGET,_test-transcription,transcription)
 	@$(call RUN_TIMED_TARGET,_test-app-state,app-state)
 
-_test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/LocalizationResourceTests $(TEST_BUILD_DIR)/UpdateSnapshotStoreTests $(TEST_BUILD_DIR)/MeetingSummaryModelsTests $(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests $(TEST_BUILD_DIR)/SpokenLanguageResolutionTests $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+_test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/LocalizationResourceTests $(TEST_BUILD_DIR)/UpdateSnapshotStoreTests $(TEST_BUILD_DIR)/MeetingSummaryModelsTests $(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests $(TEST_BUILD_DIR)/SpokenLanguageResolutionTests $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests $(TEST_BUILD_DIR)/NoteToolbarStateTests $(TEST_BUILD_DIR)/PostProcessingStopSwitchTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/UpdateSnapshotStoreTests
 	@python3 Tests/StableReleaseValidationTests.py
 	@bash Tests/SparkleKeyValidationTests.sh
@@ -802,6 +814,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests
 	@$(TEST_BUILD_DIR)/SpokenLanguageResolutionTests
 	@$(TEST_BUILD_DIR)/MeetingSummaryUIContractTests
+	@$(TEST_BUILD_DIR)/NoteToolbarStateTests
+	@$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o $(TEST_BUILD_DIR)/CalendarEventMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o $(TEST_BUILD_DIR)/ShortcutMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o $(TEST_BUILD_DIR)/ShortcutCaptureKeyHandlingTests
