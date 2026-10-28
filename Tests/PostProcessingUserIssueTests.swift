@@ -9,6 +9,7 @@ struct PostProcessingUserIssueTests {
     static func main() throws {
         try testPostProcessingErrorsMapToWarningRecords()
         try testSharedRecordMatchesTheMacIssue()
+        try testFailedCleanupOutcomesStayFixed()
         try testPostProcessingFailureReasonsStayStructured()
         try testProviderContextLimitAndHTTPTimeoutUseAccurateIssues()
         try testCommandTimeoutUsesEditSpecificCopy()
@@ -20,6 +21,27 @@ struct PostProcessingUserIssueTests {
 
     /// The iPhone stores `userIssueRecord` directly (private#160), so it must
     /// be the record the Mac's `userIssue` wraps, field for field.
+    /// The stored outcome of a failed cleanup (synced as aiProcessingOutcome),
+    /// pinned from the Mac's AppState rules before they moved to shared code.
+    private static func testFailedCleanupOutcomesStayFixed() throws {
+        let cases: [(Error, String)] = [
+            (PostProcessingError.outputRejected(.languageMismatch), "raw-fallback:languageMismatch"),
+            (PostProcessingError.emptyOutput, "failed:empty-output"),
+            (PostProcessingError.requestTimedOut(30, modelID: "synthetic/model"), "failed:request-timed-out"),
+            (PostProcessingError.requestFailed(statusCode: 503, providerCode: nil), "failed:post-processing-failed"),
+            (PostProcessingError.rateLimited(model: "synthetic/model", retryAfter: 5), "failed:post-processing-failed"),
+            (URLError(.notConnectedToInternet), "failed:post-processing-failed"),
+        ]
+        for (error, expected) in cases {
+            let status = AIProcessingOutcome.afterPostProcessingFailure(error).pipelineHistoryStatus
+            guard status == expected else {
+                throw NSError(domain: "PostProcessingUserIssueTests", code: 9, userInfo: [
+                    NSLocalizedDescriptionKey: "\(error): \(status), expected \(expected)"
+                ])
+            }
+        }
+    }
+
     private static func testSharedRecordMatchesTheMacIssue() throws {
         let errors: [PostProcessingError] = [
             .requestFailed(statusCode: 401, providerCode: "invalid_api_key"),

@@ -12582,31 +12582,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 "Post-processing failed: %{private}@",
                 issue.privateDiagnostic
             )
-            if case let .outputRejected(reason) = error as? PostProcessingError {
+            let aiOutcome = AIProcessingOutcome.afterPostProcessingFailure(error)
+            if case let .rawFallback(reason) = aiOutcome {
                 return (
                     trimmedRawTranscript,
                     .postProcessingRawFallback(reason: reason),
                     "",
                     issue.record,
-                    .rawFallback(reason: reason)
+                    aiOutcome
                 )
             }
-            let fallbackReason: String
-            if case .emptyOutput = error as? PostProcessingError {
-                fallbackReason = "empty-output"
-            } else {
-                fallbackReason = "post-processing-failed"
-            }
-            let failureReason = Self.aiProcessingFailureReason(
-                for: error,
-                fallback: fallbackReason
-            )
             return (
                 trimmedRawTranscript,
                 .postProcessingFailedFallback,
                 "",
                 issue.record,
-                .failed(reason: failureReason)
+                aiOutcome
             )
         }
     }
