@@ -2569,6 +2569,16 @@ private struct NoteDetailView: View {
     private var transcriptionActionHelp: LocalizedStringKey {
         isAudioOnly ? "Transcribe audio" : "Retry transcription"
     }
+    /// The toolbar during a retranscription (#689, the table in #690): on
+    /// the transcript tab only Cancel stays on; on the summary tab Copy and
+    /// Save stay on. Regenerate, Create summary, and Delete are off on both.
+    private var isRetryingOnTranscriptTab: Bool {
+        isRetrying && !isShowingSummaryTab
+    }
+    /// While it runs, the same toolbar slot stops it (#689), like the iPhone.
+    private var cancelTranscriptionHelp: LocalizedStringKey {
+        isAudioOnly ? "Cancel Transcription" : "Cancel Retranscription"
+    }
     /// Cloud transcription is running, or about to resume, for this note.
     private var isCloudTranscribing: Bool {
         item.machineStatus == .cloudTranscribing && !isCloudTranscriptionStopped
@@ -4043,26 +4053,28 @@ private struct NoteDetailView: View {
                                 )
                         }
                     },
-                    disabled: summaryActionIsDisabled || isGeneratingSummary,
+                    disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,
                     help: summaryToolbarAction.help
                 )
                 toolbarDivider
-            } else if actionState.showsRetryButton {
+            } else if actionState.showsRetryButton || isRetrying {
+                // While it runs, the same slot cancels it (#689), like the
+                // iPhone; the progress stays on the body overlay.
                 toolbarButton(
-                    action: { retryTranscription() },
-                    label: {
-                        Group {
-                            if isRetrying {
-                                ProgressView().controlSize(.mini).frame(width: 14, height: 14)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(.orange)
-                            }
+                    action: {
+                        if isRetrying {
+                            appState.cancelTranscriptionRetry(item: item)
+                        } else {
+                            retryTranscription()
                         }
                     },
-                    disabled: isRetrying,
-                    help: transcriptionActionHelp
+                    label: {
+                        Image(systemName: isRetrying ? "xmark.circle" : "arrow.clockwise")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isRetrying ? Color.primary : Color.orange)
+                    },
+                    disabled: false,
+                    help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp
                 )
                 toolbarDivider
             }
@@ -4081,7 +4093,7 @@ private struct NoteDetailView: View {
                                     : Color.secondary
                         )
                 },
-                disabled: !canCopyDisplayedContent,
+                disabled: !canCopyDisplayedContent || isRetryingOnTranscriptTab,
                 help: canCopyDisplayedContent
                     ? "Copy content"
                     : unavailableCopyHelp
@@ -4099,7 +4111,7 @@ private struct NoteDetailView: View {
                                 : Color.secondary
                         )
                 },
-                disabled: !actionState.canSaveFiles,
+                disabled: !actionState.canSaveFiles || isRetryingOnTranscriptTab,
                 help: "Save Files"
             )
 
@@ -4122,7 +4134,7 @@ private struct NoteDetailView: View {
                                 )
                         }
                     },
-                    disabled: summaryActionIsDisabled || isGeneratingSummary,
+                    disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,
                     help: summaryToolbarAction.help
                 )
             }
@@ -4145,7 +4157,7 @@ private struct NoteDetailView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.red.opacity(0.8))
                 },
-                disabled: isRecoveringRecording,
+                disabled: isRecoveringRecording || isRetrying,
                 help: "Delete note"
             )
         }

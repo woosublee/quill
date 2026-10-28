@@ -272,7 +272,19 @@ struct MeetingSummaryUIContractTests {
         // The toolbar follows the open tab: each tab's "make again" action
         // comes first, and Summary work started elsewhere opens its tab.
         precondition(noteBrowser.contains("if isShowingSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
-        precondition(noteBrowser.contains("} else if actionState.showsRetryButton {"))
+        precondition(noteBrowser.contains("} else if actionState.showsRetryButton || isRetrying {"))
+        // #689: while a transcription runs, the same slot cancels it, like
+        // the iPhone. Nothing is saved, so the current transcript stays.
+        precondition(noteBrowser.contains("appState.cancelTranscriptionRetry(item: item)"))
+        precondition(noteBrowser.contains("Image(systemName: isRetrying ? \"xmark.circle\" : \"arrow.clockwise\")"))
+        precondition(noteBrowser.contains("help: isRetrying ? cancelTranscriptionHelp : transcriptionActionHelp"))
+        // #690 retranscription row: transcript tab keeps only Cancel on;
+        // the summary tab keeps Copy and Save; Regenerate, Create summary,
+        // and Delete are off on both.
+        precondition(noteBrowser.contains("disabled: !canCopyDisplayedContent || isRetryingOnTranscriptTab,"))
+        precondition(noteBrowser.contains("disabled: !actionState.canSaveFiles || isRetryingOnTranscriptTab,"))
+        precondition(noteBrowser.components(separatedBy: "disabled: summaryActionIsDisabled || isGeneratingSummary || isRetrying,").count == 3)
+        precondition(noteBrowser.contains("disabled: isRecoveringRecording || isRetrying,"))
         precondition(noteBrowser.contains("if !isShowingSummaryTab, summaryToolbarAction == .create {"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))

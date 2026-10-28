@@ -6142,6 +6142,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Stops a transcription the Note Browser started for this note (#689).
+    /// Nothing is saved, so the current transcript stays. A cloud job stops
+    /// the way one left by an earlier run does: the note offers Retry.
+    @MainActor
+    func cancelTranscriptionRetry(item: PipelineHistoryItem) {
+        guard retryingItemIDs.contains(item.id) else { return }
+        transcriptionRetryWorkflow.cancel(noteID: item.id)
+        // The same stop a new attempt uses for a running cloud job.
+        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+            historyID: item.id,
+            store: cloudTranscriptionJobStore
+        )
+        markStoppedCloudTranscriptions(among: [item.id])
+    }
+
     /// Whether a cloud-transcribing note has stopped with no work running
     /// for it, so the Note Browser offers Retry instead of a spinner.
     @MainActor
