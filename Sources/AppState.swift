@@ -9279,10 +9279,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard requireAvailableHistoryForMutation(),
               let item = pipelineHistory.first(where: { $0.id == id }) else { return }
         // An empty edited transcript means "show the original" across the
-        // app and on other Macs, so clearing the text (only spaces or line
-        // breaks left) clears the original too; otherwise it comes back.
-        let isCleared = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let text = isCleared ? "" : text
+        // app and on other devices, so clearing the text (only spaces or line
+        // breaks left) clears the original too; otherwise it comes back. The
+        // iPhone follows the same rule (quill-universal-private#148).
+        let edit = NoteTranscriptEdit(rawTranscript: item.rawTranscript, edit: text)
+        let isCleared = edit.isCleared
+        let text = edit.editedTranscript
         let replacementSpokenLanguage: SpokenLanguageResolution?
         switch item.spokenLanguage?.source {
         case _ where isCleared:
@@ -9306,7 +9308,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryAttempt: item.meetingSummaryAttempt,
             customTitle: item.customTitle,
             postProcessedTranscript: text,
-            rawTranscript: isCleared ? "" : nil
+            rawTranscript: edit.rawTranscript
         )
         do {
             // Clearing removes the original, so it needs the durable store.

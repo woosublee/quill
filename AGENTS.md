@@ -80,7 +80,10 @@ otherwise.
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
   values, and what the note list's Select All button does
   (`NoteSelectAllAction`: Deselect All once every selectable visible note is
-  selected). Reading a note's recording times stays in
+  selected), and what a note's transcript is after an edit
+  (`NoteTranscriptEdit`: clearing it clears the raw transcript too, so a
+  cleared note shows, summarizes, and syncs as empty on both apps). Reading a
+  note's recording times stays in
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
