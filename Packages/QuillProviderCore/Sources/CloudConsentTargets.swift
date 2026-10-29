@@ -122,17 +122,23 @@ public struct CloudConsentTargets: Equatable, Sendable {
         !Self.isBlank(transcriptionAPIKey) || transcriptionAPIKeyIsUnreadable
     }
 
-    /// Transcription's URL gets a key: its own (readable or not), or else
-    /// the main one, when that's readable.
-    private var hasTranscriptionKey: Bool {
-        hasOwnTranscriptionKey || !Self.isBlank(apiKey)
-    }
+    /// Transcription's URL gets a key: its own, or else the main one. Either
+    /// may be unreadable now and go there once it can be read.
+    private var hasTranscriptionKey: Bool { hasOwnTranscriptionKey || hasMainKey }
 
     private static func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func isBlank(_ value: String) -> Bool { trimmed(value).isEmpty }
+}
+
+/// A printed or dumped target shows its origin, never anything else typed
+/// into its URL.
+extension CloudConsentTargets.Target: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "CloudConsentTargets.Target(\(origin))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: ["origin": origin]) }
 }
 
 /// A printed or dumped value shows only whether each key is set and each

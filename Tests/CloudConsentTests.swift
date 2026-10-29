@@ -178,6 +178,17 @@ struct CloudConsentTests {
             transcriptionAPIKeyIsUnreadable: false
         )
         try expect(unreadableMain.targets.map(\.host) == ["api.example-cloud.test"], "an unreadable main key's provider is listed")
+
+        var unreadableMainWithVoice = unreadableMain
+        unreadableMainWithVoice.transcriptionAPIURL = otherURL
+        try expect(
+            unreadableMainWithVoice.targets.map(\.host) == ["api.example-cloud.test", "transcribe.example-voice.test"],
+            "the separate transcription URL the unreadable main key will go to is listed and asked about"
+        )
+        try expect(
+            unreadableMainWithVoice.withdrawal(forOrigin: voiceOrigin) == .init(clearsTranscriptionAPIURL: true),
+            "withdrawing it clears that URL"
+        )
         try expect(
             unreadableMain.withdrawal(forOrigin: "https://api.example-cloud.test") == .init(clearsAPIKey: true),
             "withdrawing deletes the unreadable main key"
@@ -195,7 +206,9 @@ struct CloudConsentTests {
         )
         var dumped = ""
         dump(settings, to: &dumped)
-        for text in ["\(settings)", String(reflecting: settings), dumped] {
+        var dumpedTargets = ""
+        dump(settings.targets, to: &dumpedTargets)
+        for text in ["\(settings)", String(reflecting: settings), dumped, "\(settings.targets)", dumpedTargets] {
             try expect(!text.contains("secret"), "a printed value hides the keys and anything typed into a URL")
         }
     }
