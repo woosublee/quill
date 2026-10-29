@@ -452,6 +452,8 @@ public struct MeetingSummaryGenerator: Sendable {
         let sourceBytes = extractionBudget.sourceTokenLimit
             * max(normalizedTranscript.utf8.count, transcriptTokens)
             / max(1, transcriptTokens)
+        // Half of that, as cleanup does: JSON escaping can double an ASCII
+        // character, and a chunk can be denser than the transcript's average.
         let sourceByteLimit = min(
             chunker.maximumSourceBytes,
             max(1, sourceBytes / 2)

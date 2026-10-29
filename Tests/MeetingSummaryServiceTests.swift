@@ -25,6 +25,7 @@ struct MeetingSummaryServiceTests {
         try testOwnerAndDueDateMayBeNull()
         try testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked()
         try await testExactChunkSizingKeepsTheFractionalByteRatio()
+        try await testChunkSizingCountsARatioBelowOneAsOne()
         try await testCompactMergeIsSkippedWithTheSameRoom()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
@@ -775,6 +776,32 @@ struct MeetingSummaryServiceTests {
             extractions == MeetingSummaryTextChunker(maximumSourceBytes: 38).chunks(for: transcript).count
                 && extractions == 12,
             "exact sizing cuts 38-byte chunks (got \(extractions) extractions)"
+        )
+    }
+
+    /// 532 tokens for 266 bytes is half a byte a token; that counts as 1, so
+    /// the 40 tokens of source room cut 20-byte chunks (40 * 1 / 2), not
+    /// 10-byte ones.
+    private static func testChunkSizingCountsARatioBelowOneAsOne() async throws {
+        let transcript = (1...12).map { "Line \($0) of the review." }.joined(separator: "\n")
+        let requester = MeetingSummaryCountingRequester()
+        let budgeter = LocalAITokenBudgeter(
+            contextWindow: 1_000 + 1_024 + LocalAITokenBudgeter.safetyMarginTokens + 40,
+            tokenCounter: MeetingSummaryDenseTokenCounter()
+        )
+        _ = try await MeetingSummaryGenerator(
+            requester: requester,
+            tokenBudgeter: budgeter
+        ).generate(source: MeetingSummarySource(
+            transcript: transcript,
+            calendar: nil,
+            languageContext: summaryLanguage
+        ))
+        let extractions = requester.extractionCount()
+        try expect(
+            extractions == MeetingSummaryTextChunker(maximumSourceBytes: 20).chunks(for: transcript).count
+                && extractions == 24,
+            "a ratio below 1 cuts 20-byte chunks (got \(extractions) extractions)"
         )
     }
 
@@ -1957,6 +1984,13 @@ private final class MeetingSummaryMergeCountingTokenCounter: LocalAITokenCountin
 
 /// Counts a rendered prompt as 1,000 tokens and other text at about 1.9
 /// bytes a token.
+/// Twice as many tokens as bytes, as a byte-fallback tokenizer might count.
+private struct MeetingSummaryDenseTokenCounter: LocalAITokenCounting {
+    func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
+        prompt.hasPrefix("[System]") ? 1_000 : prompt.utf8.count * 2
+    }
+}
+
 private struct MeetingSummaryRatioTokenCounter: LocalAITokenCounting {
     func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
         prompt.hasPrefix("[System]") ? 1_000 : prompt.utf8.count * 10 / 19
