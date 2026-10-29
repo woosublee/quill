@@ -382,30 +382,6 @@ public protocol MeetingSummaryDraftRequesting: Sendable {
     ) async throws -> MeetingSummaryDraftReply
 }
 
-/// How the token budget turns into a chunk size in bytes.
-public enum MeetingSummaryChunkSizing: Sendable {
-    /// Whole bytes per token, rounded down first (Mac).
-    case wholeBytesPerToken
-    /// Multiplies before dividing, so a ratio such as 1.9 isn't floored to
-    /// 1; a ratio below 1 counts as 1 (iPhone).
-    case exactBytesPerToken
-
-    func sourceBytes(
-        tokenLimit: Int,
-        transcriptBytes: Int,
-        transcriptTokens: Int
-    ) -> Int {
-        switch self {
-        case .wholeBytesPerToken:
-            let bytesPerToken = max(1, transcriptBytes / max(1, transcriptTokens))
-            return tokenLimit * bytesPerToken
-        case .exactBytesPerToken:
-            return tokenLimit * max(transcriptBytes, transcriptTokens)
-                / max(1, transcriptTokens)
-        }
-    }
-}
-
 /// Splits the transcript into chunks that fit, summarizes each, merges the
 /// partial summaries, and repairs and checks every draft against the
 /// transcript. The model calls go through `MeetingSummaryDraftRequesting`.
@@ -427,18 +403,15 @@ public struct MeetingSummaryGenerator: Sendable {
     private let requester: any MeetingSummaryDraftRequesting
     private let tokenBudgeter: LocalAITokenBudgeter
     private let chunker: MeetingSummaryTextChunker
-    private let chunkSizing: MeetingSummaryChunkSizing
 
     public init(
         requester: any MeetingSummaryDraftRequesting,
         tokenBudgeter: LocalAITokenBudgeter,
-        chunker: MeetingSummaryTextChunker = MeetingSummaryTextChunker(),
-        chunkSizing: MeetingSummaryChunkSizing = .wholeBytesPerToken
+        chunker: MeetingSummaryTextChunker = MeetingSummaryTextChunker()
     ) {
         self.requester = requester
         self.tokenBudgeter = tokenBudgeter
         self.chunker = chunker
-        self.chunkSizing = chunkSizing
     }
 
     public func generate(
@@ -470,17 +443,18 @@ public struct MeetingSummaryGenerator: Sendable {
             role: .summaryExtraction
         )
         // The budget is in tokens and the chunker cuts bytes; convert with
-        // this transcript's own ratio, which is 1 for the byte counter.
+        // this transcript's own ratio, which is 1 for the byte counter. It
+        // multiplies before dividing, so a ratio such as 1.9 bytes a token
+        // isn't floored to 1 (#643); a ratio below 1 counts as 1.
         let transcriptTokens = try await tokenBudgeter.tokenCounter.tokenCount(
             forRenderedChatPrompt: normalizedTranscript
         )
+        let sourceBytes = extractionBudget.sourceTokenLimit
+            * max(normalizedTranscript.utf8.count, transcriptTokens)
+            / max(1, transcriptTokens)
         let sourceByteLimit = min(
             chunker.maximumSourceBytes,
-            max(1, chunkSizing.sourceBytes(
-                tokenLimit: extractionBudget.sourceTokenLimit,
-                transcriptBytes: normalizedTranscript.utf8.count,
-                transcriptTokens: transcriptTokens
-            ) / 2)
+            max(1, sourceBytes / 2)
         )
         let chunks = MeetingSummaryTextChunker(
             maximumSourceBytes: sourceByteLimit

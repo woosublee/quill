@@ -730,8 +730,7 @@ struct MeetingSummaryServiceTests {
                 _ = try await MeetingSummaryGenerator(
                     requester: MeetingSummaryCountingRequester(),
                     tokenBudgeter: budgeter,
-                    chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16),
-                    chunkSizing: .exactBytesPerToken
+                    chunker: MeetingSummaryTextChunker(maximumSourceBytes: 16)
                 ).generate(source: MeetingSummarySource(
                     transcript: "First line here.\n\nSecond line here.\n\nThird line here.",
                     calendar: nil,
@@ -751,41 +750,31 @@ struct MeetingSummaryServiceTests {
     }
 
     /// The 266-byte transcript counts as 140 tokens, about 1.9 bytes a
-    /// token, with 40 tokens of source room. The Mac's whole-ratio sizing
-    /// floors the ratio to 1 and cuts 20-byte chunks (40 * 1 / 2); the
-    /// iPhone's exact sizing cuts 38-byte chunks (40 * 266 / 140 / 2).
+    /// token, with 40 tokens of source room. Flooring the ratio to 1 used to
+    /// cut 20-byte chunks (40 * 1 / 2) on the Mac; the exact ratio cuts
+    /// 38-byte chunks (40 * 266 / 140 / 2), as the iPhone did (#643).
     private static func testExactChunkSizingKeepsTheFractionalByteRatio() async throws {
         let transcript = (1...12).map { "Line \($0) of the review." }.joined(separator: "\n")
-        func extractionCount(_ sizing: MeetingSummaryChunkSizing) async throws -> Int {
-            let requester = MeetingSummaryCountingRequester()
-            let budgeter = LocalAITokenBudgeter(
-                // 40 tokens of source room after a 1,000-token prompt.
-                contextWindow: 1_000 + 1_024 + LocalAITokenBudgeter.safetyMarginTokens + 40,
-                tokenCounter: MeetingSummaryRatioTokenCounter()
-            )
-            _ = try await MeetingSummaryGenerator(
-                requester: requester,
-                tokenBudgeter: budgeter,
-                chunkSizing: sizing
-            ).generate(source: MeetingSummarySource(
-                transcript: transcript,
-                calendar: nil,
-                languageContext: summaryLanguage
-            ))
-            return requester.extractionCount()
-        }
-        try expect(transcript.utf8.count == 266, "the transcript is 266 bytes")
-        let whole = try await extractionCount(.wholeBytesPerToken)
-        let exact = try await extractionCount(.exactBytesPerToken)
-        try expect(
-            whole == MeetingSummaryTextChunker(maximumSourceBytes: 20).chunks(for: transcript).count
-                && whole == 24,
-            "whole-ratio sizing cuts 20-byte chunks (got \(whole) extractions)"
+        let requester = MeetingSummaryCountingRequester()
+        let budgeter = LocalAITokenBudgeter(
+            // 40 tokens of source room after a 1,000-token prompt.
+            contextWindow: 1_000 + 1_024 + LocalAITokenBudgeter.safetyMarginTokens + 40,
+            tokenCounter: MeetingSummaryRatioTokenCounter()
         )
+        _ = try await MeetingSummaryGenerator(
+            requester: requester,
+            tokenBudgeter: budgeter
+        ).generate(source: MeetingSummarySource(
+            transcript: transcript,
+            calendar: nil,
+            languageContext: summaryLanguage
+        ))
+        let extractions = requester.extractionCount()
+        try expect(transcript.utf8.count == 266, "the transcript is 266 bytes")
         try expect(
-            exact == MeetingSummaryTextChunker(maximumSourceBytes: 38).chunks(for: transcript).count
-                && exact == 12,
-            "exact sizing cuts 38-byte chunks (got \(exact) extractions)"
+            extractions == MeetingSummaryTextChunker(maximumSourceBytes: 38).chunks(for: transcript).count
+                && extractions == 12,
+            "exact sizing cuts 38-byte chunks (got \(extractions) extractions)"
         )
     }
 
