@@ -25,7 +25,9 @@ otherwise.
   post-processing prompt policy, vocabulary parsing, the instruction-execution
   detector, the post-processing output validator, the prompt data envelope,
   the local-model token budget, transcript cleanup (its prompt, splitter,
-  and the chunk runner), which cleanup errors try the fallback model
+  and the chunk runner, which can take the model's own token counter and
+  then splits again any chunk whose counted prompt doesn't fit), which
+  cleanup errors try the fallback model
   (`PostProcessingFallbackPolicy`), and what a failed cleanup stores: its
   issue (`PostProcessingError.userIssueRecord`, which imports
   `QuillUserIssueCore`) and its outcome
