@@ -711,6 +711,20 @@ struct MeetingSummaryServiceTests {
             decoded.overview.sourceQuotes == ["Release review."],
             "one level of overview quotes is unwrapped"
         )
+        // #643: only a single non-empty inner array; other shapes are
+        // rejected, as on the Mac.
+        for shape in [
+            #"[["Release review."],"Release review."]"#,
+            #"[[]]"#,
+            #"[["Release review."],["Release review."]]"#,
+            #"[[["Release review."]]]"#,
+        ] {
+            let reply = #"{"overview":{"text":"Release review","sourceQuotes":"# + shape
+                + #"},"keyPoints":[],"decisions":[],"actionItems":[],"openQuestions":[]}"#
+            try expectFailure("nested overview quotes shaped \(shape)") {
+                _ = try MeetingSummaryStrictDecoder.decode(reply, unwrapsNestedSourceQuotes: true)
+            }
+        }
     }
 
     /// #643: when the extraction room isn't smaller than the merge room (the

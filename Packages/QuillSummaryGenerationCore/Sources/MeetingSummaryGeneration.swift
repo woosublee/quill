@@ -170,13 +170,13 @@ public enum MeetingSummaryError: Error, Equatable {
 }
 
 public enum MeetingSummaryStrictDecoder {
-    /// `unwrapsNestedSourceQuotes` flattens every array directly inside the
-    /// overview's `sourceQuotes` into it, as the iPhone has done since its
-    /// small local model wrote `[["quote", "quote"]]`. Mixed and empty inner
-    /// arrays flatten too. Null and blank quotes are dropped either way; a
-    /// deeper array or another non-string is still rejected. The Mac's local
-    /// model is held to the schema, so the Mac leaves this off and rejects
-    /// any nested array.
+    /// `unwrapsNestedSourceQuotes` accepts the one shape the iPhone's small
+    /// local model writes for the overview's `sourceQuotes`: a single
+    /// non-empty inner array, `[["quote", "quote"]]`, which is unwrapped.
+    /// Mixed (`[["quote"], "quote"]`), empty (`[[]]`), or several inner
+    /// arrays are rejected, as the Mac rejects any nesting (#643). Null and
+    /// blank quotes are dropped either way. The Mac's local model is held to
+    /// the schema, so the Mac leaves this off.
     public static func decode(
         _ text: String,
         unwrapsNestedSourceQuotes: Bool = false
@@ -220,9 +220,15 @@ public enum MeetingSummaryStrictDecoder {
         guard let sourceQuotes = dictionary["sourceQuotes"] as? [Any] else {
             throw MeetingSummaryError.invalidResponse(.jsonSchema)
         }
-        let flattened = unwrapsNestedSourceQuotes
-            ? sourceQuotes.flatMap { ($0 as? [Any]) ?? [$0] }
-            : sourceQuotes
+        let flattened: [Any]
+        if unwrapsNestedSourceQuotes,
+           sourceQuotes.count == 1,
+           let inner = sourceQuotes.first as? [Any],
+           !inner.isEmpty {
+            flattened = inner
+        } else {
+            flattened = sourceQuotes
+        }
         let quotes = try flattened.compactMap {
             try optionalEvidenceString($0)
         }
