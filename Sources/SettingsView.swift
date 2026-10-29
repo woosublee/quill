@@ -1948,7 +1948,7 @@ struct ModelsSettingsView: View {
                         if let grantedAt = appState.cloudConsent.grantedAt(forBaseURL: target.baseURL) {
                             Text(localizedCatalogFormat(
                                 "%@ · Agreed on %@",
-                                target.host,
+                                target.displayName,
                                 grantedAt.formatted(
                                     .dateTime.year().month(.wide).day()
                                         .locale(Locale(identifier: preferredLocalizedStringLanguage()))
@@ -1961,8 +1961,12 @@ struct ModelsSettingsView: View {
                                 cloudConsentWithdrawalTarget = target
                             }
                             .font(.caption)
+                            // A recording's realtime stream keeps sending
+                            // until it ends, so wait for it, as the
+                            // transcription settings do.
+                            .disabled(appState.isTranscriptionConfigurationLocked)
                         } else {
-                            Text(localizedCatalogFormat("%@ · Not agreed", target.host))
+                            Text(localizedCatalogFormat("%@ · Not agreed", target.displayName))
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                             Spacer()
@@ -1993,7 +1997,7 @@ struct ModelsSettingsView: View {
                 Button("Cancel", role: .cancel) {}
             } message: { target in
                 Text(
-                    localizedCatalogFormat("Nothing more goes to %@.", target.host) + " "
+                    localizedCatalogFormat("Nothing more goes to %@.", target.displayName) + " "
                         + localizedCatalogString("Features that used a cloud model switch to a model on this Mac, or turn off.")
                 )
             }
@@ -3649,7 +3653,7 @@ struct ModelsSettingsView: View {
     /// the sheet is up isn't saved; its field keeps what was typed, to save
     /// again once the sheet is closed.
     private func askCloudConsent(
-        _ change: (inout CloudConsentTargets) -> Void,
+        _ change: @escaping (inout CloudConsentTargets) -> Void,
         cancelNoteKey: String,
         apply: @escaping () -> Void,
         cancel: @escaping () -> Void

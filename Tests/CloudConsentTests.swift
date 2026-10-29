@@ -13,6 +13,7 @@ struct CloudConsentTests {
             try targetsFollowTheTranscriptionFallback()
             try unconsentedTargetsListEachNewProvider()
             try withdrawalClearsEveryKeyThatGoesThere()
+            try displayNameShowsAnythingButPlainHTTPS()
             try copyKeysAreStable()
             print("CloudConsentTests passed")
         } catch {
@@ -131,6 +132,18 @@ struct CloudConsentTests {
             transcriptionOnly.withdrawal(forOrigin: otherOrigin) == .init(clearsTranscriptionAPIKey: true),
             "with no main key there's nothing to fall back to, so the URL stays"
         )
+    }
+
+    static func displayNameShowsAnythingButPlainHTTPS() throws {
+        func name(_ url: String) -> String? {
+            CloudConsentTargets(apiBaseURL: url, apiKey: "sk-main", transcriptionAPIURL: "", transcriptionAPIKey: "")
+                .targets.first?.displayName
+        }
+        try expect(name(mainURL) == "api.example-cloud.test", "plain HTTPS shows the host")
+        try expect(name("http://api.example-cloud.test/v1") == "http://api.example-cloud.test", "HTTP shows its scheme")
+        try expect(name("https://api.example-cloud.test:8443/v1") == "https://api.example-cloud.test:8443", "a port shows")
+        try expect(name("http://[::1]:8080/v1") == "http://[::1]:8080", "an IPv6 address keeps its port")
+        try expect(name("https://[::1]/v1") == "[::1]", "plain HTTPS on IPv6 shows the host")
     }
 
     static func copyKeysAreStable() throws {

@@ -710,7 +710,35 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Withdrawing clears each saved key that would go to that provider, so
     /// nothing more is sent there until a key is saved (and agreed to) again.
     func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
-        let withdrawal = cloudConsentTargets.withdrawal(forOrigin: target.origin)
+        let targets = cloudConsentTargets
+        let withdrawal = targets.withdrawal(forOrigin: target.origin)
+        var accounts: [String] = []
+        // A key the Keychain couldn't return at launch is still there, and
+        // a later launch could read it and send it here again.
+        if withdrawal.clearsAPIKey
+            || (unreadableAPIKeyAccounts.contains(apiKeyStorageKey)
+                && CloudProviderURL.origin(of: targets.apiBaseURL) == target.origin) {
+            accounts.append(apiKeyStorageKey)
+        }
+        if withdrawal.clearsTranscriptionAPIKey
+            || (unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey)
+                && CloudProviderURL.origin(of: targets.resolvedTranscriptionURL) == target.origin) {
+            accounts.append(transcriptionAPIKeyStorageKey)
+        }
+        // Delete from the Keychain first. If that fails, consent and the keys
+        // stay, so a saved key never goes anywhere without consent.
+        do {
+            for account in accounts {
+                try credentialStore.delete(account: account)
+                unreadableAPIKeyAccounts.remove(account)
+            }
+        } catch {
+            errorMessage = LocalizedUserMessage.providerFailure(
+                prefix: localizedCatalogString("Unable to save API key"),
+                providerDetail: error.localizedDescription
+            )
+            return
+        }
         cloudConsent.revoke(forBaseURL: target.baseURL)
         cloudConsent.save(to: .standard)
         if withdrawal.clearsAPIKey { apiKey = "" }

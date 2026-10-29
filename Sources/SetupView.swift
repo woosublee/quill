@@ -1112,7 +1112,11 @@ struct SetupView: View {
                     let savedKey = appState.apiKey
                     cloudConsentRequest = CloudConsentRequest.applying(
                         {
-                            $0.apiBaseURL = resolvedBaseURL
+                            // Settings can change the URL while the sheet is
+                            // up, so this reads it when consent is checked.
+                            if $0.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                $0.apiBaseURL = AppState.defaultAPIBaseURL
+                            }
                             $0.apiKey = key
                         },
                         appState: appState,

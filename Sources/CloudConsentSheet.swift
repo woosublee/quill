@@ -4,7 +4,9 @@ import QuillProviderCore
 /// Asks for cloud consent before a key is saved (#693). One request can need
 /// two providers (the main one and a separate transcription one); they're
 /// asked one after the other, and cancelling either cancels the change.
-/// Nothing is granted until every provider is agreed to.
+/// Nothing is granted until every provider is agreed to. Agreeing checks the
+/// settings again, since another window shares them: a provider the change
+/// would now reach is asked about too.
 struct CloudConsentRequest: Identifiable {
     let id = UUID()
     let targets: [CloudConsentTargets.Target]
@@ -13,6 +15,9 @@ struct CloudConsentRequest: Identifiable {
     /// What cancelling does: `CloudConsentCopy.cancelClearsKeyKey` or
     /// `CloudConsentCopy.cancelChangesNothingKey`.
     let cancelNoteKey: String
+    /// The change being agreed to, checked again on the last Agree. Nil for
+    /// agreeing to a key that's already saved.
+    var change: ((inout CloudConsentTargets) -> Void)? = nil
     let onAgree: () -> Void
     let onCancel: () -> Void
 
@@ -21,7 +26,7 @@ struct CloudConsentRequest: Identifiable {
     /// asking, after running `apply`.
     @MainActor
     static func applying(
-        _ change: (inout CloudConsentTargets) -> Void,
+        _ change: @escaping (inout CloudConsentTargets) -> Void,
         appState: AppState,
         cancelNoteKey: String,
         apply: @escaping () -> Void,
@@ -37,19 +42,32 @@ struct CloudConsentRequest: Identifiable {
         return CloudConsentRequest(
             targets: targets,
             cancelNoteKey: cancelNoteKey,
+            change: change,
             onAgree: apply,
             onCancel: cancel
         )
     }
 
-    /// The request for the next provider, after the first one is agreed to.
-    fileprivate func remaining() -> CloudConsentRequest? {
-        let rest = Array(targets.dropFirst())
+    /// The request for the providers still to ask about once the first one
+    /// is agreed to: the rest of this request, or any the change would reach
+    /// now that the settings have changed. Nil when none is left.
+    @MainActor
+    fileprivate func remaining(appState: AppState) -> CloudConsentRequest? {
+        let agreed = agreed + targets.prefix(1)
+        var rest = Array(targets.dropFirst())
+        if rest.isEmpty, let change {
+            var proposed = appState.cloudConsentTargets
+            change(&proposed)
+            var ledger = appState.cloudConsent
+            for target in agreed { ledger.grant(forBaseURL: target.baseURL) }
+            rest = proposed.unconsented(in: ledger)
+        }
         guard !rest.isEmpty else { return nil }
         return CloudConsentRequest(
             targets: rest,
-            agreed: agreed + targets.prefix(1),
+            agreed: agreed,
             cancelNoteKey: cancelNoteKey,
+            change: change,
             onAgree: onAgree,
             onCancel: onCancel
         )
@@ -61,11 +79,11 @@ extension View {
         sheet(item: request) { current in
             if let target = current.targets.first {
                 CloudConsentSheet(
-                    host: target.host,
+                    host: target.displayName,
                     cancelNoteKey: current.cancelNoteKey,
                     onAgree: {
                         request.wrappedValue = nil
-                        if let next = current.remaining() {
+                        if let next = current.remaining(appState: appState) {
                             // Swapping the item of a sheet that's still up
                             // may not show the new one on macOS, so this one
                             // closes first.

@@ -16,6 +16,17 @@ struct CloudConsentTargets: Equatable {
         let host: String
         let baseURL: String
         var id: String { origin }
+
+        /// The host, or the whole origin when it isn't HTTPS on the default
+        /// port, so a switch to `http://` or another port shows.
+        var displayName: String {
+            let https = "https://"
+            guard origin.hasPrefix(https) else { return origin }
+            // A port follows the last colon after any IPv6 brackets.
+            let authority = origin.dropFirst(https.count)
+            let afterBrackets = authority.split(separator: "]", omittingEmptySubsequences: false).last ?? authority
+            return afterBrackets.contains(":") ? origin : String(authority)
+        }
     }
 
     /// What withdrawing consent for one origin clears, so nothing more goes
