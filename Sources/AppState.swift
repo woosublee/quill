@@ -687,6 +687,37 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The cloud providers the user agreed to send to (#693). Settings and
+    /// setup ask before a key is saved for a provider without consent.
+    /// Sending doesn't check it: a key saved before #693 has no grant, and
+    /// Settings shows it as not agreed. Kept on this Mac only.
+    @Published private(set) var cloudConsent = CloudConsentLedger.load(from: .standard)
+
+    var cloudConsentTargets: CloudConsentTargets {
+        CloudConsentTargets(
+            apiBaseURL: apiBaseURL,
+            apiKey: apiKey,
+            transcriptionAPIURL: transcriptionAPIURL,
+            transcriptionAPIKey: transcriptionAPIKey
+        )
+    }
+
+    func grantCloudConsent(forBaseURL baseURL: String) {
+        cloudConsent.grant(forBaseURL: baseURL)
+        cloudConsent.save(to: .standard)
+    }
+
+    /// Withdrawing clears each saved key that would go to that provider, so
+    /// nothing more is sent there until a key is saved (and agreed to) again.
+    func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
+        let withdrawal = cloudConsentTargets.withdrawal(forOrigin: target.origin)
+        cloudConsent.revoke(forBaseURL: target.baseURL)
+        cloudConsent.save(to: .standard)
+        if withdrawal.clearsAPIKey { apiKey = "" }
+        if withdrawal.clearsTranscriptionAPIKey { transcriptionAPIKey = "" }
+        if withdrawal.clearsTranscriptionAPIURL { transcriptionAPIURL = "" }
+    }
+
     @Published var transcriptionModel: String {
         didSet {
             UserDefaults.standard.set(transcriptionModel, forKey: transcriptionModelStorageKey)

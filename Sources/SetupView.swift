@@ -28,6 +28,7 @@ struct SetupView: View {
     @State private var validatedAPIKey: String?
     @State private var isValidatingKey = false
     @State private var keyValidationError: String?
+    @State private var cloudConsentRequest: CloudConsentRequest?
     @State private var micPermissionGranted = false
     @State private var accessibilityGranted = false
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -127,6 +128,7 @@ struct SetupView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .frame(minWidth: 560, minHeight: 600)
+        .cloudConsentSheet($cloudConsentRequest, appState: appState)
         .onAppear {
             apiKeyInput = appState.apiKey
             // A re-run starts from what's on now.
@@ -1102,8 +1104,27 @@ struct SetupView: View {
             await MainActor.run {
                 isValidatingKey = false
                 if result == .valid {
-                    appState.apiKey = key
-                    validatedAPIKey = key
+                    // Asks before the key is saved for a provider without
+                    // consent; cancelling a new key doesn't save it and
+                    // clears the field (#693). A sheet that's already up
+                    // keeps its own request.
+                    guard cloudConsentRequest == nil else { return }
+                    let savedKey = appState.apiKey
+                    cloudConsentRequest = CloudConsentRequest.applying(
+                        {
+                            $0.apiBaseURL = resolvedBaseURL
+                            $0.apiKey = key
+                        },
+                        appState: appState,
+                        cancelNoteKey: key == savedKey
+                            ? CloudConsentCopy.cancelChangesNothingKey
+                            : CloudConsentCopy.cancelClearsKeyKey,
+                        apply: {
+                            appState.apiKey = key
+                            validatedAPIKey = key
+                        },
+                        cancel: { apiKeyInput = key == savedKey ? savedKey : "" }
+                    )
                 } else {
                     keyValidationError = APIKeyCheckCopy.reason(for: result) ?? String(
                         localized: "Validation failed. Please check your API key and try again."

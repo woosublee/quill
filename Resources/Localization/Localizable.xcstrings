@@ -22099,6 +22099,246 @@
           }
         }
       }
+    },
+    "Send to %@?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send to %@?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 보낼까요?"
+          }
+        }
+      }
+    },
+    "Agree and Save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agree and Save"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동의하고 저장"
+          }
+        }
+      }
+    },
+    "If you cancel, the key isn’t saved and is cleared.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you cancel, the key isn’t saved and is cleared."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소하면 키를 저장하지 않고 지워요."
+          }
+        }
+      }
+    },
+    "If you cancel, nothing changes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you cancel, nothing changes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소하면 아무것도 바뀌지 않아요."
+          }
+        }
+      }
+    },
+    "If you use cloud features, your recordings and what’s in them (transcripts, screen context, and so on) go to this provider. That provider’s privacy practices apply.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you use cloud features, your recordings and what’s in them (transcripts, screen context, and so on) go to this provider. That provider’s privacy practices apply."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 기능을 쓰면 녹음과 그 내용(전사문, 화면 정보 등)이 이 업체로 가요. 그 업체의 개인정보 처리 방침이 적용돼요."
+          }
+        }
+      }
+    },
+    "You can withdraw consent anytime in Settings › Models.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can withdraw consent anytime in Settings › Models."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동의는 설정 › 모델에서 언제든 철회할 수 있어요."
+          }
+        }
+      }
+    },
+    "Consent to Send": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consent to Send"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기 동의"
+          }
+        }
+      }
+    },
+    "%@ · Agreed on %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Agreed on %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@ 동의"
+          }
+        }
+      }
+    },
+    "%@ · Not agreed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Not agreed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 동의 전"
+          }
+        }
+      }
+    },
+    "Withdraw": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Withdraw"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "철회"
+          }
+        }
+      }
+    },
+    "Agree…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agree…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동의…"
+          }
+        }
+      }
+    },
+    "Withdrawing clears the key for that provider, so nothing goes to it. To use it again, save the key again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Withdrawing clears the key for that provider, so nothing goes to it. To use it again, save the key again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "철회하면 그 업체의 키를 지워서 아무것도 보내지 않아요. 다시 쓰려면 키를 다시 저장하면 돼요."
+          }
+        }
+      }
+    },
+    "Withdraw consent and clear the key?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Withdraw consent and clear the key?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동의를 철회하고 키를 지울까요?"
+          }
+        }
+      }
+    },
+    "Nothing more goes to %@.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing more goes to %@."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 더는 아무것도 보내지 않아요."
+          }
+        }
+      }
+    },
+    "Features that used a cloud model switch to a model on this Mac, or turn off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Features that used a cloud model switch to a model on this Mac, or turn off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 모델을 쓰던 기능은 이 Mac의 모델로 바뀌거나 꺼져요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
