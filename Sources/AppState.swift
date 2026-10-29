@@ -687,6 +687,65 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The cloud providers the user agreed to send to (#693). Settings and
+    /// setup ask before a key is saved for a provider without consent.
+    /// Sending doesn't check it: a key saved before #693 has no grant, and
+    /// Settings shows it as not agreed. Kept on this Mac only.
+    @Published private(set) var cloudConsent = CloudConsentLedger.load(from: .standard)
+
+    var cloudConsentTargets: CloudConsentTargets {
+        CloudConsentTargets(
+            apiBaseURL: apiBaseURL,
+            apiKey: apiKey,
+            transcriptionAPIURL: transcriptionAPIURL,
+            transcriptionAPIKey: transcriptionAPIKey
+        )
+    }
+
+    func grantCloudConsent(forBaseURL baseURL: String) {
+        cloudConsent.grant(forBaseURL: baseURL)
+        cloudConsent.save(to: .standard)
+    }
+
+    /// Withdrawing clears each saved key that would go to that provider, so
+    /// nothing more is sent there until a key is saved (and agreed to) again.
+    func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
+        let targets = cloudConsentTargets
+        let withdrawal = targets.withdrawal(forOrigin: target.origin)
+        var accounts: [String] = []
+        // A key the Keychain couldn't return at launch is still there, and
+        // a later launch could read it and send it here again.
+        if withdrawal.clearsAPIKey
+            || (unreadableAPIKeyAccounts.contains(apiKeyStorageKey)
+                && CloudProviderURL.origin(of: targets.apiBaseURL) == target.origin) {
+            accounts.append(apiKeyStorageKey)
+        }
+        if withdrawal.clearsTranscriptionAPIKey
+            || (unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey)
+                && CloudProviderURL.origin(of: targets.resolvedTranscriptionURL) == target.origin) {
+            accounts.append(transcriptionAPIKeyStorageKey)
+        }
+        // Delete from the Keychain first. If that fails, consent and the keys
+        // stay, so a saved key never goes anywhere without consent.
+        do {
+            for account in accounts {
+                try credentialStore.delete(account: account)
+                unreadableAPIKeyAccounts.remove(account)
+            }
+        } catch {
+            errorMessage = LocalizedUserMessage.providerFailure(
+                prefix: localizedCatalogString("Unable to save API key"),
+                providerDetail: error.localizedDescription
+            )
+            return
+        }
+        cloudConsent.revoke(forBaseURL: target.baseURL)
+        cloudConsent.save(to: .standard)
+        if withdrawal.clearsAPIKey { apiKey = "" }
+        if withdrawal.clearsTranscriptionAPIKey { transcriptionAPIKey = "" }
+        if withdrawal.clearsTranscriptionAPIURL { transcriptionAPIURL = "" }
+    }
+
     @Published var transcriptionModel: String {
         didSet {
             UserDefaults.standard.set(transcriptionModel, forKey: transcriptionModelStorageKey)

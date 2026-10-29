@@ -389,16 +389,16 @@ struct ModelsSettingsUIContractTests {
         precondition(picker.contains(".selectionDisabled(!canSelectTranscriptionDisplay(display))"))
         precondition(picker.contains("transcriptionChoiceMenuItem(display)"))
         precondition(picker.contains(".disabled(!canSelectTranscriptionDisplay(display))"))
-        // Settings lets any model be selected (temporary selection); it must not
-        // gate selectability on the shared display availability the way the
-        // Note Browser does.
+        // Settings lets any local model be selected (temporary selection); it
+        // must not gate selectability on the shared display availability the
+        // way the Note Browser does. A cloud model needs a key first (#693).
         let canSelect = block(
             in: models,
             from: "private func canSelectTranscriptionDisplay(_ display: TranscriptionChoiceDisplay) -> Bool",
             to: "\n    private func transcriptionChoiceMenuLabel"
         )
         precondition(!canSelect.contains("return display.isAvailable"))
-        precondition(canSelect.contains("true"))
+        precondition(canSelect.contains("!display.choice.usesCloudAPI || appState.hasTranscriptionAPIKey"))
         precondition(picker.contains(".pickerStyle(.menu)"))
         precondition(picker.contains(".frame(minWidth: 280, maxWidth: 320, alignment: .leading)"))
         precondition(picker.contains("Menu {"))
@@ -932,7 +932,14 @@ struct ModelsSettingsUIContractTests {
         precondition(olderMenuItem.contains("get: { binding.wrappedValue == display.choice }"))
         precondition(olderMenuItem.contains("if isSelected { binding.wrappedValue = display.choice }"))
         precondition(olderMenuItem.contains("Text(aiProcessingChoiceMenuLabel(display))"))
-        precondition(olderMenuItem.contains(".disabled(!display.isAvailable)"))
+        precondition(olderMenuItem.contains(".disabled(!canSelectAIProcessingDisplay(display))"))
+        let canSelectAIProcessing = block(
+            in: models,
+            from: "private func canSelectAIProcessingDisplay(_ display: AIProcessingChoiceDisplay) -> Bool",
+            to: "\n    private func transcriptionChoiceMenuLabel"
+        )
+        precondition(canSelectAIProcessing.contains("guard display.isAvailable else { return false }"))
+        precondition(canSelectAIProcessing.contains("if case .cloud = display.choice { return hasConfiguredCloudAPIKey }"))
         precondition(processingPicker.contains("Menu {"))
         precondition(processingPicker.contains("aiProcessingChoiceMenuItem("))
         precondition(processingPicker.contains("binding: binding"))

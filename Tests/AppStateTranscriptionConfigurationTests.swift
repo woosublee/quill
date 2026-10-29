@@ -981,7 +981,7 @@ struct AppStateTranscriptionConfigurationTests {
         assert(source.contains("Label(\"Transcription URL and key checked\""))
         // Unsaved edits hide the passing result, which describes the saved pair.
         assert(source.contains("transcriptionPairCheckPassed && transcriptionInputsMatchSaved"))
-        assert(source.contains("commitTranscriptionAPIURL()\n        commitTranscriptionAPIKey()\n        if appState.transcriptionAPIURL == savedURL, appState.transcriptionAPIKey == savedKey {\n            checkTranscriptionProviderPair()"))
+        assert(source.contains("if appState.transcriptionAPIURL == url, appState.transcriptionAPIKey == key {\n            checkTranscriptionProviderPair()\n            return"))
     }
 
     private static func testQwen38ModelConfiguration() {

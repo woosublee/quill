@@ -860,6 +860,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteListRowDisplayDataTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/NoteSelection.swift Tests/NoteSelectionTests.swift -o $(TEST_BUILD_DIR)/NoteSelectionTests
 	@$(TEST_BUILD_DIR)/NoteSelectionTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/CloudConsentTargets.swift Tests/CloudConsentTests.swift -o $(TEST_BUILD_DIR)/CloudConsentTests
+	@$(TEST_BUILD_DIR)/CloudConsentTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/ToastCountdown.swift Tests/ToastCountdownTests.swift -o $(TEST_BUILD_DIR)/ToastCountdownTests
 	@$(TEST_BUILD_DIR)/ToastCountdownTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/CalendarIntegrationModels.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/PipelineHistoryUserIssueTests.swift -o $(TEST_BUILD_DIR)/PipelineHistoryUserIssueTests

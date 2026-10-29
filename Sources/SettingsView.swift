@@ -1644,6 +1644,8 @@ struct ModelsSettingsView: View {
     @State private var apiBaseURLInput: String = ""
     @State private var transcriptionAPIURLInput: String = ""
     @State private var transcriptionAPIKeyInput: String = ""
+    @State private var cloudConsentRequest: CloudConsentRequest?
+    @State private var cloudConsentWithdrawalTarget: CloudConsentTargets.Target?
     @State private var transcriptionModelDraft = ""
     @State private var transcriptionEnabledDraft = false
     @State private var transcriptionChoiceDraft: TranscriptionBackendChoice?
@@ -1844,6 +1846,7 @@ struct ModelsSettingsView: View {
                 )
             )
         }
+        .cloudConsentSheet($cloudConsentRequest, appState: appState)
     }
 
     private var hasConfiguredCloudAPIKey: Bool {
@@ -1897,6 +1900,8 @@ struct ModelsSettingsView: View {
 
             providerValidationStatus
 
+            cloudConsentStatus
+
             DisclosureGroup(isExpanded: $advancedProviderSettingsExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("API Base URL")
@@ -1916,7 +1921,7 @@ struct ModelsSettingsView: View {
                             }
                         Button("Reset to Default") {
                             apiBaseURLInput = AppState.defaultAPIBaseURL
-                            appState.apiBaseURL = AppState.defaultAPIBaseURL
+                            commitAPIBaseURL()
                         }
                         .font(.caption)
                     }
@@ -1926,6 +1931,96 @@ struct ModelsSettingsView: View {
                 Text("Advanced Provider Settings")
             }
         }
+    }
+
+    /// Each provider a saved key goes to, with its consent (#693).
+    /// Withdrawing clears the keys that go there; a key saved before consent
+    /// was asked can be agreed to here.
+    @ViewBuilder
+    private var cloudConsentStatus: some View {
+        let targets = appState.cloudConsentTargets.targets
+        if !targets.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Consent to Send")
+                    .font(.caption.weight(.semibold))
+                ForEach(targets) { target in
+                    HStack(spacing: 8) {
+                        if let grantedAt = appState.cloudConsent.grantedAt(forBaseURL: target.baseURL) {
+                            Text(localizedCatalogFormat(
+                                "%@ · Agreed on %@",
+                                target.displayName,
+                                grantedAt.formatted(
+                                    .dateTime.year().month(.wide).day()
+                                        .locale(Locale(identifier: preferredLocalizedStringLanguage()))
+                                )
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Withdraw") {
+                                cloudConsentWithdrawalTarget = target
+                            }
+                            .font(.caption)
+                            // A recording's realtime stream keeps sending
+                            // until it ends, so wait for it, as the
+                            // transcription settings do.
+                            .disabled(appState.isTranscriptionConfigurationLocked)
+                        } else {
+                            Text(localizedCatalogFormat("%@ · Not agreed", target.displayName))
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Button("Agree…") {
+                                askConsentForSavedKey(target)
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+                Text("Withdrawing clears the key for that provider, so nothing goes to it. To use it again, save the key again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .confirmationDialog(
+                "Withdraw consent and clear the key?",
+                isPresented: Binding(
+                    get: { cloudConsentWithdrawalTarget != nil },
+                    set: { if !$0 { cloudConsentWithdrawalTarget = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: cloudConsentWithdrawalTarget
+            ) { target in
+                Button("Withdraw", role: .destructive) {
+                    withdrawCloudConsent(for: target)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { target in
+                Text(
+                    localizedCatalogFormat("Nothing more goes to %@.", target.displayName) + " "
+                        + localizedCatalogString("Features that used a cloud model switch to a model on this Mac, or turn off.")
+                )
+            }
+        }
+    }
+
+    /// A key saved before consent was asked (#693). Cancelling leaves it as
+    /// it is; Withdraw is the way to clear it.
+    private func askConsentForSavedKey(_ target: CloudConsentTargets.Target) {
+        guard cloudConsentRequest == nil else { return }
+        cloudConsentRequest = CloudConsentRequest(
+            targets: [target],
+            cancelNoteKey: CloudConsentCopy.cancelChangesNothingKey,
+            onAgree: {},
+            onCancel: {}
+        )
+    }
+
+    private func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
+        appState.withdrawCloudConsent(for: target)
+        apiKeyInput = appState.apiKey
+        transcriptionAPIURLInput = appState.transcriptionAPIURL
+        transcriptionAPIKeyInput = appState.transcriptionAPIKey
     }
 
     @ViewBuilder
@@ -2056,12 +2151,21 @@ struct ModelsSettingsView: View {
     }
 
     private func canSelectTranscriptionDisplay(_ display: TranscriptionChoiceDisplay) -> Bool {
-        // Settings always lets any model be selected, independent of the audio
-        // input source or install state — this is a temporary selection. When
-        // the picked model can't actually run right now, the warning below the
+        // Settings lets a local model be selected whatever the audio input
+        // source or install state — this is a temporary selection. When the
+        // picked model can't actually run right now, the warning below the
         // picker explains why, and the Note Browser stays on the last ready
-        // model until Settings resolves to a usable one.
-        true
+        // model until Settings resolves to a usable one. A cloud model needs
+        // a key first, as on the iPhone.
+        !display.choice.usesCloudAPI || appState.hasTranscriptionAPIKey
+    }
+
+    /// A cloud model needs the API key first, as on the iPhone; a local one
+    /// can be picked before its download.
+    private func canSelectAIProcessingDisplay(_ display: AIProcessingChoiceDisplay) -> Bool {
+        guard display.isAvailable else { return false }
+        if case .cloud = display.choice { return hasConfiguredCloudAPIKey }
+        return true
     }
 
     private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String {
@@ -2459,7 +2563,7 @@ struct ModelsSettingsView: View {
         )) {
             Text(aiProcessingChoiceMenuLabel(display))
         }
-        .disabled(!display.isAvailable)
+        .disabled(!canSelectAIProcessingDisplay(display))
     }
 
     @ViewBuilder
@@ -2482,7 +2586,7 @@ struct ModelsSettingsView: View {
                                 ForEach(sectionDisplays) { display in
                                     Text(aiProcessingChoiceMenuLabel(display))
                                         .tag(display.choice)
-                                        .selectionDisabled(!display.isAvailable)
+                                        .selectionDisabled(!canSelectAIProcessingDisplay(display))
                                 }
                             }
                         }
@@ -3111,7 +3215,7 @@ struct ModelsSettingsView: View {
                                     ForEach(sectionDisplays) { display in
                                         Text(aiProcessingChoiceMenuLabel(display))
                                             .tag(AIProcessingFallbackChoice(display.choice))
-                                            .selectionDisabled(!display.isAvailable)
+                                            .selectionDisabled(!canSelectAIProcessingDisplay(display))
                                     }
                                 }
                             }
@@ -3135,7 +3239,7 @@ struct ModelsSettingsView: View {
                                         fallbackChoiceMenuItem(
                                             AIProcessingFallbackChoice(display.choice),
                                             label: aiProcessingChoiceMenuLabel(display),
-                                            isAvailable: display.isAvailable,
+                                            isAvailable: canSelectAIProcessingDisplay(display),
                                             selection: selection
                                         )
                                     }
@@ -3332,7 +3436,7 @@ struct ModelsSettingsView: View {
                 if !transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button("Clear") {
                         transcriptionAPIURLInput = ""
-                        appState.transcriptionAPIURL = ""
+                        commitTranscriptionAPIURL()
                     }
                     .font(.caption)
                 }
@@ -3352,7 +3456,7 @@ struct ModelsSettingsView: View {
                 if !transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button("Clear") {
                         transcriptionAPIKeyInput = ""
-                        appState.transcriptionAPIKey = ""
+                        commitTranscriptionAPIKey()
                     }
                     .font(.caption)
                 }
@@ -3533,7 +3637,35 @@ struct ModelsSettingsView: View {
         let trimmed = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedBaseURL = trimmed.isEmpty ? AppState.defaultAPIBaseURL : trimmed
         apiBaseURLInput = resolvedBaseURL
-        appState.apiBaseURL = resolvedBaseURL
+        guard appState.apiBaseURL != resolvedBaseURL else { return }
+        // A saved key would go to the new address, so a new provider asks
+        // first; cancelling keeps the old address.
+        askCloudConsent(
+            { $0.apiBaseURL = resolvedBaseURL },
+            cancelNoteKey: CloudConsentCopy.cancelChangesNothingKey,
+            apply: { appState.apiBaseURL = resolvedBaseURL },
+            cancel: { apiBaseURLInput = appState.apiBaseURL }
+        )
+    }
+
+    /// Runs `apply` now, or after the consent sheet when the change would send
+    /// a saved key to a provider without consent (#693). A change made while
+    /// the sheet is up isn't saved; its field keeps what was typed, to save
+    /// again once the sheet is closed.
+    private func askCloudConsent(
+        _ change: @escaping (inout CloudConsentTargets) -> Void,
+        cancelNoteKey: String,
+        apply: @escaping () -> Void,
+        cancel: @escaping () -> Void
+    ) {
+        guard cloudConsentRequest == nil else { return }
+        cloudConsentRequest = CloudConsentRequest.applying(
+            change,
+            appState: appState,
+            cancelNoteKey: cancelNoteKey,
+            apply: apply,
+            cancel: cancel
+        )
     }
 
     private func commitTranscriptionModel() {
@@ -3555,27 +3687,61 @@ struct ModelsSettingsView: View {
         let trimmed = transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
         transcriptionAPIURLInput = trimmed
         guard appState.transcriptionAPIURL != trimmed else { return }
-        appState.transcriptionAPIURL = trimmed
+        askCloudConsent(
+            { $0.transcriptionAPIURL = trimmed },
+            cancelNoteKey: CloudConsentCopy.cancelChangesNothingKey,
+            apply: { appState.transcriptionAPIURL = trimmed },
+            cancel: { transcriptionAPIURLInput = appState.transcriptionAPIURL }
+        )
     }
 
     /// Saves the transcription URL and key and checks them together. A
     /// changed value re-checks through onChange; when nothing changed, the
     /// saved pair is checked again here.
     private func saveTranscriptionProviderFields() {
-        let savedURL = appState.transcriptionAPIURL
-        let savedKey = appState.transcriptionAPIKey
-        commitTranscriptionAPIURL()
-        commitTranscriptionAPIKey()
-        if appState.transcriptionAPIURL == savedURL, appState.transcriptionAPIKey == savedKey {
+        let url = transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        transcriptionAPIURLInput = url
+        transcriptionAPIKeyInput = key
+        if appState.transcriptionAPIURL == url, appState.transcriptionAPIKey == key {
             checkTranscriptionProviderPair()
+            return
         }
+        // Both fields are one change, so one cancel undoes both.
+        let newKey = appState.transcriptionAPIKey != key && !key.isEmpty
+        askCloudConsent(
+            {
+                $0.transcriptionAPIURL = url
+                $0.transcriptionAPIKey = key
+            },
+            cancelNoteKey: newKey
+                ? CloudConsentCopy.cancelClearsKeyKey
+                : CloudConsentCopy.cancelChangesNothingKey,
+            apply: {
+                appState.transcriptionAPIURL = url
+                appState.transcriptionAPIKey = key
+            },
+            cancel: {
+                transcriptionAPIURLInput = appState.transcriptionAPIURL
+                transcriptionAPIKeyInput = newKey ? "" : appState.transcriptionAPIKey
+            }
+        )
     }
 
     private func commitTranscriptionAPIKey() {
         let trimmed = transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         transcriptionAPIKeyInput = trimmed
         guard appState.transcriptionAPIKey != trimmed else { return }
-        appState.transcriptionAPIKey = trimmed
+        // Clearing the key falls back to the main key, which may be new to
+        // the transcription provider; cancelling that keeps the saved key.
+        askCloudConsent(
+            { $0.transcriptionAPIKey = trimmed },
+            cancelNoteKey: trimmed.isEmpty
+                ? CloudConsentCopy.cancelChangesNothingKey
+                : CloudConsentCopy.cancelClearsKeyKey,
+            apply: { appState.transcriptionAPIKey = trimmed },
+            cancel: { transcriptionAPIKeyInput = trimmed.isEmpty ? appState.transcriptionAPIKey : "" }
+        )
     }
 
     /// The check result describes the saved pair, so it hides while the
@@ -3644,7 +3810,17 @@ struct ModelsSettingsView: View {
                 keyValidationCheckID = nil
                 isValidatingKey = false
                 if result == .valid {
-                    appState.apiKey = key
+                    // Asks for the saved address, where the key goes; a new
+                    // address asks on its own when it's saved (#693).
+                    let savedKey = appState.apiKey
+                    askCloudConsent(
+                        { $0.apiKey = key },
+                        cancelNoteKey: key == savedKey
+                            ? CloudConsentCopy.cancelChangesNothingKey
+                            : CloudConsentCopy.cancelClearsKeyKey,
+                        apply: { appState.apiKey = key },
+                        cancel: { apiKeyInput = key == savedKey ? savedKey : "" }
+                    )
                 } else if let reason = APIKeyCheckCopy.reason(for: result) {
                     keyValidationReason = reason
                 } else {
