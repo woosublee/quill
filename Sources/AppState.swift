@@ -698,7 +698,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             apiBaseURL: apiBaseURL,
             apiKey: apiKey,
             transcriptionAPIURL: transcriptionAPIURL,
-            transcriptionAPIKey: transcriptionAPIKey
+            transcriptionAPIKey: transcriptionAPIKey,
+            transcriptionAPIKeyIsUnreadable: unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey)
         )
     }
 

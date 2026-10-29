@@ -14,6 +14,8 @@ struct CloudConsentTests {
             try unconsentedTargetsListEachNewProvider()
             try withdrawalClearsEveryKeyThatGoesThere()
             try displayNameShowsAnythingButPlainHTTPS()
+            try anUnreadableTranscriptionKeyDoesNotFallBack()
+            try keysNeverPrint()
             try copyKeysAreStable()
             print("CloudConsentTests passed")
         } catch {
@@ -144,6 +146,31 @@ struct CloudConsentTests {
         try expect(name("https://api.example-cloud.test:8443/v1") == "https://api.example-cloud.test:8443", "a port shows")
         try expect(name("http://[::1]:8080/v1") == "http://[::1]:8080", "an IPv6 address keeps its port")
         try expect(name("https://[::1]/v1") == "[::1]", "plain HTTPS on IPv6 shows the host")
+    }
+
+    static func anUnreadableTranscriptionKeyDoesNotFallBack() throws {
+        let settings = CloudConsentTargets(
+            apiBaseURL: " \(mainURL) ",
+            apiKey: "sk-main",
+            transcriptionAPIURL: otherURL,
+            transcriptionAPIKey: "",
+            transcriptionAPIKeyIsUnreadable: true
+        )
+        try expect(settings.targets.map(\.host) == ["api.example-cloud.test"], "the main key doesn't go where an unreadable key would")
+        try expect(settings.targets.first?.baseURL == mainURL, "the base URL is trimmed")
+        try expect(
+            settings.withdrawal(forOrigin: "https://transcribe.example-voice.test") == .init(),
+            "withdrawing the transcription provider keeps its URL, since the main key never went there"
+        )
+    }
+
+    static func keysNeverPrint() throws {
+        let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-secret-main", transcriptionAPIURL: "", transcriptionAPIKey: "sk-secret-voice")
+        var dumped = ""
+        dump(settings, to: &dumped)
+        for text in ["\(settings)", String(reflecting: settings), dumped] {
+            try expect(!text.contains("sk-secret"), "a printed value hides the keys")
+        }
     }
 
     static func copyKeysAreStable() throws {
