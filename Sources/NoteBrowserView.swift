@@ -664,6 +664,12 @@ struct NoteBrowserView: View {
         }
     }
 
+    /// Select All, or Deselect All once every selectable visible note is
+    /// selected. ⌘A always selects all.
+    private var selectAllAction: NoteSelectAllAction {
+        selection.selectAllAction(orderedIDs: filteredHistory.map(\.id), isSelectable: isBulkSelectable)
+    }
+
     private func selectAllVisibleNotes() -> Bool {
         let ids = filteredHistory.map(\.id)
         guard ids.contains(where: isBulkSelectable) else { return false }
@@ -1359,7 +1365,14 @@ struct NoteBrowserView: View {
                         .lineLimit(1)
                         .padding(.leading, 2)
                     Spacer()
-                    Button("Select All") { _ = selectAllVisibleNotes() }
+                    // One value for the title and the tap, so the tap does what the button says.
+                    let selectAllAction = selectAllAction
+                    Button(localizedCatalogString(selectAllAction.titleKey)) {
+                        switch selectAllAction {
+                        case .selectAll: _ = selectAllVisibleNotes()
+                        case .deselectAll: selection.deselectAll()
+                        }
+                    }
                         .buttonStyle(SidebarCapsuleButtonStyle())
                         .overrideCursor(.arrow)
                 } else {

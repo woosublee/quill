@@ -1,4 +1,5 @@
 import AppKit
+import QuillNoteCore
 
 @main
 struct NoteSelectionTests {
@@ -15,6 +16,8 @@ struct NoteSelectionTests {
         try testSelectionModeTogglesWithPlainClicks()
         try testSelectionModeKeepsEmptySelection()
         try testSelectAllSkipsUnselectableNotes()
+        try testSelectAllActionFollowsEverySelectableNote()
+        try testDeselectAllClearsAndStaysInSelectionMode()
         try testUnselectableNotesCannotBeAdded()
         try testEndSelectionModeReturnsToFocusedNote()
         try testRetainVisibleDropsHiddenNotes()
@@ -105,6 +108,72 @@ struct NoteSelectionTests {
 
         try expect(selection.selectedIDs == [ids[0], ids[2], ids[3], ids[4]], "Select All skips busy notes")
         try expect(selection.showsSelectionUI, "Select All shows the selection UI")
+    }
+
+    private static func testSelectAllActionFollowsEverySelectableNote() throws {
+        let busy: Set<UUID> = [ids[1]]
+        let notBusy: (UUID) -> Bool = { !busy.contains($0) }
+        func action(_ selected: Set<UUID>, visible: [UUID] = ids) -> NoteSelectAllAction {
+            NoteSelectAllAction(visibleIDs: visible, selectedIDs: selected, isSelectable: notBusy)
+        }
+
+        try expect(action([]) == .selectAll, "nothing selected reads Select All")
+        try expect(action([ids[0], ids[2]]) == .selectAll, "some selected reads Select All")
+        try expect(action(Set(ids)) == .deselectAll, "everything selected reads Deselect All")
+        try expect(
+            action(Set(ids).subtracting(busy)) == .deselectAll,
+            "a note that can't be selected doesn't count toward every"
+        )
+        try expect(action([], visible: []) == .selectAll, "an empty list reads Select All")
+        try expect(action([], visible: [ids[1]]) == .selectAll, "a list of busy notes reads Select All")
+        try expect(
+            action(Set(ids[0...2]), visible: Array(ids[0...2])) == .deselectAll,
+            "the rule follows the visible notes, such as search results"
+        )
+        try expect(
+            action(Set(ids[0...2]), visible: Array(ids[0...3])) == .selectAll,
+            "a new visible note turns it back into Select All"
+        )
+        try expect(NoteSelectAllAction.selectAll.titleKey == "Select All", "Select All catalog key")
+        try expect(NoteSelectAllAction.deselectAll.titleKey == "Deselect All", "Deselect All catalog key")
+
+        var selection = NoteSelection(focusedID: ids[0])
+        selection.beginSelectionMode()
+        try expect(
+            selection.selectAllAction(orderedIDs: ids, isSelectable: notBusy) == .selectAll,
+            "the button starts as Select All"
+        )
+        selection.selectAll(orderedIDs: ids, isSelectable: notBusy)
+        try expect(
+            selection.selectAllAction(orderedIDs: ids, isSelectable: notBusy) == .deselectAll,
+            "after Select All the button reads Deselect All"
+        )
+    }
+
+    private static func testDeselectAllClearsAndStaysInSelectionMode() throws {
+        var selection = NoteSelection(focusedID: ids[0])
+        selection.beginSelectionMode()
+        selection.selectAll(orderedIDs: ids, isSelectable: everySelectable)
+        selection.deselectAll()
+        try expect(selection.selectedIDs.isEmpty, "Deselect All clears the selection")
+        try expect(selection.showsSelectionUI, "selection mode stays on")
+        try expect(
+            selection.selectAllAction(orderedIDs: ids, isSelectable: everySelectable) == .selectAll,
+            "the button reads Select All again"
+        )
+
+        // A selection built with ⌘-clicks shows the same button.
+        var clicked = NoteSelection(focusedID: ids[0])
+        clicked.click(ids[1], modifier: .toggle, orderedIDs: Array(ids[0...1]), isSelectable: everySelectable)
+        try expect(
+            clicked.selectAllAction(orderedIDs: Array(ids[0...1]), isSelectable: everySelectable) == .deselectAll,
+            "every visible note selected by ⌘-click reads Deselect All"
+        )
+        clicked.deselectAll()
+        try expect(clicked.selectedIDs.isEmpty, "Deselect All clears a ⌘-click selection")
+        try expect(clicked.showsSelectionUI, "a ⌘-click selection stays in selection mode")
+        clicked.endSelectionMode()
+        try expect(clicked.focusedID == ids[1], "Done returns to the last clicked note")
     }
 
     private static func testUnselectableNotesCannotBeAdded() throws {
