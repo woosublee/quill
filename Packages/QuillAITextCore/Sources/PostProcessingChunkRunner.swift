@@ -116,24 +116,35 @@ public struct PostProcessingChunkRunner: Sendable {
         expectedSourceLanguage: String?,
         requester: any PostProcessingChunkRequesting
     ) async throws -> PostProcessingChunkResult {
-        let cleanupMode = TranscriptCleanupMode.resolve(for: transcript)
-        let staticUserMessage = try PostProcessingPrompt.userMessage(
-            transcript: "",
+        let inputs = PromptInputs(
             contextSummary: contextSummary,
-            vocabulary: customVocabulary
-        )
-        let staticSystemPrompt = PostProcessingPrompt.systemPrompt(
+            customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
-            cleanupMode: cleanupMode,
-            dictationLanguageCode: expectedSourceLanguage
+            cleanupMode: TranscriptCleanupMode.resolve(for: transcript),
+            expectedSourceLanguage: expectedSourceLanguage,
+            automaticOutputLanguage: AIOutputLanguageValidator.isAutomaticOutputLanguage(
+                outputLanguage
+            )
         )
-        let renderedPrompt = "[System]\n\(staticSystemPrompt)\n\n[User]\n\(staticUserMessage)"
+        let staticPrompt = try PostProcessingPromptPair(
+            system: PostProcessingPrompt.systemPrompt(
+                customSystemPrompt: customSystemPrompt,
+                outputLanguage: outputLanguage,
+                cleanupMode: inputs.cleanupMode,
+                dictationLanguageCode: expectedSourceLanguage
+            ),
+            user: PostProcessingPrompt.userMessage(
+                transcript: "",
+                contextSummary: contextSummary,
+                vocabulary: customVocabulary
+            )
+        )
         let budget = try await LocalAITokenBudgeter(
             contextWindow: contextWindow,
             tokenCounter: PostProcessingByteTokenCounter(bytesPerToken: bytesPerToken)
         ).budget(
-            forRenderedChatPrompt: renderedPrompt,
+            forRenderedChatPrompt: Self.rendered(staticPrompt),
             role: .postProcessing(inputReservation: inputReservation)
         )
         guard let budget else {
@@ -146,79 +157,72 @@ public struct PostProcessingChunkRunner: Sendable {
         let maximumSourceBytes = max(1, budget.sourceTokenLimit * bytesPerToken / 2)
         let byteChunks = PostProcessingTranscriptSplitter(
             maximumSourceBytes: maximumSourceBytes
-        ).chunks(for: transcript).map(\.text)
+        ).chunks(for: transcript).map {
+            // Byte-cut chunks are joined by a blank line, as before #162.
+            PlannedChunk(text: $0.text, separatorBefore: "\n\n")
+        }
         guard !byteChunks.isEmpty else {
             throw PostProcessingError.invalidInput("Transcript must not be empty")
         }
 
-        let automaticOutputLanguage = AIOutputLanguageValidator.isAutomaticOutputLanguage(
-            outputLanguage
-        )
-        let chunks: [String]
-        if let tokenCounter {
-            chunks = try await countedChunks(
-                byteChunks,
-                tokenCounter: tokenCounter,
-                contextSummary: contextSummary,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage,
-                cleanupMode: cleanupMode,
-                expectedSourceLanguage: expectedSourceLanguage,
-                automaticOutputLanguage: automaticOutputLanguage
-            )
-        } else {
-            chunks = byteChunks
+        var chunks = byteChunks
+        if let tokenCounter,
+           let counted = try await countedChunks(
+               byteChunks,
+               tokenCounter: tokenCounter,
+               inputs: inputs
+           ) {
+            chunks = counted
         }
-        var cleanedChunks: [String] = []
+
+        var combinedTranscript = ""
+        var hasKeptChunk = false
+        // The separator since the last kept chunk; a dropped chunk's blank
+        // line is kept over a sentence space.
+        var pendingSeparator = ""
         var prompts: [PostProcessingPromptPair] = []
         // At most one extra request per run: a long, non-filler chunk that
         // comes back empty or EMPTY is re-asked once with the same model.
         // Other errors are never retried here.
         var emptyReplyReaskAvailable = true
-        for chunk in chunks {
-            let chunkExpectedSourceLanguage = automaticOutputLanguage
-                ? AIOutputLanguageValidator.inferredSourceLanguage(for: chunk)
-                : expectedSourceLanguage
+        for (index, chunk) in chunks.enumerated() {
+            if index > 0 {
+                pendingSeparator = Self.strongerSeparator(
+                    pendingSeparator,
+                    chunk.separatorBefore
+                )
+            }
             let result: (transcript: String, prompt: PostProcessingPromptPair)
             do {
                 result = try await processChunk(
-                    transcript: chunk,
-                    contextSummary: contextSummary,
-                    customVocabulary: customVocabulary,
-                    customSystemPrompt: customSystemPrompt,
-                    outputLanguage: outputLanguage,
-                    cleanupMode: cleanupMode,
-                    expectedSourceLanguage: chunkExpectedSourceLanguage,
-                    dictationLanguageCode: chunkExpectedSourceLanguage ?? expectedSourceLanguage,
+                    chunk.text,
+                    inputs: inputs,
                     budget: budget,
                     requester: requester
                 )
             } catch PostProcessingError.emptyOutput
                 where emptyReplyReaskAvailable
-                && PostProcessingOutputValidator.shouldReaskAfterEmptyReply(source: chunk) {
+                && PostProcessingOutputValidator.shouldReaskAfterEmptyReply(source: chunk.text) {
                 emptyReplyReaskAvailable = false
                 result = try await processChunk(
-                    transcript: chunk,
-                    contextSummary: contextSummary,
-                    customVocabulary: customVocabulary,
-                    customSystemPrompt: customSystemPrompt,
-                    outputLanguage: outputLanguage,
-                    cleanupMode: cleanupMode,
-                    expectedSourceLanguage: chunkExpectedSourceLanguage,
-                    dictationLanguageCode: chunkExpectedSourceLanguage ?? expectedSourceLanguage,
+                    chunk.text,
+                    inputs: inputs,
                     budget: budget,
                     requester: requester,
                     includesEmptyReplyReminder: true
                 )
             }
             if !result.transcript.isEmpty {
-                cleanedChunks.append(result.transcript)
+                if hasKeptChunk {
+                    combinedTranscript += pendingSeparator
+                }
+                combinedTranscript += result.transcript
+                hasKeptChunk = true
+                pendingSeparator = ""
             }
             prompts.append(result.prompt)
         }
 
-        let combinedTranscript = cleanedChunks.joined(separator: "\n\n")
         let parsedVocabulary = CustomVocabularyParser.parseEntries(customVocabulary)
         switch PostProcessingOutputValidator().validate(
             source: transcript,
@@ -237,105 +241,189 @@ public struct PostProcessingChunkRunner: Sendable {
         }
     }
 
-    /// Counts each byte-cut chunk's prompt with the model's tokenizer and
-    /// splits a chunk that doesn't fit again, at half its bytes with the same
-    /// paragraph, sentence, word, and character boundaries, until every piece
-    /// fits. A piece that can't be split further fails as an over-budget
-    /// prompt. The prompt counted is the longest one the chunk can send: its
-    /// own language's system prompt with the empty-reply reminder.
-    private func countedChunks(
-        _ byteChunks: [String],
-        tokenCounter: any LocalAITokenCounting,
-        contextSummary: String,
-        customVocabulary: [String],
-        customSystemPrompt: String,
-        outputLanguage: String,
-        cleanupMode: TranscriptCleanupMode,
-        expectedSourceLanguage: String?,
-        automaticOutputLanguage: Bool
-    ) async throws -> [String] {
-        let budgeter = LocalAITokenBudgeter(
-            contextWindow: contextWindow,
-            tokenCounter: tokenCounter
-        )
-        var fitted: [String] = []
-        var pending = Array(byteChunks.reversed())
-        while let chunk = pending.popLast() {
-            let chunkLanguage = automaticOutputLanguage
+    /// One chunk to clean and the text that separated it from the one before.
+    private struct PlannedChunk {
+        let text: String
+        let separatorBefore: String
+    }
+
+    /// What every chunk's prompt is built from. `promptPair` is the one place
+    /// a chunk's prompt is assembled, for both the counted check and the
+    /// request, so the two can't drift apart.
+    private struct PromptInputs {
+        let contextSummary: String
+        let customVocabulary: [String]
+        let customSystemPrompt: String
+        let outputLanguage: String
+        let cleanupMode: TranscriptCleanupMode
+        let expectedSourceLanguage: String?
+        let automaticOutputLanguage: Bool
+
+        /// The language a chunk's output is checked against.
+        func expectedLanguage(for chunk: String) -> String? {
+            automaticOutputLanguage
                 ? AIOutputLanguageValidator.inferredSourceLanguage(for: chunk)
                 : expectedSourceLanguage
-            let systemPrompt = PostProcessingPrompt.systemPrompt(
+        }
+
+        func promptPair(
+            for chunk: String,
+            includesEmptyReplyReminder: Bool
+        ) throws -> PostProcessingPromptPair {
+            // A chunk too short to recognize falls back to the whole
+            // transcript's language.
+            let baseSystemPrompt = PostProcessingPrompt.systemPrompt(
                 customSystemPrompt: customSystemPrompt,
                 outputLanguage: outputLanguage,
                 cleanupMode: cleanupMode,
-                dictationLanguageCode: chunkLanguage ?? expectedSourceLanguage
-            ) + "\n\n" + PostProcessingPrompt.emptyReplyReminder
+                dictationLanguageCode: expectedLanguage(for: chunk) ?? expectedSourceLanguage
+            )
+            let systemPrompt = includesEmptyReplyReminder
+                ? baseSystemPrompt + "\n\n" + PostProcessingPrompt.emptyReplyReminder
+                : baseSystemPrompt
             let userMessage = try PostProcessingPrompt.userMessage(
                 transcript: chunk,
                 contextSummary: contextSummary,
                 vocabulary: customVocabulary
             )
-            let fits = try await budgeter.budget(
-                forRenderedChatPrompt: "[System]\n\(systemPrompt)\n\n[User]\n\(userMessage)",
-                role: .postProcessing(inputReservation: inputReservation)
-            ) != nil
+            return PostProcessingPromptPair(system: systemPrompt, user: userMessage)
+        }
+    }
+
+    private static func rendered(_ prompt: PostProcessingPromptPair) -> String {
+        "[System]\n\(prompt.system)\n\n[User]\n\(prompt.user)"
+    }
+
+    /// The separator with more line breaks, or `next` on a tie.
+    private static func strongerSeparator(_ current: String, _ next: String) -> String {
+        current.filter(\.isNewline).count > next.filter(\.isNewline).count ? current : next
+    }
+
+    /// Counts the fixed prompt once, then each byte-cut chunk's prompt, with
+    /// the model's tokenizer, and splits a chunk that doesn't fit again: at
+    /// half its bytes with the same paragraph, sentence, word, and character
+    /// boundaries, until every piece fits. The prompt counted is the longest
+    /// one a chunk can send: its own language's system prompt with the
+    /// empty-reply reminder.
+    ///
+    /// A fixed prompt or a piece that can't fit fails as an over-budget
+    /// prompt, as the byte check does. When the counter throws, it returns
+    /// nil and the run uses the byte-cut chunks, as with no counter.
+    private func countedChunks(
+        _ byteChunks: [PlannedChunk],
+        tokenCounter: any LocalAITokenCounting,
+        inputs: PromptInputs
+    ) async throws -> [PlannedChunk]? {
+        let budgeter = LocalAITokenBudgeter(
+            contextWindow: contextWindow,
+            tokenCounter: tokenCounter
+        )
+        let staticPrompt = try inputs.promptPair(for: "", includesEmptyReplyReminder: true)
+        guard let staticFits = try await countedFit(staticPrompt, budgeter: budgeter) else {
+            return nil
+        }
+        guard staticFits else {
+            throw PostProcessingError.contextBudgetExceeded
+        }
+
+        var fitted: [PlannedChunk] = []
+        var pending = Array(byteChunks.reversed())
+        while let chunk = pending.popLast() {
+            let prompt = try inputs.promptPair(for: chunk.text, includesEmptyReplyReminder: true)
+            guard let fits = try await countedFit(prompt, budgeter: budgeter) else {
+                return nil
+            }
             if fits {
                 fitted.append(chunk)
                 continue
             }
             let pieces = PostProcessingTranscriptSplitter(
-                maximumSourceBytes: max(1, chunk.utf8.count / 2)
-            ).chunks(for: chunk).map(\.text)
+                maximumSourceBytes: max(1, chunk.text.utf8.count / 2)
+            ).chunks(for: chunk.text).map(\.text)
             guard pieces.count > 1 else {
                 throw PostProcessingError.contextBudgetExceeded
             }
-            pending.append(contentsOf: pieces.reversed())
+            let separators = Self.separators(between: pieces, in: chunk.text)
+            let planned = pieces.enumerated().map { index, piece in
+                PlannedChunk(
+                    text: piece,
+                    separatorBefore: index == 0 ? chunk.separatorBefore : separators[index - 1]
+                )
+            }
+            pending.append(contentsOf: planned.reversed())
         }
         return fitted
     }
 
+    /// Whether the prompt fits by the model's count, or nil when the counter
+    /// fails. Cancellation still ends the run.
+    private func countedFit(
+        _ prompt: PostProcessingPromptPair,
+        budgeter: LocalAITokenBudgeter
+    ) async throws -> Bool? {
+        do {
+            return try await budgeter.budget(
+                forRenderedChatPrompt: Self.rendered(prompt),
+                role: .postProcessing(inputReservation: inputReservation)
+            ) != nil
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+    }
+
+    /// The source text between consecutive pieces: the whitespace after each
+    /// piece's last character, or "" where a word was cut. The splitter keeps
+    /// every non-whitespace character in order, so each piece is found by
+    /// walking the source.
+    private static func separators(between pieces: [String], in source: String) -> [String] {
+        var index = source.startIndex
+        var separators: [String] = []
+        for piece in pieces.dropLast() {
+            for character in piece where !character.isWhitespace {
+                while index < source.endIndex && source[index] != character {
+                    index = source.index(after: index)
+                }
+                if index < source.endIndex {
+                    index = source.index(after: index)
+                }
+            }
+            var separator = ""
+            while index < source.endIndex && source[index].isWhitespace {
+                separator.append(source[index])
+                index = source.index(after: index)
+            }
+            separators.append(separator)
+        }
+        return separators
+    }
+
     private func processChunk(
-        transcript: String,
-        contextSummary: String,
-        customVocabulary: [String],
-        customSystemPrompt: String,
-        outputLanguage: String,
-        cleanupMode: TranscriptCleanupMode,
-        expectedSourceLanguage: String?,
-        dictationLanguageCode: String?,
+        _ transcript: String,
+        inputs: PromptInputs,
         budget: LocalAITokenBudget,
         requester: any PostProcessingChunkRequesting,
         includesEmptyReplyReminder: Bool = false
     ) async throws -> (transcript: String, prompt: PostProcessingPromptPair) {
-        // A chunk too short to recognize falls back to the whole transcript's language.
-        let baseSystemPrompt = PostProcessingPrompt.systemPrompt(
-            customSystemPrompt: customSystemPrompt,
-            outputLanguage: outputLanguage,
-            cleanupMode: cleanupMode,
-            dictationLanguageCode: dictationLanguageCode ?? expectedSourceLanguage
-        )
-        let systemPrompt = includesEmptyReplyReminder
-            ? baseSystemPrompt + "\n\n" + PostProcessingPrompt.emptyReplyReminder
-            : baseSystemPrompt
-        let userMessage = try PostProcessingPrompt.userMessage(
-            transcript: transcript,
-            contextSummary: contextSummary,
-            vocabulary: customVocabulary
+        let prompt = try inputs.promptPair(
+            for: transcript,
+            includesEmptyReplyReminder: includesEmptyReplyReminder
         )
         let content = try await requester.requestCleanup(
-            system: systemPrompt,
-            user: userMessage,
+            system: prompt.system,
+            user: prompt.user,
             budget: budget
         )
 
         let sanitizedTranscript = PostProcessingReplySanitizer.postProcessedTranscript(content)
-        let parsedVocabulary = CustomVocabularyParser.parseEntries(customVocabulary)
+        let parsedVocabulary = CustomVocabularyParser.parseEntries(inputs.customVocabulary)
         let acceptedTranscript: String
         switch PostProcessingOutputValidator().validate(
             source: transcript,
             output: sanitizedTranscript,
-            outputLanguage: outputLanguage,
-            expectedSourceLanguage: expectedSourceLanguage,
+            outputLanguage: inputs.outputLanguage,
+            expectedSourceLanguage: inputs.expectedLanguage(for: transcript),
             vocabulary: parsedVocabulary.terms,
             correctionHeardForms: parsedVocabulary.outputCheckExemptHeardForms
         ) {
@@ -350,13 +438,10 @@ public struct PostProcessingChunkRunner: Sendable {
             && InstructionExecutionDetector.appearsToHaveExecutedInstruction(
                 rawTranscript: transcript,
                 cleanedTranscript: acceptedTranscript,
-                outputLanguage: outputLanguage
+                outputLanguage: inputs.outputLanguage
             ) {
             throw PostProcessingError.outputRejected(.instructionExecution)
         }
-        return (
-            acceptedTranscript,
-            PostProcessingPromptPair(system: systemPrompt, user: userMessage)
-        )
+        return (acceptedTranscript, prompt)
     }
 }
