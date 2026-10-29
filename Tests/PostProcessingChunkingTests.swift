@@ -12,6 +12,9 @@ struct PostProcessingChunkingTests {
         try testMultibyteCharactersRespectSafeBoundaries()
         try testLargeUnbrokenTokenPreservesOrderAndBudget()
         try await testRunnerSizesChunksFromItsWindowAndByteRatio()
+        try await testTokenCounterResplitsChunksThatDoNotFit()
+        try await testTokenCounterKeepsChunksThatFit()
+        try await testUnsplittableChunkOverTheCountedBudgetFails()
         try testFallbackPolicyByErrorAndHosts()
         print("PostProcessingChunkingTests passed")
     }
@@ -117,6 +120,94 @@ struct PostProcessingChunkingTests {
         try expect(phone.budgets.count < mac.budgets.count, "two bytes a token makes larger chunks")
     }
 
+    /// A dense model (one token a byte, as for emoji or CJK text) on a
+    /// two-bytes-a-token estimate, as the iPhone uses: the counted check splits the
+    /// byte-cut chunks again until every prompt fits the window (#162).
+    private static func testTokenCounterResplitsChunksThatDoNotFit() async throws {
+        let transcript = (0..<120)
+            .map { "Sentence \($0) keeps the synthetic release plan on track." }
+            .joined(separator: " ")
+        let window = 16_384
+        let reservation = 8_000
+        let promptLimit = window - 6_144 - LocalAITokenBudgeter.safetyMarginTokens
+
+        let byteOnly = EchoCleanupRequester()
+        _ = try await PostProcessingChunkRunner(
+            contextWindow: window, bytesPerToken: 2, inputReservation: reservation
+        ).run(
+            transcript: transcript, contextSummary: "", customVocabulary: [], customSystemPrompt: "",
+            outputLanguage: "", expectedSourceLanguage: "en", requester: byteOnly
+        )
+        let counted = EchoCleanupRequester()
+        let counter = DenseTokenCounter()
+        let result = try await PostProcessingChunkRunner(
+            contextWindow: window, bytesPerToken: 2, inputReservation: reservation,
+            tokenCounter: counter
+        ).run(
+            transcript: transcript, contextSummary: "", customVocabulary: [], customSystemPrompt: "",
+            outputLanguage: "", expectedSourceLanguage: "en", requester: counted
+        )
+
+        try expect(
+            byteOnly.prompts.contains { $0.utf8.count >= promptLimit },
+            "the byte estimate alone overfills a dense model's window"
+        )
+        try expect(counted.prompts.count > byteOnly.prompts.count, "the counted check splits again")
+        try expect(
+            counted.prompts.allSatisfy { $0.utf8.count < promptLimit },
+            "no chunk's counted prompt exceeds the window minus the response room"
+        )
+        try expect(
+            result.transcript.replacingOccurrences(of: "\n\n", with: " ") == transcript,
+            "re-split chunks keep every sentence in order"
+        )
+        try expect(
+            counted.transcripts.allSatisfy { $0.hasSuffix(".") },
+            "re-splitting keeps sentence boundaries"
+        )
+    }
+
+    /// Chunks whose counted prompts fit are sent as the bytes cut them, the
+    /// same as with no counter.
+    private static func testTokenCounterKeepsChunksThatFit() async throws {
+        let transcript = (0..<200)
+            .map { "Sentence \($0) keeps the synthetic release plan on track." }
+            .joined(separator: " ")
+        let byteOnly = EchoCleanupRequester()
+        _ = try await PostProcessingChunkRunner().run(
+            transcript: transcript, contextSummary: "", customVocabulary: [], customSystemPrompt: "",
+            outputLanguage: "", expectedSourceLanguage: "en", requester: byteOnly
+        )
+        let counted = EchoCleanupRequester()
+        let counter = DenseTokenCounter()
+        _ = try await PostProcessingChunkRunner(tokenCounter: counter).run(
+            transcript: transcript, contextSummary: "", customVocabulary: [], customSystemPrompt: "",
+            outputLanguage: "", expectedSourceLanguage: "en", requester: counted
+        )
+
+        try expect(byteOnly.transcripts.count > 1, "the long paragraph is split by bytes")
+        try expect(counted.transcripts == byteOnly.transcripts, "fitting chunks aren't split again")
+        try expect(counted.prompts == byteOnly.prompts, "the same prompts are sent")
+        try expect(counter.calls == byteOnly.transcripts.count, "each chunk's prompt is counted once")
+    }
+
+    /// A single character whose counted prompt can't fit fails as an
+    /// over-budget prompt, and no request is sent.
+    private static func testUnsplittableChunkOverTheCountedBudgetFails() async throws {
+        let requester = EchoCleanupRequester()
+        do {
+            _ = try await PostProcessingChunkRunner(
+                tokenCounter: DenseTokenCounter(costlyCharacter: "🙂", cost: 100_000)
+            ).run(
+                transcript: "🙂", contextSummary: "", customVocabulary: [], customSystemPrompt: "",
+                outputLanguage: "", expectedSourceLanguage: "en", requester: requester
+            )
+            throw PostProcessingChunkingTestFailure("an unsplittable oversized chunk must fail")
+        } catch PostProcessingError.contextBudgetExceeded {
+            try expect(requester.prompts.isEmpty, "no request is sent")
+        }
+    }
+
     /// Which cleanup errors try the fallback model, for each pair of hosts
     /// (cloud to cloud, local to cloud, cloud to local, local to local) and
     /// with an empty cloud reply retried or not. The table is the Mac's rule
@@ -178,25 +269,63 @@ private struct PostProcessingChunkingTestFailure: Error, CustomStringConvertible
 
 private final class EchoCleanupRequester: PostProcessingChunkRequesting, @unchecked Sendable {
     private let lock = NSLock()
-    private var recorded: [LocalAITokenBudget] = []
+    private var recorded: [(budget: LocalAITokenBudget, prompt: String, transcript: String)] = []
 
-    var budgets: [LocalAITokenBudget] {
+    var budgets: [LocalAITokenBudget] { snapshot().map(\.budget) }
+    /// Each request's rendered prompt, as the runner counts it.
+    var prompts: [String] { snapshot().map(\.prompt) }
+    var transcripts: [String] { snapshot().map(\.transcript) }
+
+    func requestCleanup(system: String, user: String, budget: LocalAITokenBudget) async throws -> String {
+        // The transcript is in the envelope, the user message's last paragraph.
+        let envelope = user.components(separatedBy: "\n\n").last ?? ""
+        let object = try JSONSerialization.jsonObject(with: Data(envelope.utf8)) as? [String: Any]
+        let transcript = (object?["data"] as? [String: Any])?["transcript"] as? String ?? ""
+        record((budget, "[System]\n\(system)\n\n[User]\n\(user)", transcript))
+        return transcript
+    }
+
+    private func snapshot() -> [(budget: LocalAITokenBudget, prompt: String, transcript: String)] {
         lock.lock()
         defer { lock.unlock() }
         return recorded
     }
 
-    func requestCleanup(system: String, user: String, budget: LocalAITokenBudget) async throws -> String {
-        record(budget)
-        // The transcript is in the envelope, the user message's last paragraph.
-        let envelope = user.components(separatedBy: "\n\n").last ?? ""
-        let object = try JSONSerialization.jsonObject(with: Data(envelope.utf8)) as? [String: Any]
-        return (object?["data"] as? [String: Any])?["transcript"] as? String ?? ""
+    private func record(_ entry: (budget: LocalAITokenBudget, prompt: String, transcript: String)) {
+        lock.lock()
+        recorded.append(entry)
+        lock.unlock()
+    }
+}
+
+/// One token a byte, as a model counts emoji- or CJK-dense text; a
+/// `costlyCharacter` adds `cost` tokens for each time it appears.
+private final class DenseTokenCounter: LocalAITokenCounting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    private let costlyCharacter: Character?
+    private let cost: Int
+
+    init(costlyCharacter: Character? = nil, cost: Int = 0) {
+        self.costlyCharacter = costlyCharacter
+        self.cost = cost
     }
 
-    private func record(_ budget: LocalAITokenBudget) {
+    var calls: Int {
         lock.lock()
-        recorded.append(budget)
+        defer { lock.unlock() }
+        return count
+    }
+
+    func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
+        recordCall()
+        let costly = costlyCharacter.map { character in prompt.filter { $0 == character }.count } ?? 0
+        return prompt.utf8.count + costly * cost
+    }
+
+    private func recordCall() {
+        lock.lock()
+        count += 1
         lock.unlock()
     }
 }

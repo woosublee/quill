@@ -83,19 +83,28 @@ public struct PostProcessingChunkRunner: Sendable {
     private let bytesPerToken: Int
     private let inputReservation: Int
     private let instructionExecutionGuardEnabled: Bool
+    private let tokenCounter: (any LocalAITokenCounting)?
 
     /// The defaults are the Mac's: a 16,384-token window counted one token a
     /// byte, and an 8,000-token input reservation (6,144 response tokens).
+    ///
+    /// `tokenCounter` is the model's own tokenizer, for a model whose real
+    /// count can be denser than `bytesPerToken` (#162). Chunks are still cut
+    /// by bytes first; then each chunk's rendered prompt is counted, and a
+    /// chunk that doesn't fit the window minus the response room is split
+    /// again and rechecked. Without one, chunks are cut by bytes only.
     public init(
         contextWindow: Int = 16_384,
         bytesPerToken: Int = 1,
         inputReservation: Int = 8_000,
-        instructionExecutionGuardEnabled: Bool = true
+        instructionExecutionGuardEnabled: Bool = true,
+        tokenCounter: (any LocalAITokenCounting)? = nil
     ) {
         self.contextWindow = contextWindow
         self.bytesPerToken = max(bytesPerToken, 1)
         self.inputReservation = inputReservation
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.tokenCounter = tokenCounter
     }
 
     public func run(
@@ -135,16 +144,32 @@ public struct PostProcessingChunkRunner: Sendable {
         // `\\`). Reserve half of the byte-derived source budget so the encoded
         // envelope remains within the measured context window.
         let maximumSourceBytes = max(1, budget.sourceTokenLimit * bytesPerToken / 2)
-        let chunks = PostProcessingTranscriptSplitter(
+        let byteChunks = PostProcessingTranscriptSplitter(
             maximumSourceBytes: maximumSourceBytes
-        ).chunks(for: transcript)
-        guard !chunks.isEmpty else {
+        ).chunks(for: transcript).map(\.text)
+        guard !byteChunks.isEmpty else {
             throw PostProcessingError.invalidInput("Transcript must not be empty")
         }
 
         let automaticOutputLanguage = AIOutputLanguageValidator.isAutomaticOutputLanguage(
             outputLanguage
         )
+        let chunks: [String]
+        if let tokenCounter {
+            chunks = try await countedChunks(
+                byteChunks,
+                tokenCounter: tokenCounter,
+                contextSummary: contextSummary,
+                customVocabulary: customVocabulary,
+                customSystemPrompt: customSystemPrompt,
+                outputLanguage: outputLanguage,
+                cleanupMode: cleanupMode,
+                expectedSourceLanguage: expectedSourceLanguage,
+                automaticOutputLanguage: automaticOutputLanguage
+            )
+        } else {
+            chunks = byteChunks
+        }
         var cleanedChunks: [String] = []
         var prompts: [PostProcessingPromptPair] = []
         // At most one extra request per run: a long, non-filler chunk that
@@ -153,12 +178,12 @@ public struct PostProcessingChunkRunner: Sendable {
         var emptyReplyReaskAvailable = true
         for chunk in chunks {
             let chunkExpectedSourceLanguage = automaticOutputLanguage
-                ? AIOutputLanguageValidator.inferredSourceLanguage(for: chunk.text)
+                ? AIOutputLanguageValidator.inferredSourceLanguage(for: chunk)
                 : expectedSourceLanguage
             let result: (transcript: String, prompt: PostProcessingPromptPair)
             do {
                 result = try await processChunk(
-                    transcript: chunk.text,
+                    transcript: chunk,
                     contextSummary: contextSummary,
                     customVocabulary: customVocabulary,
                     customSystemPrompt: customSystemPrompt,
@@ -171,10 +196,10 @@ public struct PostProcessingChunkRunner: Sendable {
                 )
             } catch PostProcessingError.emptyOutput
                 where emptyReplyReaskAvailable
-                && PostProcessingOutputValidator.shouldReaskAfterEmptyReply(source: chunk.text) {
+                && PostProcessingOutputValidator.shouldReaskAfterEmptyReply(source: chunk) {
                 emptyReplyReaskAvailable = false
                 result = try await processChunk(
-                    transcript: chunk.text,
+                    transcript: chunk,
                     contextSummary: contextSummary,
                     customVocabulary: customVocabulary,
                     customSystemPrompt: customSystemPrompt,
@@ -210,6 +235,63 @@ public struct PostProcessingChunkRunner: Sendable {
         case .failure(let failure):
             throw PostProcessingError.outputRejected(failure)
         }
+    }
+
+    /// Counts each byte-cut chunk's prompt with the model's tokenizer and
+    /// splits a chunk that doesn't fit again, at half its bytes with the same
+    /// paragraph, sentence, word, and character boundaries, until every piece
+    /// fits. A piece that can't be split further fails as an over-budget
+    /// prompt. The prompt counted is the longest one the chunk can send: its
+    /// own language's system prompt with the empty-reply reminder.
+    private func countedChunks(
+        _ byteChunks: [String],
+        tokenCounter: any LocalAITokenCounting,
+        contextSummary: String,
+        customVocabulary: [String],
+        customSystemPrompt: String,
+        outputLanguage: String,
+        cleanupMode: TranscriptCleanupMode,
+        expectedSourceLanguage: String?,
+        automaticOutputLanguage: Bool
+    ) async throws -> [String] {
+        let budgeter = LocalAITokenBudgeter(
+            contextWindow: contextWindow,
+            tokenCounter: tokenCounter
+        )
+        var fitted: [String] = []
+        var pending = Array(byteChunks.reversed())
+        while let chunk = pending.popLast() {
+            let chunkLanguage = automaticOutputLanguage
+                ? AIOutputLanguageValidator.inferredSourceLanguage(for: chunk)
+                : expectedSourceLanguage
+            let systemPrompt = PostProcessingPrompt.systemPrompt(
+                customSystemPrompt: customSystemPrompt,
+                outputLanguage: outputLanguage,
+                cleanupMode: cleanupMode,
+                dictationLanguageCode: chunkLanguage ?? expectedSourceLanguage
+            ) + "\n\n" + PostProcessingPrompt.emptyReplyReminder
+            let userMessage = try PostProcessingPrompt.userMessage(
+                transcript: chunk,
+                contextSummary: contextSummary,
+                vocabulary: customVocabulary
+            )
+            let fits = try await budgeter.budget(
+                forRenderedChatPrompt: "[System]\n\(systemPrompt)\n\n[User]\n\(userMessage)",
+                role: .postProcessing(inputReservation: inputReservation)
+            ) != nil
+            if fits {
+                fitted.append(chunk)
+                continue
+            }
+            let pieces = PostProcessingTranscriptSplitter(
+                maximumSourceBytes: max(1, chunk.utf8.count / 2)
+            ).chunks(for: chunk).map(\.text)
+            guard pieces.count > 1 else {
+                throw PostProcessingError.contextBudgetExceeded
+            }
+            pending.append(contentsOf: pieces.reversed())
+        }
+        return fitted
     }
 
     private func processChunk(
