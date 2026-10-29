@@ -76,7 +76,7 @@ struct CloudConsentTests {
     }
 
     static func targetsFollowTheTranscriptionFallback() throws {
-        var settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", transcriptionAPIURL: "", transcriptionAPIKey: "")
+        var settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
         try expect(settings.targets.isEmpty, "no key, nothing is sent")
         settings.apiKey = "sk-main"
         try expect(settings.targets.map(\.host) == ["api.example-cloud.test"], "one provider when transcription uses the main pair")
@@ -93,7 +93,7 @@ struct CloudConsentTests {
 
     static func unconsentedTargetsListEachNewProvider() throws {
         var ledger = CloudConsentLedger()
-        let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", transcriptionAPIURL: otherURL, transcriptionAPIKey: "")
+        let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
         try expect(settings.unconsented(in: ledger).count == 2, "both new providers ask")
         ledger.grant(forBaseURL: mainURL)
         try expect(settings.unconsented(in: ledger).map(\.baseURL) == [otherURL], "only the one not agreed to asks")
@@ -103,14 +103,14 @@ struct CloudConsentTests {
         let mainOrigin = "https://api.example-cloud.test"
         let otherOrigin = "https://transcribe.example-voice.test"
 
-        let shared = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", transcriptionAPIURL: "", transcriptionAPIKey: "sk-voice")
+        let shared = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
         try expect(
             shared.withdrawal(forOrigin: mainOrigin)
                 == .init(clearsAPIKey: true, clearsTranscriptionAPIKey: true, clearsTranscriptionAPIURL: false),
             "both keys go to the main provider, so both are cleared"
         )
 
-        let fallback = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", transcriptionAPIURL: otherURL, transcriptionAPIKey: "")
+        let fallback = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
         try expect(
             fallback.withdrawal(forOrigin: otherOrigin)
                 == .init(clearsAPIKey: false, clearsTranscriptionAPIKey: false, clearsTranscriptionAPIURL: true),
@@ -121,7 +121,7 @@ struct CloudConsentTests {
             "withdrawing the main provider clears the main key, which also stops the fallback"
         )
 
-        let separate = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", transcriptionAPIURL: otherURL, transcriptionAPIKey: "sk-voice")
+        let separate = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
         try expect(
             separate.withdrawal(forOrigin: otherOrigin)
                 == .init(clearsTranscriptionAPIKey: true, clearsTranscriptionAPIURL: true),
@@ -129,7 +129,7 @@ struct CloudConsentTests {
         )
         try expect(separate.withdrawal(forOrigin: "https://unrelated.example.test") == .init(), "an unused origin clears nothing")
 
-        let transcriptionOnly = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", transcriptionAPIURL: otherURL, transcriptionAPIKey: "sk-voice")
+        let transcriptionOnly = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
         try expect(
             transcriptionOnly.withdrawal(forOrigin: otherOrigin) == .init(clearsTranscriptionAPIKey: true),
             "with no main key there's nothing to fall back to, so the URL stays"
@@ -138,7 +138,7 @@ struct CloudConsentTests {
 
     static func displayNameShowsAnythingButPlainHTTPS() throws {
         func name(_ url: String) -> String? {
-            CloudConsentTargets(apiBaseURL: url, apiKey: "sk-main", transcriptionAPIURL: "", transcriptionAPIKey: "")
+            CloudConsentTargets(apiBaseURL: url, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
                 .targets.first?.displayName
         }
         try expect(name(mainURL) == "api.example-cloud.test", "plain HTTPS shows the host")
@@ -149,27 +149,54 @@ struct CloudConsentTests {
     }
 
     static func anUnreadableTranscriptionKeyDoesNotFallBack() throws {
+        let voiceOrigin = "https://transcribe.example-voice.test"
         let settings = CloudConsentTargets(
-            apiBaseURL: " \(mainURL) ",
+            apiBaseURL: mainURL,
             apiKey: "sk-main",
+            apiKeyIsUnreadable: false,
             transcriptionAPIURL: otherURL,
             transcriptionAPIKey: "",
             transcriptionAPIKeyIsUnreadable: true
         )
-        try expect(settings.targets.map(\.host) == ["api.example-cloud.test"], "the main key doesn't go where an unreadable key would")
-        try expect(settings.targets.first?.baseURL == mainURL, "the base URL is trimmed")
+        try expect(settings.resolvedTranscriptionKey.isEmpty, "the main key doesn't stand in for an unreadable one")
         try expect(
-            settings.withdrawal(forOrigin: "https://transcribe.example-voice.test") == .init(),
-            "withdrawing the transcription provider keeps its URL, since the main key never went there"
+            settings.targets.map(\.host) == ["api.example-cloud.test", "transcribe.example-voice.test"],
+            "the unreadable key's provider is still listed, so it can be withdrawn"
+        )
+        try expect(
+            settings.withdrawal(forOrigin: voiceOrigin)
+                == .init(clearsTranscriptionAPIKey: true, clearsTranscriptionAPIURL: true),
+            "withdrawing deletes the unreadable key, and the URL the main key would then go to"
+        )
+
+        let unreadableMain = CloudConsentTargets(
+            apiBaseURL: mainURL,
+            apiKey: "",
+            apiKeyIsUnreadable: true,
+            transcriptionAPIURL: "",
+            transcriptionAPIKey: "",
+            transcriptionAPIKeyIsUnreadable: false
+        )
+        try expect(unreadableMain.targets.map(\.host) == ["api.example-cloud.test"], "an unreadable main key's provider is listed")
+        try expect(
+            unreadableMain.withdrawal(forOrigin: "https://api.example-cloud.test") == .init(clearsAPIKey: true),
+            "withdrawing deletes the unreadable main key"
         )
     }
 
     static func keysNeverPrint() throws {
-        let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-secret-main", transcriptionAPIURL: "", transcriptionAPIKey: "sk-secret-voice")
+        let settings = CloudConsentTargets(
+            apiBaseURL: "https://user:secret-token@api.example-cloud.test/v1?key=secret-query",
+            apiKey: "sk-secret-main",
+            apiKeyIsUnreadable: false,
+            transcriptionAPIURL: "",
+            transcriptionAPIKey: "sk-secret-voice",
+            transcriptionAPIKeyIsUnreadable: false
+        )
         var dumped = ""
         dump(settings, to: &dumped)
         for text in ["\(settings)", String(reflecting: settings), dumped] {
-            try expect(!text.contains("sk-secret"), "a printed value hides the keys")
+            try expect(!text.contains("secret"), "a printed value hides the keys and anything typed into a URL")
         }
     }
 

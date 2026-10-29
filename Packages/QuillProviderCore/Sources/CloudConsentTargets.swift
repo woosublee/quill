@@ -5,25 +5,30 @@ import Foundation
 /// URL and key) carries cleanup, summaries, and transcription (and context
 /// on the Mac); the transcription pair falls back to the main URL and key,
 /// each on its own, when its field is empty.
+///
+/// A key the Keychain holds but couldn't return at launch has an empty
+/// field. It still goes to its provider once it can be read, so that
+/// provider is listed and can be withdrawn; but it never lets the main key
+/// stand in for it, as each app's send path refuses that.
 public struct CloudConsentTargets: Equatable, Sendable {
     public var apiBaseURL: String
     public var apiKey: String
+    public var apiKeyIsUnreadable: Bool
     public var transcriptionAPIURL: String
     public var transcriptionAPIKey: String
-    /// The transcription key is in the Keychain but couldn't be read. Its
-    /// field is empty, yet the main key doesn't go to the transcription URL
-    /// in its place, so this matches what each app really sends.
     public var transcriptionAPIKeyIsUnreadable: Bool
 
     public init(
         apiBaseURL: String,
         apiKey: String,
+        apiKeyIsUnreadable: Bool,
         transcriptionAPIURL: String,
         transcriptionAPIKey: String,
-        transcriptionAPIKeyIsUnreadable: Bool = false
+        transcriptionAPIKeyIsUnreadable: Bool
     ) {
         self.apiBaseURL = apiBaseURL
         self.apiKey = apiKey
+        self.apiKeyIsUnreadable = apiKeyIsUnreadable
         self.transcriptionAPIURL = transcriptionAPIURL
         self.transcriptionAPIKey = transcriptionAPIKey
         self.transcriptionAPIKeyIsUnreadable = transcriptionAPIKeyIsUnreadable
@@ -48,7 +53,8 @@ public struct CloudConsentTargets: Equatable, Sendable {
     }
 
     /// What withdrawing consent for one origin clears, so nothing more goes
-    /// there.
+    /// there. A cleared key is deleted from the Keychain too, an unreadable
+    /// one included.
     public struct Withdrawal: Equatable, Sendable {
         public var clearsAPIKey = false
         public var clearsTranscriptionAPIKey = false
@@ -69,9 +75,11 @@ public struct CloudConsentTargets: Equatable, Sendable {
 
     public var resolvedTranscriptionURL: String {
         let trimmed = Self.trimmed(transcriptionAPIURL)
-        return trimmed.isEmpty ? Self.trimmed(apiBaseURL) : trimmed
+        return trimmed.isEmpty ? apiBaseURL : trimmed
     }
 
+    /// The key transcription sends now: its own, else the main one, unless
+    /// its own is unreadable.
     public var resolvedTranscriptionKey: String {
         let trimmed = Self.trimmed(transcriptionAPIKey)
         guard trimmed.isEmpty else { return trimmed }
@@ -81,9 +89,9 @@ public struct CloudConsentTargets: Equatable, Sendable {
     /// Each provider a saved key goes to, once per origin, the main one first.
     public var targets: [Target] {
         var seen: Set<String> = []
-        return [(Self.trimmed(apiBaseURL), apiKey), (resolvedTranscriptionURL, resolvedTranscriptionKey)]
-            .compactMap { baseURL, key -> Target? in
-                guard !Self.trimmed(key).isEmpty,
+        return [(apiBaseURL, hasMainKey), (resolvedTranscriptionURL, hasTranscriptionKey)]
+            .compactMap { baseURL, hasKey -> Target? in
+                guard hasKey,
                       let origin = CloudProviderURL.origin(of: baseURL),
                       let host = CloudProviderURL.host(of: baseURL),
                       seen.insert(origin).inserted else { return nil }
@@ -98,48 +106,62 @@ public struct CloudConsentTargets: Equatable, Sendable {
 
     public func withdrawal(forOrigin origin: String) -> Withdrawal {
         var withdrawal = Withdrawal()
-        let hasMainKey = !Self.trimmed(apiKey).isEmpty
         let mainMatches = CloudProviderURL.origin(of: apiBaseURL) == origin && hasMainKey
         withdrawal.clearsAPIKey = mainMatches
         guard CloudProviderURL.origin(of: resolvedTranscriptionURL) == origin else { return withdrawal }
-        if !Self.trimmed(transcriptionAPIKey).isEmpty {
-            withdrawal.clearsTranscriptionAPIKey = true
-        }
+        withdrawal.clearsTranscriptionAPIKey = hasOwnTranscriptionKey
         // With its own key gone, transcription would fall back to the main
-        // key at the same URL, so a separate URL goes too. An unreadable
-        // transcription key never falls back.
-        if !mainMatches, hasMainKey, !transcriptionAPIKeyIsUnreadable {
-            withdrawal.clearsTranscriptionAPIURL = true
-        }
+        // key at the same URL, so a separate URL goes too.
+        withdrawal.clearsTranscriptionAPIURL = !mainMatches && hasMainKey
         return withdrawal
+    }
+
+    private var hasMainKey: Bool { !Self.isBlank(apiKey) || apiKeyIsUnreadable }
+
+    private var hasOwnTranscriptionKey: Bool {
+        !Self.isBlank(transcriptionAPIKey) || transcriptionAPIKeyIsUnreadable
+    }
+
+    /// Transcription's URL gets a key: its own (readable or not), or else
+    /// the main one, when that's readable.
+    private var hasTranscriptionKey: Bool {
+        hasOwnTranscriptionKey || !Self.isBlank(apiKey)
     }
 
     private static func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private static func isBlank(_ value: String) -> Bool { trimmed(value).isEmpty }
 }
 
-/// Keys never show in a printed or dumped value.
+/// A printed or dumped value shows only whether each key is set and each
+/// URL's origin, never a key or anything else typed into a URL.
 extension CloudConsentTargets: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String {
-        "CloudConsentTargets(apiBaseURL: \(apiBaseURL), apiKey: \(Self.redacted(apiKey)), "
-            + "transcriptionAPIURL: \(transcriptionAPIURL), transcriptionAPIKey: \(Self.redacted(transcriptionAPIKey)), "
-            + "transcriptionAPIKeyIsUnreadable: \(transcriptionAPIKeyIsUnreadable))"
+        "CloudConsentTargets(apiBaseURL: \(Self.origin(apiBaseURL)), apiKey: \(Self.redacted(apiKey, unreadable: apiKeyIsUnreadable)), "
+            + "transcriptionAPIURL: \(Self.origin(transcriptionAPIURL)), "
+            + "transcriptionAPIKey: \(Self.redacted(transcriptionAPIKey, unreadable: transcriptionAPIKeyIsUnreadable)))"
     }
 
     public var debugDescription: String { description }
 
     public var customMirror: Mirror {
         Mirror(self, children: [
-            "apiBaseURL": apiBaseURL,
-            "apiKey": Self.redacted(apiKey),
-            "transcriptionAPIURL": transcriptionAPIURL,
-            "transcriptionAPIKey": Self.redacted(transcriptionAPIKey),
-            "transcriptionAPIKeyIsUnreadable": transcriptionAPIKeyIsUnreadable,
+            "apiBaseURL": Self.origin(apiBaseURL),
+            "apiKey": Self.redacted(apiKey, unreadable: apiKeyIsUnreadable),
+            "transcriptionAPIURL": Self.origin(transcriptionAPIURL),
+            "transcriptionAPIKey": Self.redacted(transcriptionAPIKey, unreadable: transcriptionAPIKeyIsUnreadable),
         ])
     }
 
-    private static func redacted(_ key: String) -> String {
-        trimmed(key).isEmpty ? "<empty>" : "<redacted>"
+    private static func redacted(_ key: String, unreadable: Bool) -> String {
+        if unreadable { return "<unreadable>" }
+        return isBlank(key) ? "<empty>" : "<redacted>"
+    }
+
+    private static func origin(_ url: String) -> String {
+        if isBlank(url) { return "<empty>" }
+        return CloudProviderURL.origin(of: url) ?? "<invalid>"
     }
 }
