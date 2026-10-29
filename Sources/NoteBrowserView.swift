@@ -146,6 +146,9 @@ private struct PendingAudioImport: Identifiable {
     let localAIModels: [AudioImportLocalAIModel]
     let fileSizeBytes: Int64?
     let calendarModel: AudioImportCalendarModel
+    /// A file Voice Memos promised on a drop is written here; the folder is
+    /// removed once the file is copied into the note or the import is cancelled.
+    let promiseFolder: URL?
 
     init(
         fileURL: URL,
@@ -155,9 +158,11 @@ private struct PendingAudioImport: Identifiable {
         hasNativeLocalWhisperModel: Bool,
         legacyLocalWhisperModels: [TranscriptionModel],
         localAIModels: [AudioImportLocalAIModel],
-        calendarModel: AudioImportCalendarModel
+        calendarModel: AudioImportCalendarModel,
+        promiseFolder: URL? = nil
     ) {
         self.calendarModel = calendarModel
+        self.promiseFolder = promiseFolder
         self.fileURL = fileURL
         self.currentChoice = currentChoice
         self.apiStandardModelID = apiStandardModelID
@@ -461,6 +466,10 @@ struct NoteBrowserView: View {
     @State private var isMovingOpenNoteForSearch = false
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
     @State private var pendingAudioImport: PendingAudioImport?
+    /// The drop zone shown while a file is dragged onto the window (#703).
+    @State private var audioDropTarget: AudioFileDrop.Target?
+    /// Shown once the import sheet closes, so the sheet doesn't hide it.
+    @State private var audioDropSkippedNotice: String?
     @State private var isSearchOpen = false
     @FocusState private var isSearchFieldFocused: Bool
     @State private var noteListTopOffset: CGFloat = 0
@@ -939,7 +948,47 @@ struct NoteBrowserView: View {
             }
             openRequestedNote()
         }
-        .sheet(item: $pendingAudioImport) { importRequest in
+        // Audio dragged onto the window imports like the import button (#703).
+        .overlay {
+            if let audioDropTarget {
+                AudioFileDropZone(target: audioDropTarget)
+            }
+        }
+        .overlay {
+            AudioFileDropTarget(
+                isEnabled: acceptsAudioDrop,
+                onTargetChange: { audioDropTarget = $0 },
+                onDrop: { fileURL, promiseFolder, skippedCount in
+                    beginAudioImport(fileURL, promiseFolder: promiseFolder)
+                    audioDropSkippedNotice = skippedCount > 0
+                        ? localizedCatalogString("Audio files import one at a time, starting with the first.")
+                        : nil
+                },
+                onDropFailed: { failure in
+                    switch failure {
+                    case .notReceived:
+                        showDeletionNotice(localizedCatalogString(
+                            "Couldn’t get the dropped file. Try again, or drag it to Finder first."
+                        ))
+                    case .notImportable:
+                        showDeletionNotice(localizedCatalogString(
+                            "This file isn’t audio Quill can import."
+                        ))
+                    }
+                }
+            )
+        }
+        .task {
+            // Drop folders an earlier run left behind, for example after a crash.
+            await Task.detached(priority: .utility) {
+                AudioFileDrop.removeStalePromiseFolders()
+            }.value
+        }
+        .sheet(item: $pendingAudioImport, onDismiss: {
+            guard let notice = audioDropSkippedNotice else { return }
+            audioDropSkippedNotice = nil
+            showDeletionNotice(notice)
+        }) { importRequest in
             AudioImportSheet(
                 request: importRequest,
                 calendarModel: importRequest.calendarModel
@@ -955,13 +1004,19 @@ struct NoteBrowserView: View {
                     // than an event from the previously shown day.
                     calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent,
                     calendarDay: calendarModel.day,
-                    onNoteAdded: { openChosenNote($0, ifStillOpen: openWhenAsked) }
+                    onNoteAdded: { noteID in
+                        // The note has its own copy of the audio now.
+                        importRequest.promiseFolder.map { AudioFileDrop.removePromiseFolder($0) }
+                        openChosenNote(noteID, ifStillOpen: openWhenAsked)
+                    }
                 )
             } onOpenProviderSettings: {
                 pendingAudioImport = nil
+                importRequest.promiseFolder.map { AudioFileDrop.removePromiseFolder($0) }
                 appState.openProviderSettings()
             } onCancel: {
                 pendingAudioImport = nil
+                importRequest.promiseFolder.map { AudioFileDrop.removePromiseFolder($0) }
             }
         }
         .confirmationDialog(
@@ -1689,19 +1744,33 @@ struct NoteBrowserView: View {
         panel.message = String(localized: "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let calendarModel = AudioImportCalendarModel()
-            calendarModel.start(fileURL: url, appState: appState)
-            pendingAudioImport = PendingAudioImport(
-                fileURL: url,
-                currentChoice: appState.currentNoteBrowserTranscriptionChoice,
-                apiStandardModelID: appState.transcriptionModel,
-                hasAPIKey: appState.hasTranscriptionAPIKey,
-                hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
-                legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,
-                localAIModels: appState.audioImportLocalAIModels,
-                calendarModel: calendarModel
-            )
+            beginAudioImport(url)
         }
+    }
+
+    /// Like the import button: not while recording, selecting, or importing.
+    private var acceptsAudioDrop: Bool {
+        !appState.isHistoryUnavailable
+            && !appState.isRecording
+            && !selection.showsSelectionUI
+            && pendingAudioImport == nil
+    }
+
+    /// Opens the import sheet for a file chosen in the panel or dropped on the window.
+    private func beginAudioImport(_ url: URL, promiseFolder: URL? = nil) {
+        let calendarModel = AudioImportCalendarModel()
+        calendarModel.start(fileURL: url, appState: appState)
+        pendingAudioImport = PendingAudioImport(
+            fileURL: url,
+            currentChoice: appState.currentNoteBrowserTranscriptionChoice,
+            apiStandardModelID: appState.transcriptionModel,
+            hasAPIKey: appState.hasTranscriptionAPIKey,
+            hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
+            legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,
+            localAIModels: appState.audioImportLocalAIModels,
+            calendarModel: calendarModel,
+            promiseFolder: promiseFolder
+        )
     }
 
     /// One quiet line; the detail pane carries the full empty state.

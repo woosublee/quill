@@ -1004,6 +1004,8 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/TranscriptionModelCacheTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/AudioImportOptions.swift Tests/AudioImportOptionsTests.swift -o $(TEST_BUILD_DIR)/AudioImportOptionsTests
 	@$(TEST_BUILD_DIR)/AudioImportOptionsTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/AudioImportOptions.swift Sources/AudioFileDrop.swift Tests/AudioFileDropTests.swift -o $(TEST_BUILD_DIR)/AudioFileDropTests
+	@$(TEST_BUILD_DIR)/AudioFileDropTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperModelTests
 	@$(TEST_BUILD_DIR)/NativeWhisperModelTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/AIModelCapabilitiesTests.swift -o $(TEST_BUILD_DIR)/AIModelCapabilitiesTests

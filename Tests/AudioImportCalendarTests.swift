@@ -123,7 +123,7 @@ struct AudioImportCalendarTests {
         precondition(appState.contains("onNoteAdded: (@MainActor (UUID) -> Void)? = nil"))
         precondition(appState.contains("onNoteAdded?(noteID)"))
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
-        precondition(browser.contains("onNoteAdded: { openChosenNote($0, ifStillOpen: openWhenAsked) }"))
+        precondition(browser.contains("onNoteAdded: { noteID in\n                        // The note has its own copy of the audio now.\n                        importRequest.promiseFolder.map { AudioFileDrop.removePromiseFolder($0) }\n                        openChosenNote(noteID, ifStillOpen: openWhenAsked)\n                    }"))
         precondition(browser.contains("private func openChosenNote(_ id: UUID, ifStillOpen openWhenAsked: UUID?)"))
         precondition(browser.contains("guard selectedItemID == openWhenAsked else { return }"), "a note picked meanwhile stays")
         precondition(browser.contains("guard !selection.showsSelectionUI, selectedItemID != id,"), "a multi-selection stays")
