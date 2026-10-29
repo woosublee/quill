@@ -1,5 +1,6 @@
 import SwiftUI
 import QuillAudioLevelCore
+import QuillDesignTokens
 
 /// The note's audio bar: the player when the audio is on this Mac, and a
 /// download bar when it is in iCloud. A finished download swaps in the
@@ -89,7 +90,7 @@ struct NoteRemoteAudioBarView: View {
     }
 
     private var toolbarStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+        QuillColor.strokeGlass.color(for: colorScheme)
     }
 
     var body: some View {

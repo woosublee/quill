@@ -73,7 +73,7 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteCore QuillNoteUI
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteCore QuillNoteUI QuillDesignTokens
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
@@ -83,6 +83,7 @@ PROVIDER_CORE_SOURCES = $(shell find Packages/QuillProviderCore/Sources -name '*
 AUDIO_LEVEL_CORE_SOURCES = $(shell find Packages/QuillAudioLevelCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 NOTE_CORE_SOURCES = $(shell find Packages/QuillNoteCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 NOTE_UI_SOURCES = $(shell find Packages/QuillNoteUI/Sources -name '*.swift' -type f | LC_ALL=C sort)
+DESIGN_TOKENS_SOURCES = $(shell find Packages/QuillDesignTokens/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AUDIO_FORMAT_CORE_SOURCES = $(shell find Packages/QuillAudioFormatCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHARED_CORE_BUILD_DIR = $(BUILD_DIR)/shared-core
 # Every architecture the app or a test executable can build for.
@@ -278,10 +279,15 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) Makefile $(S
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES))
 
-# SwiftUI views shared with the iPhone app (#697).
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+# SwiftUI views shared with the iPhone app (#697). Imports QuillDesignTokens.
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
-	$(call shared_core_compile,QuillNoteUI,$(NOTE_UI_SOURCES))
+	$(call shared_core_compile,QuillNoteUI,$(NOTE_UI_SOURCES),-I "$(@D)")
+
+# Design tokens shared with the iPhone app (#623).
+$(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a: $(DESIGN_TOKENS_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+	@mkdir -p "$(@D)"
+	$(call shared_core_compile,QuillDesignTokens,$(DESIGN_TOKENS_SOURCES))
 
 $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
@@ -846,7 +852,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteTitleResolutionTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/TitleBarLayout.swift Tests/TitleBarLayoutTests.swift -o $(TEST_BUILD_DIR)/TitleBarLayoutTests
 	@$(TEST_BUILD_DIR)/TitleBarLayoutTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/QuillDesignTokens.swift Tests/QuillDesignTokensTests.swift -o $(TEST_BUILD_DIR)/QuillDesignTokensTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/QuillDesignTokensTests.swift -o $(TEST_BUILD_DIR)/QuillDesignTokensTests
 	@$(TEST_BUILD_DIR)/QuillDesignTokensTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/NoteTitleResolver.swift Sources/NotePayload.swift Tests/NotePayloadTests.swift -o $(TEST_BUILD_DIR)/NotePayloadTests
 	@$(TEST_BUILD_DIR)/NotePayloadTests

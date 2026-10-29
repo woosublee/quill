@@ -8,6 +8,7 @@ import QuillSummaryGenerationCore
 import QuillAudioLevelCore
 import QuillNoteCore
 import QuillNoteUI
+import QuillDesignTokens
 
 // MARK: - Cursor helper
 
@@ -2225,7 +2226,7 @@ private struct NoteListRow: View {
     }
 
     private var toolbarStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+        QuillColor.strokeGlass.color(for: colorScheme)
     }
 
     @ViewBuilder
@@ -2395,7 +2396,7 @@ private struct NoteMultiSelectionPanel: View {
                     QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency)
                 ))
                 .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
-                .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
+                .quillShadow(.glass)
             }
             .buttonStyle(.plain)
             .disabled(count == 0)
@@ -2430,7 +2431,7 @@ private struct NoteMultiSelectionPanel: View {
     }
 
     private var toolbarStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+        QuillColor.strokeGlass.color(for: colorScheme)
     }
 }
 
@@ -4557,7 +4558,7 @@ struct NoteAudioPlayerView: View {
     }
 
     private var toolbarStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+        QuillColor.strokeGlass.color(for: colorScheme)
     }
 
     var body: some View {
@@ -4963,7 +4964,7 @@ private struct NoteDeletionCapsule: View {
         }
         .overlay(shape.strokeBorder(strokeColor, lineWidth: 0.6))
         .compositingGroup()
-        .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
+        .quillShadow(.glass)
         .accessibilityElement(children: .contain)
     }
 
@@ -4973,7 +4974,7 @@ private struct NoteDeletionCapsule: View {
     }
 
     private var strokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+        QuillColor.strokeGlass.color(for: colorScheme)
     }
 }
 

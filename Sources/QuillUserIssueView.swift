@@ -1,5 +1,6 @@
 import QuillUserIssueCore
 import SwiftUI
+import QuillDesignTokens
 
 enum QuillUserIssueViewStyle {
     case full

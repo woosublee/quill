@@ -17,7 +17,8 @@ let package = Package(
         .library(name: "QuillAudioLevelCore", targets: ["QuillAudioLevelCore"]),
         .library(name: "QuillAudioFormatCore", targets: ["QuillAudioFormatCore"]),
         .library(name: "QuillNoteCore", targets: ["QuillNoteCore"]),
-        .library(name: "QuillNoteUI", targets: ["QuillNoteUI"])
+        .library(name: "QuillNoteUI", targets: ["QuillNoteUI"]),
+        .library(name: "QuillDesignTokens", targets: ["QuillDesignTokens"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")
@@ -82,7 +83,15 @@ let package = Package(
         // SwiftUI views for both apps (#697). The iPhone app targets iOS 17.
         .target(
             name: "QuillNoteUI",
+            dependencies: ["QuillDesignTokens"],
             path: "Packages/QuillNoteUI/Sources",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Design tokens for both apps (#623), checked against
+        // docs/design-system/tokens.json.
+        .target(
+            name: "QuillDesignTokens",
+            path: "Packages/QuillDesignTokens/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ],
