@@ -629,15 +629,27 @@ struct NoteBrowserView: View {
         }
     }
 
-    /// Which notes can join a selection, worked out once for the whole
-    /// history. Callers ask about every visible note, so looking each one up
-    /// in the history made a render O(n²) (#707).
+    /// Which notes can join a selection. Callers ask about every visible
+    /// note, so looking each one up in the history made a render O(n²)
+    /// (#707). The check works the set out on its first question, once, and
+    /// a caller that asks nothing pays nothing.
     private var isBulkSelectable: (UUID) -> Bool {
-        bulkSelectableIDs(in: appState.pipelineHistory).contains
+        let history = appState.pipelineHistory
+        var selectableIDs: Set<UUID>?
+        return { id in
+            if selectableIDs == nil { selectableIDs = bulkSelectableIDs(in: history) }
+            return selectableIDs!.contains(id)
+        }
     }
 
+    /// The first note with each id decides, as the old lookup did.
     private func bulkSelectableIDs(in history: [PipelineHistoryItem]) -> Set<UUID> {
-        Set(history.lazy.filter(canJoinSelection).map(\.id))
+        var seen: Set<UUID> = []
+        var selectable: Set<UUID> = []
+        for item in history where seen.insert(item.id).inserted && canJoinSelection(item) {
+            selectable.insert(item.id)
+        }
+        return selectable
     }
 
     private func canJoinSelection(_ item: PipelineHistoryItem) -> Bool {
@@ -1606,8 +1618,8 @@ struct NoteBrowserView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, sidebarHeaderHeight)
             } else {
-                // Once per render, not once per row.
-                let isSelectable = selection.showsSelectionUI ? isBulkSelectable : { _ in false }
+                // One check per render, not one lookup per row.
+                let isSelectable = isBulkSelectable
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 2) {

@@ -152,7 +152,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(item.id)"))
         // The selectable notes are worked out once, not looked up per note (#707).
         let selectableIDs = try body(of: "private var isBulkSelectable: (UUID) -> Bool", in: source)
-        precondition(selectableIDs.contains("bulkSelectableIDs(in: appState.pipelineHistory).contains"))
+        precondition(selectableIDs.contains("if selectableIDs == nil { selectableIDs = bulkSelectableIDs(in: history) }"))
         precondition(!source.contains("history.first(where: { $0.id == id })"))
         precondition(source.contains("selectionMark: selectionMark(for: item.id, isSelectable: isSelectable)"))
         // Notes that become busy while checked leave the selection.
