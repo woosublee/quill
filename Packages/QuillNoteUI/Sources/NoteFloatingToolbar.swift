@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 
 // The note's floating toolbar, the same on the Mac and the iPhone (#690,
 // #697). It draws `NoteToolbarState` and calls back; the app holds the
@@ -50,8 +51,8 @@ public struct NoteToolbarLabels {
     }
 }
 
-/// The colors the toolbar draws with. Each app passes its own, so both
-/// look as they did until the design tokens are shared (#623).
+/// The action colors the toolbar draws with. Each app passes its own, so
+/// both keep their look until #697 settles one set (#623).
 public struct NoteToolbarColors {
     /// The transcript tab's actions and the summary tab's ↻.
     public var retry: Color
@@ -90,15 +91,14 @@ public struct NoteToolbarActions {
 
 public struct NoteFloatingToolbar: View {
     /// The capsule's height on both platforms.
-    public static let height: CGFloat = 48
+    public static let height = QuillControlSize.noteToolbar
+    /// 36 on the Mac; on the iPhone, the minimum touch target, growing with Dynamic Type.
+    static let buttonSize = QuillControlSize.noteToolbarButton
     #if os(macOS)
-    static let buttonSize: CGFloat = 36
     static let saveSymbol = "square.and.arrow.down"
     /// Pointer density on the Mac.
     static let iconFont = Font.system(size: 13, weight: .medium)
     #else
-    /// The minimum touch target; the button grows with Dynamic Type.
-    static let buttonSize: CGFloat = 44
     static let saveSymbol = "square.and.arrow.up"
     /// Follows Dynamic Type: 13 pt leaves the 44 pt touch target looking empty.
     static let iconFont = Font.body
@@ -191,12 +191,12 @@ public struct NoteFloatingToolbar: View {
                 icon("trash", color: colors.delete)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, QuillSpacing.space8)
         .frame(height: Self.height)
         .background { background }
-        .overlay(Capsule().strokeBorder(strokeColor, lineWidth: 0.6))
+        .overlay(Capsule().strokeBorder(QuillColor.strokeGlass.color(for: colorScheme), lineWidth: 0.6))
         .compositingGroup()
-        .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
+        .quillShadow(.glass)
         .shadow(color: .white.opacity(0.05), radius: 4, x: 0, y: -1)
         .contentShape(Capsule())
     }
@@ -251,10 +251,6 @@ public struct NoteFloatingToolbar: View {
             Capsule().fill(.ultraThinMaterial)
             #endif
         }
-    }
-
-    private var strokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
     }
 }
 
@@ -316,8 +312,8 @@ struct NoteToolbarButtonStyle: ButtonStyle {
                 Circle()
                     .fill(
                         configuration.isPressed
-                            ? Color.primary.opacity(0.12)
-                            : (isHovered ? hoverFillColor : Color.clear)
+                            ? QuillColor.fillPressed.color(for: colorScheme)
+                            : (isHovered ? QuillColor.fillToolbarHover.color(for: colorScheme) : Color.clear)
                     )
             )
             .overlay(
@@ -328,10 +324,6 @@ struct NoteToolbarButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
             .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.12), value: isHovered)
-    }
-
-    private var hoverFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07)
     }
 
     private var hoverStrokeColor: Color {

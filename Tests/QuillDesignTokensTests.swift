@@ -1,9 +1,12 @@
 import Foundation
+import QuillDesignTokens
 
-/// Keeps Sources/QuillDesignTokens.swift and docs/design-system/tokens.json in
-/// step for the tokens the Swift file carries: the spacing and radius scales
-/// and the issue colors. A token added, removed or changed in one of those on
-/// either side fails here.
+/// Keeps the shared QuillDesignTokens module and docs/design-system/tokens.json
+/// in step for the tokens the module carries: the spacing and radius scales,
+/// the issue colors, the glass and toolbar tints, the glass shadow, and the
+/// note toolbar sizes. The scales fail on a token added, removed or changed
+/// on either side; the other families fail when a Swift token is missing
+/// from tokens.json or differs from it.
 @main
 struct QuillDesignTokensTests {
     static func main() {
@@ -11,6 +14,9 @@ struct QuillDesignTokensTests {
         testSpacingMatchesTokensFile(tokens)
         testRadiusMatchesTokensFile(tokens)
         testIssueColorsMatchTokensFile(tokens)
+        testTintsMatchTokensFile(tokens)
+        testShadowsMatchTokensFile(tokens)
+        testNoteToolbarSizesMatchTokensFile(tokens)
         print("QuillDesignTokensTests passed")
     }
 
@@ -91,6 +97,67 @@ struct QuillDesignTokensTests {
                 )
             }
         }
+    }
+
+    /// Each tint's opacity matches the token's alpha in both themes. A white
+    /// tint needs a white token; `primary` is the label color, which
+    /// tokens.json writes as black in light and white in dark. On the Mac the
+    /// label color is itself about 85% opaque, so these draw a little lighter
+    /// than the rgba() values; tokens.json's hex and rgba values are
+    /// approximations of the system colors (its meta note).
+    private static func testTintsMatchTokensFile(_ tokens: [String: Any]) {
+        let entries = (tokens["color"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        for (name, tint) in QuillColor.tints {
+            guard let themes = entries.first(where: { $0["name"] as? String == name })?["value"] as? [String: String],
+                  let light = themes["light"].flatMap(rgba), let dark = themes["dark"].flatMap(rgba) else {
+                preconditionFailure("tokens.json has no light and dark rgba() for \(name)")
+            }
+            for (theme, value, expected) in [("light", tint.light, light), ("dark", tint.dark, dark)] {
+                precondition(abs(value.opacity - expected.alpha) < 0.0001, "\(name) (\(theme)) opacity \(value.opacity) vs tokens.json \(expected.alpha)")
+                let isWhite = expected.rgb == [255, 255, 255]
+                let isBlack = expected.rgb == [0, 0, 0]
+                switch value.base {
+                case .white: precondition(isWhite, "\(name) (\(theme)) is white in Swift but \(expected.rgb) in tokens.json")
+                case .primary: precondition(theme == "light" ? isBlack : isWhite, "\(name) (\(theme)) is the label color but \(expected.rgb) in tokens.json")
+                }
+            }
+        }
+    }
+
+    private static func rgba(_ value: String) -> (rgb: [Int], alpha: Double)? {
+        let trimmed = value.replacingOccurrences(of: " ", with: "")
+        guard trimmed.hasPrefix("rgba("), trimmed.hasSuffix(")") else { return nil }
+        let parts = trimmed.dropFirst(5).dropLast().split(separator: ",").map(String.init)
+        guard parts.count == 4, let alpha = Double(parts[3]) else { return nil }
+        let rgb = parts[0..<3].compactMap { Int($0) }
+        return rgb.count == 3 ? (rgb, alpha) : nil
+    }
+
+    /// `0 4px 28px rgba(0, 0, 0, 0.085)`: SwiftUI's radius is half the CSS blur.
+    private static func testShadowsMatchTokensFile(_ tokens: [String: Any]) {
+        let entries = (tokens["shadow"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        for (name, shadow) in QuillShadow.all {
+            guard let value = entries.first(where: { $0["name"] as? String == name })?["value"] as? String,
+                  let open = value.range(of: "rgba(")?.lowerBound, let color = rgba(String(value[open...])) else {
+                preconditionFailure("tokens.json has no single shadow value for \(name)")
+            }
+            let lengths = value[..<open].split(separator: " ").map { Double($0.replacingOccurrences(of: "px", with: "")) }
+            guard lengths.count == 3, let x = lengths[0], let y = lengths[1], let blur = lengths[2] else {
+                preconditionFailure("\(name) is \(value); expected x y blur rgba()")
+            }
+            precondition(color.rgb == [0, 0, 0], "\(name) is drawn black")
+            precondition(abs(shadow.opacity - color.alpha) < 0.0001, "\(name) opacity")
+            precondition(Double(shadow.x) == x && Double(shadow.y) == y, "\(name) offset")
+            precondition(Double(shadow.radius) * 2 == blur, "\(name) radius \(shadow.radius) vs blur \(blur)")
+        }
+    }
+
+    private static func testNoteToolbarSizesMatchTokensFile(_ tokens: [String: Any]) {
+        let sizes = lengths(tokens, family: "size")
+        precondition(sizes["size-note-toolbar"] == Double(QuillControlSize.noteToolbar), "size-note-toolbar")
+        precondition(sizes["size-note-toolbar-button"] == Double(QuillControlSize.noteToolbarButtonMac), "size-note-toolbar-button")
+        precondition(sizes["size-note-toolbar-button-iphone"] == Double(QuillControlSize.noteToolbarButtonIPhone), "size-note-toolbar-button-iphone")
+        precondition(QuillControlSize.noteToolbarButton == QuillControlSize.noteToolbarButtonMac, "this Mac test sees the Mac value")
     }
 
     /// Rounds half away from zero, as the hex values in tokens.json were

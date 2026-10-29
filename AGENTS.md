@@ -90,6 +90,12 @@ otherwise.
   strings, and the actions; the view holds no app state and runs no work.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
+- `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
+  (#623): spacing and radius scales, the issue colors, the glass and toolbar
+  tints, the glass shadow, and the note toolbar sizes (a value per platform
+  where they differ). `Tests/QuillDesignTokensTests.swift` checks them
+  against `docs/design-system/tokens.json`; change both together.
+  `QuillNoteUI` imports it.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

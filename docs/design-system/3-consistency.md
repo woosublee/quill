@@ -4,7 +4,7 @@
 
 ## 1. 공통 토큰 파일 — 일부 완료 (#623)
 
-`Sources/QuillDesignTokens.swift`에 간격·반경과 경고·오류 색을 먼저 두었습니다. 나머지 색·그림자와 기존 화면의 숫자는 아래 이슈들에서 옮깁니다.
+공통 모듈 `Packages/QuillDesignTokens`(#623)에 간격·반경, 경고·오류 색, 노트 툴바가 쓰는 색·그림자·크기를 두었습니다. 나머지 색·그림자와 기존 화면의 숫자는 아래 이슈들에서 옮깁니다.
 
 색·간격·반경이 모두 각 뷰에 숫자로 직접 들어 있습니다(`spacing:` 값 18종, `cornerRadius:` 13종, 그림자 8종). iPhone·iPad와 같이 쓰려면 Swift 패키지(예: `QuillDesign`)에 `QuillColor`, `QuillSpacing`, `QuillRadius`, `QuillFont`를 두고 macOS·iOS가 함께 가져다 쓰는 구조를 권장합니다. 이미 있는 `QuillMotion`, `QuillContrast`, `QuillTransparency`(AccessibilityDisplayPreferences.swift)가 좋은 출발점입니다.
 
@@ -67,5 +67,5 @@
 - **움직임 값이 macOS와 다름.** 제자리 컨트롤 0.18 easeOut(macOS 0.12 easeInOut), 누름 0.97배(macOS 0.92배), 동작 줄이기에서도 0.15초 애니메이션이 남습니다(macOS는 없음). `QuillMotion`을 거치지 않는 애니메이션이 3곳(온보딩, Mac 노트 상세, 요약 탭) 있습니다.
 - **색 구분 없이 보기가 한 곳뿐.** 노트 행의 실패 표시만 모양을 바꿉니다. 녹음 막대의 주의 상태 등은 확인이 필요합니다.
 - **녹음 표면.** 짙은 회색에 파형 없는 녹음 막대는 원칙 2(검정 위 흰 파형)와 다릅니다. 지금은 그대로 두기로 했습니다(**iPhone · iPad › 결정할 것** 4번, 보류). 녹음 버튼 56pt는 플랫폼별 크기로 확정해 더는 벗어난 곳이 아닙니다.
-- **토큰 공유 전.** iOS는 `Sources/QuillDesignTokens.swift`를 쓰지 않고 자체 `QuillVisualSystem`을 둡니다. 1번의 Swift 패키지로 옮길 때 `Spacing.xs`→`space8`처럼 이름을 맞춥니다.
+- **토큰 공유 진행 중.** 공통 노트 툴바는 `Packages/QuillDesignTokens`를 쓰지만, iOS의 다른 화면은 아직 자체 `QuillVisualSystem`을 둡니다. #697에서 옮길 때 `Spacing.xs`→`space8`처럼 이름을 맞춥니다.
 - **남은 주석.** 노트 목록 코드(`CaptureLibraryView.swift`)에 지금 동작과 맞지 않는 "취소 토스트" 주석이 남아 있습니다.
