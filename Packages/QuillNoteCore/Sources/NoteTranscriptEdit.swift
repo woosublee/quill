@@ -1,3 +1,5 @@
+import Foundation
+
 /// What a note's transcript text is after the person edits it, the same on
 /// the Mac and the iPhone (woosublee/quill-universal-private#148). A note
 /// keeps its raw transcript and an edited one (the cleanup result or the
@@ -11,7 +13,8 @@ public struct NoteTranscriptEdit: Equatable, Sendable {
     public let rawTranscript: String
     public let editedTranscript: String
 
-    /// Clearing leaves no text, so there's nothing to read a language from.
+    /// The edit left nothing but spaces or line breaks, so the note's text
+    /// is cleared.
     public var isCleared: Bool { editedTranscript.isEmpty }
 
     public init(rawTranscript: String, edit: String) {

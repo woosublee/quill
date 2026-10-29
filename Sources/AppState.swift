@@ -9308,7 +9308,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryAttempt: item.meetingSummaryAttempt,
             customTitle: item.customTitle,
             postProcessedTranscript: text,
-            rawTranscript: isCleared ? edit.rawTranscript : nil
+            rawTranscript: edit.rawTranscript
         )
         do {
             // Clearing removes the original, so it needs the durable store.
