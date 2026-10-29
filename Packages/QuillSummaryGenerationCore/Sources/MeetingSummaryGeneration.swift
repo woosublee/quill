@@ -171,9 +171,9 @@ public enum MeetingSummaryError: Error, Equatable {
 
 public enum MeetingSummaryStrictDecoder {
     /// `unwrapsNestedSourceQuotes` accepts the one shape the iPhone's small
-    /// local model writes for the overview's `sourceQuotes`: a single
-    /// non-empty inner array, `[["quote", "quote"]]`, which is unwrapped.
-    /// Mixed (`[["quote"], "quote"]`), empty (`[[]]`), or several inner
+    /// local model writes for the overview's `sourceQuotes`: a single inner
+    /// array, `[["quote", "quote"]]`, which is unwrapped (`[[]]` is no
+    /// quotes, like `[]`). Mixed (`[["quote"], "quote"]`) or several inner
     /// arrays are rejected, as the Mac rejects any nesting (#643). Null and
     /// blank quotes are dropped either way. The Mac's local model is held to
     /// the schema, so the Mac leaves this off.
@@ -223,8 +223,7 @@ public enum MeetingSummaryStrictDecoder {
         let flattened: [Any]
         if unwrapsNestedSourceQuotes,
            sourceQuotes.count == 1,
-           let inner = sourceQuotes.first as? [Any],
-           !inner.isEmpty {
+           let inner = sourceQuotes.first as? [Any] {
             flattened = inner
         } else {
             flattened = sourceQuotes

@@ -711,18 +711,30 @@ struct MeetingSummaryServiceTests {
             decoded.overview.sourceQuotes == ["Release review."],
             "one level of overview quotes is unwrapped"
         )
-        // #643: only a single non-empty inner array; other shapes are
-        // rejected, as on the Mac.
+        // #643: a single inner array is unwrapped, dropping null and blank
+        // quotes as usual; other shapes are rejected as a schema error, as on
+        // the Mac.
+        func reply(_ shape: String) -> String {
+            #"{"overview":{"text":"Release review","sourceQuotes":"# + shape
+                + #"},"keyPoints":[],"decisions":[],"actionItems":[],"openQuestions":[]}"#
+        }
+        for (shape, quotes) in [
+            (#"[[]]"#, [String]()),
+            (#"[[null]]"#, []),
+            (#"[["Release review.",null,"  "]]"#, ["Release review."]),
+        ] {
+            let decoded = try MeetingSummaryStrictDecoder.decode(reply(shape), unwrapsNestedSourceQuotes: true)
+            try expect(decoded.overview.sourceQuotes == quotes, "overview quotes shaped \(shape)")
+        }
         for shape in [
             #"[["Release review."],"Release review."]"#,
-            #"[[]]"#,
             #"[["Release review."],["Release review."]]"#,
             #"[[["Release review."]]]"#,
         ] {
-            let reply = #"{"overview":{"text":"Release review","sourceQuotes":"# + shape
-                + #"},"keyPoints":[],"decisions":[],"actionItems":[],"openQuestions":[]}"#
-            try expectFailure("nested overview quotes shaped \(shape)") {
-                _ = try MeetingSummaryStrictDecoder.decode(reply, unwrapsNestedSourceQuotes: true)
+            do {
+                _ = try MeetingSummaryStrictDecoder.decode(reply(shape), unwrapsNestedSourceQuotes: true)
+                throw MeetingSummaryServiceTestFailure("overview quotes shaped \(shape) should be rejected")
+            } catch let error as MeetingSummaryError where error == .invalidResponse(.jsonSchema) {
             }
         }
     }
