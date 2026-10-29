@@ -89,12 +89,13 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "private var sidebarHeader: some View {",
             to: "/// True once the first note has scrolled under the header."
         )
-        // Fixed-width source and model controls, Select All under Done, and a
-        // header that is always translucent so fast scrolls never show through.
+        // Fixed-width source and model controls, Select All (or Deselect All)
+        // under Done, and a header that is always translucent so fast scrolls
+        // never show through.
         precondition(header.contains("inputPickerMenu\n                    transcriptionModelMenu"))
         precondition(header.contains("if isSearchOpen && !selection.showsSelectionUI {\n                    searchField"))
         precondition(header.contains("} else if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
-        precondition(header.contains("Button(\"Select All\")"))
+        precondition(header.contains("Button(localizedCatalogString(selectAllAction.titleKey))"))
         precondition(header.contains("Text(verbatim: selectedCountText)"))
         precondition(header.contains(".background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))"))
         precondition(source.contains(".frame(width: 66, height: 26)"))

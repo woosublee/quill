@@ -78,8 +78,11 @@ otherwise.
   note's name (`NoteTimestampFormatter`), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
-  values. Reading a note's recording times stays in
-  `Sources/NoteListRowDisplayData.swift`.
+  values, and what the note list's Select All button does
+  (`NoteSelectAllAction`: Deselect All once every selectable visible note is
+  selected). Reading a note's recording times stays in
+  `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
+  state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
   (#697), built for macOS and iOS. So far the note toolbar: its state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view

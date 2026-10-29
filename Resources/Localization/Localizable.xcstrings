@@ -22003,6 +22003,102 @@
           }
         }
       }
+    },
+    "Drop to Import Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop to Import Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "놓으면 오디오를 가져와요"
+          }
+        }
+      }
+    },
+    "Quill Can’t Import This File": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill Can’t Import This File"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일은 가져올 수 없어요"
+          }
+        }
+      }
+    },
+    "Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원 형식: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
+          }
+        }
+      }
+    },
+    "Audio files import one at a time, starting with the first.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio files import one at a time, starting with the first."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 파일은 하나씩 가져와요. 첫 번째 파일부터 가져올게요."
+          }
+        }
+      }
+    },
+    "Couldn’t get the dropped file. Try again, or drag it to Finder first.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t get the dropped file. Try again, or drag it to Finder first."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끌어다 놓은 파일을 받지 못했어요. 다시 해 보거나 먼저 Finder로 옮겨 주세요."
+          }
+        }
+      }
+    },
+    "This file isn’t audio Quill can import.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn’t audio Quill can import."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 가져올 수 있는 오디오 파일이 아니에요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
