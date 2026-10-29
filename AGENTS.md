@@ -61,11 +61,14 @@ otherwise.
   temperature capability cache, the request transport, provider URL checks,
   the API key check, the cloud transcription failure categories and retry
   policy, the cloud transcription request and reply parser, the realtime
-  session rules (WebSocket URL, connection request, `session.update`), and
-  the chat completion request. Each app still sends the request with its own
+  session rules (WebSocket URL, connection request, `session.update`), the
+  chat completion request, and cloud consent (#693): the per-origin grants
+  (`CloudConsentLedger`), which providers a set of saved keys goes to and
+  what withdrawing one clears (`CloudConsentTargets`), and the prompt's copy
+  keys (`CloudConsentCopy`). Each app still sends the request with its own
   transport and logging, reads the reply, and runs the realtime socket
-  itself. Cooldowns, the
-  temperature cache, and the Groq model migration read and write
+  itself, and draws its own consent prompt. Cooldowns, the temperature
+  cache, the Groq model migration, and the consent grants read and write
   `UserDefaults`. API keys and the rest of the settings stay in the app.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
   heights, shared with the iPhone app. Reading RMS from the capture, the
