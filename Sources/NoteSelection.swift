@@ -1,4 +1,5 @@
 import AppKit
+import QuillNoteCore
 
 /// How a click on a Note Browser row changes the selection.
 enum NoteSelectionModifier {
@@ -69,6 +70,18 @@ struct NoteSelection: Equatable {
             self.focusedID = selectable.first
         }
         collapseToSingleIfNeeded()
+    }
+
+    /// What Select All does now: it reads Deselect All once every
+    /// selectable visible note is selected (#702).
+    func selectAllAction(orderedIDs: [UUID], isSelectable: (UUID) -> Bool) -> NoteSelectAllAction {
+        NoteSelectAllAction(visibleIDs: orderedIDs, selectedIDs: selectedIDs, isSelectable: isSelectable)
+    }
+
+    /// Unchecks every note and stays in selection mode, even when the
+    /// selection came from ⌘-clicks; the focused note is kept to return to.
+    mutating func deselectAll() {
+        beginSelectionMode()
     }
 
     /// Closes selection mode and keeps only the focused note.
