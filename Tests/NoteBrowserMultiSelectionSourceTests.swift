@@ -147,13 +147,18 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(monitor0.contains("charactersIgnoringModifiers: event.charactersIgnoringModifiers"))
 
         // Busy notes can't join a selection.
-        let selectable = try body(of: "private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool", in: source)
+        let selectable = try body(of: "private func canJoinSelection(_ item: PipelineHistoryItem) -> Bool", in: source)
         precondition(selectable.contains(".isBulkSelectable"))
-        precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(id)"))
+        precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(item.id)"))
+        // The selectable notes are worked out once, not looked up per note (#707).
+        let selectableIDs = try body(of: "private var isBulkSelectable: (UUID) -> Bool", in: source)
+        precondition(selectableIDs.contains("bulkSelectableIDs(in: appState.pipelineHistory).contains"))
+        precondition(!source.contains("history.first(where: { $0.id == id })"))
+        precondition(source.contains("selectionMark: selectionMark(for: item.id, isSelectable: isSelectable)"))
         // Notes that become busy while checked leave the selection.
         precondition(source.contains(".onChange(of: appState.meetingSummaryGeneratingNoteIDs) { _ in\n            selection.retainSelectable(isBulkSelectable)"))
         precondition(source.contains(".onChange(of: appState.retryingItemIDs) { _ in\n            selection.retainSelectable(isBulkSelectable)"))
-        precondition(source.contains("selection.retainSelectable { isBulkSelectable($0, in: newHistory) }"))
+        precondition(source.contains("selection.retainSelectable(bulkSelectableIDs(in: newHistory).contains)"))
 
         // Keyboard shortcuts stay inside this window and never steal text editing keys.
         let monitor = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)

@@ -105,7 +105,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let search = block(
             source,
             from: "private var searchField: some View {",
-            to: "private func selectionMark(for id: UUID)"
+            to: "private func selectionMark(for id: UUID, isSelectable: (UUID) -> Bool)"
         )
         precondition(search.contains(".onExitCommand { closeSearch() }"))
         precondition(search.contains("if !isFocused && searchText.isEmpty"))

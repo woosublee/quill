@@ -629,20 +629,26 @@ struct NoteBrowserView: View {
         }
     }
 
-    private func isBulkSelectable(_ id: UUID) -> Bool {
-        isBulkSelectable(id, in: appState.pipelineHistory)
+    /// Which notes can join a selection, worked out once for the whole
+    /// history. Callers ask about every visible note, so looking each one up
+    /// in the history made a render O(n²) (#707).
+    private var isBulkSelectable: (UUID) -> Bool {
+        bulkSelectableIDs(in: appState.pipelineHistory).contains
     }
 
-    private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool {
-        guard let item = history.first(where: { $0.id == id }) else { return false }
+    private func bulkSelectableIDs(in history: [PipelineHistoryItem]) -> Set<UUID> {
+        Set(history.lazy.filter(canJoinSelection).map(\.id))
+    }
+
+    private func canJoinSelection(_ item: PipelineHistoryItem) -> Bool {
         // A note making its summary is busy too, so bulk delete never skips it silently.
-        return transcriptStatus(
+        transcriptStatus(
             for: item,
             retrying: appState.retryingItemIDs,
             stoppedCloud: appState.stoppedCloudTranscriptionIDs
         ).isBulkSelectable
-            && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
-            && !appState.recoveringRecordingIDs.contains(id)
+            && !appState.meetingSummaryGeneratingNoteIDs.contains(item.id)
+            && !appState.recoveringRecordingIDs.contains(item.id)
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -682,8 +688,9 @@ struct NoteBrowserView: View {
 
     private func selectAllVisibleNotes() -> Bool {
         let ids = filteredHistory.map(\.id)
-        guard ids.contains(where: isBulkSelectable) else { return false }
-        selection.selectAll(orderedIDs: ids, isSelectable: isBulkSelectable)
+        let isSelectable = isBulkSelectable
+        guard ids.contains(where: isSelectable) else { return false }
+        selection.selectAll(orderedIDs: ids, isSelectable: isSelectable)
         return true
     }
 
@@ -1103,7 +1110,7 @@ struct NoteBrowserView: View {
                 // Keep a multi-selection; new notes don't take over while selecting.
                 // This fires before the change lands, so filter the new value.
                 selection.retainVisible(visibleIDs)
-                selection.retainSelectable { isBulkSelectable($0, in: newHistory) }
+                selection.retainSelectable(bulkSelectableIDs(in: newHistory).contains)
                 knownHistoryIDs = Set(ids)
                 return
             }
@@ -1599,6 +1606,8 @@ struct NoteBrowserView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, sidebarHeaderHeight)
             } else {
+                // Once per render, not once per row.
+                let isSelectable = selection.showsSelectionUI ? isBulkSelectable : { _ in false }
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 2) {
@@ -1617,7 +1626,7 @@ struct NoteBrowserView: View {
                                     isKeyboardHighlighted: isNoteListFocused
                                         && !selection.showsSelectionUI
                                         && selectedItemID == item.id,
-                                    selectionMark: selectionMark(for: item.id),
+                                    selectionMark: selectionMark(for: item.id, isSelectable: isSelectable),
                                     isJustArrived: isJustArrived
                                 )
                                 .id(item.id)
@@ -1727,10 +1736,10 @@ struct NoteBrowserView: View {
         }
     }
 
-    private func selectionMark(for id: UUID) -> NoteListRow.SelectionMark? {
+    private func selectionMark(for id: UUID, isSelectable: (UUID) -> Bool) -> NoteListRow.SelectionMark? {
         guard selection.showsSelectionUI else { return nil }
         if selection.selectedIDs.contains(id) { return .selected }
-        return isBulkSelectable(id) ? .unselected : .unavailable
+        return isSelectable(id) ? .unselected : .unavailable
     }
 
     private func showAudioImportPicker() {
