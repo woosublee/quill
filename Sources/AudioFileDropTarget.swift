@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuillDesignTokens
 
 /// Takes audio dragged onto the Note Browser from Finder (file URLs) or
 /// Voice Memos (file promises), #703. It lies over the whole window: clicks,
