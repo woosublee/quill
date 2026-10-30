@@ -469,7 +469,7 @@ public struct MeetingSummaryGenerator: Sendable {
         guard !byteChunks.isEmpty else {
             throw MeetingSummaryError.invalidInput
         }
-        let chunks = try await countedChunks(
+        let extractions = try await fittedExtractions(
             byteChunks,
             calendar: source.calendar,
             outputLanguage: promptLanguage
@@ -480,16 +480,12 @@ public struct MeetingSummaryGenerator: Sendable {
             calendar: source.calendar
         )
         var records: [MergeRecord] = []
-        for chunk in chunks {
-            let prompt = try MeetingSummaryPromptFactory.chunkExtraction(
-                chunk: chunk,
-                calendar: source.calendar,
-                outputLanguage: promptLanguage
-            )
+        for extraction in extractions {
             let partial = try await generateDraft(
-                prompt: prompt,
+                prompt: extraction.prompt,
                 role: .summaryExtraction,
-                outputLanguageCode: languageCode
+                outputLanguageCode: languageCode,
+                checkedBudget: extraction.budget
             )
             let repaired = try repairAndValidate(
                 partial,
@@ -537,15 +533,18 @@ public struct MeetingSummaryGenerator: Sendable {
     /// with the same paragraph, line, and sentence boundaries, until every
     /// piece fits, as cleanup does (#716). A chunk denser than the
     /// transcript's average can outgrow the byte cut. When every byte-cut
-    /// chunk fits, as it does with the byte counter, the chunks are
-    /// unchanged. A piece that can't be split and still doesn't fit fails
+    /// chunk fits, as it does with the byte counter, the prompts are the
+    /// byte cut's. A piece that can't be split and still doesn't fit fails
     /// as an over-budget prompt, as its request would.
-    private func countedChunks(
+    ///
+    /// Returns each prompt with the budget it was checked against, so its
+    /// request doesn't build and count it again.
+    private func fittedExtractions(
         _ byteChunks: [MeetingSummaryTextChunk],
         calendar: MeetingSummaryCalendarContext?,
         outputLanguage: String?
-    ) async throws -> [MeetingSummaryTextChunk] {
-        var fitted: [String] = []
+    ) async throws -> [(prompt: MeetingSummaryPrompt, budget: LocalAITokenBudget)] {
+        var fitted: [(prompt: MeetingSummaryPrompt, budget: LocalAITokenBudget)] = []
         var pending = Array(byteChunks.reversed())
         while let chunk = pending.popLast() {
             let prompt = try MeetingSummaryPromptFactory.chunkExtraction(
@@ -553,8 +552,11 @@ public struct MeetingSummaryGenerator: Sendable {
                 calendar: calendar,
                 outputLanguage: outputLanguage
             )
-            if try await fits(prompt, role: .summaryExtraction) {
-                fitted.append(chunk.text)
+            if let budget = try await tokenBudgeter.budget(
+                forRenderedChatPrompt: renderedPrompt(prompt),
+                role: .summaryExtraction
+            ) {
+                fitted.append((prompt, budget))
                 continue
             }
             let pieces = MeetingSummaryTextChunker(
@@ -565,25 +567,7 @@ public struct MeetingSummaryGenerator: Sendable {
             }
             pending.append(contentsOf: pieces.reversed())
         }
-        if fitted.count == byteChunks.count {
-            return byteChunks
-        }
-        // Pieces are contiguous slices, so the offsets follow from the text.
-        var chunks: [MeetingSummaryTextChunk] = []
-        var startOffset = 0
-        for text in fitted {
-            let endOffset = startOffset + text.count
-            chunks.append(
-                MeetingSummaryTextChunk(
-                    index: chunks.count,
-                    startOffset: startOffset,
-                    endOffset: endOffset,
-                    text: text
-                )
-            )
-            startOffset = endOffset
-        }
-        return chunks
+        return fitted
     }
 
     private func merge(
@@ -745,16 +729,25 @@ public struct MeetingSummaryGenerator: Sendable {
         return batches
     }
 
+    /// `checkedBudget` is the budget the prompt was already counted against
+    /// for this role; without one, the prompt is counted here.
     private func generateDraft(
         prompt: MeetingSummaryPrompt,
         role: LocalAITokenBudgetRole,
-        outputLanguageCode: String
+        outputLanguageCode: String,
+        checkedBudget: LocalAITokenBudget? = nil
     ) async throws -> DraftResult {
-        guard let budget = try await tokenBudgeter.budget(
-            forRenderedChatPrompt: renderedPrompt(prompt),
-            role: role
-        ) else {
-            throw MeetingSummaryError.invalidResponse(.contextBudget)
+        let budget: LocalAITokenBudget
+        if let checkedBudget {
+            budget = checkedBudget
+        } else {
+            guard let counted = try await tokenBudgeter.budget(
+                forRenderedChatPrompt: renderedPrompt(prompt),
+                role: role
+            ) else {
+                throw MeetingSummaryError.invalidResponse(.contextBudget)
+            }
+            budget = counted
         }
         let reply = try await requester.requestDraft(
             MeetingSummaryDraftRequest(
