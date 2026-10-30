@@ -1,5 +1,6 @@
 import Foundation
 import QuillAITextCore
+import QuillProviderCore
 import QuillUserIssueCore
 
 enum TranscriptionRetryOrigin: Equatable, Sendable {
@@ -565,32 +566,32 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         )
     }
 
-    private static func isCompatibleRetry(
+    static func isCompatibleRetry(
         _ record: CloudTranscriptionJobRecord,
         cloud: CloudTranscriptionExecutionSnapshot,
         completion: TranscriptionCompletionSnapshot
     ) -> Bool {
-        record.identity.providerID == cloud.providerID
-            && record.identity.model == cloud.model
-            && record.identity.language == cloud.language
-            && record.identity.responseFormat == cloud.responseFormat
-            && record.plan.encodedUploadCeilingBytes
-                == cloud.encodedUploadCeilingBytes
-            && record.completionPolicy == completion.cloudJobPolicy
+        record.resumeDecision(
+            current: cloud.retryResumeIdentity(
+                completion: completion.cloudJobPolicy
+            ),
+            origin: .userRetry
+        ) == .resume
     }
 
-    private static func isCompatibleLocalAIRetry(
+    static func isCompatibleLocalAIRetry(
         _ record: CloudTranscriptionJobRecord,
         localAI: LocalAITranscriptionExecutionSnapshot,
         language: String?,
         completion: TranscriptionCompletionSnapshot
     ) -> Bool {
-        record.identity.providerID == localAI.providerID
-            && record.identity.model == localAI.modelID
-            && record.identity.language == language
-            && record.identity.responseFormat == localAI.requestFormat.rawValue
-            && record.plan.sizing == .rawWAV
-            && record.completionPolicy == completion.cloudJobPolicy
+        record.resumeDecision(
+            current: localAI.retryResumeIdentity(
+                language: language,
+                completion: completion.cloudJobPolicy
+            ),
+            origin: .userRetry
+        ) == .resume
     }
 
     @MainActor

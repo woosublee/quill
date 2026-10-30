@@ -60,7 +60,11 @@ otherwise.
   cloud and local model lists and capabilities, rate-limit cooldowns, the
   temperature capability cache, the request transport, provider URL checks,
   the API key check, the cloud transcription failure categories and retry
-  policy, the cloud transcription request and reply parser, the realtime
+  policy, the cloud transcription request and reply parser, whether a saved
+  cloud or local AI transcription job resumes, starts over, or waits for a
+  retry under the current settings (`CloudTranscriptionResumeDecision`; the
+  Mac fills its identities in `Sources/CloudTranscriptionResumeIdentity.swift`),
+  the realtime
   session rules (WebSocket URL, connection request, `session.update`), the
   chat completion request, and cloud consent (#693): the per-origin grants
   (`CloudConsentLedger`), which providers a set of saved keys goes to and
@@ -91,23 +95,31 @@ otherwise.
   note's synced post-processing status reads (`NoteMachineStatus`: importing,
   recording, transcribing, recovered, failed, or finished, and whether an
   empty transcript is still to come or was cleared and stays editable), with
-  its status parsers. It imports `QuillUserIssueCore`; the status text and
-  recovery file work stay in `Sources/`. Reading a
+  its status parsers and the one interrupted-transcription placeholder check
+  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720). It imports
+  `QuillUserIssueCore`; the status text and recovery file work stay in
+  `Sources/`. Reading a
   note's recording times stays in
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
-  (#697), built for macOS and iOS. So far the note toolbar: its state table
+  (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view
-  (`NoteFloatingToolbar`). Each app passes the note's state, its localized
-  strings, and the actions; the view holds no app state and runs no work.
+  (`NoteFloatingToolbar`), and the layout helper `QuillWidthClass`, which
+  turns a container's width into compact, regular, or wide, so screens lay
+  out by width, never by device model. Each app passes the note's state,
+  its localized strings, and the actions; the views hold no app state and
+  run no work.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the glass and toolbar
-  tints, the glass shadow, and the note toolbar sizes (a value per platform
-  where they differ). `Tests/QuillDesignTokensTests.swift` checks them
-  against `docs/design-system/tokens.json`; change both together.
+  (#623): spacing and radius scales, the issue colors, the glass, toolbar,
+  and hairline tints, the glass and status shadows, the status wash
+  opacity, the work-status text styles (a fixed size on the Mac, Dynamic
+  Type on iOS), the note toolbar and status progress sizes (a value per
+  platform where they differ), and the width breakpoints (#697).
+  `Tests/QuillDesignTokensTests.swift` checks them against
+  `docs/design-system/tokens.json`; change both together.
   `QuillNoteUI` imports it.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
