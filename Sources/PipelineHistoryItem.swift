@@ -11,17 +11,8 @@ enum PipelineHistoryItemIntent: String, Codable, CaseIterable {
     case commandManual = "command:manual"
 }
 
-enum PipelineHistoryMachineStatus: Equatable {
-    case importing
-    case liveRecording
-    case cloudTranscribing
-    case audioOnly
-    case recovered(RecoveredRecordingContext)
-    /// Startup recovery could not restore the recording's audio.
-    case unrecovered(UnrecoveredRecordingContext)
-    case failed(QuillUserIssueRecord)
-    case completed
-}
+/// The note status rule is shared with the iPhone app in QuillNoteCore.
+typealias PipelineHistoryMachineStatus = NoteMachineStatus
 
 struct PipelineHistoryTranscriptionReplacement {
     let rawTranscript: String
@@ -45,11 +36,11 @@ struct PipelineHistoryItem: Identifiable, Codable {
         RecoveredRecordingMode.complete.placeholderStatus
     static let recoveredRecordingStatus =
         RecoveredRecordingMode.complete.recoveredStatus
-    static let cloudTranscribingStatus = "cloud-transcribing"
+    static let cloudTranscribingStatus = NoteMachineStatus.cloudTranscribingStatus
     /// Set on an imported file's note until transcription replaces it. It is
     /// the only mark of an import while a cloud model transcribes the file.
     static let importingDebugStatus = "Importing audio"
-    static let audioOnlyStatus = "audio-only"
+    static let audioOnlyStatus = NoteMachineStatus.audioOnlyStatus
 
     var spokenLanguage: SpokenLanguageResolution? {
         guard let spokenLanguageResolution else { return nil }
@@ -71,36 +62,13 @@ struct PipelineHistoryItem: Identifiable, Codable {
     }
 
     var machineStatus: PipelineHistoryMachineStatus {
-        if postProcessingStatus == "importing" { return .importing }
-        if postProcessingStatus == "live-recording" { return .liveRecording }
-        if postProcessingStatus == Self.cloudTranscribingStatus {
-            return .cloudTranscribing
-        }
-        if postProcessingStatus == Self.audioOnlyStatus {
-            return .audioOnly
-        }
-        if let context = unrecoveredRecordingContext {
-            return .unrecovered(context)
-        }
-        if let context = recoveredRecordingContext {
-            return .recovered(context)
-        }
-        if let userIssueRecord, userIssueRecord.severity == .error {
-            return .failed(userIssueRecord)
-        }
-        return .completed
+        NoteMachineStatus(postProcessingStatus: postProcessingStatus)
     }
 
     var userIssueRecord: QuillUserIssueRecord? {
-        if postProcessingStatus.hasPrefix("user-issue:") {
-            return (try? QuillUserIssueRecord.decodePersistedStatus(
-                postProcessingStatus
-            )) ?? QuillUserIssueRecord(code: .unknown)
-        }
-        if postProcessingStatus.hasPrefix("Error:") {
-            return QuillUserIssueRecord(code: .legacy)
-        }
-        return nil
+        NoteMachineStatus.userIssueRecord(
+            postProcessingStatus: postProcessingStatus
+        )
     }
 
     func userIssuePresentation(
@@ -150,7 +118,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
     /// so a cleared transcript can be typed again. Notes still recording,
     /// transcribing, or waiting on a recovery keep their empty state.
     var keepsTranscriptEditorWhenEmpty: Bool {
-        machineStatus == .completed && !isIncompleteTranscription
+        NoteMachineStatus.keepsTranscriptEditorWhenEmpty(
+            postProcessingStatus: postProcessingStatus
+        )
     }
 
     /// The transcript a person sees: the edited one, or the original while
@@ -160,10 +130,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
     }
 
     var isIncompleteTranscription: Bool {
-        RecoveredRecordingContext.placeholderContext(for: postProcessingStatus) != nil
-            || postProcessingStatus == "importing"
-            || postProcessingStatus == "live-recording"
-            || postProcessingStatus == Self.cloudTranscribingStatus
+        NoteMachineStatus.isIncompleteTranscription(
+            postProcessingStatus: postProcessingStatus
+        )
     }
 
     let intent: PipelineHistoryItemIntent

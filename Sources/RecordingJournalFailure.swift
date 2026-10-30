@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillNoteCore
 
 enum RecordingJournalStoreError: Error, Equatable {
     case conflictingExistingRecording(UUID)
@@ -22,11 +23,7 @@ enum RecordingPCMJournalWriterError: Error, Equatable {
     case writeFailed(String)
 }
 
-enum RecordingInterruptionReason: String, Codable, Equatable {
-    case storageFull = "storage-full"
-    case permissionDenied = "permission-denied"
-    case journalIOFailure = "journal-io-failure"
-
+extension RecordingInterruptionReason {
     var titleLocalizationKey: String {
         switch self {
         case .storageFull: return "Recording stopped: storage full"

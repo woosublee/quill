@@ -1,6 +1,7 @@
 import Combine
 import Darwin
 import Foundation
+import QuillNoteCore
 import QuillSummaryFormatCore
 
 struct AppStateStorageSafetyTests {

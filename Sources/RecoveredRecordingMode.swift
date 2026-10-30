@@ -1,37 +1,7 @@
 import Foundation
-
-enum RecoveredRecordingMode: String, Codable, Equatable, CaseIterable {
-    case complete
-    case microphoneOnly = "microphone-only"
-    case systemAudioOnly = "system-audio-only"
-    case partial
-}
+import QuillNoteCore
 
 extension RecoveredRecordingMode {
-    var placeholderStatus: String {
-        switch self {
-        case .complete: return "transcription-interrupted"
-        case .microphoneOnly:
-            return "transcription-interrupted:microphone-only"
-        case .systemAudioOnly:
-            return "transcription-interrupted:system-audio-only"
-        case .partial:
-            return "transcription-interrupted:partial"
-        }
-    }
-
-    var recoveredStatus: String {
-        switch self {
-        case .complete: return "recording-recovered"
-        case .microphoneOnly:
-            return "recording-recovered:microphone-only"
-        case .systemAudioOnly:
-            return "recording-recovered:system-audio-only"
-        case .partial:
-            return "recording-recovered:partial"
-        }
-    }
-
     var recoveredDebugStatus: String {
         switch self {
         case .complete:
@@ -43,14 +13,6 @@ extension RecoveredRecordingMode {
         case .partial:
             return "Recovered part of a recording after an unexpected shutdown; some audio may be missing; transcription has not started"
         }
-    }
-
-    static func placeholderMode(for status: String) -> RecoveredRecordingMode? {
-        RecoveredRecordingContext.placeholderContext(for: status)?.mode
-    }
-
-    static func recoveredMode(for status: String) -> RecoveredRecordingMode? {
-        RecoveredRecordingContext.recoveredContext(for: status)?.mode
     }
 
     var titleLocalizationKey: String {
