@@ -2877,12 +2877,14 @@ private struct NoteDetailView: View {
         }
         return issuePresentation
     }
-    /// Post-processing returned nothing to change. The original transcript is
-    /// the result, so this is a quiet notice rather than a warning.
     private var isNothingToPostProcess: Bool {
-        guard let record = item.userIssueRecord else { return false }
-        return record.code == .postProcessingFailed
-            && record.context.postProcessingFailureReason == .emptyOutput
+        NoteBrowserRecoveryPresentation.isNothingToPostProcess(item.userIssueRecord)
+    }
+    private var showsNothingToPostProcessNotice: Bool {
+        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: item.userIssueRecord,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
+        )
     }
     private var warningBannerCode: QuillUserIssueCode? {
         item.userIssueRecord?.code
@@ -3451,7 +3453,7 @@ private struct NoteDetailView: View {
                 let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]
                     == item.displayedTranscript
                 let hasOtherNotice = !isWarningBannerDismissed
-                    && (isNothingToPostProcess || warningPresentation != nil)
+                    && (showsNothingToPostProcessNotice || warningPresentation != nil)
                 if showsUnchangedNotice {
                     QuillStatusBanner(
                         systemImage: "info.circle",
@@ -3478,7 +3480,7 @@ private struct NoteDetailView: View {
                     .padding(.top, 14)
                 }
                 if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   isNothingToPostProcess,
+                   showsNothingToPostProcessNotice,
                    !isWarningBannerDismissed {
                     QuillInfoNotice(
                         text: localizedCatalogString(
