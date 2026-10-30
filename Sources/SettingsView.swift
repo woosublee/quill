@@ -1973,6 +1973,7 @@ struct ModelsSettingsView: View {
                             .foregroundStyle(.secondary)
                             Spacer()
                             Button("Withdraw") {
+                                cloudConsentClearedKeyField = nil
                                 cloudConsentWithdrawalTarget = target
                             }
                             .font(.caption)
@@ -2005,8 +2006,9 @@ struct ModelsSettingsView: View {
                         guard !$0 else { return }
                         cloudConsentWithdrawalTarget = nil
                         // A cleared key that wasn't withdrawn is still saved.
+                        // The field stays set for Withdraw's action, which
+                        // may run after this.
                         if let field = cloudConsentClearedKeyField {
-                            cloudConsentClearedKeyField = nil
                             restoreSavedKeyInput(field)
                         }
                     }
@@ -2042,14 +2044,16 @@ struct ModelsSettingsView: View {
     private func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
         let clearedField = cloudConsentClearedKeyField
         cloudConsentClearedKeyField = nil
-        // A transcription URL typed with the cleared key stays in its field,
-        // unsaved, to save again (as on the iPhone).
-        let typedURL = transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let keepsTypedURL = typedURL != appState.transcriptionAPIURL
-        let withdrew = appState.withdrawCloudConsent(for: target)
-        if !withdrew, appState.isTranscriptionConfigurationLocked {
-            // Recording or transcribing started while the confirmation was up.
-            cloudConsentClearBusyField = clearedField ?? .main
+        // A transcription URL typed with the cleared transcription key stays
+        // in its field, unsaved, to save again (as on the iPhone).
+        let typedURL = transcriptionAPIURLInput
+        let keepsTypedURL = clearedField == .transcription
+            && typedURL.trimmingCharacters(in: .whitespacesAndNewlines) != appState.transcriptionAPIURL
+        if appState.withdrawCloudConsent(for: target) == .refusedWhileBusy {
+            // Recording or transcribing started while the confirmation was
+            // up. A Withdraw row's message goes under the key it would clear.
+            cloudConsentClearBusyField = clearedField
+                ?? (CloudProviderURL.origin(of: appState.apiBaseURL) == target.origin ? .main : .transcription)
         }
         apiKeyInput = appState.apiKey
         transcriptionAPIURLInput = keepsTypedURL ? typedURL : appState.transcriptionAPIURL
@@ -2062,13 +2066,17 @@ struct ModelsSettingsView: View {
     /// key again asks again. Returns false for a key saved before consent,
     /// which the caller only deletes, as before.
     private func withdrawConsentIfClearing(_ field: CloudConsentTargets.KeyField) -> Bool {
+        let clear = appState.cloudConsentKeyClear(field)
+        // A key saved before consent is deleted as before, even with a
+        // confirmation up.
+        if case .delete = clear { return false }
         if cloudConsentWithdrawalTarget != nil {
             // This field's confirmation is already up and handles it. Another
             // one (a Withdraw row) leaves this key saved, so its field shows it.
             if cloudConsentClearedKeyField != field { restoreSavedKeyInput(field) }
             return true
         }
-        switch appState.cloudConsentKeyClear(field) {
+        switch clear {
         case .delete:
             return false
         case .refusedWhileBusy:

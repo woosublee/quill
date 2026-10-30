@@ -363,10 +363,10 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(main.origin == "https://api.example-consent.test")
         appState.isRecording = true
         precondition(appState.cloudConsentKeyClear(.main) == .refusedWhileBusy, "Settings refuses while recording")
-        precondition(!appState.withdrawCloudConsent(for: main), "refused while recording")
+        precondition(appState.withdrawCloudConsent(for: main) == .refusedWhileBusy, "refused while recording")
         precondition(appState.apiKey == "sk-synthetic-main" && appState.cloudConsent.hasConsent(forBaseURL: mainURL))
         appState.isRecording = false
-        precondition(appState.withdrawCloudConsent(for: main))
+        precondition(appState.withdrawCloudConsent(for: main) == .withdrawn)
         precondition(appState.apiKey.isEmpty)
         precondition(credentialStore.load(account: CredentialStore.providerAPIKeyAccount) == nil)
         precondition(!appState.cloudConsent.hasConsent(forBaseURL: mainURL))
@@ -382,7 +382,7 @@ struct AppStateTranscriptionConfigurationTests {
         guard case .withdraw(let shared) = appState.cloudConsentKeyClear(.transcription) else {
             preconditionFailure("the transcription key goes to the agreed main provider")
         }
-        precondition(appState.withdrawCloudConsent(for: shared))
+        precondition(appState.withdrawCloudConsent(for: shared) == .withdrawn)
         precondition(appState.apiKey.isEmpty && appState.transcriptionAPIKey.isEmpty, "both keys are cleared")
         precondition(credentialStore.load(account: CredentialStore.transcriptionAPIKeyAccount) == nil)
 
@@ -396,7 +396,7 @@ struct AppStateTranscriptionConfigurationTests {
             preconditionFailure("an agreed transcription key withdraws its provider")
         }
         precondition(voice.origin == "https://voice.example-consent.test")
-        precondition(appState.withdrawCloudConsent(for: voice))
+        precondition(appState.withdrawCloudConsent(for: voice) == .withdrawn)
         precondition(appState.transcriptionAPIKey.isEmpty && appState.transcriptionAPIURL.isEmpty)
         precondition(appState.apiKey == "sk-synthetic-main" && appState.cloudConsent.hasConsent(forBaseURL: mainURL))
         precondition(!appState.cloudConsent.hasConsent(forBaseURL: voiceURL))

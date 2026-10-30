@@ -731,9 +731,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// nothing more is sent there until a key is saved (and agreed to) again.
     /// It's refused while recording or transcribing, as a realtime stream
     /// keeps sending until it ends; Settings says so before calling this.
+    enum CloudConsentWithdrawResult: Equatable {
+        case withdrawn
+        case refusedWhileBusy
+        /// The Keychain couldn't delete a key; `errorMessage` says so, and
+        /// consent and the keys stay.
+        case keychainFailed
+    }
+
     @discardableResult
-    func withdrawCloudConsent(for target: CloudConsentTargets.Target) -> Bool {
-        guard !isTranscriptionConfigurationLocked else { return false }
+    func withdrawCloudConsent(for target: CloudConsentTargets.Target) -> CloudConsentWithdrawResult {
+        guard !isTranscriptionConfigurationLocked else { return .refusedWhileBusy }
         let withdrawal = cloudConsentTargets.withdrawal(forOrigin: target.origin)
         // A cleared key goes from the Keychain too, one it couldn't return at
         // launch included: a later launch could read it and send it here.
@@ -752,14 +760,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 prefix: localizedCatalogString("Unable to save API key"),
                 providerDetail: error.localizedDescription
             )
-            return false
+            return .keychainFailed
         }
         cloudConsent.revoke(forBaseURL: target.baseURL)
         cloudConsent.save(to: .standard)
         if withdrawal.clearsAPIKey { apiKey = "" }
         if withdrawal.clearsTranscriptionAPIKey { transcriptionAPIKey = "" }
         if withdrawal.clearsTranscriptionAPIURL { transcriptionAPIURL = "" }
-        return true
+        return .withdrawn
     }
 
     @Published var transcriptionModel: String {
