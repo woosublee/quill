@@ -917,8 +917,9 @@ struct MeetingSummaryServiceTests {
         try expect(requester.extractionCount() == 0, "no extraction is requested")
     }
 
-    /// #716: without a dense section, the byte counter (the Mac's cloud
-    /// counter) gets exactly the chunks it got before the recheck.
+    /// #716: without a dense section, a counter that counts this ASCII
+    /// transcript one token a byte, as the Mac's cloud byte counter does,
+    /// gets exactly the chunks it got before the recheck.
     private static func testChunksWithoutADenseSectionStayTheByteCut() async throws {
         let transcript = (1...40).map { "Line \($0) of the review, \"quoted\"." }
             .joined(separator: "\n")

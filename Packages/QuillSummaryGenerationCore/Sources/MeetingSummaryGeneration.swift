@@ -405,6 +405,9 @@ public struct MeetingSummaryGenerator: Sendable {
         let evidenceVerification: MeetingSummaryEvidenceVerification
     }
 
+    /// An extraction prompt and the budget it was counted against.
+    private typealias FittedExtraction = (prompt: MeetingSummaryPrompt, budget: LocalAITokenBudget)
+
     private let requester: any MeetingSummaryDraftRequesting
     private let tokenBudgeter: LocalAITokenBudgeter
     private let chunker: MeetingSummaryTextChunker
@@ -533,8 +536,8 @@ public struct MeetingSummaryGenerator: Sendable {
     /// with the same paragraph, line, and sentence boundaries, until every
     /// piece fits, as cleanup does (#716). A chunk denser than the
     /// transcript's average can outgrow the byte cut. When every byte-cut
-    /// chunk fits, as it does with the byte counter, the prompts are the
-    /// byte cut's. A piece that can't be split and still doesn't fit fails
+    /// chunk fits, as it does with the byte counter unless JSON escaping
+    /// outgrows the halved room, the prompts are the byte cut's. A piece that can't be split and still doesn't fit fails
     /// as an over-budget prompt, as its request would.
     ///
     /// Returns each prompt with the budget it was checked against, so its
@@ -543,8 +546,8 @@ public struct MeetingSummaryGenerator: Sendable {
         _ byteChunks: [MeetingSummaryTextChunk],
         calendar: MeetingSummaryCalendarContext?,
         outputLanguage: String?
-    ) async throws -> [(prompt: MeetingSummaryPrompt, budget: LocalAITokenBudget)] {
-        var fitted: [(prompt: MeetingSummaryPrompt, budget: LocalAITokenBudget)] = []
+    ) async throws -> [FittedExtraction] {
+        var fitted: [FittedExtraction] = []
         var pending = Array(byteChunks.reversed())
         while let chunk = pending.popLast() {
             let prompt = try MeetingSummaryPromptFactory.chunkExtraction(
@@ -741,13 +744,7 @@ public struct MeetingSummaryGenerator: Sendable {
         if let checkedBudget {
             budget = checkedBudget
         } else {
-            guard let counted = try await tokenBudgeter.budget(
-                forRenderedChatPrompt: renderedPrompt(prompt),
-                role: role
-            ) else {
-                throw MeetingSummaryError.invalidResponse(.contextBudget)
-            }
-            budget = counted
+            budget = try await sourceBudget(for: prompt, role: role)
         }
         let reply = try await requester.requestDraft(
             MeetingSummaryDraftRequest(
