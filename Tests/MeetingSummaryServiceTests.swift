@@ -28,6 +28,7 @@ struct MeetingSummaryServiceTests {
         try await testChunkSizingCountsARatioBelowOneAsOne()
         try await testDenseChunkIsSplitAgainUntilItsPromptFits()
         try await testChunksWithoutADenseSectionStayTheByteCut()
+        try await testUnsplittableDenseChunkFailsAsOverBudget()
         try await testCompactMergeIsSkippedWithTheSameRoom()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
@@ -890,6 +891,30 @@ struct MeetingSummaryServiceTests {
             prompts.count > byteChunks.count,
             "the dense chunk is split again (\(prompts.count) vs \(byteChunks.count))"
         )
+    }
+
+    /// #716: a single character whose prompt can't fit can't be split
+    /// further, so the summary fails as an over-budget prompt and sends no
+    /// extraction request.
+    private static func testUnsplittableDenseChunkFailsAsOverBudget() async throws {
+        let counter = MeetingSummaryEmojiDenseTokenCounter(extraTokensPerEmoji: 10_000)
+        let window = try await extractionWindow(room: 600, counter: counter)
+        let requester = MeetingSummaryCountingRequester()
+        var thrown: MeetingSummaryError?
+        do {
+            _ = try await MeetingSummaryGenerator(
+                requester: requester,
+                tokenBudgeter: LocalAITokenBudgeter(contextWindow: window, tokenCounter: counter)
+            ).generate(source: MeetingSummarySource(
+                transcript: "\u{1F642}",
+                calendar: nil,
+                languageContext: summaryLanguage
+            ))
+        } catch let error as MeetingSummaryError {
+            thrown = error
+        }
+        try expect(thrown == .invalidResponse(.contextBudget), "an unsplittable chunk fails with contextBudget")
+        try expect(requester.extractionCount() == 0, "no extraction is requested")
     }
 
     /// #716: without a dense section, the byte counter (the Mac's cloud
@@ -2120,8 +2145,11 @@ private struct MeetingSummaryRatioTokenCounter: LocalAITokenCounting {
 /// One token a byte, except each U+1F642 counts 16 tokens instead of its
 /// four bytes, as a tokenizer might count a rare symbol byte by byte.
 private struct MeetingSummaryEmojiDenseTokenCounter: LocalAITokenCounting {
+    var extraTokensPerEmoji = 12
+
     func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
-        prompt.utf8.count + prompt.unicodeScalars.filter { $0 == "\u{1F642}" }.count * 12
+        prompt.utf8.count
+            + prompt.unicodeScalars.filter { $0 == "\u{1F642}" }.count * extraTokensPerEmoji
     }
 }
 
