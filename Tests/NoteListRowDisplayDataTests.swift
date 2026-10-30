@@ -683,7 +683,7 @@ struct NoteListRowDisplayDataTests {
         assert(!malformed.isTranscriptionPlaceholder)
         let malformedData = NoteListRowDisplayData(item: malformed, retryingIDs: [])
         assert(malformedData.status == .done)
-        assert(malformedData.displayTitle != "New Recording")
+        assert(malformedData.isNamedByDate, "A settled note is named by date")
     }
 
     private static func testTranscribingTitleAndEmptyPreview() {

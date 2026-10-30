@@ -204,7 +204,7 @@ enum NoteTitleResolver {
                 bundle: bundle
             )
         }
-        if item.postProcessingStatus == "live-recording" {
+        if item.machineStatus == .liveRecording {
             return localizedCatalogString("Recording...", language: language, bundle: bundle)
         }
         if item.isTranscriptionPlaceholder || item.machineStatus == .importing {
