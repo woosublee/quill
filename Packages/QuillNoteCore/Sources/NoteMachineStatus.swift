@@ -56,12 +56,26 @@ public enum NoteMachineStatus: Equatable, Sendable {
         return nil
     }
 
+    /// The note's transcription was interrupted and waits to run again, in
+    /// any of its forms: `transcription-interrupted[:<reason>][:<mode>]`.
+    /// A malformed form is not a placeholder. This is the yes/no placeholder
+    /// check for both apps; code that needs the mode or reason reads it from
+    /// `RecoveredRecordingContext.placeholderContext(for:)`, the parse this
+    /// wraps, so the two can't disagree. A function rather than a new
+    /// `NoteMachineStatus` case, so what either app parses from a synced
+    /// status doesn't change: a placeholder still reads as `.completed`.
+    public static func isTranscriptionPlaceholder(
+        postProcessingStatus status: String
+    ) -> Bool {
+        RecoveredRecordingContext.placeholderContext(for: status) != nil
+    }
+
     /// The note is still importing, recording, transcribing, or waiting for
     /// an interrupted transcription to run again, so it has no transcript yet.
     public static func isIncompleteTranscription(
         postProcessingStatus status: String
     ) -> Bool {
-        RecoveredRecordingContext.placeholderContext(for: status) != nil
+        isTranscriptionPlaceholder(postProcessingStatus: status)
             || status == importingStatus
             || status == liveRecordingStatus
             || status == cloudTranscribingStatus

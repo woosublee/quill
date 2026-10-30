@@ -95,8 +95,10 @@ otherwise.
   note's synced post-processing status reads (`NoteMachineStatus`: importing,
   recording, transcribing, recovered, failed, or finished, and whether an
   empty transcript is still to come or was cleared and stays editable), with
-  its status parsers. It imports `QuillUserIssueCore`; the status text and
-  recovery file work stay in `Sources/`. Reading a
+  its status parsers and the one interrupted-transcription placeholder check
+  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720). It imports
+  `QuillUserIssueCore`; the status text and recovery file work stay in
+  `Sources/`. Reading a
   note's recording times stays in
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.

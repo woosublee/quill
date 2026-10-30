@@ -10,6 +10,7 @@ struct NoteMachineStatusTests {
     static func main() throws {
         testWorkTokens()
         testInterruptedTranscription()
+        testTranscriptionPlaceholderCheck()
         testRecoveredRecording()
         testUnrecoveredRecording()
         try testUserIssues()
@@ -93,6 +94,83 @@ struct NoteMachineStatusTests {
             precondition(status(value) == .completed, value)
             precondition(!incomplete(value), value)
             precondition(keepsEditor(value), value)
+        }
+    }
+
+    /// #720: `isTranscriptionPlaceholder` is the one placeholder check. It
+    /// must say exactly what the parse said before it existed, for every
+    /// form, every malformed form, and every other status, and
+    /// `isIncompleteTranscription` must not change.
+    private static func testTranscriptionPlaceholderCheck() {
+        func placeholder(_ value: String) -> Bool {
+            NoteMachineStatus.isTranscriptionPlaceholder(postProcessingStatus: value)
+        }
+        // What `isIncompleteTranscription` read before #720.
+        func incompleteBefore(_ value: String) -> Bool {
+            RecoveredRecordingContext.placeholderContext(for: value) != nil
+                || value == NoteMachineStatus.importingStatus
+                || value == NoteMachineStatus.liveRecordingStatus
+                || value == NoteMachineStatus.cloudTranscribingStatus
+        }
+
+        let reasons: [RecordingInterruptionReason?] = [nil] + RecordingInterruptionReason.allCases
+        var placeholders: [String] = []
+        for reason in reasons {
+            for mode in RecoveredRecordingMode.allCases {
+                placeholders.append(
+                    RecoveredRecordingContext(mode: mode, interruptionReason: reason)
+                        .placeholderStatus
+                )
+            }
+        }
+        // Every reason (and none) with every mode, all distinct.
+        precondition(
+            Set(placeholders).count
+                == (RecordingInterruptionReason.allCases.count + 1) * RecoveredRecordingMode.allCases.count
+        )
+        precondition(placeholders.contains("transcription-interrupted"))
+        precondition(placeholders.contains("transcription-interrupted:journal-io-failure:system-audio-only"))
+
+        let malformed = [
+            "transcription-interrupted:",
+            "transcription-interrupted:complete",
+            "transcription-interrupted:storage-full:complete",
+            "transcription-interrupted:storage-full:",
+            "transcription-interrupted::partial",
+            "transcription-interrupted:unknown",
+            "transcription-interrupted:partial:storage-full",
+            "transcription-interrupted:partial:microphone-only",
+            "transcription-interrupted:storage-full:permission-denied",
+            "transcription-interrupted:storage-full:partial:extra",
+            "transcription-interruptedx",
+            "Transcription-interrupted",
+            " transcription-interrupted",
+            "transcription-interrupted ",
+            "transcription-interrupted:Partial",
+        ]
+        let others = [
+            "", "importing", "live-recording", "cloud-transcribing", "audio-only",
+            "succeeded", "Post-processing succeeded", "Error: synthetic failure",
+            "user-issue:", "user-issue:v1:!!",
+            "recording-recovered", "recording-recovered:partial",
+            "recording-recovered:storage-full:microphone-only",
+            "recording-unrecovered:no-audio", "recording-unrecovered:recovery-failed:save-error",
+        ]
+
+        for value in placeholders {
+            precondition(placeholder(value), "\(value) is a placeholder")
+        }
+        for value in malformed + others {
+            precondition(!placeholder(value), "\(value) is not a placeholder")
+        }
+        for value in placeholders + malformed + others {
+            let parsed = RecoveredRecordingContext.placeholderContext(for: value)
+            precondition(placeholder(value) == (parsed != nil), value)
+            precondition(
+                RecoveredRecordingMode.placeholderMode(for: value) == parsed?.mode,
+                "placeholderMode reads the same parse: \(value)"
+            )
+            precondition(incomplete(value) == incompleteBefore(value), "no change: \(value)")
         }
     }
 
