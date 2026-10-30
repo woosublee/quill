@@ -108,9 +108,9 @@ struct NoteMachineStatusTests {
         // What `isIncompleteTranscription` read before #720.
         func incompleteBefore(_ value: String) -> Bool {
             RecoveredRecordingContext.placeholderContext(for: value) != nil
-                || value == "importing"
-                || value == "live-recording"
-                || value == "cloud-transcribing"
+                || value == NoteMachineStatus.importingStatus
+                || value == NoteMachineStatus.liveRecordingStatus
+                || value == NoteMachineStatus.cloudTranscribingStatus
         }
 
         let reasons: [RecordingInterruptionReason?] = [nil] + RecordingInterruptionReason.allCases
@@ -123,8 +123,11 @@ struct NoteMachineStatusTests {
                 )
             }
         }
-        // 4 reasons (none + 3) x 4 modes, all distinct.
-        precondition(Set(placeholders).count == 16)
+        // Every reason (and none) with every mode, all distinct.
+        precondition(
+            Set(placeholders).count
+                == (RecordingInterruptionReason.allCases.count + 1) * RecoveredRecordingMode.allCases.count
+        )
         precondition(placeholders.contains("transcription-interrupted"))
         precondition(placeholders.contains("transcription-interrupted:journal-io-failure:system-audio-only"))
 
