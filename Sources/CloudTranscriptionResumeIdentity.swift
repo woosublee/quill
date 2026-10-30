@@ -29,8 +29,8 @@ extension CloudTranscriptionJobRecord {
         )
     }
 
-    /// The saved side, filling a plan field or the follow-up only where
-    /// `current` fills it.
+    /// The saved side, filling a plan field only where `current` fills it.
+    /// The follow-up is always filled; only a user retry compares it.
     func resumeIdentity(
         comparedWith current: CloudTranscriptionResumeIdentity
     ) -> CloudTranscriptionResumeIdentity {
@@ -49,8 +49,7 @@ extension CloudTranscriptionJobRecord {
                 silenceSearchFrameCount: wanted.silenceSearchFrameCount == nil
                     ? nil : plan.silenceSearchFrameCount
             ),
-            followUp: current.followUp == nil
-                ? nil : completionPolicy.resumeFollowUp
+            followUp: completionPolicy.resumeFollowUp
         )
     }
 }
