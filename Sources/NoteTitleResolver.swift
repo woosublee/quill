@@ -207,7 +207,10 @@ enum NoteTitleResolver {
         if item.postProcessingStatus == "live-recording" {
             return localizedCatalogString("Recording...", language: language, bundle: bundle)
         }
-        if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" {
+        // Every interrupted form (`transcription-interrupted[:<reason>][:<mode>]`)
+        // waits for its transcription to run again, like an import.
+        if RecoveredRecordingContext.placeholderContext(for: item.postProcessingStatus) != nil
+            || item.machineStatus == .importing {
             return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
         }
         return nil
