@@ -697,8 +697,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         CloudConsentTargets(
             apiBaseURL: apiBaseURL,
             apiKey: apiKey,
+            apiKeyIsUnreadable: unreadableAPIKeyAccounts.contains(apiKeyStorageKey),
             transcriptionAPIURL: transcriptionAPIURL,
-            transcriptionAPIKey: transcriptionAPIKey
+            transcriptionAPIKey: transcriptionAPIKey,
+            transcriptionAPIKeyIsUnreadable: unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey)
         )
     }
 
@@ -710,21 +712,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Withdrawing clears each saved key that would go to that provider, so
     /// nothing more is sent there until a key is saved (and agreed to) again.
     func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
-        let targets = cloudConsentTargets
-        let withdrawal = targets.withdrawal(forOrigin: target.origin)
+        let withdrawal = cloudConsentTargets.withdrawal(forOrigin: target.origin)
+        // A cleared key goes from the Keychain too, one it couldn't return at
+        // launch included: a later launch could read it and send it here.
         var accounts: [String] = []
-        // A key the Keychain couldn't return at launch is still there, and
-        // a later launch could read it and send it here again.
-        if withdrawal.clearsAPIKey
-            || (unreadableAPIKeyAccounts.contains(apiKeyStorageKey)
-                && CloudProviderURL.origin(of: targets.apiBaseURL) == target.origin) {
-            accounts.append(apiKeyStorageKey)
-        }
-        if withdrawal.clearsTranscriptionAPIKey
-            || (unreadableAPIKeyAccounts.contains(transcriptionAPIKeyStorageKey)
-                && CloudProviderURL.origin(of: targets.resolvedTranscriptionURL) == target.origin) {
-            accounts.append(transcriptionAPIKeyStorageKey)
-        }
+        if withdrawal.clearsAPIKey { accounts.append(apiKeyStorageKey) }
+        if withdrawal.clearsTranscriptionAPIKey { accounts.append(transcriptionAPIKeyStorageKey) }
         // Delete from the Keychain first. If that fails, consent and the keys
         // stay, so a saved key never goes anywhere without consent.
         do {
