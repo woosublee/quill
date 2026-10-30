@@ -4129,7 +4129,9 @@ private struct NoteDetailView: View {
     /// alone, a retranscription, or the first transcription (#699).
     private var canCancelToolbarWork: Bool {
         switch toolbarWork {
-        case .postProcessing:
+        // The Mac reports waiting for cleanup as `.postProcessing`; the
+        // iPhone's `.waitingToPostProcess` never comes from here.
+        case .postProcessing, .waitingToPostProcess:
             return appState.canCancelPostProcessing(noteID: item.id)
         case .transcribing, .retranscribing:
             return isRetrying

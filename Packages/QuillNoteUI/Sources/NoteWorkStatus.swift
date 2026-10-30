@@ -5,10 +5,16 @@ import Foundation
 // `NoteWorkStatusView` draws the result. The text is copy keys: each app
 // looks them up in its own String Catalog. The keys are the Mac's.
 
-/// How far a chunked transcription has got.
+/// How far a transcription has got: chunks done out of the chunk count, a
+/// measured fraction, or both.
 public struct NoteWorkProgress: Equatable, Sendable {
+    /// Chunks done, within 0...total. 0 when the work counts no chunks.
     public let completed: Int
+    /// The chunk count. 0 when the work only reports a fraction
+    /// (`countsChunks` is false).
     public let total: Int
+    /// A finer fraction than whole chunks, when the work reports one.
+    private let measuredFraction: Double?
 
     /// Nil when there is no total to measure against. `completed` is kept
     /// within 0...total.
@@ -16,12 +22,36 @@ public struct NoteWorkProgress: Equatable, Sendable {
         guard total > 0 else { return nil }
         self.completed = min(max(completed, 0), total)
         self.total = total
+        self.measuredFraction = nil
     }
+
+    /// Chunk counts for the title, and a finer fraction for the bar (the
+    /// iPhone counts progress inside the current chunk). A fraction that
+    /// isn't a number falls back to the chunk counts.
+    public init?(completed: Int, total: Int, fraction: Double) {
+        guard total > 0 else { return nil }
+        self.completed = min(max(completed, 0), total)
+        self.total = total
+        self.measuredFraction = fraction.isFinite ? min(max(fraction, 0), 1) : nil
+    }
+
+    /// Work that reports only a fraction, with no chunks to name (an
+    /// iPhone retranscription of a Mac note). Nil when it isn't a number.
+    public init?(fraction: Double) {
+        guard fraction.isFinite else { return nil }
+        self.completed = 0
+        self.total = 0
+        self.measuredFraction = min(max(fraction, 0), 1)
+    }
+
+    /// The work counts chunks, so a title can say "N of M".
+    public var countsChunks: Bool { total > 0 }
 
     /// Never 1 while the work still runs: the last chunk is still being
     /// saved, so it stops at 99%.
     public var fraction: Double {
-        min(0.99, Double(completed) / Double(total))
+        let measured = measuredFraction ?? (total > 0 ? Double(completed) / Double(total) : 0)
+        return min(0.99, measured)
     }
 
     /// Whole percent, rounded down.
@@ -29,15 +59,16 @@ public struct NoteWorkProgress: Equatable, Sendable {
         Int(fraction * 100)
     }
 
-    /// The chunk being worked on, counting from 1.
+    /// The chunk being worked on, counting from 1 (0 when the work counts
+    /// no chunks).
     public var current: Int {
         min(completed + 1, total)
     }
 }
 
 /// The work on a note. Some states only one app has: the Mac never sends the
-/// waiting, cancelling, or paused ones, and the iPhone never sends
-/// recovering. A `reason` is a sentence the app has already localized: why
+/// waiting, cancelling, paused, preparing, or restarting ones, and the iPhone
+/// never sends recovering. A `reason` is a sentence the app has already localized: why
 /// the work waits or paused, which only the app knows.
 public enum NoteWorkStatus: Equatable, Sendable {
     /// Queued behind other work (the iPhone).
@@ -54,6 +85,14 @@ public enum NoteWorkStatus: Equatable, Sendable {
     /// The iPhone paused a transcription (memory, heat, background); it
     /// resumes or can be retried.
     case transcriptionPaused(reason: String?)
+    /// The iPhone paused a retranscription over an existing transcript; the
+    /// current transcript stays.
+    case retranscriptionPaused(reason: String?)
+    /// The iPhone transcribing a note from the beginning with another model
+    /// (a note an older model couldn't finish). `modelName` is shown as is.
+    case restartingTranscription(modelName: String, NoteWorkProgress?)
+    /// The transcript is done and is being opened (the iPhone).
+    case preparingTranscript(reason: String?)
     /// The transcript is done and waits for the cleanup model (the iPhone).
     case waitingToPostProcess(reason: String?)
     case postProcessing
@@ -96,11 +135,14 @@ public enum NoteWorkStatus: Equatable, Sendable {
         switch self {
         case .waitingToTranscribe: return "Waiting to transcribe..."
         case .transcribing(let progress):
-            return progress == nil ? "Transcribing..." : "Transcribing %d of %d…"
+            return progress?.countsChunks == true ? "Transcribing %d of %d…" : "Transcribing..."
         case .resumingCloudTranscription: return "Resuming cloud transcription…"
         case .retranscribing: return "Retranscribing..."
         case .cancellingTranscription: return "Cancelling transcription..."
         case .transcriptionPaused: return "Transcription paused"
+        case .retranscriptionPaused: return "Retranscription paused"
+        case .restartingTranscription: return "Transcribing with %@..."
+        case .preparingTranscript: return "Preparing transcript"
         case .waitingToPostProcess: return "Waiting to post-process"
         case .postProcessing: return "Post-processing..."
         case .recovering: return "Recovering…"
@@ -111,14 +153,15 @@ public enum NoteWorkStatus: Equatable, Sendable {
 
     public var indicator: Indicator {
         switch self {
-        case .transcriptionPaused: return .hidden
+        case .transcriptionPaused, .retranscriptionPaused: return .hidden
         default: return .spinner
         }
     }
 
     public var progress: NoteWorkProgress? {
         switch self {
-        case .transcribing(let progress), .resumingCloudTranscription(let progress), .retranscribing(let progress):
+        case .transcribing(let progress), .resumingCloudTranscription(let progress), .retranscribing(let progress),
+             .restartingTranscription(_, let progress):
             return progress
         default:
             return nil
@@ -127,7 +170,8 @@ public enum NoteWorkStatus: Equatable, Sendable {
 
     public var reason: String? {
         switch self {
-        case .waitingToTranscribe(let reason), .transcriptionPaused(let reason), .waitingToPostProcess(let reason):
+        case .waitingToTranscribe(let reason), .transcriptionPaused(let reason), .waitingToPostProcess(let reason),
+             .retranscriptionPaused(let reason), .preparingTranscript(let reason):
             return reason.flatMap { $0.isEmpty ? nil : $0 }
         default:
             return nil
@@ -147,9 +191,12 @@ public enum NoteWorkStatus: Equatable, Sendable {
     public func presentation(localize: (String) -> String, locale: Locale? = nil) -> Presentation {
         let format = localize(titleKey)
         let title: String
-        if case .transcribing(let progress?) = self {
+        switch self {
+        case .transcribing(let progress?) where progress.countsChunks:
             title = String(format: format, locale: locale, progress.current, progress.total)
-        } else {
+        case .restartingTranscription(let modelName, _):
+            title = String(format: format, locale: locale, modelName)
+        default:
             title = format
         }
         return Presentation(indicator: indicator, title: title, detail: reason, progress: progress)
@@ -161,6 +208,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
         case waitingToTranscribe, transcribing, resumingCloudTranscription, retranscribing
         case cancellingTranscription, transcriptionPaused, waitingToPostProcess, postProcessing
         case recovering, creatingSummary, regeneratingSummary
+        case retranscriptionPaused, restartingTranscription, preparingTranscript
 
         /// One status per title this kind can show.
         public var examples: [NoteWorkStatus] {
@@ -176,6 +224,9 @@ public enum NoteWorkStatus: Equatable, Sendable {
             case .recovering: return [.recovering]
             case .creatingSummary: return [.creatingSummary]
             case .regeneratingSummary: return [.regeneratingSummary]
+            case .retranscriptionPaused: return [.retranscriptionPaused(reason: nil)]
+            case .restartingTranscription: return [.restartingTranscription(modelName: "", nil)]
+            case .preparingTranscript: return [.preparingTranscript(reason: nil)]
             }
         }
     }
@@ -193,6 +244,9 @@ public enum NoteWorkStatus: Equatable, Sendable {
         case .recovering: return .recovering
         case .creatingSummary: return .creatingSummary
         case .regeneratingSummary: return .regeneratingSummary
+        case .retranscriptionPaused: return .retranscriptionPaused
+        case .restartingTranscription: return .restartingTranscription
+        case .preparingTranscript: return .preparingTranscript
         }
     }
 
@@ -214,6 +268,7 @@ extension NoteToolbarWork {
         case .transcribing: return .transcribing(nil)
         case .retranscribing: return .retranscribing(nil)
         case .cancelling: return .cancellingTranscription
+        case .waitingToPostProcess: return .waitingToPostProcess(reason: nil)
         case .postProcessing: return .postProcessing
         }
     }

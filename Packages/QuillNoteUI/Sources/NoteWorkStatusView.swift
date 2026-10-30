@@ -141,21 +141,37 @@ struct NoteWorkStatusChrome<S: InsettableShape>: ViewModifier {
 /// background so the text underneath stays readable. It takes the pointer
 /// and taps, so the text under it can't be edited while the work runs.
 public struct NoteWorkStatusOverlay: View {
-    let presentation: NoteWorkStatus.Presentation
+    /// Where the capsule sits on the wash.
+    public enum Placement: Equatable, Sendable {
+        /// In the middle, a little above centre: over a note body that fills
+        /// its own scroll view (the Mac).
+        case center
+        /// At the top: over text inside a longer scrolling page, where the
+        /// middle can be off screen (the iPhone note detail).
+        case top
+    }
 
-    public init(_ presentation: NoteWorkStatus.Presentation) {
+    let presentation: NoteWorkStatus.Presentation
+    let placement: Placement
+
+    public init(_ presentation: NoteWorkStatus.Presentation, placement: Placement = .center) {
         self.presentation = presentation
+        self.placement = placement
     }
 
     public var body: some View {
-        ZStack {
+        ZStack(alignment: placement == .top ? .top : .center) {
             Rectangle()
                 .fill(Self.noteBackground.opacity(QuillOpacity.statusWash))
-            NoteWorkStatusView(presentation, style: .capsule)
-                .padding(.bottom, QuillSpacing.space60)
+            Self.capsule(presentation, placement: placement)
         }
         .transition(.opacity)
         .allowsHitTesting(true)
+    }
+
+    static func capsule(_ presentation: NoteWorkStatus.Presentation, placement: Placement) -> some View {
+        NoteWorkStatusView(presentation, style: .capsule)
+            .padding(placement == .top ? .top : .bottom, placement == .top ? QuillSpacing.space8 : QuillSpacing.space60)
     }
 
     /// The note body's background: the text background on the Mac, the
@@ -166,6 +182,29 @@ public struct NoteWorkStatusOverlay: View {
         #else
         Color(uiColor: .systemBackground)
         #endif
+    }
+}
+
+extension View {
+    /// Covers this view with `NoteWorkStatusOverlay` while `presentation` is
+    /// set. With `.top` the view grows to at least the capsule's height, so
+    /// a capsule over one short line doesn't spill onto what follows; the
+    /// content keeps its identity when the cover comes and goes.
+    public func noteWorkStatusOverlay(
+        _ presentation: NoteWorkStatus.Presentation?,
+        placement: NoteWorkStatusOverlay.Placement = .center
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            self
+            if let presentation, placement == .top {
+                NoteWorkStatusOverlay.capsule(presentation, placement: placement).hidden()
+            }
+        }
+        .overlay {
+            if let presentation {
+                NoteWorkStatusOverlay(presentation, placement: placement)
+            }
+        }
     }
 }
 

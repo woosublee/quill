@@ -65,6 +65,38 @@
         }
       }
     },
+    "Preparing transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문 준비 중"
+          }
+        }
+      }
+    },
+    "Retranscription paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retranscription paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사 일시정지됨"
+          }
+        }
+      }
+    },
     "This uploads 1 note from this Mac.": {
       "localizations": {
         "en": {
@@ -141,6 +173,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요."
+          }
+        }
+      }
+    },
+    "Transcribing with %@...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribing with %@..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@로 전사 중..."
           }
         }
       }

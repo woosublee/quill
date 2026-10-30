@@ -171,6 +171,9 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let sharedStatusView = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatusView.swift", encoding: .utf8)) ?? ""
         precondition(sharedStatusView.contains(".fill(Self.noteBackground.opacity(QuillOpacity.statusWash))"))
         precondition(sharedStatusView.contains("Color(nsColor: .textBackgroundColor)"))
+        // The Mac's overlays keep the centred capsule; `.top` is the iPhone's.
+        precondition(sharedStatusView.contains("placement: Placement = .center"))
+        precondition(!source.contains("placement: .top"))
 
         // The layer says "Post-processing…" while a retry cleans up its transcript.
         precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))

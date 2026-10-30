@@ -15,6 +15,9 @@ struct NoteWorkStatusTests {
         testAllTitleKeysCoversEveryState()
         testToolbarProgressLabelsMatchTheStatus()
         testToolbarActionLabels()
+        testFractionProgress()
+        testIPhoneOnlyStates()
+        testWaitingToPostProcessToolbar()
         print("NoteWorkStatusTests passed")
     }
 
@@ -69,6 +72,10 @@ struct NoteWorkStatusTests {
             (.recovering, "Recovering…", .spinner, nil),
             (.creatingSummary, "Creating summary…", .spinner, nil),
             (.regeneratingSummary, "Regenerating summary…", .spinner, nil),
+            (.retranscriptionPaused(reason: nil), "Retranscription paused", .hidden, nil),
+            (.restartingTranscription(modelName: "Synthetic Model", nil), "Transcribing with %@...", .spinner, nil),
+            (.restartingTranscription(modelName: "Synthetic Model", half), "Transcribing with %@...", .spinner, half),
+            (.preparingTranscript(reason: nil), "Preparing transcript", .spinner, nil),
         ]
         for (status, key, indicator, expectedProgress) in rows {
             precondition(status.titleKey == key, "\(status) title")
@@ -96,6 +103,8 @@ struct NoteWorkStatusTests {
             NoteWorkStatus.waitingToTranscribe(reason: reason),
             .transcriptionPaused(reason: reason),
             .waitingToPostProcess(reason: reason),
+            .retranscriptionPaused(reason: reason),
+            .preparingTranscript(reason: reason),
         ] {
             precondition(present(status).detail == reason, "\(status) shows its reason")
         }
@@ -104,17 +113,19 @@ struct NoteWorkStatusTests {
 
     private static func testPausedHasNoSpinner() {
         precondition(NoteWorkStatus.transcriptionPaused(reason: nil).indicator == .hidden)
+        precondition(NoteWorkStatus.retranscriptionPaused(reason: nil).indicator == .hidden)
     }
 
     private static func testAllTitleKeysCoversEveryState() {
         let keys = Set(NoteWorkStatus.allTitleKeys)
-        precondition(keys.count == 12, "\(keys.count) keys")
+        precondition(keys.count == 15, "\(keys.count) keys")
         precondition(NoteWorkStatus.Kind.allCases.allSatisfy { kind in kind.examples.allSatisfy { $0.kind == kind } })
         for key in [
             "Waiting to transcribe...", "Transcribing...", "Transcribing %d of %d…",
             "Resuming cloud transcription…", "Retranscribing...", "Cancelling transcription...",
             "Transcription paused", "Waiting to post-process", "Post-processing...",
             "Recovering…", "Creating summary…", "Regenerating summary…",
+            "Retranscription paused", "Transcribing with %@...", "Preparing transcript",
         ] {
             precondition(keys.contains(key), key)
         }
@@ -129,6 +140,7 @@ struct NoteWorkStatusTests {
             (.transcribing, .transcribing(nil), "Transcribing..."),
             (.retranscribing, .retranscribing(nil), "Retranscribing..."),
             (.cancelling, .cancellingTranscription, "Cancelling transcription..."),
+            (.waitingToPostProcess, .waitingToPostProcess(reason: nil), "Waiting to post-process"),
             (.postProcessing, .postProcessing, "Post-processing..."),
         ]
         for (work, status, key) in rows {
@@ -152,6 +164,53 @@ struct NoteWorkStatusTests {
         ]
         for (action, key) in rows {
             precondition(action.labelKey == key, "\(action) label")
+        }
+    }
+
+    /// A finer fraction drives the bar; chunk counts, when given, still name
+    /// the title. Fraction-only progress names no chunks.
+    private static func testFractionProgress() {
+        guard let fine = NoteWorkProgress(completed: 1, total: 4, fraction: 0.375) else {
+            preconditionFailure("chunks with a fraction have progress")
+        }
+        precondition(fine.countsChunks && fine.current == 2 && fine.total == 4)
+        precondition(fine.fraction == 0.375 && fine.percent == 37)
+        precondition(fine != progress(1, of: 4), "the fraction is part of the value")
+        precondition(NoteWorkProgress(completed: 1, total: 4, fraction: .nan) == progress(1, of: 4), "a NaN fraction falls back to the counts")
+        precondition(NoteWorkProgress(completed: 1, total: 0, fraction: 0.5) == nil)
+        precondition(NoteWorkProgress(completed: 4, total: 4, fraction: 1)?.percent == 99, "never 100% while work runs")
+
+        guard let only = NoteWorkProgress(fraction: 0.5) else { preconditionFailure("a fraction has progress") }
+        precondition(!only.countsChunks && only.percent == 50 && only.current == 0)
+        precondition(NoteWorkProgress(fraction: 1.5)?.percent == 99)
+        precondition(NoteWorkProgress(fraction: -1)?.percent == 0)
+        precondition(NoteWorkProgress(fraction: .infinity) == nil)
+        // Without chunk counts the title doesn't say "N of M".
+        precondition(NoteWorkStatus.transcribing(only).titleKey == "Transcribing...")
+        precondition(present(.transcribing(only)).title == "Transcribing...")
+        precondition(present(.transcribing(only)).percentText == "50%")
+        precondition(present(.transcribing(fine)).title == "Transcribing 2 of 4…")
+        // Chunk-count progress (all the Mac sends) reads exactly as before.
+        precondition(progress(2, of: 3).countsChunks && progress(2, of: 3).fraction == 2.0 / 3.0)
+    }
+
+    /// The iPhone-only states the Mac never sends.
+    private static func testIPhoneOnlyStates() {
+        let restart = NoteWorkStatus.restartingTranscription(modelName: "Synthetic Model", progress(1, of: 2))
+            .presentation { key in key == "Transcribing with %@..." ? "%@로 전사 중..." : key }
+        precondition(restart.title == "Synthetic Model로 전사 중...", restart.title)
+        precondition(restart.percentText == "50%")
+        precondition(present(.preparingTranscript(reason: "Synthetic detail")).detail == "Synthetic detail")
+        precondition(!NoteWorkStatus.preparingTranscript(reason: nil).isSummaryWork)
+    }
+
+    /// Waiting for the cleanup model is cancelled like post-processing.
+    private static func testWaitingToPostProcessToolbar() {
+        for work in [NoteToolbarWork.waitingToPostProcess, .postProcessing] {
+            let state = NoteToolbarState.make(NoteToolbarInput(tab: .transcript, work: work, canCancelWork: true))
+            precondition(state.firstSlot == .button(.cancelPostProcessing, isEnabled: true), "\(work) cancels the cleanup")
+            let blocked = NoteToolbarState.make(NoteToolbarInput(tab: .transcript, work: work, canCancelWork: false))
+            precondition(blocked.firstSlot == .progress, "\(work) without a cancel path shows progress")
         }
     }
 }
