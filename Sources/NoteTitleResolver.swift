@@ -207,10 +207,7 @@ enum NoteTitleResolver {
         if item.postProcessingStatus == "live-recording" {
             return localizedCatalogString("Recording...", language: language, bundle: bundle)
         }
-        // Every interrupted placeholder form
-        // (`transcription-interrupted[:<reason>][:<mode>]`) is named alike.
-        if RecoveredRecordingContext.placeholderContext(for: item.postProcessingStatus) != nil
-            || item.machineStatus == .importing {
+        if item.isTranscriptionPlaceholder || item.machineStatus == .importing {
             return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
         }
         return nil
