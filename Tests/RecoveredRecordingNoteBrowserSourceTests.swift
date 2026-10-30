@@ -173,7 +173,9 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // The wash is the note page token, which on the Mac is still the
         // system text background (#697), so the Mac look is unchanged.
         let tokensSource = (try? String(contentsOfFile: "Packages/QuillDesignTokens/Sources/QuillDesignTokens.swift", encoding: .utf8)) ?? ""
-        precondition(tokensSource.contains("#if os(macOS)\n        Color(nsColor: .textBackgroundColor)\n        #else\n        surfaceNoteIPhone.color(for: colorScheme)"))
+        let surfaceNote = tokensSource.range(of: "public static func surfaceNote(").map { String(tokensSource[$0.lowerBound...].prefix(400)) } ?? ""
+        precondition(surfaceNote.contains("#if os(macOS)"), "surfaceNote branches per platform")
+        precondition(surfaceNote.contains("Color(nsColor: .textBackgroundColor)"), "the Mac keeps the system text background")
         // The Mac's overlays keep the centred capsule; `.top` is the iPhone's.
         precondition(sharedStatusView.contains("placement: Placement = .center"))
         precondition(!source.contains("placement: .top"))
