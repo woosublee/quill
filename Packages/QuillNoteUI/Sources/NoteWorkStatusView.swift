@@ -149,6 +149,12 @@ public struct NoteWorkStatusOverlay: View {
         /// At the top: over text inside a longer scrolling page, where the
         /// middle can be off screen (the iPhone note detail).
         case top
+
+        var alignment: Alignment { self == .top ? .top : .center }
+        /// The capsule sits a little above centre, or just below the top.
+        var capsuleInset: (edge: Edge.Set, length: CGFloat) {
+            self == .top ? (.top, QuillSpacing.space8) : (.bottom, QuillSpacing.space60)
+        }
     }
 
     let presentation: NoteWorkStatus.Presentation
@@ -160,7 +166,7 @@ public struct NoteWorkStatusOverlay: View {
     }
 
     public var body: some View {
-        ZStack(alignment: placement == .top ? .top : .center) {
+        ZStack(alignment: placement.alignment) {
             Rectangle()
                 .fill(Self.noteBackground.opacity(QuillOpacity.statusWash))
             Self.capsule(presentation, placement: placement)
@@ -171,7 +177,7 @@ public struct NoteWorkStatusOverlay: View {
 
     static func capsule(_ presentation: NoteWorkStatus.Presentation, placement: Placement) -> some View {
         NoteWorkStatusView(presentation, style: .capsule)
-            .padding(placement == .top ? .top : .bottom, placement == .top ? QuillSpacing.space8 : QuillSpacing.space60)
+            .padding(placement.capsuleInset.edge, placement.capsuleInset.length)
     }
 
     /// The note body's background: the text background on the Mac, the

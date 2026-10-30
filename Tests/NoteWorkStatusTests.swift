@@ -179,6 +179,10 @@ struct NoteWorkStatusTests {
         precondition(NoteWorkProgress(completed: 1, total: 4, fraction: .nan) == progress(1, of: 4), "a NaN fraction falls back to the counts")
         precondition(NoteWorkProgress(completed: 1, total: 0, fraction: 0.5) == nil)
         precondition(NoteWorkProgress(completed: 4, total: 4, fraction: 1)?.percent == 99, "never 100% while work runs")
+        // The bar stays within the chunk the title names.
+        precondition(NoteWorkProgress(completed: 3, total: 4, fraction: 0.1)?.fraction == 0.75)
+        precondition(NoteWorkProgress(completed: 0, total: 4, fraction: 0.9)?.fraction == 0.25)
+        precondition(NoteWorkProgress(completed: 1, total: 4, fraction: nil) == progress(1, of: 4))
 
         guard let only = NoteWorkProgress(fraction: 0.5) else { preconditionFailure("a fraction has progress") }
         precondition(!only.countsChunks && only.percent == 50 && only.current == 0)
@@ -197,8 +201,8 @@ struct NoteWorkStatusTests {
     /// The iPhone-only states the Mac never sends.
     private static func testIPhoneOnlyStates() {
         let restart = NoteWorkStatus.restartingTranscription(modelName: "Synthetic Model", progress(1, of: 2))
-            .presentation { key in key == "Transcribing with %@..." ? "%@로 전사 중..." : key }
-        precondition(restart.title == "Synthetic Model로 전사 중...", restart.title)
+            .presentation { key in key == "Transcribing with %@..." ? "%@ 모델로 전사 중..." : key }
+        precondition(restart.title == "Synthetic Model 모델로 전사 중...", restart.title)
         precondition(restart.percentText == "50%")
         precondition(present(.preparingTranscript(reason: "Synthetic detail")).detail == "Synthetic detail")
         precondition(!NoteWorkStatus.preparingTranscript(reason: nil).isSummaryWork)

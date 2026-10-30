@@ -188,7 +188,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@로 전사 중..."
+            "value": "%@ 모델로 전사 중..."
           }
         }
       }

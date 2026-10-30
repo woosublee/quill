@@ -17,22 +17,21 @@ public struct NoteWorkProgress: Equatable, Sendable {
     private let measuredFraction: Double?
 
     /// Nil when there is no total to measure against. `completed` is kept
-    /// within 0...total.
-    public init?(completed: Int, total: Int) {
+    /// within 0...total. A `fraction` is finer progress for the bar (the
+    /// iPhone counts progress inside the current chunk); it is kept within
+    /// the current chunk, so the bar never contradicts the "N of M" title,
+    /// and one that isn't a number falls back to the chunk counts.
+    public init?(completed: Int, total: Int, fraction: Double? = nil) {
         guard total > 0 else { return nil }
-        self.completed = min(max(completed, 0), total)
+        let completed = min(max(completed, 0), total)
+        self.completed = completed
         self.total = total
-        self.measuredFraction = nil
-    }
-
-    /// Chunk counts for the title, and a finer fraction for the bar (the
-    /// iPhone counts progress inside the current chunk). A fraction that
-    /// isn't a number falls back to the chunk counts.
-    public init?(completed: Int, total: Int, fraction: Double) {
-        guard total > 0 else { return nil }
-        self.completed = min(max(completed, 0), total)
-        self.total = total
-        self.measuredFraction = fraction.isFinite ? min(max(fraction, 0), 1) : nil
+        self.measuredFraction = fraction.flatMap { fraction in
+            guard fraction.isFinite else { return nil }
+            let low = Double(completed) / Double(total)
+            let high = Double(min(completed + 1, total)) / Double(total)
+            return min(max(fraction, low), high)
+        }
     }
 
     /// Work that reports only a fraction, with no chunks to name (an
@@ -225,7 +224,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
             case .creatingSummary: return [.creatingSummary]
             case .regeneratingSummary: return [.regeneratingSummary]
             case .retranscriptionPaused: return [.retranscriptionPaused(reason: nil)]
-            case .restartingTranscription: return [.restartingTranscription(modelName: "", nil)]
+            case .restartingTranscription: return [.restartingTranscription(modelName: "Model", nil)]
             case .preparingTranscript: return [.preparingTranscript(reason: nil)]
             }
         }
