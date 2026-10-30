@@ -28,7 +28,11 @@ struct CloudTranscriptionStartupReconciler {
         runtime: CloudTranscriptionExecutionSnapshot,
         localAI: LocalAITranscriptionResumeIdentity? = nil
     ) -> CloudTranscriptionStartupReconciliation {
-        let currentCloud = runtime.startupResumeIdentity
+        let hasAPIKey = !runtime.apiKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty
+        // Nothing to run a job with (no key, no local engine): it waits.
+        let currentCloud = hasAPIKey ? runtime.startupResumeIdentity : nil
         let currentLocalAI = localAI?.startupResumeIdentity
         var resumable: [CloudTranscriptionJobRecord] = []
         var waitingForRetry = base.waitingForRetry
@@ -40,10 +44,9 @@ struct CloudTranscriptionStartupReconciler {
             case .localAI:
                 current = currentLocalAI
             }
-            let compatible = record.resumeDecision(
-                current: current,
-                origin: .startup
-            ) == .resume
+            let compatible = current.map {
+                record.resumeDecision(current: $0, origin: .startup) == .resume
+            } ?? false
             if compatible {
                 resumable.append(record)
             } else {

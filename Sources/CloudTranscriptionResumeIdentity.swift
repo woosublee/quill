@@ -17,10 +17,9 @@ extension CloudTranscriptionCompletionPolicy {
 }
 
 extension CloudTranscriptionJobRecord {
-    /// Decides for this saved job against `current` (nil when nothing can run
-    /// it now).
+    /// Decides for this saved job against `current`.
     func resumeDecision(
-        current: CloudTranscriptionResumeIdentity?,
+        current: CloudTranscriptionResumeIdentity,
         origin: CloudTranscriptionResumeOrigin
     ) -> CloudTranscriptionResumeDecision {
         CloudTranscriptionResumeDecision.decide(
@@ -33,9 +32,9 @@ extension CloudTranscriptionJobRecord {
     /// The saved side, filling a plan field or the follow-up only where
     /// `current` fills it.
     func resumeIdentity(
-        comparedWith current: CloudTranscriptionResumeIdentity?
+        comparedWith current: CloudTranscriptionResumeIdentity
     ) -> CloudTranscriptionResumeIdentity {
-        let wanted = current?.plan ?? CloudTranscriptionResumePlan()
+        let wanted = current.plan
         return CloudTranscriptionResumeIdentity(
             providerID: identity.providerID,
             model: identity.model,
@@ -50,7 +49,7 @@ extension CloudTranscriptionJobRecord {
                 silenceSearchFrameCount: wanted.silenceSearchFrameCount == nil
                     ? nil : plan.silenceSearchFrameCount
             ),
-            followUp: current?.followUp == nil
+            followUp: current.followUp == nil
                 ? nil : completionPolicy.resumeFollowUp
         )
     }
@@ -58,11 +57,9 @@ extension CloudTranscriptionJobRecord {
 
 extension CloudTranscriptionExecutionSnapshot {
     /// At startup a cloud job also needs the current chunking version and
-    /// upload ceiling, and an API key to run with.
-    var startupResumeIdentity: CloudTranscriptionResumeIdentity? {
-        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return nil }
-        return CloudTranscriptionResumeIdentity(
+    /// upload ceiling.
+    var startupResumeIdentity: CloudTranscriptionResumeIdentity {
+        CloudTranscriptionResumeIdentity(
             providerID: providerID,
             model: model,
             language: language,

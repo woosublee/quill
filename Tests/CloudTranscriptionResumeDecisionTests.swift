@@ -9,7 +9,6 @@ struct CloudTranscriptionResumeDecisionTests {
         do {
             try matchingJobResumesFromEitherOrigin()
             try startupMismatchWaitsAndRetryMismatchStartsOver()
-            try nothingToRunWaits()
             try onlyARetryComparesTheFollowUp()
             try fieldsNeitherSideFillsAlwaysMatch()
             try aFieldOnlyOneSideFillsIsAMismatch()
@@ -66,7 +65,7 @@ struct CloudTranscriptionResumeDecisionTests {
 
     static func decide(
         _ saved: CloudTranscriptionResumeIdentity,
-        _ current: CloudTranscriptionResumeIdentity?,
+        _ current: CloudTranscriptionResumeIdentity,
         _ origin: CloudTranscriptionResumeOrigin
     ) -> CloudTranscriptionResumeDecision {
         CloudTranscriptionResumeDecision.decide(
@@ -117,11 +116,6 @@ struct CloudTranscriptionResumeDecisionTests {
             try expectEqual(decide(job(), current, .startup), .wait, "startup \(name) waits")
             try expectEqual(decide(job(), current, .userRetry), .startOver, "retry \(name) starts over")
         }
-    }
-
-    static func nothingToRunWaits() throws {
-        try expectEqual(decide(job(), nil, .startup), .wait, "startup with no key or engine")
-        try expectEqual(decide(job(), nil, .userRetry), .wait, "retry with no key or engine keeps the job")
     }
 
     static func onlyARetryComparesTheFollowUp() throws {

@@ -48,6 +48,8 @@ public struct CloudTranscriptionResumeIdentity: Equatable, Sendable {
 /// How the audio is cut into chunks. Every field is optional so each app
 /// fills the ones its planner has; a different value means the saved chunks
 /// no longer line up with a new plan.
+///
+/// A nil field means "not tracked", never a real value such as a default.
 public struct CloudTranscriptionResumePlan: Equatable, Sendable {
     /// The chunking algorithm's version.
     public let algorithmVersion: Int?
@@ -106,19 +108,21 @@ public enum CloudTranscriptionResumeDecision: Equatable, Sendable {
     /// Leave the saved job alone until the user retries.
     case wait
 
-    /// Decides for a saved job. `current` is nil when nothing can run the job
-    /// now, such as a missing API key or no local engine; the job then waits.
+    /// Decides for a saved job against the current settings.
     ///
     /// At startup a job resumes only when its transcription matches the
     /// current settings exactly; otherwise it waits. A user retry resumes
     /// when the transcription and the follow-up both match, and otherwise
-    /// starts over.
+    /// starts over, so a retry never waits.
+    ///
+    /// Whether anything can run the job now (an API key, a local engine) is
+    /// the caller's check: a startup with nothing to run it leaves the job
+    /// waiting without asking.
     public static func decide(
         saved: CloudTranscriptionResumeIdentity,
-        current: CloudTranscriptionResumeIdentity?,
+        current: CloudTranscriptionResumeIdentity,
         origin: CloudTranscriptionResumeOrigin
     ) -> Self {
-        guard let current else { return .wait }
         switch origin {
         case .startup:
             return saved.sameTranscription(as: current) ? .resume : .wait
