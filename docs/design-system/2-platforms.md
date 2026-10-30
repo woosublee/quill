@@ -58,6 +58,9 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `badge-label` | 8 Semibold | `.caption2` Semibold(11) |
 | `chip-label`(전사 방식 캡슐) | 11 Semibold | `.subheadline` Semibold(15) |
 | `empty-title` | 15 Semibold | `.subheadline` Semibold(15) |
+| `status-title`(작업 상태, #697) | 13 Semibold | `.subheadline` Semibold(15) |
+| `status-percent`(작업 백분율, #697에서 새로 추가) | 13, monospacedDigit | `.subheadline`(15), monospacedDigit |
+| `status-detail`(대기·일시정지 까닭, iPhone 상태용 새 스타일) | 12 | `.footnote`(13) |
 | `elapsed-time`(녹음) | 13 | `.title3` Rounded Semibold, monospacedDigit |
 | `timer-mono`(오디오 재생) | 9 | `.footnote` SF Mono Semibold |
 
@@ -199,6 +202,18 @@ macOS의 `SettingsCard` 하나 = iOS `List(.insetGrouped)`의 Section 하나. �
 | `SettingsSidebarRow` | 설정 루트 행(아이콘 없음) | 왼쪽 탭 목록 |
 | `OptionRow` | 이름 왼쪽 체크 표시 목록 행 | 같음 |
 | `ModelRow` | 목록 행 + 아이콘 버튼(받기·진행 원·휴지통)·용량 | 같음 |
+
+## 폭 구분(#697)
+
+화면은 기기 모델이 아니라 **담긴 곳의 폭**으로 배치를 정합니다. 목록을 노트 옆에 둘지는 창(scene) 전체 폭으로(안쪽 여백을 빼지 않음. Mac 창 최소 폭이 정확히 800입니다), 한 열 안의 배치는 그 열의 폭으로 정합니다(그래서 Mac 창은 늘 wide지만 노트 열만 보면 520까지 좁아질 수 있습니다). `QuillNoteUI`의 `QuillWidthClass(containerWidth:)`가 폭을 세 단계로 나눕니다. 경계는 `breakpoint-regular` 600, `breakpoint-wide` 800입니다.
+
+| 단계 | 폭 | 들어가는 곳 |
+| --- | --- | --- |
+| compact | < 600 | iPhone 세로(320–440), iPhone Duo 접힘(약 474), iPad Slide Over·좁은 분할 |
+| regular | 600–799 | iPhone Duo 펼침 세로(약 670), iPad mini 세로(744), 13인치 iPad 반 분할(683) |
+| wide | ≥ 800 | macOS 노트 창(최소 800 = 사이드바 280 + 노트 최소 520), 11인치 iPad 세로(820), iPad 가로, iPhone Duo 펼침 가로(약 950) |
+
+iPhone Duo 값은 추정입니다. 안쪽 7.58"와 바깥 5.36" 화면의 비율이 같고 대각선 비가 √2이므로 화면 비율은 약 √2:1이고, iPhone과 같은 밀도(약 153pt/inch)로 계산했습니다. 접고 펼 때 폭이 바뀌면 같은 화면이 상태를 지닌 채 다시 배치됩니다. iPhone 가로(667–956)는 폭에 따라 regular나 wide가 됩니다.
 
 ## iPad 구성(제안)
 

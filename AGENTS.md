@@ -101,17 +101,23 @@ otherwise.
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
-  (#697), built for macOS and iOS. So far the note toolbar: its state table
+  (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view
-  (`NoteFloatingToolbar`). Each app passes the note's state, its localized
-  strings, and the actions; the view holds no app state and runs no work.
+  (`NoteFloatingToolbar`), and the layout helper `QuillWidthClass`, which
+  turns a container's width into compact, regular, or wide, so screens lay
+  out by width, never by device model. Each app passes the note's state,
+  its localized strings, and the actions; the views hold no app state and
+  run no work.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the glass and toolbar
-  tints, the glass shadow, and the note toolbar sizes (a value per platform
-  where they differ). `Tests/QuillDesignTokensTests.swift` checks them
-  against `docs/design-system/tokens.json`; change both together.
+  (#623): spacing and radius scales, the issue colors, the glass, toolbar,
+  and hairline tints, the glass and status shadows, the status wash
+  opacity, the work-status text styles (a fixed size on the Mac, Dynamic
+  Type on iOS), the note toolbar and status progress sizes (a value per
+  platform where they differ), and the width breakpoints (#697).
+  `Tests/QuillDesignTokensTests.swift` checks them against
+  `docs/design-system/tokens.json`; change both together.
   `QuillNoteUI` imports it.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
