@@ -2,11 +2,11 @@ import Foundation
 import QuillDesignTokens
 
 /// Keeps the shared QuillDesignTokens module and docs/design-system/tokens.json
-/// in step for the tokens the module carries: the spacing and radius scales,
-/// the issue colors, the glass and toolbar tints, the glass shadow, and the
-/// note toolbar sizes. The scales fail on a token added, removed or changed
-/// on either side; the other families fail when a Swift token is missing
-/// from tokens.json or differs from it.
+/// in step for the tokens the module carries: the spacing, radius, and
+/// breakpoint scales, the issue colors, the tints, the shadows, the
+/// opacities, the text styles, and the control sizes. The scales fail on a
+/// token added, removed or changed on either side; the other families fail
+/// when a Swift token is missing from tokens.json or differs from it.
 @main
 struct QuillDesignTokensTests {
     static func main() {
@@ -17,6 +17,10 @@ struct QuillDesignTokensTests {
         testTintsMatchTokensFile(tokens)
         testShadowsMatchTokensFile(tokens)
         testNoteToolbarSizesMatchTokensFile(tokens)
+        testBreakpointsMatchTokensFile(tokens)
+        testOpacitiesMatchTokensFile(tokens)
+        testTypeStylesMatchTokensFile(tokens)
+        testStatusProgressSizeMatchesTokensFile(tokens)
         print("QuillDesignTokensTests passed")
     }
 
@@ -158,6 +162,66 @@ struct QuillDesignTokensTests {
         precondition(sizes["size-note-toolbar-button"] == Double(QuillControlSize.noteToolbarButtonMac), "size-note-toolbar-button")
         precondition(sizes["size-note-toolbar-button-iphone"] == Double(QuillControlSize.noteToolbarButtonIPhone), "size-note-toolbar-button-iphone")
         precondition(QuillControlSize.noteToolbarButton == QuillControlSize.noteToolbarButtonMac, "this Mac test sees the Mac value")
+    }
+
+    private static func testBreakpointsMatchTokensFile(_ tokens: [String: Any]) {
+        let swift = Dictionary(uniqueKeysWithValues: QuillBreakpoint.scale.map { ($0.name, Double($0.value)) })
+        assertSame(swift, lengths(tokens, family: "breakpoint"), "QuillBreakpoint")
+        let values = QuillBreakpoint.scale.map(\.value)
+        precondition(values == values.sorted() && Set(values).count == values.count, "breakpoints rise")
+    }
+
+    private static func testOpacitiesMatchTokensFile(_ tokens: [String: Any]) {
+        let entries = (tokens["opacity"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        for (name, value) in QuillOpacity.all {
+            guard let raw = entries.first(where: { $0["name"] as? String == name })?["value"] as? String,
+                  let file = Double(raw) else {
+                preconditionFailure("tokens.json has no opacity value for \(name)")
+            }
+            precondition(abs(value - file) < 0.0001, "\(name) is \(value) in Swift but \(raw) in tokens.json")
+        }
+        let swiftNames = Set(QuillOpacity.all.map(\.name))
+        for name in entries.compactMap({ $0["name"] as? String }) where name.hasPrefix("opacity-status-") {
+            precondition(swiftNames.contains(name), "tokens.json opacity \(name) is missing from QuillOpacity")
+        }
+    }
+
+    /// Size, line height and weight of each style, by name, across every type group.
+    private static func testTypeStylesMatchTokensFile(_ tokens: [String: Any]) {
+        let groups = (tokens["type"] as? [String: Any])?["groups"] as? [[String: Any]] ?? []
+        let styles = groups.flatMap { $0["styles"] as? [[String: Any]] ?? [] }
+        func points(_ value: Any?) -> Double? {
+            guard let raw = value as? String, raw.hasSuffix("px") else { return nil }
+            return Double(raw.dropLast(2))
+        }
+        for (name, style) in QuillTypeStyle.all {
+            guard let entry = styles.first(where: { $0["name"] as? String == name }),
+                  let size = points(entry["fontSize"]), let lineHeight = points(entry["lineHeight"]),
+                  let weight = entry["fontWeight"] as? Int else {
+                preconditionFailure("tokens.json has no px fontSize, lineHeight and fontWeight for \(name)")
+            }
+            precondition(Double(style.size) == size, "\(name) size \(style.size) vs tokens.json \(size)")
+            precondition(Double(style.lineHeight) == lineHeight, "\(name) line height \(style.lineHeight) vs tokens.json \(lineHeight)")
+            precondition(style.weight == weight, "\(name) weight \(style.weight) vs tokens.json \(weight)")
+        }
+        for (name, style) in QuillTypeStyle.all {
+            precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
+        }
+        precondition(QuillTypeStyle.statusTitle.fontWeight == .semibold, "600 is semibold")
+        precondition(QuillTypeStyle.statusPercent.fontWeight == .regular, "400 is regular")
+        precondition(QuillTypeStyle(size: 1, lineHeight: 1, weight: 350, dynamicStyle: .footnote).fontWeight == nil)
+        precondition(QuillTypeStyle.statusPercent.monospacedDigits, "a percentage keeps its width as it changes")
+        // The work-status styles are this module's: one only in tokens.json
+        // fails too.
+        let swiftNames = Set(QuillTypeStyle.all.map(\.name))
+        for name in styles.compactMap({ $0["name"] as? String }) where name.hasPrefix("status-") {
+            precondition(swiftNames.contains(name), "tokens.json style \(name) is missing from QuillTypeStyle")
+        }
+    }
+
+    private static func testStatusProgressSizeMatchesTokensFile(_ tokens: [String: Any]) {
+        let sizes = lengths(tokens, family: "size")
+        precondition(sizes["size-status-progress"] == Double(QuillControlSize.statusProgress), "size-status-progress")
     }
 
     /// Rounds half away from zero, as the hex values in tokens.json were

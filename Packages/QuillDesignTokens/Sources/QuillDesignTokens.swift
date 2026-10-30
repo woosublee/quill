@@ -13,6 +13,7 @@ public enum QuillSpacing {
     public static let space4: CGFloat = 4
     public static let space6: CGFloat = 6
     public static let space8: CGFloat = 8
+    public static let space9: CGFloat = 9
     public static let space10: CGFloat = 10
     public static let space12: CGFloat = 12
     public static let space14: CGFloat = 14
@@ -20,13 +21,15 @@ public enum QuillSpacing {
     public static let space20: CGFloat = 20
     public static let space24: CGFloat = 24
     public static let space40: CGFloat = 40
+    public static let space60: CGFloat = 60
 
     /// Every step by its token name, smallest first.
     public static let scale: [(name: String, value: CGFloat)] = [
         ("space-2", space2), ("space-3", space3), ("space-4", space4),
-        ("space-6", space6), ("space-8", space8), ("space-10", space10),
-        ("space-12", space12), ("space-14", space14), ("space-16", space16),
-        ("space-20", space20), ("space-24", space24), ("space-40", space40),
+        ("space-6", space6), ("space-8", space8), ("space-9", space9),
+        ("space-10", space10), ("space-12", space12), ("space-14", space14),
+        ("space-16", space16), ("space-20", space20), ("space-24", space24),
+        ("space-40", space40), ("space-60", space60),
     ]
 }
 
@@ -114,11 +117,19 @@ public enum QuillColor {
         dark: Tint(base: .primary, opacity: 0.12)
     )
 
+    /// `hairline-strong`: the 1 pt edge of a banner, an empty-state disc,
+    /// and the work-status capsule. The label color in both appearances.
+    public static let hairlineStrong = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .primary, opacity: 0.08)
+    )
+
     /// Every tint by its token name.
     public static let tints: [(name: String, value: SchemeTint)] = [
         ("stroke-glass", strokeGlass),
         ("fill-toolbar-hover", fillToolbarHover),
         ("fill-pressed", fillPressed),
+        ("hairline-strong", hairlineStrong),
     ]
 }
 
@@ -132,9 +143,14 @@ public struct QuillShadow: Sendable, Equatable {
     /// `shadow-glass`: glass capsules (the note toolbar, the deletion notice).
     public static let glass = QuillShadow(opacity: 0.085, radius: 14, x: 0, y: 4)
 
+    /// `shadow-status`: the work-status capsule over a note's text
+    /// ("Retranscribing...", "Creating summary…").
+    public static let status = QuillShadow(opacity: 0.12, radius: 8, x: 0, y: 2)
+
     /// Every shadow by its token name.
     public static let all: [(name: String, value: QuillShadow)] = [
         ("shadow-glass", glass),
+        ("shadow-status", status),
     ]
 }
 
@@ -160,4 +176,127 @@ public enum QuillControlSize {
     #else
     public static let noteToolbarButton = noteToolbarButtonIPhone
     #endif
+
+    /// `size-status-progress`: the width of a work-status progress bar.
+    public static let statusProgress: CGFloat = 200
+}
+
+/// Named opacities, applied to a whole view or a fill.
+public enum QuillOpacity {
+    /// `opacity-status-wash`: the note's own background laid over its text
+    /// while work will replace it, so the text stays readable underneath.
+    public static let statusWash: Double = 0.35
+
+    /// Every opacity this module carries, by its token name.
+    public static let all: [(name: String, value: Double)] = [
+        ("opacity-status-wash", statusWash),
+    ]
+}
+
+/// Text styles. On the Mac a style is a fixed size; on the iPhone and iPad
+/// it follows Dynamic Type from the text style docs/design-system/2-platforms.md
+/// maps it to. `lineHeight` is the Mac's line box from tokens.json, kept so
+/// the test can compare it: SwiftUI sets line spacing, not line height, so
+/// `font` doesn't use it.
+public struct QuillTypeStyle: Sendable, Equatable {
+    /// The system text style an iOS style scales with.
+    public enum DynamicStyle: Sendable, Equatable {
+        case subheadline
+        case footnote
+
+        public var textStyle: Font.TextStyle {
+            switch self {
+            case .subheadline: return .subheadline
+            case .footnote: return .footnote
+            }
+        }
+    }
+
+    /// The Mac size in points.
+    public let size: CGFloat
+    public let lineHeight: CGFloat
+    /// The CSS weight tokens.json uses, 100 to 900 in steps of 100.
+    public let weight: Int
+    public let dynamicStyle: DynamicStyle
+    /// Digits all one width, for numbers that change in place (a percentage).
+    public let monospacedDigits: Bool
+
+    public init(size: CGFloat, lineHeight: CGFloat, weight: Int, dynamicStyle: DynamicStyle, monospacedDigits: Bool = false) {
+        self.size = size
+        self.lineHeight = lineHeight
+        self.weight = weight
+        self.dynamicStyle = dynamicStyle
+        self.monospacedDigits = monospacedDigits
+    }
+
+    /// The SwiftUI weight for `weight`, or nil for a value that isn't one of
+    /// the nine CSS weights.
+    public var fontWeight: Font.Weight? {
+        switch weight {
+        case 100: return .ultraLight
+        case 200: return .thin
+        case 300: return .light
+        case 400: return .regular
+        case 500: return .medium
+        case 600: return .semibold
+        case 700: return .bold
+        case 800: return .heavy
+        case 900: return .black
+        default: return nil
+        }
+    }
+
+    public var font: Font {
+        let weight = fontWeight ?? .regular
+        #if os(macOS)
+        let font = Font.system(size: size, weight: weight)
+        #else
+        let font = Font.system(dynamicStyle.textStyle, weight: weight)
+        #endif
+        return monospacedDigits ? font.monospacedDigit() : font
+    }
+
+    /// `empty-title`: an empty state's title, and the work status shown
+    /// alone in the middle of a note with no text yet.
+    public static let emptyTitle = QuillTypeStyle(size: 15, lineHeight: 20, weight: 600, dynamicStyle: .subheadline)
+    /// `status-title`: the work status over a note's text ("Retranscribing...").
+    public static let statusTitle = QuillTypeStyle(size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline)
+    /// `status-percent`: the percentage beside a work status's progress bar.
+    public static let statusPercent = QuillTypeStyle(
+        size: 13, lineHeight: 16, weight: 400, dynamicStyle: .subheadline, monospacedDigits: true
+    )
+    /// `status-detail`: why work is waiting or paused, under its title.
+    public static let statusDetail = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .footnote)
+
+    /// Every style this module carries, by its token name.
+    public static let all: [(name: String, value: QuillTypeStyle)] = [
+        ("empty-title", emptyTitle),
+        ("status-title", statusTitle),
+        ("status-percent", statusPercent),
+        ("status-detail", statusDetail),
+    ]
+}
+
+/// Where a layout changes with the width it has (#697). A layout reads the
+/// width of what it arranges, not the device: whether the note list sits
+/// beside the note is decided from the window's (scene's) width, and a view
+/// inside one column decides from that column's width. The iPhone Duo
+/// crosses `regular` when it unfolds, and an iPad window crosses both as
+/// Split View and Stage Manager resize it. `QuillWidthClass` in QuillNoteUI
+/// turns a width into a class.
+public enum QuillBreakpoint {
+    /// `breakpoint-regular`: from here a layout has room for more than one
+    /// phone column. Every iPhone in portrait and the iPhone Duo folded sit
+    /// below it; the Duo unfolded and an iPad mini in portrait sit above it.
+    public static let regular: CGFloat = 600
+    /// `breakpoint-wide`: a window with room for the note list beside the
+    /// note, as on the Mac: its 280 pt list plus its narrowest 520 pt note
+    /// (the Mac note window's 800 pt minimum width).
+    public static let wide: CGFloat = 800
+
+    /// Every breakpoint by its token name, smallest first.
+    public static let scale: [(name: String, value: CGFloat)] = [
+        ("breakpoint-regular", regular),
+        ("breakpoint-wide", wide),
+    ]
 }
