@@ -456,6 +456,88 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             mismatch.waitingForRetry.map(\.historyID).contains(localRecord.historyID),
             "package digest mismatch waits"
         )
+
+        let otherCeiling = LocalAITranscriptionResumeIdentity(
+            providerID: matching.providerID,
+            model: matching.model,
+            language: matching.language,
+            responseFormat: matching.responseFormat,
+            ceilingBytes: matching.ceilingBytes + 1,
+            silenceSearchFrameCount: matching.silenceSearchFrameCount
+        )
+        let otherSilence = LocalAITranscriptionResumeIdentity(
+            providerID: matching.providerID,
+            model: matching.model,
+            language: matching.language,
+            responseFormat: matching.responseFormat,
+            ceilingBytes: matching.ceilingBytes,
+            silenceSearchFrameCount: 48_000
+        )
+        for (local, label) in [
+            (otherCeiling, "chunk ceiling"),
+            (otherSilence, "silence search"),
+        ] {
+            let result = reconciler.reconcile(base, runtime: cloudRuntime, localAI: local)
+            try expectEqual(
+                result.resumable.map(\.historyID),
+                [matchedCloud.historyID],
+                "local \(label) mismatch waits"
+            )
+            try expect(
+                result.waitingForRetry.map(\.historyID).contains(localRecord.historyID),
+                "local \(label) mismatch keeps the job for retry"
+            )
+        }
+
+        var unsizedPlan = localPlan
+        unsizedPlan.sizing = nil
+        var unsearchedPlan = localPlan
+        unsearchedPlan.silenceSearchFrameCount = nil
+        let unsized = replacingPlan(of: localRecord, with: unsizedPlan)
+        let unsearched = replacingPlan(of: localRecord, with: unsearchedPlan)
+        var sizedCloudPlan = matchedCloud.plan
+        sizedCloudPlan.sizing = .rawWAV
+        sizedCloudPlan.silenceSearchFrameCount = 1
+        let sizedCloud = replacingPlan(of: matchedCloud, with: sizedCloudPlan)
+        let planFields = reconciler.reconcile(
+            CloudTranscriptionReconciliation(
+                resumable: [unsized, unsearched, sizedCloud],
+                waitingForRetry: [],
+                invalid: []
+            ),
+            runtime: cloudRuntime,
+            localAI: matching
+        )
+        try expectEqual(
+            planFields.resumable.map(\.historyID),
+            [sizedCloud.historyID],
+            "local needs raw WAV sizing and its silence search; cloud compares neither"
+        )
+        try expectEqual(
+            Set(planFields.waitingForRetry.map(\.historyID)),
+            [unsized.historyID, unsearched.historyID],
+            "local plan-field mismatches wait"
+        )
+    }
+
+    private static func replacingPlan(
+        of record: CloudTranscriptionJobRecord,
+        with plan: CloudTranscriptionChunkPlan
+    ) -> CloudTranscriptionJobRecord {
+        CloudTranscriptionJobRecord(
+            schemaVersion: record.schemaVersion,
+            historyID: UUID(),
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            phase: record.phase,
+            identity: record.identity,
+            plan: plan,
+            completedChunks: record.completedChunks,
+            engineLanguageCode: record.engineLanguageCode,
+            firstIncompleteChunkIndex: record.firstIncompleteChunkIndex,
+            lastFailure: record.lastFailure,
+            completionPolicy: record.completionPolicy
+        )
     }
 
     private static func makeFixture() throws -> CoordinatorFixture {
