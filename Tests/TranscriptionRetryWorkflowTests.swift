@@ -64,6 +64,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testChangedTimestampRejectsCompletion()
         try await testStaleAttemptDeletesOnlyItsCreatedTranscript()
         try testStartupFilterResumesOnlyExactCompatibleRecords()
+        try testRetryCompatibilityComparesTheSameFieldsAsBefore()
         try testStartupFilterPreservesKeylessAndIncompatibleRecordsForRetry()
         try await testStartupResumeUsesPersistedCompletionPolicy()
         try await testStartupResumeUsesStoredContextAndHistoryOnlyDelivery()
@@ -2297,6 +2298,110 @@ struct TranscriptionRetryWorkflowTests {
         try expectEqual(result.invalid, [invalidID], "startup invalid IDs")
     }
 
+    /// A user retry compares fewer plan fields than startup does. Pins the
+    /// fields each retry check has always compared, through the shared rule.
+    private static func testRetryCompatibilityComparesTheSameFieldsAsBefore()
+        throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let configuration = defaultCloudConfiguration(fixture: fixture)
+        let cloud = try makeCloudState(
+            historyID: UUID(),
+            fixture: fixture,
+            configuration: configuration
+        )
+        let runtime = try requireCloudRuntime(cloud.execution)
+        let completion = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: true,
+            outputLanguage: "en",
+            pressEnterCommandEnabled: false
+        )
+        let otherCompletion = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: true,
+            outputLanguage: "en",
+            pressEnterCommandEnabled: true
+        )
+        try expect(
+            TranscriptionRetryWorkflow.isCompatibleRetry(
+                cloud.record, cloud: runtime, completion: completion
+            ),
+            "cloud retry with the same settings continues"
+        )
+        try expect(
+            TranscriptionRetryWorkflow.isCompatibleRetry(
+                replacingAlgorithmVersion(in: cloud.record, with: 0),
+                cloud: runtime,
+                completion: completion
+            ),
+            "cloud retry does not compare the chunking version"
+        )
+        try expect(
+            TranscriptionRetryWorkflow.isCompatibleRetry(
+                replacingPlanFields(
+                    in: cloud.record,
+                    sizing: .rawWAV,
+                    silenceSearchFrameCount: 1
+                ),
+                cloud: runtime,
+                completion: completion
+            ),
+            "cloud retry does not compare sizing or silence search"
+        )
+        try expect(
+            !TranscriptionRetryWorkflow.isCompatibleRetry(
+                cloud.record, cloud: runtime, completion: otherCompletion
+            ),
+            "cloud retry with another follow-up starts over"
+        )
+
+        let local = fakeLocalAISnapshot()
+        let localRecord = try makeLocalAIRecord(
+            historyID: UUID(),
+            fixture: fixture
+        )
+        try expect(
+            TranscriptionRetryWorkflow.isCompatibleLocalAIRetry(
+                localRecord, localAI: local, language: "en", completion: completion
+            ),
+            "local retry with the same settings continues"
+        )
+        try expect(
+            TranscriptionRetryWorkflow.isCompatibleLocalAIRetry(
+                replacingPlanFields(
+                    in: replacingAlgorithmVersion(in: localRecord, with: 0),
+                    sizing: .rawWAV,
+                    encodedUploadCeilingBytes: 1,
+                    silenceSearchFrameCount: 1
+                ),
+                localAI: local,
+                language: "en",
+                completion: completion
+            ),
+            "local retry does not compare version, ceiling, or silence search"
+        )
+        try expect(
+            !TranscriptionRetryWorkflow.isCompatibleLocalAIRetry(
+                replacingPlanFields(in: localRecord, sizing: nil),
+                localAI: local,
+                language: "en",
+                completion: completion
+            ),
+            "local retry needs raw WAV sizing"
+        )
+        try expect(
+            !TranscriptionRetryWorkflow.isCompatibleLocalAIRetry(
+                localRecord, localAI: local, language: "ko", completion: completion
+            ),
+            "local retry in another language starts over"
+        )
+        try expect(
+            !TranscriptionRetryWorkflow.isCompatibleLocalAIRetry(
+                localRecord, localAI: local, language: "en", completion: otherCompletion
+            ),
+            "local retry with another follow-up starts over"
+        )
+    }
+
     private static func testStartupFilterPreservesKeylessAndIncompatibleRecordsForRetry()
         throws {
         let fixture = try makeFixture()
@@ -3157,6 +3262,39 @@ struct TranscriptionRetryWorkflowTests {
             sourceFrameCount: record.plan.sourceFrameCount,
             chunks: record.plan.chunks,
             planID: record.plan.planID
+        )
+        return CloudTranscriptionJobRecord(
+            schemaVersion: record.schemaVersion,
+            historyID: record.historyID,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            phase: record.phase,
+            identity: record.identity,
+            plan: plan,
+            completedChunks: record.completedChunks,
+            engineLanguageCode: record.engineLanguageCode,
+            firstIncompleteChunkIndex: record.firstIncompleteChunkIndex,
+            lastFailure: record.lastFailure,
+            completionPolicy: record.completionPolicy
+        )
+    }
+
+    private static func replacingPlanFields(
+        in record: CloudTranscriptionJobRecord,
+        sizing: TranscriptionChunkSizingKind?,
+        encodedUploadCeilingBytes: UInt64? = nil,
+        silenceSearchFrameCount: UInt64? = nil
+    ) -> CloudTranscriptionJobRecord {
+        let plan = CloudTranscriptionChunkPlan(
+            algorithmVersion: record.plan.algorithmVersion,
+            encodedUploadCeilingBytes: encodedUploadCeilingBytes
+                ?? record.plan.encodedUploadCeilingBytes,
+            sourceFrameCount: record.plan.sourceFrameCount,
+            chunks: record.plan.chunks,
+            planID: record.plan.planID,
+            sizing: sizing,
+            silenceSearchFrameCount: silenceSearchFrameCount
+                ?? record.plan.silenceSearchFrameCount
         )
         return CloudTranscriptionJobRecord(
             schemaVersion: record.schemaVersion,

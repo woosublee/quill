@@ -1,4 +1,5 @@
 import Foundation
+import QuillProviderCore
 
 struct CloudTranscriptionStartupReconciliation: Equatable, Sendable {
     let resumable: [CloudTranscriptionJobRecord]
@@ -27,39 +28,20 @@ struct CloudTranscriptionStartupReconciler {
         runtime: CloudTranscriptionExecutionSnapshot,
         localAI: LocalAITranscriptionResumeIdentity? = nil
     ) -> CloudTranscriptionStartupReconciliation {
-        let hasAPIKey = !runtime.apiKey.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ).isEmpty
         var resumable: [CloudTranscriptionJobRecord] = []
         var waitingForRetry = base.waitingForRetry
         for record in base.resumable {
-            let compatible: Bool
+            let current: CloudTranscriptionResumeIdentity?
             switch record.identity.backend {
             case .cloud:
-                compatible = hasAPIKey
-                    && record.identity.providerID == runtime.providerID
-                    && record.identity.model == runtime.model
-                    && record.identity.language == runtime.language
-                    && record.identity.responseFormat == runtime.responseFormat
-                    && record.plan.algorithmVersion
-                        == CloudTranscriptionChunkPlan.currentAlgorithmVersion
-                    && record.plan.encodedUploadCeilingBytes
-                        == runtime.encodedUploadCeilingBytes
+                current = runtime.startupResumeIdentity
             case .localAI:
-                compatible = localAI.map { local in
-                    record.identity.providerID == local.providerID
-                        && record.identity.model == local.model
-                        && record.identity.language == local.language
-                        && record.identity.responseFormat == local.responseFormat
-                        && record.plan.algorithmVersion
-                            == CloudTranscriptionChunkPlan.currentAlgorithmVersion
-                        && record.plan.sizing == .rawWAV
-                        && record.plan.encodedUploadCeilingBytes
-                            == local.ceilingBytes
-                        && record.plan.silenceSearchFrameCount
-                            == local.silenceSearchFrameCount
-                } ?? false
+                current = localAI?.startupResumeIdentity
             }
+            let compatible = record.resumeDecision(
+                current: current,
+                origin: .startup
+            ) == .resume
             if compatible {
                 resumable.append(record)
             } else {
