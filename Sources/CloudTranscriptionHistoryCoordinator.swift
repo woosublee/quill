@@ -28,15 +28,17 @@ struct CloudTranscriptionStartupReconciler {
         runtime: CloudTranscriptionExecutionSnapshot,
         localAI: LocalAITranscriptionResumeIdentity? = nil
     ) -> CloudTranscriptionStartupReconciliation {
+        let currentCloud = runtime.startupResumeIdentity
+        let currentLocalAI = localAI?.startupResumeIdentity
         var resumable: [CloudTranscriptionJobRecord] = []
         var waitingForRetry = base.waitingForRetry
         for record in base.resumable {
             let current: CloudTranscriptionResumeIdentity?
             switch record.identity.backend {
             case .cloud:
-                current = runtime.startupResumeIdentity
+                current = currentCloud
             case .localAI:
-                current = localAI?.startupResumeIdentity
+                current = currentLocalAI
             }
             let compatible = record.resumeDecision(
                 current: current,

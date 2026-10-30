@@ -483,6 +483,10 @@ struct CloudTranscriptionHistoryCoordinatorTests {
                 [matchedCloud.historyID],
                 "local \(label) mismatch waits"
             )
+            try expect(
+                result.waitingForRetry.map(\.historyID).contains(localRecord.historyID),
+                "local \(label) mismatch keeps the job for retry"
+            )
         }
 
         var unsizedPlan = localPlan
@@ -509,6 +513,11 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             [sizedCloud.historyID],
             "local needs raw WAV sizing and its silence search; cloud compares neither"
         )
+        try expectEqual(
+            Set(planFields.waitingForRetry.map(\.historyID)),
+            [unsized.historyID, unsearched.historyID],
+            "local plan-field mismatches wait"
+        )
     }
 
     private static func replacingPlan(
@@ -524,6 +533,7 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             identity: record.identity,
             plan: plan,
             completedChunks: record.completedChunks,
+            engineLanguageCode: record.engineLanguageCode,
             firstIncompleteChunkIndex: record.firstIncompleteChunkIndex,
             lastFailure: record.lastFailure,
             completionPolicy: record.completionPolicy
