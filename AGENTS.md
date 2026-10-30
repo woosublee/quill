@@ -54,9 +54,10 @@ otherwise.
 - `Packages/QuillSummaryGenerationCore/`: how a meeting summary is made: the
   prompts, chunking (which, like cleanup, splits again any chunk whose
   counted prompt doesn't fit) and merging, the strict draft decoder,
-  evidence repair and output checks, and the summary errors. Model requests, fallbacks, and
-  cooldowns stay in `Sources/MeetingSummaryService.swift`, which plugs into
-  the generator as its draft requester.
+  evidence repair and output checks, and the summary errors. Model
+  requests, fallbacks, and cooldowns stay in
+  `Sources/MeetingSummaryService.swift`, which plugs into the generator as
+  its draft requester.
 - `Packages/QuillProviderCore/`: model rules shared with the iPhone app: the
   cloud and local model lists and capabilities, rate-limit cooldowns, the
   temperature capability cache, the request transport, provider URL checks,
