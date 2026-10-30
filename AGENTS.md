@@ -103,11 +103,16 @@ otherwise.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
   (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view
-  (`NoteFloatingToolbar`), and the layout helper `QuillWidthClass`, which
-  turns a container's width into compact, regular, or wide, so screens lay
-  out by width, never by device model. Each app passes the note's state,
-  its localized strings, and the actions; the views hold no app state and
-  run no work.
+  (`NoteFloatingToolbar`); the work status (`NoteWorkStatus`: every
+  transcribing, post-processing, summarizing, waiting, cancelling, and
+  paused state, its copy key, indicator, reason, and progress, and the
+  toolbar's work labels, read from the same table) and its views
+  (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
+  and the layout helper `QuillWidthClass`, which turns a container's width
+  into compact, regular, or wide, so screens lay out by width, never by
+  device model. The Mac maps its work in `Sources/NoteBrowserWorkStatus.swift`.
+  Each app passes the note's state, its localized strings, and the actions;
+  the views hold no app state and run no work.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app

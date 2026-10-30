@@ -11,7 +11,7 @@ public enum NoteToolbarTab: Equatable, Sendable {
 }
 
 /// The transcription work running for the note.
-public enum NoteToolbarWork: Equatable, Sendable {
+public enum NoteToolbarWork: Equatable, CaseIterable, Sendable {
     case none
     case waitingToTranscribe
     /// A first transcription.
@@ -36,7 +36,7 @@ public enum NoteToolbarTranscriptAction: Equatable, Sendable {
 }
 
 /// What the first slot does when pressed.
-public enum NoteToolbarFirstAction: Equatable, Sendable {
+public enum NoteToolbarFirstAction: Equatable, CaseIterable, Sendable {
     case transcribe
     case retry
     case retranscribe
