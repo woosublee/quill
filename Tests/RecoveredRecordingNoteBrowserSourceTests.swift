@@ -169,8 +169,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // Retrying covers the body with a loading layer instead of replacing it.
         precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
         let sharedStatusView = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatusView.swift", encoding: .utf8)) ?? ""
-        precondition(sharedStatusView.contains(".fill(Self.noteBackground.opacity(QuillOpacity.statusWash))"))
-        precondition(sharedStatusView.contains("Color(nsColor: .textBackgroundColor)"))
+        precondition(sharedStatusView.contains(".fill(QuillColor.surfaceNote(for: colorScheme).opacity(QuillOpacity.statusWash))"))
+        // The wash is the note page token, which on the Mac is still the
+        // system text background (#697), so the Mac look is unchanged.
+        let tokensSource = (try? String(contentsOfFile: "Packages/QuillDesignTokens/Sources/QuillDesignTokens.swift", encoding: .utf8)) ?? ""
+        precondition(tokensSource.contains("#if os(macOS)\n        Color(nsColor: .textBackgroundColor)\n        #else\n        surfaceNoteIPhone.color(for: colorScheme)"))
         // The Mac's overlays keep the centred capsule; `.top` is the iPhone's.
         precondition(sharedStatusView.contains("placement: Placement = .center"))
         precondition(!source.contains("placement: .top"))

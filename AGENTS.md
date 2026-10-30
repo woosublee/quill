@@ -116,7 +116,8 @@ otherwise.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the glass, toolbar,
+  (#623): spacing and radius scales, the issue colors, the note page
+  background (a color per platform, #697), the glass, toolbar,
   and hairline tints, the glass and status shadows, the status wash
   opacity, the work-status text styles (a fixed size on the Mac, Dynamic
   Type on iOS), the note toolbar and status progress sizes (a value per

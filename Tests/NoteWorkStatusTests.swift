@@ -64,7 +64,7 @@ struct NoteWorkStatusTests {
             (.resumingCloudTranscription(half), "Resuming cloud transcription…", .spinner, half),
             (.retranscribing(nil), "Retranscribing...", .spinner, nil),
             (.retranscribing(half), "Retranscribing...", .spinner, half),
-            (.cancellingTranscription, "Cancelling transcription...", .spinner, nil),
+            (.cancellingTranscription(reason: nil), "Cancelling transcription...", .spinner, nil),
             (.transcriptionPaused(reason: nil), "Transcription paused", .hidden, nil),
             (.waitingToPostProcess(reason: nil), "Waiting to post-process", .spinner, nil),
             // #697 decision 3: post-processing shows a spinner on both apps.
@@ -105,6 +105,7 @@ struct NoteWorkStatusTests {
             .waitingToPostProcess(reason: reason),
             .retranscriptionPaused(reason: reason),
             .preparingTranscript(reason: reason),
+            .cancellingTranscription(reason: reason),
         ] {
             precondition(present(status).detail == reason, "\(status) shows its reason")
         }
@@ -139,7 +140,7 @@ struct NoteWorkStatusTests {
             (.waitingToTranscribe, .waitingToTranscribe(reason: nil), "Waiting to transcribe..."),
             (.transcribing, .transcribing(nil), "Transcribing..."),
             (.retranscribing, .retranscribing(nil), "Retranscribing..."),
-            (.cancelling, .cancellingTranscription, "Cancelling transcription..."),
+            (.cancelling, .cancellingTranscription(reason: nil), "Cancelling transcription..."),
             (.waitingToPostProcess, .waitingToPostProcess(reason: nil), "Waiting to post-process"),
             (.postProcessing, .postProcessing, "Post-processing..."),
         ]

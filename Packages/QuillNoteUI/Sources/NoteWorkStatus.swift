@@ -79,8 +79,9 @@ public enum NoteWorkStatus: Equatable, Sendable {
     case resumingCloudTranscription(NoteWorkProgress?)
     /// Transcribing again over an existing transcript.
     case retranscribing(NoteWorkProgress?)
-    /// The iPhone stopping a transcription.
-    case cancellingTranscription
+    /// The iPhone stopping a transcription. The reason says what is kept
+    /// (the recording stays on the device).
+    case cancellingTranscription(reason: String?)
     /// The iPhone paused a transcription (memory, heat, background); it
     /// resumes or can be retried.
     case transcriptionPaused(reason: String?)
@@ -170,6 +171,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
     public var reason: String? {
         switch self {
         case .waitingToTranscribe(let reason), .transcriptionPaused(let reason), .waitingToPostProcess(let reason),
+             .cancellingTranscription(let reason),
              .retranscriptionPaused(let reason), .preparingTranscript(let reason):
             return reason.flatMap { $0.isEmpty ? nil : $0 }
         default:
@@ -216,7 +218,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
             case .transcribing: return [.transcribing(nil), .transcribing(NoteWorkProgress(completed: 0, total: 1))]
             case .resumingCloudTranscription: return [.resumingCloudTranscription(nil)]
             case .retranscribing: return [.retranscribing(nil)]
-            case .cancellingTranscription: return [.cancellingTranscription]
+            case .cancellingTranscription: return [.cancellingTranscription(reason: nil)]
             case .transcriptionPaused: return [.transcriptionPaused(reason: nil)]
             case .waitingToPostProcess: return [.waitingToPostProcess(reason: nil)]
             case .postProcessing: return [.postProcessing]
@@ -266,7 +268,7 @@ extension NoteToolbarWork {
         case .waitingToTranscribe: return .waitingToTranscribe(reason: nil)
         case .transcribing: return .transcribing(nil)
         case .retranscribing: return .retranscribing(nil)
-        case .cancelling: return .cancellingTranscription
+        case .cancelling: return .cancellingTranscription(reason: nil)
         case .waitingToPostProcess: return .waitingToPostProcess(reason: nil)
         case .postProcessing: return .postProcessing
         }

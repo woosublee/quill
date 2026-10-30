@@ -160,6 +160,8 @@ public struct NoteWorkStatusOverlay: View {
     let presentation: NoteWorkStatus.Presentation
     let placement: Placement
 
+    @Environment(\.colorScheme) private var colorScheme
+
     public init(_ presentation: NoteWorkStatus.Presentation, placement: Placement = .center) {
         self.presentation = presentation
         self.placement = placement
@@ -168,7 +170,7 @@ public struct NoteWorkStatusOverlay: View {
     public var body: some View {
         ZStack(alignment: placement.alignment) {
             Rectangle()
-                .fill(Self.noteBackground.opacity(QuillOpacity.statusWash))
+                .fill(QuillColor.surfaceNote(for: colorScheme).opacity(QuillOpacity.statusWash))
             Self.capsule(presentation, placement: placement)
         }
         .transition(.opacity)
@@ -178,16 +180,6 @@ public struct NoteWorkStatusOverlay: View {
     static func capsule(_ presentation: NoteWorkStatus.Presentation, placement: Placement) -> some View {
         NoteWorkStatusView(presentation, style: .capsule)
             .padding(placement.capsuleInset.edge, placement.capsuleInset.length)
-    }
-
-    /// The note body's background: the text background on the Mac, the
-    /// system background on iOS.
-    private static var noteBackground: Color {
-        #if os(macOS)
-        Color(nsColor: .textBackgroundColor)
-        #else
-        Color(uiColor: .systemBackground)
-        #endif
     }
 }
 
