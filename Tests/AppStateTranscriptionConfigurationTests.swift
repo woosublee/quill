@@ -103,6 +103,8 @@ private final class ControlledRetryCloudUpload: @unchecked Sendable {
 struct AppStateTranscriptionConfigurationTests {
     static func main() async throws {
         try testDefaultAppStateUsesExplicitCredentialLayout()
+        try testClearingAnAgreedKeyWithdrawsItsProvider()
+        try testClearingAKeySavedBeforeConsentOnlyDeletesIt()
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
@@ -336,6 +338,85 @@ struct AppStateTranscriptionConfigurationTests {
         let appState = makeAppState()
 
         precondition(appState.apiKey == "suite-key")
+    }
+
+    /// #723: clearing a key that goes to an agreed provider withdraws that
+    /// provider, so saving it again asks again. Synthetic hosts and keys.
+    private static func testClearingAnAgreedKeyWithdrawsItsProvider() throws {
+        resetCredentialStore()
+        UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        defer {
+            resetCredentialStore()
+            UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        }
+        let mainURL = "https://api.example-consent.test/v1"
+        let voiceURL = "https://voice.example-consent.test/v1"
+        let appState = makeAppState()
+        appState.apiBaseURL = mainURL
+        appState.apiKey = "sk-synthetic-main"
+        appState.grantCloudConsent(forBaseURL: mainURL)
+
+        // The main key: withdraw, the key is gone from the Keychain too.
+        guard let main = appState.cloudConsentTarget(forClearing: .main) else {
+            preconditionFailure("an agreed main key withdraws its provider")
+        }
+        precondition(main.origin == "https://api.example-consent.test")
+        appState.isRecording = true
+        precondition(!appState.withdrawCloudConsent(for: main), "refused while recording")
+        precondition(appState.apiKey == "sk-synthetic-main" && appState.cloudConsent.hasConsent(forBaseURL: mainURL))
+        appState.isRecording = false
+        precondition(appState.withdrawCloudConsent(for: main))
+        precondition(appState.apiKey.isEmpty)
+        precondition(credentialStore.load(account: CredentialStore.providerAPIKeyAccount) == nil)
+        precondition(!appState.cloudConsent.hasConsent(forBaseURL: mainURL))
+        precondition(CloudConsentLedger.load(from: .standard).grants.isEmpty, "the withdrawal is stored")
+        var again = appState.cloudConsentTargets
+        again.apiKey = "sk-synthetic-main"
+        precondition(again.unconsented(in: appState.cloudConsent).map(\.baseURL) == [mainURL], "saving it again asks again")
+
+        // Two keys for one provider: clearing the transcription key clears both.
+        appState.apiKey = "sk-synthetic-main"
+        appState.transcriptionAPIKey = "sk-synthetic-voice"
+        appState.grantCloudConsent(forBaseURL: mainURL)
+        guard let shared = appState.cloudConsentTarget(forClearing: .transcription) else {
+            preconditionFailure("the transcription key goes to the agreed main provider")
+        }
+        precondition(appState.withdrawCloudConsent(for: shared))
+        precondition(appState.apiKey.isEmpty && appState.transcriptionAPIKey.isEmpty, "both keys are cleared")
+        precondition(credentialStore.load(account: CredentialStore.transcriptionAPIKeyAccount) == nil)
+
+        // A separate transcription provider: its key and URL go, the main pair stays.
+        appState.apiKey = "sk-synthetic-main"
+        appState.transcriptionAPIURL = voiceURL
+        appState.transcriptionAPIKey = "sk-synthetic-voice"
+        appState.grantCloudConsent(forBaseURL: mainURL)
+        appState.grantCloudConsent(forBaseURL: voiceURL)
+        guard let voice = appState.cloudConsentTarget(forClearing: .transcription) else {
+            preconditionFailure("an agreed transcription key withdraws its provider")
+        }
+        precondition(voice.origin == "https://voice.example-consent.test")
+        precondition(appState.withdrawCloudConsent(for: voice))
+        precondition(appState.transcriptionAPIKey.isEmpty && appState.transcriptionAPIURL.isEmpty)
+        precondition(appState.apiKey == "sk-synthetic-main" && appState.cloudConsent.hasConsent(forBaseURL: mainURL))
+        precondition(!appState.cloudConsent.hasConsent(forBaseURL: voiceURL))
+    }
+
+    private static func testClearingAKeySavedBeforeConsentOnlyDeletesIt() throws {
+        resetCredentialStore()
+        UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        defer {
+            resetCredentialStore()
+            UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        }
+        let appState = makeAppState()
+        appState.apiBaseURL = "https://api.example-consent.test/v1"
+        appState.apiKey = "sk-synthetic-main"
+        appState.transcriptionAPIKey = "sk-synthetic-voice"
+        precondition(appState.cloudConsentTarget(forClearing: .main) == nil, "no consent, so Settings only deletes the key")
+        precondition(appState.cloudConsentTarget(forClearing: .transcription) == nil)
+        appState.apiKey = ""
+        precondition(credentialStore.load(account: CredentialStore.providerAPIKeyAccount) == nil, "deleted as before")
+        precondition(appState.transcriptionAPIKey == "sk-synthetic-voice", "the other key stays")
     }
 
     private static func transcriptionTestDependencies(

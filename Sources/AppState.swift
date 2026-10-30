@@ -709,9 +709,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
         cloudConsent.save(to: .standard)
     }
 
+    /// The provider clearing a key withdraws (#723): where the key goes, when
+    /// that provider was agreed to. Settings then runs the same withdrawal as
+    /// Withdraw. Nil for a key saved before consent, which is only deleted.
+    func cloudConsentTarget(
+        forClearing field: CloudConsentTargets.KeyField
+    ) -> CloudConsentTargets.Target? {
+        cloudConsentTargets.consentedTarget(forClearing: field, in: cloudConsent)
+    }
+
     /// Withdrawing clears each saved key that would go to that provider, so
     /// nothing more is sent there until a key is saved (and agreed to) again.
-    func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
+    /// It's refused while recording or transcribing, as a realtime stream
+    /// keeps sending until it ends; Settings says so before calling this.
+    @discardableResult
+    func withdrawCloudConsent(for target: CloudConsentTargets.Target) -> Bool {
+        guard !isTranscriptionConfigurationLocked else { return false }
         let withdrawal = cloudConsentTargets.withdrawal(forOrigin: target.origin)
         // A cleared key goes from the Keychain too, one it couldn't return at
         // launch included: a later launch could read it and send it here.
@@ -730,13 +743,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 prefix: localizedCatalogString("Unable to save API key"),
                 providerDetail: error.localizedDescription
             )
-            return
+            return false
         }
         cloudConsent.revoke(forBaseURL: target.baseURL)
         cloudConsent.save(to: .standard)
         if withdrawal.clearsAPIKey { apiKey = "" }
         if withdrawal.clearsTranscriptionAPIKey { transcriptionAPIKey = "" }
         if withdrawal.clearsTranscriptionAPIURL { transcriptionAPIURL = "" }
+        return true
     }
 
     @Published var transcriptionModel: String {

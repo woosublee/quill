@@ -1646,6 +1646,12 @@ struct ModelsSettingsView: View {
     @State private var transcriptionAPIKeyInput: String = ""
     @State private var cloudConsentRequest: CloudConsentRequest?
     @State private var cloudConsentWithdrawalTarget: CloudConsentTargets.Target?
+    /// The key field whose clearing opened the withdrawal (#723); cancelling
+    /// puts the saved key back in it.
+    @State private var cloudConsentClearedKeyField: CloudConsentTargets.KeyField?
+    /// The key field cleared while recording or transcribing, which shows why
+    /// the key stays.
+    @State private var cloudConsentClearBusyField: CloudConsentTargets.KeyField?
     @State private var transcriptionModelDraft = ""
     @State private var transcriptionEnabledDraft = false
     @State private var transcriptionChoiceDraft: TranscriptionBackendChoice?
@@ -1900,6 +1906,10 @@ struct ModelsSettingsView: View {
 
             providerValidationStatus
 
+            if cloudConsentClearBusyField == .main {
+                clearKeyBusyMessage
+            }
+
             cloudConsentStatus
 
             DisclosureGroup(isExpanded: $advancedProviderSettingsExpanded) {
@@ -1930,6 +1940,11 @@ struct ModelsSettingsView: View {
             } label: {
                 Text("Advanced Provider Settings")
             }
+        }
+        // Restoring the key changes its field, so the message goes when the
+        // work ends, not on a change to the field.
+        .onChange(of: appState.isTranscriptionConfigurationLocked) { locked in
+            if !locked { cloudConsentClearBusyField = nil }
         }
     }
 
@@ -1986,7 +2001,15 @@ struct ModelsSettingsView: View {
                 "Withdraw consent and clear the key?",
                 isPresented: Binding(
                     get: { cloudConsentWithdrawalTarget != nil },
-                    set: { if !$0 { cloudConsentWithdrawalTarget = nil } }
+                    set: {
+                        guard !$0 else { return }
+                        cloudConsentWithdrawalTarget = nil
+                        // A cleared key that wasn't withdrawn is still saved.
+                        if let field = cloudConsentClearedKeyField {
+                            cloudConsentClearedKeyField = nil
+                            restoreSavedKeyInput(field)
+                        }
+                    }
                 ),
                 titleVisibility: .visible,
                 presenting: cloudConsentWithdrawalTarget
@@ -2017,10 +2040,49 @@ struct ModelsSettingsView: View {
     }
 
     private func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
+        cloudConsentClearedKeyField = nil
         appState.withdrawCloudConsent(for: target)
         apiKeyInput = appState.apiKey
         transcriptionAPIURLInput = appState.transcriptionAPIURL
         transcriptionAPIKeyInput = appState.transcriptionAPIKey
+    }
+
+    /// Clearing a key that goes to an agreed provider withdraws that provider,
+    /// as Withdraw does (#723): the same confirmation, refused while recording
+    /// or transcribing, and every key that goes there is cleared. Saving the
+    /// key again asks again. Returns false for a key saved before consent,
+    /// which the caller only deletes, as before.
+    private func withdrawConsentIfClearing(_ field: CloudConsentTargets.KeyField) -> Bool {
+        // A confirmation already up handles this clear.
+        guard cloudConsentWithdrawalTarget == nil else { return true }
+        guard let target = appState.cloudConsentTarget(forClearing: field) else { return false }
+        guard !appState.isTranscriptionConfigurationLocked else {
+            cloudConsentClearBusyField = field
+            restoreSavedKeyInput(field)
+            return true
+        }
+        cloudConsentClearBusyField = nil
+        cloudConsentClearedKeyField = field
+        cloudConsentWithdrawalTarget = target
+        return true
+    }
+
+    private func restoreSavedKeyInput(_ field: CloudConsentTargets.KeyField) {
+        switch field {
+        case .main:
+            apiKeyInput = appState.apiKey
+        case .transcription:
+            // Saved with its URL, so the URL goes back too.
+            transcriptionAPIURLInput = appState.transcriptionAPIURL
+            transcriptionAPIKeyInput = appState.transcriptionAPIKey
+        }
+    }
+
+    private var clearKeyBusyMessage: some View {
+        Text("You can't withdraw while recording or transcribing. Try again when it finishes.")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -3473,6 +3535,10 @@ struct ModelsSettingsView: View {
                 )
             }
 
+            if cloudConsentClearBusyField == .transcription {
+                clearKeyBusyMessage
+            }
+
             if transcriptionPairCheckID != nil {
                 HStack(spacing: 6) {
                     ProgressView()
@@ -3707,6 +3773,7 @@ struct ModelsSettingsView: View {
             checkTranscriptionProviderPair()
             return
         }
+        if key.isEmpty, withdrawConsentIfClearing(.transcription) { return }
         // Both fields are one change, so one cancel undoes both.
         let newKey = appState.transcriptionAPIKey != key && !key.isEmpty
         askCloudConsent(
@@ -3732,6 +3799,7 @@ struct ModelsSettingsView: View {
         let trimmed = transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         transcriptionAPIKeyInput = trimmed
         guard appState.transcriptionAPIKey != trimmed else { return }
+        if trimmed.isEmpty, withdrawConsentIfClearing(.transcription) { return }
         // Clearing the key falls back to the main key, which may be new to
         // the transcription provider; cancelling that keeps the saved key.
         askCloudConsent(
@@ -3790,8 +3858,9 @@ struct ModelsSettingsView: View {
         keyValidationReason = nil
         if key.isEmpty {
             keyValidationCheckID = nil
-            appState.apiKey = ""
             isValidatingKey = false
+            if withdrawConsentIfClearing(.main) { return }
+            appState.apiKey = ""
             return
         }
 

@@ -73,6 +73,45 @@ public struct CloudConsentTargets: Equatable, Sendable {
         }
     }
 
+    /// A key field a person can clear in settings.
+    public enum KeyField: Equatable, Sendable {
+        /// The main key, which goes to the API base URL.
+        case main
+        /// Transcription's own key, which goes to the transcription URL (or
+        /// the main URL when that is empty).
+        case transcription
+    }
+
+    /// The provider whose consent clearing `field`'s key withdraws (#723),
+    /// the same on both apps: where that key goes, when that provider has
+    /// consent. Clearing such a key runs the same withdrawal as Withdraw
+    /// (`withdrawal(forOrigin:)`), so saving it again asks again. Consent is
+    /// per provider, so every key that goes there is cleared, both keys when
+    /// they share one.
+    ///
+    /// Nil when there's nothing to withdraw: the field has no saved key (an
+    /// unreadable key can't be cleared from its empty field; Withdraw clears
+    /// it), the key goes nowhere, or its provider was never agreed to (a key
+    /// saved before consent existed). The key is then only deleted.
+    public func consentedTarget(
+        forClearing field: KeyField,
+        in ledger: CloudConsentLedger
+    ) -> Target? {
+        let baseURL: String
+        switch field {
+        case .main:
+            guard !Self.isBlank(apiKey) else { return nil }
+            baseURL = apiBaseURL
+        case .transcription:
+            guard !Self.isBlank(transcriptionAPIKey) else { return nil }
+            baseURL = resolvedTranscriptionURL
+        }
+        guard let origin = CloudProviderURL.origin(of: baseURL),
+              let target = targets.first(where: { $0.origin == origin }),
+              ledger.hasConsent(forBaseURL: target.baseURL) else { return nil }
+        return target
+    }
+
     public var resolvedTranscriptionURL: String {
         let trimmed = Self.trimmed(transcriptionAPIURL)
         return trimmed.isEmpty ? apiBaseURL : trimmed
