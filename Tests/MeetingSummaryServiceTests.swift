@@ -29,6 +29,7 @@ struct MeetingSummaryServiceTests {
         try await testDenseChunkIsSplitAgainUntilItsPromptFits()
         try await testChunksWithoutADenseSectionStayTheByteCut()
         try await testUnsplittableDenseChunkFailsAsOverBudget()
+        try await testWhitespaceOnlyResplitPieceIsDropped()
         try await testCompactMergeIsSkippedWithTheSameRoom()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
@@ -879,9 +880,26 @@ struct MeetingSummaryServiceTests {
                 "every extraction prompt fits (\(tokens) tokens)"
             )
         }
+        // The pieces cover the transcript in order; only whitespace between
+        // them may be left out.
+        let pieces = try prompts.map(extractionTranscript)
+        var cursor = transcript.startIndex
+        for piece in pieces {
+            let found = try transcript.range(of: piece, range: cursor..<transcript.endIndex)
+                .unwrap("piece in order")
+            try expect(
+                transcript[cursor..<found.lowerBound].allSatisfy(\.isWhitespace),
+                "no text is skipped between pieces"
+            )
+            cursor = found.upperBound
+        }
         try expect(
-            prompts.contains { $0.user.contains("\u{1F642}") },
-            "the dense section is still summarized"
+            transcript[cursor...].allSatisfy(\.isWhitespace),
+            "no text is skipped at the end"
+        )
+        try expect(
+            pieces.joined().filter { $0 == "\u{1F642}" }.count == 60,
+            "every dense character is summarized once"
         )
         // The same transcript's byte cut, as before #716.
         let transcriptTokens = try await counter.tokenCount(forRenderedChatPrompt: transcript)
@@ -915,6 +933,42 @@ struct MeetingSummaryServiceTests {
         }
         try expect(thrown == .invalidResponse(.contextBudget), "an unsplittable chunk fails with contextBudget")
         try expect(requester.extractionCount() == 0, "no extraction is requested")
+    }
+
+    /// #716: re-splitting "🙂  " at half its bytes leaves a piece of two
+    /// spaces. It is dropped, as cleanup's splitter drops one, instead of
+    /// being sent as an empty transcript.
+    private static func testWhitespaceOnlyResplitPieceIsDropped() async throws {
+        // "🙂" counts 16 tokens and fits 17 tokens of room; "🙂  " counts 18.
+        let counter = MeetingSummaryEmojiDenseTokenCounter()
+        let window = try await extractionWindow(room: 17, counter: counter)
+        let requester = MeetingSummaryCountingRequester()
+        do {
+            _ = try await MeetingSummaryGenerator(
+                requester: requester,
+                tokenBudgeter: LocalAITokenBudgeter(contextWindow: window, tokenCounter: counter)
+            ).generate(source: MeetingSummarySource(
+                transcript: "\u{1F642}  \u{1F642}",
+                calendar: nil,
+                languageContext: summaryLanguage
+            ))
+        } catch MeetingSummaryError.invalidResponse(.mergeBudget, _) {
+            // The two partials can't be merged in 17 tokens; only the
+            // extractions matter here.
+        }
+        let pieces = try requester.extractionPrompts().map(extractionTranscript)
+        try expect(
+            pieces == ["\u{1F642}", "\u{1F642}"],
+            "only the two emoji are summarized (got \(pieces.map(\.unicodeScalars.count)))"
+        )
+    }
+
+    /// The `data.transcript` an extraction prompt sends.
+    private static func extractionTranscript(_ prompt: MeetingSummaryPrompt) throws -> String {
+        let json = try prompt.user.range(of: "\n\n").unwrap("envelope").upperBound
+        let object = try JSONSerialization.jsonObject(with: Data(prompt.user[json...].utf8))
+        let data = (object as? [String: Any])?["data"] as? [String: Any]
+        return try (data?["transcript"] as? String).unwrap("data.transcript")
     }
 
     /// #716: without a dense section, a counter that counts this ASCII

@@ -405,8 +405,12 @@ public struct MeetingSummaryGenerator: Sendable {
         let evidenceVerification: MeetingSummaryEvidenceVerification
     }
 
-    /// An extraction prompt and the budget it was counted against.
-    private typealias FittedExtraction = (prompt: MeetingSummaryPrompt, budget: LocalAITokenBudget)
+    /// A chunk, its extraction prompt, and the budget it was counted against.
+    private typealias FittedExtraction = (
+        chunk: MeetingSummaryTextChunk,
+        prompt: MeetingSummaryPrompt,
+        budget: LocalAITokenBudget
+    )
 
     private let requester: any MeetingSummaryDraftRequesting
     private let tokenBudgeter: LocalAITokenBudgeter
@@ -537,11 +541,16 @@ public struct MeetingSummaryGenerator: Sendable {
     /// piece fits, as cleanup does (#716). A chunk denser than the
     /// transcript's average can outgrow the byte cut. When every byte-cut
     /// chunk fits, as it does with the byte counter unless JSON escaping
-    /// outgrows the halved room, the prompts are the byte cut's. A piece that can't be split and still doesn't fit fails
-    /// as an over-budget prompt, as its request would.
+    /// outgrows the halved room, the chunks are the byte cut's. A piece that
+    /// can't be split and still doesn't fit fails as an over-budget prompt,
+    /// as its request would.
     ///
-    /// Returns each prompt with the budget it was checked against, so its
-    /// request doesn't build and count it again.
+    /// A re-split piece that is only whitespace is dropped, as cleanup's
+    /// splitter never returns one. The kept chunks are numbered in order,
+    /// with offsets into the whole transcript.
+    ///
+    /// Returns each chunk's prompt with the budget it was checked against,
+    /// so its request doesn't build and count it again.
     private func fittedExtractions(
         _ byteChunks: [MeetingSummaryTextChunk],
         calendar: MeetingSummaryCalendarContext?,
@@ -559,7 +568,13 @@ public struct MeetingSummaryGenerator: Sendable {
                 forRenderedChatPrompt: renderedPrompt(prompt),
                 role: .summaryExtraction
             ) {
-                fitted.append((prompt, budget))
+                let numbered = MeetingSummaryTextChunk(
+                    index: fitted.count,
+                    startOffset: chunk.startOffset,
+                    endOffset: chunk.endOffset,
+                    text: chunk.text
+                )
+                fitted.append((numbered, prompt, budget))
                 continue
             }
             let pieces = MeetingSummaryTextChunker(
@@ -568,7 +583,18 @@ public struct MeetingSummaryGenerator: Sendable {
             guard pieces.count > 1 else {
                 throw MeetingSummaryError.invalidResponse(.contextBudget)
             }
-            pending.append(contentsOf: pieces.reversed())
+            // Each piece is shorter than its chunk, so this ends.
+            let kept = pieces
+                .filter { !$0.text.allSatisfy(\.isWhitespace) }
+                .map {
+                    MeetingSummaryTextChunk(
+                        index: 0,
+                        startOffset: chunk.startOffset + $0.startOffset,
+                        endOffset: chunk.startOffset + $0.endOffset,
+                        text: $0.text
+                    )
+                }
+            pending.append(contentsOf: kept.reversed())
         }
         return fitted
     }
