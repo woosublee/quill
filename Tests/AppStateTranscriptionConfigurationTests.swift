@@ -357,11 +357,12 @@ struct AppStateTranscriptionConfigurationTests {
         appState.grantCloudConsent(forBaseURL: mainURL)
 
         // The main key: withdraw, the key is gone from the Keychain too.
-        guard let main = appState.cloudConsentTarget(forClearing: .main) else {
+        guard case .withdraw(let main) = appState.cloudConsentKeyClear(.main) else {
             preconditionFailure("an agreed main key withdraws its provider")
         }
         precondition(main.origin == "https://api.example-consent.test")
         appState.isRecording = true
+        precondition(appState.cloudConsentKeyClear(.main) == .refusedWhileBusy, "Settings refuses while recording")
         precondition(!appState.withdrawCloudConsent(for: main), "refused while recording")
         precondition(appState.apiKey == "sk-synthetic-main" && appState.cloudConsent.hasConsent(forBaseURL: mainURL))
         appState.isRecording = false
@@ -378,7 +379,7 @@ struct AppStateTranscriptionConfigurationTests {
         appState.apiKey = "sk-synthetic-main"
         appState.transcriptionAPIKey = "sk-synthetic-voice"
         appState.grantCloudConsent(forBaseURL: mainURL)
-        guard let shared = appState.cloudConsentTarget(forClearing: .transcription) else {
+        guard case .withdraw(let shared) = appState.cloudConsentKeyClear(.transcription) else {
             preconditionFailure("the transcription key goes to the agreed main provider")
         }
         precondition(appState.withdrawCloudConsent(for: shared))
@@ -391,7 +392,7 @@ struct AppStateTranscriptionConfigurationTests {
         appState.transcriptionAPIKey = "sk-synthetic-voice"
         appState.grantCloudConsent(forBaseURL: mainURL)
         appState.grantCloudConsent(forBaseURL: voiceURL)
-        guard let voice = appState.cloudConsentTarget(forClearing: .transcription) else {
+        guard case .withdraw(let voice) = appState.cloudConsentKeyClear(.transcription) else {
             preconditionFailure("an agreed transcription key withdraws its provider")
         }
         precondition(voice.origin == "https://voice.example-consent.test")
@@ -412,8 +413,11 @@ struct AppStateTranscriptionConfigurationTests {
         appState.apiBaseURL = "https://api.example-consent.test/v1"
         appState.apiKey = "sk-synthetic-main"
         appState.transcriptionAPIKey = "sk-synthetic-voice"
-        precondition(appState.cloudConsentTarget(forClearing: .main) == nil, "no consent, so Settings only deletes the key")
-        precondition(appState.cloudConsentTarget(forClearing: .transcription) == nil)
+        precondition(appState.cloudConsentKeyClear(.main) == .delete, "no consent, so Settings only deletes the key")
+        precondition(appState.cloudConsentKeyClear(.transcription) == .delete)
+        appState.isRecording = true
+        precondition(appState.cloudConsentKeyClear(.main) == .delete, "deleted while recording too, as before")
+        appState.isRecording = false
         appState.apiKey = ""
         precondition(credentialStore.load(account: CredentialStore.providerAPIKeyAccount) == nil, "deleted as before")
         precondition(appState.transcriptionAPIKey == "sk-synthetic-voice", "the other key stays")

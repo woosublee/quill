@@ -302,6 +302,10 @@ struct CloudConsentTests {
     static func copyKeysAreStable() throws {
         try expect(CloudConsentCopy.titleFormatKey == "Send to %@?", "title key")
         try expect(
+            CloudConsentCopy.withdrawBusyKey == "You can't withdraw while recording or transcribing. Try again when it finishes.",
+            "the busy key matches both apps' catalogs"
+        )
+        try expect(
             CloudConsentCopy.bodyKey(mentionsScreenContext: true).contains("screen context"),
             "the Mac's copy mentions screen context"
         )

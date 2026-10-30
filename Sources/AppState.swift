@@ -709,13 +709,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
         cloudConsent.save(to: .standard)
     }
 
-    /// The provider clearing a key withdraws (#723): where the key goes, when
-    /// that provider was agreed to. Settings then runs the same withdrawal as
-    /// Withdraw. Nil for a key saved before consent, which is only deleted.
-    func cloudConsentTarget(
-        forClearing field: CloudConsentTargets.KeyField
-    ) -> CloudConsentTargets.Target? {
-        cloudConsentTargets.consentedTarget(forClearing: field, in: cloudConsent)
+    /// What clearing a key in Settings does (#723).
+    enum CloudConsentKeyClear: Equatable {
+        /// A key saved before consent: only deleted, as before.
+        case delete
+        /// The key goes to an agreed provider: the same withdrawal as
+        /// Withdraw, after the same confirmation.
+        case withdraw(CloudConsentTargets.Target)
+        /// As `withdraw`, but recording or transcribing: the key stays.
+        case refusedWhileBusy
+    }
+
+    func cloudConsentKeyClear(_ field: CloudConsentTargets.KeyField) -> CloudConsentKeyClear {
+        guard let target = cloudConsentTargets.consentedTarget(forClearing: field, in: cloudConsent) else {
+            return .delete
+        }
+        return isTranscriptionConfigurationLocked ? .refusedWhileBusy : .withdraw(target)
     }
 
     /// Withdrawing clears each saved key that would go to that provider, so
