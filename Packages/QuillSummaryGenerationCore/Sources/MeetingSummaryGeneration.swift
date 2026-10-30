@@ -463,12 +463,17 @@ public struct MeetingSummaryGenerator: Sendable {
             chunker.maximumSourceBytes,
             max(1, sourceBytes / 2)
         )
-        let chunks = MeetingSummaryTextChunker(
+        let byteChunks = MeetingSummaryTextChunker(
             maximumSourceBytes: sourceByteLimit
         ).chunks(for: normalizedTranscript)
-        guard !chunks.isEmpty else {
+        guard !byteChunks.isEmpty else {
             throw MeetingSummaryError.invalidInput
         }
+        let chunks = try await countedChunks(
+            byteChunks,
+            calendar: source.calendar,
+            outputLanguage: promptLanguage
+        )
 
         let sourceData = SummarySourceData(
             transcript: normalizedTranscript,
@@ -525,6 +530,60 @@ public struct MeetingSummaryGenerator: Sendable {
             backendKind: final.backendKind,
             evidenceVerification: final.evidenceVerification
         )
+    }
+
+    /// Counts each byte-cut chunk's extraction prompt with the token
+    /// counter and splits a chunk that doesn't fit again, at half its bytes
+    /// with the same paragraph, line, and sentence boundaries, until every
+    /// piece fits, as cleanup does (#716). A chunk denser than the
+    /// transcript's average can outgrow the byte cut. When every byte-cut
+    /// chunk fits, as it does with the byte counter, the chunks are
+    /// unchanged. A piece that can't be split and still doesn't fit fails
+    /// as an over-budget prompt, as its request would.
+    private func countedChunks(
+        _ byteChunks: [MeetingSummaryTextChunk],
+        calendar: MeetingSummaryCalendarContext?,
+        outputLanguage: String?
+    ) async throws -> [MeetingSummaryTextChunk] {
+        var fitted: [String] = []
+        var pending = Array(byteChunks.reversed())
+        while let chunk = pending.popLast() {
+            let prompt = try MeetingSummaryPromptFactory.chunkExtraction(
+                chunk: chunk,
+                calendar: calendar,
+                outputLanguage: outputLanguage
+            )
+            if try await fits(prompt, role: .summaryExtraction) {
+                fitted.append(chunk.text)
+                continue
+            }
+            let pieces = MeetingSummaryTextChunker(
+                maximumSourceBytes: max(1, chunk.text.utf8.count / 2)
+            ).chunks(for: chunk.text)
+            guard pieces.count > 1 else {
+                throw MeetingSummaryError.invalidResponse(.contextBudget)
+            }
+            pending.append(contentsOf: pieces.reversed())
+        }
+        if fitted.count == byteChunks.count {
+            return byteChunks
+        }
+        // Pieces are contiguous slices, so the offsets follow from the text.
+        var chunks: [MeetingSummaryTextChunk] = []
+        var startOffset = 0
+        for text in fitted {
+            let endOffset = startOffset + text.count
+            chunks.append(
+                MeetingSummaryTextChunk(
+                    index: chunks.count,
+                    startOffset: startOffset,
+                    endOffset: endOffset,
+                    text: text
+                )
+            )
+            startOffset = endOffset
+        }
+        return chunks
     }
 
     private func merge(

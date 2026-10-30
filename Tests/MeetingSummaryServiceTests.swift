@@ -26,6 +26,8 @@ struct MeetingSummaryServiceTests {
         try testNestedOverviewQuotesAreUnwrappedOnlyWhenAsked()
         try await testExactChunkSizingKeepsTheFractionalByteRatio()
         try await testChunkSizingCountsARatioBelowOneAsOne()
+        try await testDenseChunkIsSplitAgainUntilItsPromptFits()
+        try await testChunksWithoutADenseSectionStayTheByteCut()
         try await testCompactMergeIsSkippedWithTheSameRoom()
         try await testRateLimitUsesConfiguredFallback()
         try await testRateLimitRetainsAllowlistedProviderCode()
@@ -828,6 +830,98 @@ struct MeetingSummaryServiceTests {
             extractions == MeetingSummaryTextChunker(maximumSourceBytes: 20).chunks(for: transcript).count
                 && extractions == 24,
             "a ratio below 1 cuts 20-byte chunks (got \(extractions) extractions)"
+        )
+    }
+
+    /// A context window with `room` tokens of source room after the empty
+    /// extraction prompt, by `counter`.
+    private static func extractionWindow(
+        room: Int,
+        counter: any LocalAITokenCounting
+    ) async throws -> Int {
+        let empty = try MeetingSummaryPromptFactory.singlePass(
+            source: MeetingSummarySource(transcript: "", calendar: nil, languageContext: summaryLanguage),
+            outputLanguage: MeetingSummaryPromptLanguage.name(for: "en")
+        )
+        let tokens = try await counter.tokenCount(
+            forRenderedChatPrompt: "[System]\n\(empty.system)\n\n[User]\n\(empty.user)"
+        )
+        return tokens + 1_024 + LocalAITokenBudgeter.safetyMarginTokens + room
+    }
+
+    /// #716: one emoji paragraph in an English meeting counts far denser
+    /// than the transcript's average, so its byte-cut chunk doesn't fit.
+    /// That chunk is split again until each extraction prompt fits; the
+    /// summary no longer fails with contextBudget.
+    private static func testDenseChunkIsSplitAgainUntilItsPromptFits() async throws {
+        let english = (1...30).map { "Line \($0) of the review." }.joined(separator: "\n")
+        let dense = String(repeating: "\u{1F642}", count: 60)
+        let transcript = english + "\n\n" + dense + "\n\n" + english
+        let counter = MeetingSummaryEmojiDenseTokenCounter()
+        let window = try await extractionWindow(room: 600, counter: counter)
+        let requester = MeetingSummaryCountingRequester()
+        _ = try await MeetingSummaryGenerator(
+            requester: requester,
+            tokenBudgeter: LocalAITokenBudgeter(contextWindow: window, tokenCounter: counter)
+        ).generate(source: MeetingSummarySource(
+            transcript: transcript,
+            calendar: nil,
+            languageContext: summaryLanguage
+        ))
+        let prompts = requester.extractionPrompts()
+        for prompt in prompts {
+            let tokens = try await counter.tokenCount(
+                forRenderedChatPrompt: "[System]\n\(prompt.system)\n\n[User]\n\(prompt.user)"
+            )
+            try expect(
+                tokens + 1_024 + LocalAITokenBudgeter.safetyMarginTokens < window,
+                "every extraction prompt fits (\(tokens) tokens)"
+            )
+        }
+        try expect(
+            prompts.contains { $0.user.contains("\u{1F642}") },
+            "the dense section is still summarized"
+        )
+        // The same transcript's byte cut, as before #716.
+        let transcriptTokens = try await counter.tokenCount(forRenderedChatPrompt: transcript)
+        let byteLimit = 600 * max(transcript.utf8.count, transcriptTokens) / transcriptTokens / 2
+        let byteChunks = MeetingSummaryTextChunker(maximumSourceBytes: byteLimit).chunks(for: transcript)
+        try expect(
+            prompts.count > byteChunks.count,
+            "the dense chunk is split again (\(prompts.count) vs \(byteChunks.count))"
+        )
+    }
+
+    /// #716: without a dense section, the byte counter (the Mac's cloud
+    /// counter) gets exactly the chunks it got before the recheck.
+    private static func testChunksWithoutADenseSectionStayTheByteCut() async throws {
+        let transcript = (1...40).map { "Line \($0) of the review, \"quoted\"." }
+            .joined(separator: "\n")
+        let counter = MeetingSummaryEmojiDenseTokenCounter()
+        let window = try await extractionWindow(room: 600, counter: counter)
+        let requester = MeetingSummaryCountingRequester()
+        _ = try await MeetingSummaryGenerator(
+            requester: requester,
+            tokenBudgeter: LocalAITokenBudgeter(contextWindow: window, tokenCounter: counter)
+        ).generate(source: MeetingSummarySource(
+            transcript: transcript,
+            calendar: nil,
+            languageContext: summaryLanguage
+        ))
+        // One byte a token, so the byte cut is half the source room.
+        let expected = try MeetingSummaryTextChunker(maximumSourceBytes: 300)
+            .chunks(for: transcript)
+            .map {
+                try MeetingSummaryPromptFactory.chunkExtraction(
+                    chunk: $0,
+                    calendar: nil,
+                    outputLanguage: MeetingSummaryPromptLanguage.name(for: "en")
+                )
+            }
+        try expect(expected.count > 1, "the transcript needs several chunks")
+        try expect(
+            requester.extractionPrompts() == expected,
+            "the chunks are the byte cut's"
         )
     }
 
@@ -2023,9 +2117,18 @@ private struct MeetingSummaryRatioTokenCounter: LocalAITokenCounting {
     }
 }
 
+/// One token a byte, except each U+1F642 counts 16 tokens instead of its
+/// four bytes, as a tokenizer might count a rare symbol byte by byte.
+private struct MeetingSummaryEmojiDenseTokenCounter: LocalAITokenCounting {
+    func tokenCount(forRenderedChatPrompt prompt: String) async throws -> Int {
+        prompt.utf8.count + prompt.unicodeScalars.filter { $0 == "\u{1F642}" }.count * 12
+    }
+}
+
 private final class MeetingSummaryCountingRequester: MeetingSummaryDraftRequesting, @unchecked Sendable {
     private let lock = NSLock()
     private var extractions = 0
+    private var prompts: [MeetingSummaryPrompt] = []
 
     var backendKind: MeetingSummaryBackendKind { .local }
 
@@ -2033,7 +2136,7 @@ private final class MeetingSummaryCountingRequester: MeetingSummaryDraftRequesti
         _ request: MeetingSummaryDraftRequest
     ) async throws -> MeetingSummaryDraftReply {
         if case .summaryExtraction = request.role {
-            recordExtraction()
+            recordExtraction(request.prompt)
         }
         return MeetingSummaryDraftReply(
             draft: MeetingSummaryDraftContentV2(
@@ -2048,10 +2151,15 @@ private final class MeetingSummaryCountingRequester: MeetingSummaryDraftRequesti
         )
     }
 
-    private func recordExtraction() {
+    private func recordExtraction(_ prompt: MeetingSummaryPrompt) {
         lock.lock()
         extractions += 1
+        prompts.append(prompt)
         lock.unlock()
+    }
+
+    func extractionPrompts() -> [MeetingSummaryPrompt] {
+        lock.withLock { prompts }
     }
 
     func extractionCount() -> Int {
