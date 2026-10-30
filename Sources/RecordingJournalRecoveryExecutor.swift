@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 struct RecoveredRecordingArtifact: Equatable {
     let recordingID: UUID

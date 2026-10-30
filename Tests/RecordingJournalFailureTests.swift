@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillNoteCore
 
 @main
 struct RecordingJournalFailureTests {

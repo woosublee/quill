@@ -73,7 +73,7 @@ PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/
 # rule below; the build fails with "No rule to make target" until then.
 # Listed in link order, each module before the ones it imports. Build order
 # comes from the prerequisites of each lib<Module>.a rule, not from this list.
-SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteCore QuillNoteUI QuillDesignTokens
+SHARED_CORE_MODULES = QuillNoteSyncCore QuillSummaryGenerationCore QuillSummaryFormatCore QuillAITextCore QuillNoteCore QuillUserIssueCore QuillProviderCore QuillAudioLevelCore QuillAudioFormatCore QuillNoteUI QuillDesignTokens
 NOTE_SYNC_CORE_SOURCES = $(shell find Packages/QuillNoteSyncCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 AI_TEXT_CORE_SOURCES = $(shell find Packages/QuillAITextCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
 USER_ISSUE_CORE_SOURCES = $(shell find Packages/QuillUserIssueCore/Sources -name '*.swift' -type f | LC_ALL=C sort)
@@ -275,9 +275,10 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a: $(AUDIO_LEVEL_CORE_SOURCES)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillAudioLevelCore,$(AUDIO_LEVEL_CORE_SOURCES))
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+# Imports QuillUserIssueCore (a failed note's stored issue).
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
-	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES))
+	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES),-I "$(@D)")
 
 # SwiftUI views shared with the iPhone app (#697). Imports QuillDesignTokens.
 $(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a Makefile $(SHARED_CORE_TOOLCHAIN)
@@ -864,6 +865,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/CloudConsentTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteTranscriptEditTests.swift -o $(TEST_BUILD_DIR)/NoteTranscriptEditTests
 	@$(TEST_BUILD_DIR)/NoteTranscriptEditTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteMachineStatusTests.swift -o $(TEST_BUILD_DIR)/NoteMachineStatusTests
+	@$(TEST_BUILD_DIR)/NoteMachineStatusTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/ToastCountdown.swift Tests/ToastCountdownTests.swift -o $(TEST_BUILD_DIR)/ToastCountdownTests
 	@$(TEST_BUILD_DIR)/ToastCountdownTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/CalendarIntegrationModels.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/PipelineHistoryUserIssueTests.swift -o $(TEST_BUILD_DIR)/PipelineHistoryUserIssueTests

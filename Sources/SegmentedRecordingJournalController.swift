@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 enum SegmentedRecordingJournalControllerError: Error, Equatable {
     case controllerClosed

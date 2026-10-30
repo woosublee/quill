@@ -41,10 +41,10 @@ otherwise.
   (`QuillUserIssueCode.copy(for:)`), the recovery action and its button key,
   and the detail rows (`QuillUserIssueRecord.presentation(localize:)`). Each
   app translates the keys with its own String Catalog. It imports no other
-  shared module; `QuillAITextCore`, `QuillSummaryFormatCore`, and
-  `QuillSummaryGenerationCore` import it. The Mac's catalog lookup, the
-  error constructors, and the issue views stay in `Sources/QuillUserIssue.swift`
-  and `Sources/QuillUserIssueView.swift`.
+  shared module; `QuillAITextCore`, `QuillSummaryFormatCore`,
+  `QuillSummaryGenerationCore`, and `QuillNoteCore` import it. The Mac's
+  catalog lookup, the error constructors, and the issue views stay in
+  `Sources/QuillUserIssue.swift` and `Sources/QuillUserIssueView.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
   rendering) and summary editing (what counts as an empty row, dropping
@@ -87,7 +87,12 @@ otherwise.
   (`NoteSelectAllAction`: Deselect All once every selectable visible note is
   selected), and what a note's transcript is after an edit
   (`NoteTranscriptEdit`: clearing it clears the raw transcript too, so a
-  cleared note shows, summarizes, and syncs as empty on both apps). Reading a
+  cleared note shows, summarizes, and syncs as empty on both apps), and how a
+  note's synced post-processing status reads (`NoteMachineStatus`: importing,
+  recording, transcribing, recovered, failed, or finished, and whether an
+  empty transcript is still to come or was cleared and stays editable), with
+  its status parsers. It imports `QuillUserIssueCore`; the status text and
+  recovery file work stay in `Sources/`. Reading a
   note's recording times stays in
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.

@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 enum SegmentedRecordingArtifactFinalizerError: Error, Equatable {
     case noRecoverableSegments

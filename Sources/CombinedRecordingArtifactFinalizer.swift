@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 enum CombinedRecordingArtifactFinalizerError: Error, Equatable {
     case noRecoverableSources

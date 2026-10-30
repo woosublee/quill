@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import QuillNoteCore
 import QuillAudioFormatCore
 
 struct RecordingJournalCreateRequest: Equatable {

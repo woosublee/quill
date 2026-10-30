@@ -77,6 +77,7 @@ let package = Package(
         ),
         .target(
             name: "QuillNoteCore",
+            dependencies: ["QuillUserIssueCore"],
             path: "Packages/QuillNoteCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
