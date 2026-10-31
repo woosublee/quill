@@ -382,7 +382,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "case .audioOnly:",
             to: "case .recovered:"
         )
-        precondition(audioOnlyStatus.contains(".fill(Color.green)"))
+        precondition(audioOnlyStatus.contains(".fill(QuillColor.statusDone)"))
         precondition(!audioOnlyStatus.contains(".fill(Color.blue)"))
     }
 
@@ -488,7 +488,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         ))
         precondition(row.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))
         precondition(row.contains(
-            "            } else {\n                Circle()\n                    .fill(Color.red)\n"
+            "            } else {\n                Circle()\n                    .fill(QuillColor.statusRecording)\n"
                 + "                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)"
         ))
 

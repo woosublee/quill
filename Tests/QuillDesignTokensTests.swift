@@ -17,6 +17,7 @@ struct QuillDesignTokensTests {
         testSpacingMatchesTokensFile(tokens)
         testRadiusMatchesTokensFile(tokens)
         testIssueColorsMatchTokensFile(tokens)
+        testIssueWarningFollowsAppearance()
         testNoteSurfaceMatchesTokensFile(tokens)
         testTintsMatchTokensFile(tokens)
         testShadowsMatchTokensFile(tokens)
@@ -81,14 +82,34 @@ struct QuillDesignTokensTests {
         assertSame(swift, file, "QuillRadius")
     }
 
-    /// QuillColor draws one color in both appearances, so every theme declared
-    /// in color.themes must hold that same value.
+    /// `issue-warning` draws the dark amber in light mode and the muted amber
+    /// in dark mode, from one color (#736 Q2).
+    private static func testIssueWarningFollowsAppearance() {
+        let color = NSColor(QuillColor.issueWarning)
+        func resolved(_ name: NSAppearance.Name) -> String {
+            var hex = ""
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                let c = color.usingColorSpace(.sRGB)!
+                hex = String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+            }
+            return hex
+        }
+        precondition(resolved(.aqua) == "#c47318", "issue-warning light is \(resolved(.aqua))")
+        precondition(resolved(.darkAqua) == "#f2b35c", "issue-warning dark is \(resolved(.darkAqua))")
+    }
+
+    /// Each theme declared in color.themes holds the issue color QuillColor
+    /// draws in that appearance (issue-warning differs per theme, #736 Q2).
     private static func testIssueColorsMatchTokensFile(_ tokens: [String: Any]) {
         let color = tokens["color"] as? [String: Any]
         let entries = color?["tokens"] as? [[String: Any]] ?? []
         let themeIDs = Set((color?["themes"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
         precondition(!themeIDs.isEmpty, "tokens.json has no color themes")
-        for (name, rgb) in [("issue-warning", QuillColor.issueWarningRGB), ("issue-error", QuillColor.issueErrorRGB)] {
+        let perTheme: [(String, (String) -> QuillColor.RGB)] = [
+            ("issue-warning", { $0 == "dark" ? QuillColor.issueWarningRGB.dark : QuillColor.issueWarningRGB.light }),
+            ("issue-error", { _ in QuillColor.issueErrorRGB }),
+        ]
+        for (name, rgbFor) in perTheme {
             let entry = entries.first { $0["name"] as? String == name }
             guard let themes = entry?["value"] as? [String: String], !themes.isEmpty else {
                 preconditionFailure("tokens.json has no per-theme value for \(name)")
@@ -97,8 +118,8 @@ struct QuillDesignTokensTests {
                 Set(themes.keys) == themeIDs,
                 "\(name) has themes \(themes.keys.sorted()) but color.themes is \(themeIDs.sorted())"
             )
-            let expected = hexString(rgb)
             for (theme, value) in themes.sorted(by: { $0.key < $1.key }) {
+                let expected = hexString(rgbFor(theme))
                 precondition(
                     value.lowercased() == expected,
                     "\(name) (\(theme)) is \(value) in tokens.json but \(expected) in QuillColor"

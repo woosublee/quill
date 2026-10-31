@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Design tokens shared by the Mac and the iPhone (#623, #697). Names and
 /// values match docs/design-system/tokens.json (`space-12` is
@@ -106,6 +111,26 @@ public enum QuillColor {
         public func color(for colorScheme: ColorScheme) -> Color {
             colorScheme == .dark ? dark.color : light.color
         }
+
+        /// One color that follows the window's appearance by itself, for a
+        /// static tint that has no color scheme at hand (the issue icons). A
+        /// view that forces a scheme on part of a window should use
+        /// `color(for:)` instead.
+        public var dynamicColor: Color {
+            #if os(macOS)
+            let lightColor = NSColor(srgbRed: light.red, green: light.green, blue: light.blue, alpha: 1)
+            let darkColor = NSColor(srgbRed: dark.red, green: dark.green, blue: dark.blue, alpha: 1)
+            return Color(nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? darkColor : lightColor
+            })
+            #else
+            let lightColor = UIColor(red: light.red, green: light.green, blue: light.blue, alpha: 1)
+            let darkColor = UIColor(red: dark.red, green: dark.green, blue: dark.blue, alpha: 1)
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark ? darkColor : lightColor
+            })
+            #endif
+        }
     }
 
     /// `surface-page-iphone`: the iPhone app's page background, every
@@ -141,13 +166,27 @@ public enum QuillColor {
         }
     }
 
-    /// `issue-warning`: muted amber for warning icons. Icon color only; it is
-    /// below 3:1 on light backgrounds, so text stays secondary.
-    public static let issueWarningRGB = RGB(red: 0.95, green: 0.70, blue: 0.36)
+    /// `issue-warning`: amber for warning icons, on both apps. Light mode
+    /// uses a darker amber (#C47318) so the icon reaches 3:1 on a light
+    /// background; dark mode keeps the muted amber (#F2B35C) (#736 Q2).
+    /// Icon color only; text stays secondary.
+    public static let issueWarningRGB = SchemeRGB(
+        light: RGB(red: 0xC4 / 255.0, green: 0x73 / 255.0, blue: 0x18 / 255.0),
+        dark: RGB(red: 0.95, green: 0.70, blue: 0.36)
+    )
     /// `issue-error`: softened red for error icons. Icon color only.
     public static let issueErrorRGB = RGB(red: 1.0, green: 0.48, blue: 0.44)
 
-    public static let issueWarning = issueWarningRGB.color
+    public static let issueWarning = issueWarningRGB.dynamicColor
+
+    /// `status-recording`: recording, and a failed note's dot. The system
+    /// red, so it follows Increase Contrast on both apps (#736 Q2).
+    public static let statusRecording = Color.red
+    /// `status-processing`: work in progress, the record button while
+    /// recording, a recovered note. The system orange (#736 Q2).
+    public static let statusProcessing = Color.orange
+    /// `status-done`: a finished note's dot. The system green (#736 Q2).
+    public static let statusDone = Color.green
     public static let issueError = issueErrorRGB.color
 
     /// `stroke-glass`: the 0.6 pt edge of a glass capsule (the note toolbar).

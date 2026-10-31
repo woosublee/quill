@@ -273,8 +273,9 @@ struct QuillUserIssueView: View {
             : "exclamationmark.circle.fill"
     }
 
-    /// Muted amber for warnings and a softened red for errors, so severity
-    /// reads from the icon without tinting the whole surface.
+    /// Amber for warnings (`issue-warning`, darker in light mode) and a
+    /// softened red for errors, so severity reads from the icon without
+    /// tinting the whole surface.
     private var accentColor: Color {
         if let tintOverride { return tintOverride }
         return presentation.severity == .warning
