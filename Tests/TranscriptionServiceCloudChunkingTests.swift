@@ -1,3 +1,5 @@
+import AVFoundation
+import CryptoKit
 import Foundation
 import QuillAudioFormatCore
 import QuillUserIssueCore
@@ -26,6 +28,12 @@ struct TranscriptionServiceCloudChunkingTests {
             try await plainTextCloudResponseUsesTranscriptNormalizer()
             try await punctuationOnlyPlainTextResponseIsRejected()
             try await largeCanonicalWAVUsesSequentialBoundedChunks()
+            try await largeNonWAVImportIsConvertedAndChunked()
+            try await smallNonWAVImportKeepsSingleRequest()
+            try await interruptedConvertedImportResumesAfterRelaunch()
+            try await importConversionFailureSurfacesAsPreparationIssue()
+            try await undecodableLargeImportKeepsSingleRequest()
+            try await cancellingImportConversionStopsBeforeUpload()
             try await retryableHTTPFailureRetriesCurrentChunkOnly()
             try await terminalProviderFailuresUseStableIssueRecords()
             try await networkAndTimeoutFailuresUseStableIssueCodes()
@@ -226,7 +234,7 @@ struct TranscriptionServiceCloudChunkingTests {
             ceiling: 10_000,
             recorder: recorder,
             checkpointStore: store,
-            progress: progress
+            progress: { progress.record($0) }
         )
 
         let transcript = try await service.transcribe(fileURL: url)
@@ -256,7 +264,7 @@ struct TranscriptionServiceCloudChunkingTests {
             ceiling: 10_000,
             recorder: recorder,
             checkpointStore: store,
-            progress: progress
+            progress: { progress.record($0) }
         )
 
         let transcript = try await service.transcribe(fileURL: url)
@@ -497,7 +505,7 @@ struct TranscriptionServiceCloudChunkingTests {
             language: nil,
             recorder: recorder,
             checkpointStore: store,
-            progress: progress
+            progress: { progress.record($0) }
         )
 
         let transcript = try await service.transcribe(fileURL: url)
@@ -518,6 +526,289 @@ struct TranscriptionServiceCloudChunkingTests {
             throw TestFailure("every multipart body must fit the encoded ceiling")
         }
         try expectEqual(await store.savedPrefixCounts(), [1, 2, 3], "large checkpoint prefixes")
+    }
+
+    // #735: an import over the upload ceiling that isn't canonical WAV is
+    // converted to a temporary canonical WAV and sent in bounded chunks.
+    private static func largeNonWAVImportIsConvertedAndChunked() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let importURL = try writeSyntheticCAF(in: directory, name: "import.caf")
+        let importDigestBefore = try sha256(of: importURL)
+        let ceiling = try importChunkCeiling()
+        try expectEqual(
+            try singleUploadByteCount(for: importURL) > ceiling,
+            true,
+            "synthetic import exceeds the injected ceiling"
+        )
+        let recorder = UploadRecorder(results: [
+            .success("zero"), .success("one"), .success("two"), .success("three")
+        ])
+        let progressEvents = ProgressRecorder()
+        let temporaryRoot = directory.appendingPathComponent("tmp", isDirectory: true)
+        let service = try makeService(
+            ceiling: ceiling,
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore(),
+            temporaryRoot: temporaryRoot,
+            progress: { progressEvents.record($0) }
+        )
+
+        let transcript = try await service.transcribe(fileURL: importURL)
+
+        let uploads = await recorder.uploads()
+        try expectEqual(uploads.count > 1, true, "large import is chunked (uploads: \(uploads.count))")
+        guard uploads.allSatisfy({ UInt64($0.body.count) <= ceiling }) else {
+            throw TestFailure("every converted chunk must fit the encoded ceiling")
+        }
+        for upload in uploads {
+            try expectContains(upload.body, "Content-Type: audio/wav", "converted chunk is WAV")
+        }
+        let expectedText = ["zero", "one", "two", "three"].prefix(uploads.count)
+            .joined(separator: " ")
+        try expectEqual(transcript.text, expectedText, "converted chunks join in order")
+        let events = progressEvents.events()
+        // Like a large WAV, it says progress is coming before converting
+        // and planning, so the bar shows from the start (#697).
+        try expectEqual(
+            Array(events.prefix(2)),
+            [.preparing, .planned(completed: 0, total: uploads.count)],
+            "converted import announces progress, then its plan"
+        )
+        try expectEqual(
+            events.last,
+            .completed(total: uploads.count),
+            "converted import reports completion"
+        )
+        try expectEqual(try sha256(of: importURL), importDigestBefore, "stored import is unchanged")
+        try expectEqual(
+            try leftoverFiles(in: temporaryRoot),
+            [],
+            "converted copy is removed after the job"
+        )
+    }
+
+    private static func smallNonWAVImportKeepsSingleRequest() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let importURL = try writeSyntheticCAF(in: directory, name: "small.caf", frameCount: 480)
+        let recorder = UploadRecorder(results: [.success("small import")])
+        let service = try makeService(
+            ceiling: try singleUploadByteCount(for: importURL),
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore()
+        )
+
+        let transcript = try await service.transcribe(fileURL: importURL)
+
+        let uploads = await recorder.uploads()
+        try expectEqual(uploads.count, 1, "small import upload count")
+        try expectContains(uploads[0].body, "filename=\"small.caf\"", "small import is sent as stored")
+        try expectEqual(transcript.text, "small import", "small import transcript")
+    }
+
+    // A force-quit mid-way leaves the durable job; after relaunch the
+    // reconciler matches it to the stored import and the next run converts
+    // again and sends only the chunks still missing.
+    private static func interruptedConvertedImportResumesAfterRelaunch() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let audioRoot = directory.appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioRoot, withIntermediateDirectories: true)
+        let importURL = try writeSyntheticCAF(in: audioRoot, name: "meeting.caf")
+        let temporaryRoot = directory.appendingPathComponent("tmp", isDirectory: true)
+        let store = CloudTranscriptionJobStore(
+            jobsDirectory: directory.appendingPathComponent("jobs", isDirectory: true),
+            temporaryRoot: temporaryRoot
+        )
+        let historyID = UUID()
+        let policy = CloudTranscriptionCompletionPolicy(
+            postProcessingEnabled: false,
+            outputLanguage: "",
+            pressEnterCommandEnabled: false
+        )
+        let ceiling = try importChunkCeiling()
+
+        func context() -> CloudTranscriptionExecutionContext {
+            let session = store.beginSession(historyID: historyID)
+            return CloudTranscriptionExecutionContext(
+                historyID: historyID,
+                session: session,
+                checkpointStore: store.checkpointStore(session: session, completionPolicy: policy),
+                progress: { _ in }
+            )
+        }
+
+        let firstRecorder = UploadRecorder(results: [.success("zero"), .hang])
+        let firstService = try makeService(
+            ceiling: ceiling,
+            recorder: firstRecorder,
+            checkpointStore: CountingCheckpointStore(),
+            temporaryRoot: temporaryRoot,
+            cloudExecutionContext: context()
+        )
+        let firstRun = Task { try await firstService.transcribe(fileURL: importURL) }
+        try await waitUntil("second chunk upload starts") {
+            await firstRecorder.uploads().count == 2
+        }
+        firstRun.cancel()
+        do {
+            _ = try await firstRun.value
+            throw TestFailure("interrupted import must not finish")
+        } catch is CancellationError {}
+
+        let saved = try store.load(historyID: historyID)
+        guard let saved else { throw TestFailure("interrupted import keeps its job") }
+        try expectEqual(saved.completedChunks.count, 1, "interrupted job keeps the finished chunk")
+        try expectEqual(
+            saved.identity.source.storedAudioFileName,
+            "meeting.caf",
+            "job names the stored import"
+        )
+        try expectEqual(try leftoverFiles(in: temporaryRoot), [], "interrupted copy is removed")
+
+        let item = PipelineHistoryItem(
+            id: historyID,
+            timestamp: Date(timeIntervalSince1970: 1_000),
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "",
+            postProcessingStatus: "cloud-transcribing",
+            debugStatus: "",
+            customVocabulary: "",
+            audioFileName: "meeting.caf"
+        )
+        let reconciliation = store.reconcile(history: [item], audioRoot: audioRoot)
+        try expectEqual(
+            reconciliation.resumable.map(\.historyID),
+            [historyID],
+            "relaunch finds the converted import's job resumable"
+        )
+
+        let remaining = saved.plan.chunks.count - 1
+        let secondRecorder = UploadRecorder(
+            results: ["one", "two", "three", "four"].prefix(remaining).map { .success($0) }
+        )
+        let secondService = try makeService(
+            ceiling: ceiling,
+            recorder: secondRecorder,
+            checkpointStore: CountingCheckpointStore(),
+            temporaryRoot: temporaryRoot,
+            cloudExecutionContext: context()
+        )
+        let resumed = try await secondService.transcribe(fileURL: importURL)
+        try expectEqual(await secondRecorder.uploads().count, remaining, "resume sends only the missing chunks")
+        try expectEqual(
+            resumed.text,
+            (["zero"] + ["one", "two", "three", "four"].prefix(remaining)).joined(separator: " "),
+            "resumed transcript keeps the saved chunk"
+        )
+
+        // An edited stored file no longer matches the job.
+        try Data(repeating: 0x11, count: 64).write(to: importURL)
+        try expectEqual(
+            store.reconcile(history: [item], audioRoot: audioRoot).invalid,
+            [historyID],
+            "a changed stored import invalidates the job"
+        )
+    }
+
+    private static func importConversionFailureSurfacesAsPreparationIssue() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let importURL = try writeSyntheticCAF(in: directory, name: "broken.caf")
+        let temporaryRoot = directory.appendingPathComponent("tmp", isDirectory: true)
+        let recorder = UploadRecorder(results: [])
+        let service = try makeService(
+            ceiling: try importChunkCeiling(),
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore(),
+            temporaryRoot: temporaryRoot,
+            audioPreparation: AudioImportConversionService(convert: { _ in
+                throw AudioImportConversionError.conversionFailed("synthetic")
+            })
+        )
+
+        do {
+            _ = try await service.transcribe(fileURL: importURL)
+            throw TestFailure("failed conversion must fail")
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(issue.record.code, .audioPreparationFailed, "conversion failure code")
+            try expectEqual(issue.record.context.providerHost, "provider.example", "conversion failure host")
+        }
+        try expectEqual(await recorder.uploads().count, 0, "failed conversion uploads nothing")
+        try expectEqual(try leftoverFiles(in: temporaryRoot), [], "failed conversion leaves nothing")
+    }
+
+    private static func undecodableLargeImportKeepsSingleRequest() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let importURL = directory.appendingPathComponent("talk.webm")
+        try Data(repeating: 0x1A, count: 40_000).write(to: importURL)
+        let recorder = UploadRecorder(results: [.success("as before")])
+        let progress = ChunkingProgressLog()
+        let service = try makeService(
+            ceiling: try importChunkCeiling(),
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore(),
+            temporaryRoot: directory.appendingPathComponent("tmp", isDirectory: true),
+            progress: { progress.record($0) }
+        )
+
+        let transcript = try await service.transcribe(fileURL: importURL)
+
+        let uploads = await recorder.uploads()
+        try expectEqual(uploads.count, 1, "undecodable import upload count")
+        try expectContains(uploads[0].body, "filename=\"talk.webm\"", "undecodable import is sent as stored")
+        try expectEqual(transcript.text, "as before", "undecodable import transcript")
+        // One request, so no bar: only the spinner (#697).
+        try expectEqual(progress.values(), [], "undecodable import reports no progress")
+    }
+
+    private static func cancellingImportConversionStopsBeforeUpload() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let importURL = try writeSyntheticCAF(in: directory, name: "long.caf")
+        let temporaryRoot = directory.appendingPathComponent("tmp", isDirectory: true)
+        let started = LockedCounter()
+        let recorder = UploadRecorder(results: [])
+        let service = try makeService(
+            ceiling: try importChunkCeiling(),
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore(),
+            temporaryRoot: temporaryRoot,
+            audioPreparation: AudioImportConversionService(convert: { _ in
+                started.increment()
+                while true {
+                    try Task.checkCancellation()
+                    usleep(1_000)
+                }
+            })
+        )
+
+        let run = Task { try await service.transcribe(fileURL: importURL) }
+        try await waitUntil("conversion starts") { started.value == 1 }
+        run.cancel()
+        do {
+            _ = try await run.value
+            throw TestFailure("cancelled conversion must not finish")
+        } catch is CancellationError {}
+        try expectEqual(await recorder.uploads().count, 0, "cancelled conversion uploads nothing")
+        try expectEqual(try leftoverFiles(in: temporaryRoot), [], "cancelled conversion leaves nothing")
+    }
+
+    private static func waitUntil(
+        _ label: String,
+        _ condition: @Sendable () async -> Bool
+    ) async throws {
+        for _ in 0..<500 {
+            if await condition() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw TestFailure("timed out waiting: \(label)")
     }
 
     private static func retryableHTTPFailureRetriesCurrentChunkOnly() async throws {
@@ -640,8 +931,11 @@ struct TranscriptionServiceCloudChunkingTests {
         ceiling: UInt64,
         language: String? = "en",
         recorder: UploadRecorder,
-        checkpointStore: CountingCheckpointStore,
-        progress: ChunkingProgressLog? = nil
+        checkpointStore: any CloudTranscriptionCheckpointStore,
+        temporaryRoot: URL? = nil,
+        progress: @escaping @Sendable (CloudTranscriptionProgress) -> Void = { _ in },
+        cloudExecutionContext: CloudTranscriptionExecutionContext? = nil,
+        audioPreparation: AudioImportConversionService = AudioImportConversionService()
     ) throws -> TranscriptionService {
         try TranscriptionService(
             apiKey: apiKey,
@@ -656,12 +950,105 @@ struct TranscriptionServiceCloudChunkingTests {
                     try await recorder.upload(request: request, body: body)
                 },
                 checkpointStore: checkpointStore,
-                progress: { progress?.record($0) },
-                temporaryRoot: FileManager.default.temporaryDirectory
+                progress: progress,
+                temporaryRoot: temporaryRoot ?? FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString, isDirectory: true),
-                sleep: { _ in }
-            )
+                sleep: { _ in },
+                audioPreparation: audioPreparation
+            ),
+            cloudExecutionContext: cloudExecutionContext
         )
+    }
+
+    private static func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-735-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// A synthetic 48 kHz stereo float CAF (a tone with quiet gaps), so it is
+    /// not canonical WAV and is larger than its 16 kHz mono conversion.
+    private static func writeSyntheticCAF(
+        in directory: URL,
+        name: String,
+        frameCount: AVAudioFrameCount = 14_400
+    ) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        guard let format = AVAudioFormat(
+            standardFormatWithSampleRate: 48_000,
+            channels: 2
+        ), let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
+            throw TestFailure("synthetic CAF format")
+        }
+        buffer.frameLength = frameCount
+        for channel in 0..<2 {
+            let samples = buffer.floatChannelData![channel]
+            for frame in 0..<Int(frameCount) {
+                let audible = (frame / 2_400) % 2 == 0
+                samples[frame] = audible
+                    ? Float(sin(Double(frame) * 2 * .pi * 440 / 48_000) * 0.5)
+                    : 0
+            }
+        }
+        do {
+            let file = try AVAudioFile(
+                forWriting: url,
+                settings: [
+                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVSampleRateKey: 48_000,
+                    AVNumberOfChannelsKey: 2,
+                    AVLinearPCMBitDepthKey: 32,
+                    AVLinearPCMIsFloatKey: true,
+                    AVLinearPCMIsBigEndianKey: false,
+                    AVLinearPCMIsNonInterleaved: false,
+                ],
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            )
+            try file.write(from: buffer)
+        }
+        return url
+    }
+
+    /// Fits about 1,700 converted frames per chunk: the 4,800-frame
+    /// conversion of the synthetic CAF takes three or four chunks.
+    private static func importChunkCeiling() throws -> UInt64 {
+        try testMultipartLayout.encodedByteCount(
+            audioDataByteCount: CanonicalPCM16WAV.headerByteCount + 3_400,
+            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+            contentType: "audio/wav"
+        )
+    }
+
+    private static func singleUploadByteCount(for url: URL) throws -> UInt64 {
+        let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        return try testMultipartLayout.encodedByteCount(
+            audioDataByteCount: size?.uint64Value ?? 0,
+            fileName: url.lastPathComponent,
+            contentType: CloudTranscriptionUpload.contentType(forFileName: url.lastPathComponent)
+        )
+    }
+
+    private static func sha256(of url: URL) throws -> String {
+        SHA256.hash(data: try Data(contentsOf: url))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private static func leftoverFiles(in directory: URL) throws -> [String] {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        )
+        var names: [String] = []
+        while let url = enumerator?.nextObject() as? URL {
+            if (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
+                names.append(url.lastPathComponent)
+            }
+        }
+        return names.sorted()
     }
 
     private static var testMultipartLayout: CloudTranscriptionMultipartLayout {
@@ -761,6 +1148,23 @@ private actor CountingCheckpointStore: CloudTranscriptionCheckpointStore {
     func savedPrefixCounts() -> [Int] { prefixes }
 }
 
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [CloudTranscriptionProgress] = []
+
+    func record(_ progress: CloudTranscriptionProgress) {
+        lock.lock()
+        recorded.append(progress)
+        lock.unlock()
+    }
+
+    func events() -> [CloudTranscriptionProgress] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+}
+
 private actor UploadRecorder {
     struct Upload: Sendable {
         let timeout: TimeInterval
@@ -774,6 +1178,8 @@ private actor UploadRecorder {
         case rawSuccess(String)
         case http(status: Int, body: String)
         case urlError(URLError.Code)
+        /// Waits until cancelled, like a request cut off by a force-quit.
+        case hang
     }
 
     private var results: [ScriptedResult]
@@ -806,6 +1212,9 @@ private actor UploadRecorder {
         let status: Int
         let responseData: Data
         switch result {
+        case .hang:
+            try await Task.sleep(for: .seconds(3_600))
+            throw CancellationError()
         case .urlError(let code):
             throw URLError(code)
         case .success(let text):

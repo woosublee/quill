@@ -20,6 +20,24 @@ struct CloudTranscriptionJobIdentity: Codable, Equatable, Sendable {
     let planID: String
 }
 
+extension CloudTranscriptionJobIdentity {
+    /// Both jobs read a converted copy of the same stored import with the
+    /// same request settings, and the copies themselves differ. (A plan
+    /// change on the same copy is not this; callers also compare the plan
+    /// rules.)
+    func differsOnlyInConvertedCopy(from other: CloudTranscriptionJobIdentity) -> Bool {
+        guard let convertedFrom = source.convertedFrom,
+              convertedFrom == other.source.convertedFrom,
+              source.sha256 != other.source.sha256 else {
+            return false
+        }
+        return providerID == other.providerID
+            && model == other.model
+            && language == other.language
+            && responseFormat == other.responseFormat
+    }
+}
+
 enum TranscriptionJobBackend: Equatable, Sendable {
     case cloud
     case localAI(modelID: String)

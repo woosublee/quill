@@ -34,6 +34,8 @@ struct CloudTranscriptionDependencies: Sendable {
     let progress: @Sendable (CloudTranscriptionProgress) -> Void
     let temporaryRoot: URL
     let sleep: @Sendable (TimeInterval) async throws -> Void
+    /// Converts a large import that isn't canonical WAV before chunking (#735).
+    var audioPreparation = AudioImportConversionService()
 
     static var live: CloudTranscriptionDependencies {
         let temporaryRoot = FileManager.default.temporaryDirectory
@@ -207,10 +209,19 @@ class TranscriptionService {
             )
         }
 
-        if try shouldUseLargeCloudChunkPath(fileURL: fileURL) {
+        switch try cloudUploadRoute(fileURL: fileURL) {
+        case .singleRequest:
+            return try await transcribeInSingleCloudRequest(fileURL: fileURL)
+        case .canonicalChunks:
             return try await transcribeLargeCanonicalWAV(fileURL: fileURL)
+        case .convertedChunks:
+            return try await transcribeLargeConvertedImport(fileURL: fileURL)
         }
+    }
 
+    private func transcribeInSingleCloudRequest(
+        fileURL: URL
+    ) async throws -> TranscriptionResult {
         let timeoutSeconds = transcriptionTimeoutSeconds
         let raceState = TranscriptionTimeoutRaceState()
 
@@ -800,7 +811,16 @@ class TranscriptionService {
         }.value
     }
 
-    private func shouldUseLargeCloudChunkPath(fileURL: URL) throws -> Bool {
+    private enum CloudUploadRoute {
+        /// The file fits one request as it is.
+        case singleRequest
+        /// Canonical WAV over the ceiling: chunked from the file itself.
+        case canonicalChunks
+        /// Anything else over the ceiling: chunked from a canonical copy.
+        case convertedChunks
+    }
+
+    private func cloudUploadRoute(fileURL: URL) throws -> CloudUploadRoute {
         let physicalByteCount = try physicalByteCount(for: fileURL)
         let multipart = cloudMultipartLayout
         let encodedByteCount = try multipart.encodedByteCount(
@@ -809,19 +829,116 @@ class TranscriptionService {
             contentType: CloudTranscriptionUpload.contentType(forFileName: fileURL.lastPathComponent)
         )
         guard encodedByteCount > cloudDependencies.encodedUploadCeilingBytes else {
-            return false
+            return .singleRequest
         }
         return (try? CanonicalPCM16WAV.validateFile(at: fileURL)) != nil
+            ? .canonicalChunks
+            : .convertedChunks
     }
 
-    private func transcribeLargeCanonicalWAV(fileURL: URL) async throws -> TranscriptionResult {
+    /// A large import that isn't canonical WAV (#735): converts it to a
+    /// temporary 16 kHz mono canonical WAV and chunks that. The note's stored
+    /// file is only read. The copy is removed when the job ends; on resume
+    /// it is made again from the stored file, and the saved job matches it
+    /// by the stored file's fingerprint (`convertedFrom`).
+    private func transcribeLargeConvertedImport(
+        fileURL: URL
+    ) async throws -> TranscriptionResult {
+        // Audio the system can't open (for example WebM) can't be cut; it
+        // goes in one request, as before, so it reports no progress.
+        guard (try? AVAudioFile(forReading: fileURL)) != nil else {
+            return try await transcribeInSingleCloudRequest(fileURL: fileURL)
+        }
+        // Chunked: progress will come once the audio is converted and
+        // planned, so the bar shows from the start like a large WAV (#697).
+        reportCloudProgress(.preparing)
+
+        // The live temporary root is the folder the job store empties at
+        // launch, so a copy left by a crash is removed then.
+        let workDirectory = cloudDependencies.temporaryRoot
+            .appendingPathComponent("import-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workDirectory) }
+
+        let copyURL = workDirectory.appendingPathComponent(
+            fileURL.deletingPathExtension().lastPathComponent + ".wav",
+            isDirectory: false
+        )
+        let prepared: PreparedNativeWhisperAudio
+        do {
+            try FileManager.default.createDirectory(
+                at: workDirectory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            prepared = try await cloudDependencies.audioPreparation
+                .prepareForNativeWhisper(fileURL, outputDirectory: workDirectory)
+        } catch AudioImportConversionError.unreadableAudio {
+            // The system can't decode it after all, so it can't be cut; it
+            // goes in one request, as before.
+            return try await transcribeInSingleCloudRequest(fileURL: fileURL)
+        } catch {
+            throw cloudAudioPreparationFailure(error)
+        }
+        let convertedFrom: CloudTranscriptionConvertedSource
+        do {
+            defer { prepared.cleanup() }
+            let preparedIsOwnTemporaryFile = prepared.fileURL.standardizedFileURL
+                != fileURL.standardizedFileURL
+            if preparedIsOwnTemporaryFile,
+               (try? CanonicalPCM16WAV.validateFile(at: prepared.fileURL)) != nil {
+                // Already canonical: rename it rather than hold two copies.
+                try FileManager.default.moveItem(at: prepared.fileURL, to: copyURL)
+            } else {
+                _ = try CanonicalPCM16WAV.writeCanonicalCopy(
+                    of: prepared.fileURL,
+                    to: copyURL
+                )
+            }
+            convertedFrom = try CloudTranscriptionConvertedSource.make(fileURL: fileURL)
+        } catch {
+            throw cloudAudioPreparationFailure(error)
+        }
+        return try await transcribeLargeCanonicalWAV(
+            fileURL: copyURL,
+            convertedFrom: convertedFrom
+        )
+    }
+
+    private func reportCloudProgress(_ progress: CloudTranscriptionProgress) {
+        (cloudExecutionContext?.progress ?? cloudDependencies.progress)(progress)
+    }
+
+    private func cloudAudioPreparationFailure(_ error: Error) -> Error {
+        if error is CancellationError || error is QuillUserIssueError {
+            return error
+        }
+        return QuillUserIssueError(
+            record: QuillUserIssueRecord(
+                code: .audioPreparationFailed,
+                context: QuillUserIssueContext(
+                    providerHost: baseURL.host,
+                    modelID: transcriptionModel
+                )
+            ),
+            privateDiagnostic: String(describing: type(of: error))
+        )
+    }
+
+    private func transcribeLargeCanonicalWAV(
+        fileURL: URL,
+        convertedFrom: CloudTranscriptionConvertedSource? = nil
+    ) async throws -> TranscriptionResult {
         // Chunked: progress will come once the audio is read and planned.
-        (cloudExecutionContext?.progress ?? cloudDependencies.progress)(.preparing)
+        // A converted import already said so before converting.
+        if convertedFrom == nil {
+            reportCloudProgress(.preparing)
+        }
         let sourceLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
-        let sourceIdentity = try CloudTranscriptionSourceIdentityBuilder.make(
+        var sourceIdentity = try CloudTranscriptionSourceIdentityBuilder.make(
             fileURL: fileURL,
             layout: sourceLayout
         )
+        sourceIdentity.convertedFrom = convertedFrom
         let multipart = cloudMultipartLayout
         let plan = try CloudTranscriptionChunkPlanner().plan(
             fileURL: fileURL,
@@ -1112,7 +1229,8 @@ extension TranscriptionExecutionSnapshot {
                 checkpointStore: cloudDependencies.checkpointStore,
                 progress: cloudDependencies.progress,
                 temporaryRoot: cloudDependencies.temporaryRoot,
-                sleep: cloudDependencies.sleep
+                sleep: cloudDependencies.sleep,
+                audioPreparation: cloudDependencies.audioPreparation
             )
             return try TranscriptionService(
                 apiKey: cloud.apiKey,

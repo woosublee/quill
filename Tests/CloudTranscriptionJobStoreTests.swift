@@ -22,6 +22,8 @@ struct CloudTranscriptionJobStoreTests {
             try staleSessionsCannotMutateAReplacementJob()
             try await checkpointAdapterPersistsContiguousProgress()
             try await staleCheckpointAdapterCannotResurrectDeletedJob()
+            try convertedSourceIsOptionalInSavedJobs()
+            try await reconvertedImportCopyRestartsItsJob()
             try reconciliationClassifiesCompatibleAndInvalidRecords()
             try removesStaleTemporaryArtifacts()
             print("CloudTranscriptionJobStoreTests passed")
@@ -767,6 +769,175 @@ struct CloudTranscriptionJobStoreTests {
                 }
                 try live.syncDirectory(directoryURL)
             }
+        )
+    }
+
+    // #735: jobs saved before converted imports have no `convertedFrom`.
+    private static func convertedSourceIsOptionalInSavedJobs() throws {
+        let plain = makeRecord()
+        let plainJSON = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        guard !plainJSON.contains("convertedFrom") else {
+            throw TestFailure("a job without a converted source keeps its saved shape")
+        }
+        let converted = withSource(
+            plain,
+            sha256: plain.identity.source.sha256,
+            convertedFrom: CloudTranscriptionConvertedSource(
+                audioFileName: "meeting.m4a",
+                physicalByteCount: 99,
+                sha256: String(repeating: "c", count: 64)
+            ),
+            planID: plain.plan.planID
+        )
+        try converted.validate(fileNameID: converted.historyID)
+        try expectEqual(
+            try JSONDecoder().decode(
+                CloudTranscriptionJobRecord.self,
+                from: try JSONEncoder().encode(converted)
+            ),
+            converted,
+            "converted source roundtrip"
+        )
+        try expectEqual(
+            converted.identity.source.storedAudioFileName,
+            "meeting.m4a",
+            "converted job names the stored import"
+        )
+        let unsafe = withSource(
+            plain,
+            sha256: plain.identity.source.sha256,
+            convertedFrom: CloudTranscriptionConvertedSource(
+                audioFileName: "../meeting.m4a",
+                physicalByteCount: 99,
+                sha256: String(repeating: "c", count: 64)
+            ),
+            planID: plain.plan.planID
+        )
+        try expectValidationError(
+            .unsafeAudioFileName,
+            record: unsafe,
+            fileNameID: unsafe.historyID,
+            label: "unsafe converted source name"
+        )
+    }
+
+    // Converting the same stored import again gave a different copy: the
+    // saved job starts over instead of failing every retry. A job for a
+    // different import still refuses.
+    private static func reconvertedImportCopyRestartsItsJob() async throws {
+        let fixture = try makeStoreFixture()
+        defer { fixture.cleanup() }
+        let store = CloudTranscriptionJobStore(
+            jobsDirectory: fixture.jobsDirectory,
+            temporaryRoot: fixture.temporaryRoot
+        )
+        let stored = CloudTranscriptionConvertedSource(
+            audioFileName: "meeting.m4a",
+            physicalByteCount: 99,
+            sha256: String(repeating: "c", count: 64)
+        )
+        let base = makeRecord(
+            phase: .transcribing,
+            completedChunks: [
+                CloudTranscriptionCompletedChunk(index: 0, normalizedRawText: "old copy")
+            ],
+            firstIncompleteChunkIndex: 1
+        )
+        let saved = withSource(
+            base,
+            sha256: base.identity.source.sha256,
+            convertedFrom: stored,
+            planID: base.plan.planID
+        )
+        let session = store.beginSession(historyID: saved.historyID)
+        try store.create(saved, session: session)
+        guard let preparing = store.checkpointStore(
+            session: session,
+            completionPolicy: saved.completionPolicy
+        ) as? any CloudTranscriptionCheckpointPreparing else {
+            throw TestFailure("job store checkpoint prepares jobs")
+        }
+
+        let otherImport = withSource(
+            base,
+            sha256: String(repeating: "d", count: 64),
+            convertedFrom: CloudTranscriptionConvertedSource(
+                audioFileName: "meeting.m4a",
+                physicalByteCount: 100,
+                sha256: String(repeating: "e", count: 64)
+            ),
+            planID: "plan-other"
+        )
+        do {
+            try await preparing.prepare(identity: otherImport.identity, plan: otherImport.plan)
+            throw TestFailure("a different import must not replace the job")
+        } catch CloudTranscriptionJobStoreError.identityMismatch {}
+
+        let reconverted = withSource(
+            base,
+            sha256: String(repeating: "d", count: 64),
+            convertedFrom: stored,
+            planID: "plan-reconverted"
+        )
+        try await preparing.prepare(identity: reconverted.identity, plan: reconverted.plan)
+        let restarted = try store.load(historyID: saved.historyID)
+        try expectEqual(restarted?.identity, reconverted.identity, "restarted job identity")
+        try expectEqual(restarted?.completedChunks, [], "restarted job drops the old copy's chunks")
+        try expectEqual(restarted?.createdAt, saved.createdAt, "restarted job keeps its place in line")
+
+        // The same copy with another plan is a plan change, not a new copy.
+        let samePlanChange = withSource(
+            reconverted,
+            sha256: reconverted.identity.source.sha256,
+            convertedFrom: stored,
+            planID: "plan-changed"
+        )
+        do {
+            try await preparing.prepare(identity: samePlanChange.identity, plan: samePlanChange.plan)
+            throw TestFailure("a plan change on the same copy must not restart silently")
+        } catch CloudTranscriptionJobStoreError.identityMismatch {}
+    }
+
+    private static func withSource(
+        _ record: CloudTranscriptionJobRecord,
+        sha256: String,
+        convertedFrom: CloudTranscriptionConvertedSource?,
+        planID: String
+    ) -> CloudTranscriptionJobRecord {
+        let source = record.identity.source
+        let plan = CloudTranscriptionChunkPlan(
+            algorithmVersion: record.plan.algorithmVersion,
+            encodedUploadCeilingBytes: record.plan.encodedUploadCeilingBytes,
+            sourceFrameCount: record.plan.sourceFrameCount,
+            chunks: record.plan.chunks,
+            planID: planID
+        )
+        return CloudTranscriptionJobRecord(
+            schemaVersion: record.schemaVersion,
+            historyID: record.historyID,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            phase: record.phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: record.identity.providerID,
+                model: record.identity.model,
+                language: record.identity.language,
+                responseFormat: record.identity.responseFormat,
+                source: CloudTranscriptionSourceIdentity(
+                    audioFileName: source.audioFileName,
+                    physicalByteCount: source.physicalByteCount,
+                    sha256: sha256,
+                    dataByteCount: source.dataByteCount,
+                    frameCount: source.frameCount,
+                    convertedFrom: convertedFrom
+                ),
+                planID: planID
+            ),
+            plan: plan,
+            completedChunks: record.completedChunks,
+            firstIncompleteChunkIndex: record.firstIncompleteChunkIndex,
+            lastFailure: record.lastFailure,
+            completionPolicy: record.completionPolicy
         )
     }
 
