@@ -48,6 +48,10 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
     public static let summaryStale = summaryPrefix + "stale"
     /// "Some evidence could not be verified."
     public static let summaryUnverifiedEvidence = summaryPrefix + "unverifiedEvidence"
+    /// "Meeting Summary is off", shown only on a device where it is off.
+    public static let summaryFeatureDisabled = summaryPrefix + "featureDisabled"
+    /// "Summary model is unavailable.", shown only on a device without one.
+    public static let summaryModelUnavailable = summaryPrefix + "modelUnavailable"
 
     // MARK: Conditions, alike on every device
 
@@ -78,6 +82,13 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
         case summaryStale(sourceFingerprint: String)
         /// "Some evidence could not be verified.", for the summary's time.
         case summaryUnverifiedEvidence(generatedAt: Date)
+        /// "Meeting Summary is off", for the summary's time. Each device
+        /// shows it only while its own setting is off; a dismissal on one
+        /// device keeps it closed on the others for this summary.
+        case summaryFeatureDisabled(generatedAt: Date)
+        /// "Summary model is unavailable.", for the summary's time, shown
+        /// like `summaryFeatureDisabled`.
+        case summaryModelUnavailable(generatedAt: Date)
 
         public var key: String {
             switch self {
@@ -85,13 +96,17 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
             case .summaryFailure: NoteNoticeDismissals.summaryFailure
             case .summaryStale: NoteNoticeDismissals.summaryStale
             case .summaryUnverifiedEvidence: NoteNoticeDismissals.summaryUnverifiedEvidence
+            case .summaryFeatureDisabled: NoteNoticeDismissals.summaryFeatureDisabled
+            case .summaryModelUnavailable: NoteNoticeDismissals.summaryModelUnavailable
             }
         }
 
         public var condition: String {
             switch self {
             case .postProcessingWarning(_, let status): NoteNoticeDismissals.condition(postProcessingStatus: status)
-            case .summaryFailure(let date), .summaryUnverifiedEvidence(let date): NoteNoticeDismissals.condition(date: date)
+            case .summaryFailure(let date), .summaryUnverifiedEvidence(let date),
+                 .summaryFeatureDisabled(let date), .summaryModelUnavailable(let date):
+                NoteNoticeDismissals.condition(date: date)
             case .summaryStale(let fingerprint): fingerprint
             }
         }
