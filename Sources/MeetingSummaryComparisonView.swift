@@ -425,9 +425,9 @@ private struct MeetingSummaryReadOnlyContent: View {
         _ title: LocalizedStringKey,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: QuillSpacing.space12) {
             Text(title)
-                .font(.title3.weight(.semibold))
+                .quillTextStyle(.summarySectionTitle)
                 .accessibilityAddTraits(.isHeader)
             content()
         }
