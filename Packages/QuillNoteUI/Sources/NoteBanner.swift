@@ -324,8 +324,13 @@ public struct NoteBannerDismissButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: "xmark")
+                #if os(macOS)
                 // 9 pt has no token yet (#736).
                 .font(.system(size: 9, weight: .semibold))
+                #else
+                // Grows with Dynamic Type beside the title.
+                .font(.system(.caption2, weight: .semibold))
+                #endif
                 .foregroundStyle(.secondary)
                 #if os(macOS)
                 .frame(width: 20, height: 20)
