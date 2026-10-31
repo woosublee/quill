@@ -5576,13 +5576,13 @@ struct AppStateTranscriptionConfigurationTests {
         )
         assert(retryEvents.contains("case .itemPersisted(let item, let effects):"))
         assert(retryEvents.contains("incrementNoteRetryGeneration(for: item.id)"))
-        assert(retryEvents.contains("meetingSummaryWorkflow.invalidate(noteID: item.id)"))
+        assert(retryEvents.contains("invalidateMeetingSummaryWork(noteID: item.id)"))
         assert(
             retryEvents.range(
                 of: "case .itemPersisted(let item, let effects):"
             )!.lowerBound
                 < retryEvents.range(
-                    of: "meetingSummaryWorkflow.invalidate(noteID: item.id)"
+                    of: "invalidateMeetingSummaryWork(noteID: item.id)"
                 )!.lowerBound
         )
     }

@@ -12,6 +12,7 @@ extension NoteSyncField {
     /// `PipelineHistoryItem`: the item never carries it.
     var isStoreLevel: Bool {
         self == .audioManifest || self == .dismissedNotices || self == .unchangedRetranscription
+            || self == .noticeDismissals || self == .unchangedSummaryRegeneration
     }
 
     /// The `PipelineHistoryItem` coding key this field comes from.
