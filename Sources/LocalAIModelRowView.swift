@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 import QuillProviderCore
 
 struct LocalAIManagedModelResolver {
@@ -219,7 +220,7 @@ struct LocalAIModelRowView: View {
         HStack(spacing: 8) {
             Label("Installed", systemImage: "checkmark.circle.fill")
                 .font(.caption2)
-                .foregroundStyle(.green)
+                .foregroundStyle(QuillColor.statusDone)
             Button {
                 showDeleteConfirmation = true
             } label: {

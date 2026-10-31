@@ -96,6 +96,18 @@ struct QuillDesignTokensTests {
         }
         precondition(resolved(.aqua) == "#c47318", "issue-warning light is \(resolved(.aqua))")
         precondition(resolved(.darkAqua) == "#f2b35c", "issue-warning dark is \(resolved(.darkAqua))")
+        let errorColor = NSColor(QuillColor.issueError)
+        var errorLight = "", errorDark = ""
+        NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+            let c = errorColor.usingColorSpace(.sRGB)!
+            errorLight = String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+        }
+        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+            let c = errorColor.usingColorSpace(.sRGB)!
+            errorDark = String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+        }
+        precondition(errorLight == "#d70015", "issue-error light is \(errorLight)")
+        precondition(errorDark == "#ff7a70", "issue-error dark is \(errorDark)")
         // status-processing and status-done: the darker value in light mode,
         // the system color in dark mode (#736 Q2).
         for (name, token, lightHex, system) in [
@@ -125,7 +137,9 @@ struct QuillDesignTokensTests {
         precondition(!themeIDs.isEmpty, "tokens.json has no color themes")
         let perTheme: [(String, (String) -> QuillColor.RGB)] = [
             ("issue-warning", { $0 == "dark" ? QuillColor.issueWarningRGB.dark : QuillColor.issueWarningRGB.light }),
-            ("issue-error", { _ in QuillColor.issueErrorRGB }),
+            ("issue-error", { $0 == "dark" ? QuillColor.issueErrorRGB.dark : QuillColor.issueErrorRGB.light }),
+            ("fill-alert-warning", { _ in QuillColor.issueWarningRGB.light }),
+            ("fill-alert-error", { _ in QuillColor.issueErrorRGB.light }),
             ("status-processing", { $0 == "dark" ? QuillColor.statusProcessingRGB.dark : QuillColor.statusProcessingRGB.light }),
             ("status-done", { $0 == "dark" ? QuillColor.statusDoneRGB.dark : QuillColor.statusDoneRGB.light }),
         ]

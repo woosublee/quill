@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 
 /// Settings › Recovery: deleted notes waiting out their 30 days.
 struct RecentlyDeletedNotesSection: View {
@@ -119,7 +120,7 @@ struct RecentlyDeletedNotesSection: View {
                     ? localizedCatalogString("1 day left")
                     : localizedCatalogFormat("%lld days left", Int64(days)))
                     .font(.system(size: 11))
-                    .foregroundStyle(days <= 1 ? Color.orange : Color.secondary)
+                    .foregroundStyle(days <= 1 ? QuillColor.issueWarning : Color.secondary)
                     .monospacedDigit()
             }
             Button("Restore") {
@@ -144,7 +145,7 @@ struct RecentlyDeletedNotesSection: View {
                 .lineLimit(1)
             Text("Restored")
                 .font(.system(size: 11))
-                .foregroundStyle(.green)
+                .foregroundStyle(QuillColor.statusDone)
             Button("Open Note") {
                 appState.openNoteInBrowser(id: note.id)
             }

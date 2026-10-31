@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuillDesignTokens
 
 struct NoteFileExportView: View {
     let source: NoteFileExportSource
@@ -179,7 +180,7 @@ struct NoteFileExportView: View {
             filePreview
             Text("A file name is too long. Shorten the name before saving.")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(QuillColor.issueError)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 6)
                 .opacity(fileNameIsTooLong ? 1 : 0)
@@ -207,7 +208,7 @@ struct NoteFileExportView: View {
                 Text(resultMessage)
                     .font(.caption)
                     .foregroundStyle(
-                        resultHasPartialSuccess ? Color.orange : Color.red
+                        resultHasPartialSuccess ? QuillColor.issueWarning : QuillColor.issueError
                     )
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 12)

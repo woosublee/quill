@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuillDesignTokens
 
 /// Settings › iCloud Sync: one switch, the sync status, and what stays on
 /// this Mac. Turning sync on asks first, with the number of notes to upload.
@@ -111,7 +112,7 @@ private struct NoteSyncSettingsCard: View {
                 } else if controller.audioLeftInICloud {
                     Text("Some audio couldn't be deleted from iCloud yet. Quill tries again when it opens and when you open this page.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -270,7 +271,7 @@ private struct NoteSyncSettingsCard: View {
                     Image(systemName: "checkmark.circle.fill")
                 }
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(QuillColor.statusDone)
             }
         case .paused(.offline):
             Text("Paused · Syncs again when you're online")
@@ -279,35 +280,35 @@ private struct NoteSyncSettingsCard: View {
         case .paused(.quotaExceeded):
             Text("iCloud storage is full, so uploads are paused")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.accountNeedsAttention):
             Text("iCloud account needs attention")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.accountChanged):
             Text("Sync stopped because the iCloud account changed")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.signedOut):
             Text("Sync stopped because you signed out of iCloud")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.deletedElsewhere):
             Text("iCloud data was deleted from another device, so sync stopped")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.notesFailed(let count, _)):
             Text(count == 1 ? "1 note couldn't sync" : "\(count) notes couldn't sync")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.couldNotSaveHere):
             Text("Notes couldn't be saved on this Mac, so sync paused")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         case .paused(.historyUnavailable):
             Text("Note history couldn't be opened, so sync paused")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
         }
     }
 

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import SwiftUI
+import QuillDesignTokens
 
 /// Opens the System Settings pane for a permission and shows a small panel
 /// attached to the Settings window with Quill's icon, which people drag into
@@ -308,7 +309,7 @@ private struct PermissionGuideView: View {
                 if model.isGranted {
                     Label(localizedCatalogString("Granted"), systemImage: "checkmark.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(QuillColor.statusDone)
                     Text(localizedCatalogString("This guide closes in a moment."))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)

@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 import AppKit
 
 // MARK: - State
@@ -350,10 +351,11 @@ enum RecordingNoticeSeverity: Equatable, CaseIterable {
         switch self {
         case .info:
             return Color.white.opacity(QuillContrast.opacity(0.6, increased: increasedContrast))
+        // The overlay is always dark, so it takes the issue tokens' dark values.
         case .warning:
-            return Color.orange
+            return QuillColor.issueWarningOnDark
         case .error:
-            return Color.red.opacity(0.92)
+            return QuillColor.issueErrorOnDark
         }
     }
 }
@@ -1792,7 +1794,7 @@ private struct NotchSideOverlayView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 20, height: 20)
-                            .background(Circle().fill(Color.red.opacity(0.92)))
+                            .background(Circle().fill(QuillColor.statusRecording.opacity(0.92)))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop recording")
@@ -1885,7 +1887,7 @@ struct RecordingOverlayView: View {
                                         .font(.system(size: 9, weight: .bold))
                                         .foregroundStyle(.white)
                                         .frame(width: 20, height: 20)
-                                        .background(Circle().fill(Color.red.opacity(0.92)))
+                                        .background(Circle().fill(QuillColor.statusRecording.opacity(0.92)))
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Stop recording")
@@ -2163,7 +2165,7 @@ struct ErrorOverlayView: View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color.red.opacity(0.92))
+                .foregroundStyle(QuillColor.issueErrorOnDark)
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
