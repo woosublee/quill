@@ -1630,6 +1630,7 @@ struct NoteBrowserView: View {
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
                                         stoppedCloudIDs: appState.stoppedCloudTranscriptionIDs,
+                                        postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selection.showsSelectionUI
@@ -2297,7 +2298,8 @@ private struct NoteListRow: View {
                 case .unavailable: return .unavailable
                 }
             },
-            isUnrecoveredRecording: displayData.isUnrecoveredRecording
+            isUnrecoveredRecording: displayData.isUnrecoveredRecording,
+            workStageKey: displayData.workStageKey
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
