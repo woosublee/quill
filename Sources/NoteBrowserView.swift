@@ -11,81 +11,6 @@ import QuillNoteSyncCore
 import QuillNoteUI
 import QuillDesignTokens
 
-// MARK: - Cursor helper
-
-private class CursorNSView: NSView {
-    var cursor: NSCursor
-
-    /// Cursor overrides currently in a window. Text views underneath one
-    /// (such as the transcript under the floating toolbar) defer to it.
-    private static let liveViews = NSHashTable<CursorNSView>.weakObjects()
-
-    init(cursor: NSCursor) {
-        self.cursor = cursor
-        super.init(frame: .zero)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil {
-            Self.liveViews.remove(self)
-        } else {
-            Self.liveViews.add(self)
-        }
-    }
-
-    /// The override cursor for a point in window coordinates, if one covers it.
-    static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
-        guard let window else { return nil }
-        for view in liveViews.allObjects
-        where view.window === window && !view.isHiddenOrHasHiddenAncestor {
-            if view.convert(view.bounds, to: nil).contains(point) {
-                return view.cursor
-            }
-        }
-        return nil
-    }
-
-    override func layout() {
-        super.layout()
-        updateTrackingAreas()
-        window?.invalidateCursorRects(for: self)
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        guard !bounds.isEmpty else { return }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.activeInKeyWindow, .cursorUpdate, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        cursor.set()
-    }
-}
-
-private struct CursorView: NSViewRepresentable {
-    var cursor: NSCursor = .arrow
-    func makeNSView(context: Context) -> CursorNSView { CursorNSView(cursor: cursor) }
-    func updateNSView(_ nsView: CursorNSView, context: Context) { nsView.cursor = cursor }
-}
-
-extension View {
-    func overrideCursor(_ cursor: NSCursor) -> some View {
-        self.background(CursorView(cursor: cursor))
-    }
-}
-
 // MARK: - Visual effect helpers
 
 private class GlassNSView: NSView {
@@ -2083,7 +2008,11 @@ private final class CursorDeferringTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+        if let cursor = QuillCursorOverride.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            // Skip the text view's I-beam, but still pass the move up the
+            // responder chain so the views above it, such as the toolbar's
+            // hosting view and its help tags, see it.
+            nextResponder?.mouseMoved(with: event)
             cursor.set()
             return
         }
@@ -2091,7 +2020,7 @@ private final class CursorDeferringTextView: NSTextView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+        if let cursor = QuillCursorOverride.cursor(atWindowPoint: event.locationInWindow, in: window) {
             cursor.set()
             return
         }
@@ -4093,6 +4022,9 @@ private struct NoteDetailView: View {
         )
         .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
+        // As before #698: the pointer stays on the toolbar at the capsule's edges.
+        .contentShape(Capsule())
+        .allowsHitTesting(true)
         .overrideCursor(.arrow)
         // A press meant for the slot's last button mustn't land as the next
         // one: transcription can turn into post-processing under the cursor.
