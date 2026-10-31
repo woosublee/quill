@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import QuillNoteUI
 
 /// The #690 note toolbar table (QuillNoteUI), the same for both apps. Every
@@ -18,6 +20,8 @@ struct NoteToolbarStateTests {
         testSummaryActionBlockedWhileComparingOrEditing()
         testHiddenOnlyForRecordingComparingAndKeyboard()
         testEveryCombinationKeepsTheFixedSlots()
+        testEachMacButtonHasItsOwnCursorViewForItsHelpTag()
+        MainActor.assumeIsolated { testEachMacButtonGetsAnAppKitView() }
         print("NoteToolbarStateTests passed")
     }
 
@@ -266,5 +270,71 @@ struct NoteToolbarStateTests {
                 }
             }
         }
+    }
+
+    /// A Mac toolbar button floating over the transcript's text view shows
+    /// its help tag only with an AppKit view of its own behind it, as each
+    /// button had before the toolbar was shared (#698).
+    private static func testEachMacButtonHasItsOwnCursorViewForItsHelpTag() {
+        let url = URL(fileURLWithPath: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift")
+        guard let source = try? String(contentsOf: url, encoding: .utf8) else {
+            preconditionFailure("NoteFloatingToolbar.swift not found; run from the repository root")
+        }
+        guard let start = source.range(of: "struct NoteToolbarIconButton"),
+              let end = source.range(of: "struct NoteToolbarHint", range: start.upperBound..<source.endIndex)
+        else { preconditionFailure("NoteToolbarIconButton not found") }
+        let button = String(source[start.upperBound..<end.lowerBound])
+        guard let help = button.range(of: ".help(label)"),
+              let cursor = button.range(of: ".overrideCursor(.arrow)", range: help.upperBound..<button.endIndex)
+        else { preconditionFailure("each toolbar button needs .overrideCursor(.arrow) with its .help (#698)") }
+        let between = button[help.upperBound..<cursor.lowerBound]
+        precondition(!between.contains("}\n}"), "the cursor view must stay on the button")
+        precondition(button[cursor.upperBound...].contains("#endif"), "the cursor view is Mac only")
+    }
+
+    /// Every drawn button gets its own `CursorNSView`, besides any on the
+    /// whole toolbar.
+    @MainActor
+    private static func testEachMacButtonGetsAnAppKitView() {
+        var input = done(.transcript)
+        input.hasSummaryTab = false
+        input.canCreateSummary = true
+        let state = State.make(input)
+        // ↻, Copy, Save, ✨, Delete.
+        let buttonCount = 5
+        let toolbar = NoteFloatingToolbar(
+            state: state,
+            labels: NoteToolbarLabels(
+                firstAction: { _ in "Retranscribe" },
+                progress: "Working",
+                copy: "Copy",
+                copyUnavailable: "Nothing to copy",
+                save: "Save",
+                createSummary: "Create summary",
+                delete: "Delete"
+            ),
+            actions: NoteToolbarActions(
+                firstAction: { _ in }, copy: {}, save: {}, createSummary: {}, delete: {}
+            ),
+            opaqueBackground: .white
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 80),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: toolbar)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+        func cursorViews(in view: NSView) -> [CursorNSView] {
+            (view as? CursorNSView).map { [$0] } ?? view.subviews.flatMap(cursorViews(in:))
+        }
+        let views = cursorViews(in: host)
+        precondition(views.count == buttonCount, "expected a cursor view per button, found \(views.count)")
+        precondition(views.allSatisfy { $0.cursor == .arrow })
+        precondition(views.allSatisfy { !$0.frame.isEmpty })
+        window.close()
     }
 }

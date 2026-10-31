@@ -286,6 +286,11 @@ struct NoteToolbarIconButton<Label: View>: View {
         .onHover { hovering in
             isHovered = hovering && isEnabled
         }
+        #if os(macOS)
+        // Each button needs an AppKit view of its own for its help tag to
+        // show over the transcript's text view, as before #698.
+        .overrideCursor(.arrow)
+        #endif
     }
 }
 
