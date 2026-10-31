@@ -66,6 +66,59 @@ struct QuillUserIssueUIContractTests {
             source.contains("ViewThatFits(in: .horizontal)"),
             "the one-line banner hides a reason that would be cut off"
         )
+        try testBannersReadDesignTokens(source)
+    }
+
+    /// Banners, the info notice, and inline issue rows draw from
+    /// QuillDesignTokens instead of literals (#736 step 3). Each view is
+    /// checked on its own block so one view going back to literals fails.
+    private static func testBannersReadDesignTokens(_ source: String) throws {
+        let surface = block(source, from: "func quillBannerBackground() -> some View {", to: "struct QuillStatusBanner: View")
+        for marker in [
+            ".fill(QuillColor.fillBanner.color(for: colorScheme))",
+            ".strokeBorder(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)",
+            ".quillShadow(.banner)",
+            "background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))",
+        ] {
+            try expect(surface.contains(marker), "banner surface reads the token \(marker)")
+        }
+        let views: [(name: String, from: String, to: String, markers: [String])] = [
+            ("issue banner", "private var bannerView: some View {", "/// A compact box inside a settings form.", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)",
+                ".background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))",
+            ]),
+            ("inline issue row", "private var inlineView: some View {", "@ViewBuilder\n    private var dismissButton", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)",
+                ".background(QuillBannerSurface(cornerRadius: QuillRadius.radius8))",
+            ]),
+            ("row button", "private struct QuillBannerButtonSurface: View", "struct QuillInfoNotice: View", [
+                "RoundedRectangle(cornerRadius: QuillRadius.radius6)",
+                ".strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)",
+            ]),
+            ("info notice", "struct QuillInfoNotice: View", "extension View {", [
+                ".quillTextStyle(.callout)", "HStack(spacing: QuillSpacing.space6)",
+            ]),
+            ("status banner", "struct QuillStatusBanner: View", "/// Lets the first banner", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)", ".quillBannerBackground()",
+            ]),
+        ]
+        for view in views {
+            let body = block(source, from: view.from, to: view.to)
+            for marker in view.markers {
+                try expect(body.contains(marker), "\(view.name) reads the token \(marker)")
+            }
+            for literal in [
+                ".font(.system(size: 12))",
+                ".font(.system(size: 12, weight: .semibold))",
+                "Color.primary.opacity(0.045)",
+                "radius: 1.5",
+                "cornerRadius: 9",
+                "cornerRadius: 8",
+                "cornerRadius: 6",
+            ] {
+                try expect(!body.contains(literal), "\(view.name) no longer writes \(literal)")
+            }
+        }
     }
 
     private static func testNoteBrowserUsesStructuredErrorAndWarningUI(
