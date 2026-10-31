@@ -47,6 +47,24 @@ struct NoteBrowserActionState: Equatable {
 }
 
 enum NoteBrowserRecoveryPresentation {
+    /// Post-processing returned nothing to change. The original transcript is
+    /// the result, so this is a quiet notice rather than a warning.
+    static func isNothingToPostProcess(_ record: QuillUserIssueRecord?) -> Bool {
+        guard let record else { return false }
+        return record.code == .postProcessingFailed
+            && record.context.postProcessingFailureReason == .emptyOutput
+    }
+
+    /// The quiet "Nothing to clean up" notice points at the original
+    /// transcript, so it hides once the transcript is cleared (here or on
+    /// the iPhone). The record itself stays.
+    static func showsNothingToPostProcessNotice(
+        for record: QuillUserIssueRecord?,
+        isDisplayedTranscriptBlank: Bool
+    ) -> Bool {
+        isNothingToPostProcess(record) && !isDisplayedTranscriptBlank
+    }
+
     private static let postProcessingIssueCodes: Set<QuillUserIssueCode> = [
         .postProcessingFailed,
         .postProcessingRateLimited,

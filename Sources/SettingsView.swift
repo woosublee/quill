@@ -3012,7 +3012,7 @@ struct ModelsSettingsView: View {
             Divider()
             aiProcessingFallbackSetting(
                 for: .postProcessing,
-                title: "Post-Processing Fallback Model",
+                accessibilityTitle: "Post-Processing Fallback Model",
                 subtitle: "Tried once for transcript cleanup and Edit Mode when the model above fails or is rate-limited. A local fallback is also tried when the model above can't be reached.",
                 cloudWarning: "Choosing a cloud model sends your text, including Edit Mode selections and screen context, to it when the on-device model fails.",
                 draft: $postProcessingFallbackModelDraft
@@ -3064,7 +3064,7 @@ struct ModelsSettingsView: View {
             Divider()
             aiProcessingFallbackSetting(
                 for: .meetingSummary,
-                title: "Summary Fallback Model",
+                accessibilityTitle: "Summary Fallback Model",
                 subtitle: "Tried once when the summary model above fails or is rate-limited. A local fallback is also tried when the summary model above can't be reached.",
                 cloudWarning: "Choosing a cloud model sends the meeting transcript to it when the on-device model fails.",
                 draft: $meetingSummaryFallbackModelDraft
@@ -3161,11 +3161,13 @@ struct ModelsSettingsView: View {
     }
 
     /// The fallback picker (#580): None, a cloud model, or a local model
-    /// other than the primary's, plus a custom cloud model ID.
+    /// other than the primary's, plus a custom cloud model ID. It sits in
+    /// its feature's card, so it reads just "Fallback Model"; VoiceOver
+    /// hears the feature too (`accessibilityTitle`).
     @ViewBuilder
     private func aiProcessingFallbackSetting(
         for feature: AIProcessingFeature,
-        title: LocalizedStringKey,
+        accessibilityTitle: LocalizedStringKey,
         subtitle: LocalizedStringKey,
         cloudWarning: String,
         draft: Binding<String>
@@ -3197,16 +3199,21 @@ struct ModelsSettingsView: View {
         let trimmedDraft = draft.wrappedValue.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
+        let selectedFallbackLabel = displays
+            .first { AIProcessingFallbackChoice($0.choice) == selection.wrappedValue }
+            .map(aiProcessingChoiceMenuLabel)
+            ?? localizedCatalogString("No Fallback Model")
 
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+            Text("Fallback Model")
                 .font(.caption.weight(.semibold))
+                .accessibilityLabel(accessibilityTitle)
 
             // Built like the primary model picker: a menu Picker on macOS
             // 14, a Menu of toggles on macOS 13 where rows can't be disabled.
             Group {
                 if #available(macOS 14.0, *) {
-                    Picker(title, selection: selection) {
+                    Picker(accessibilityTitle, selection: selection) {
                         Text("No Fallback Model").tag(AIProcessingFallbackChoice.none)
                         ForEach(["Cloud", "On This Mac"], id: \.self) { section in
                             let sectionDisplays = displays.filter { $0.section == section }
@@ -3247,14 +3254,12 @@ struct ModelsSettingsView: View {
                             }
                         }
                     } label: {
-                        Text(
-                            displays.first { AIProcessingFallbackChoice($0.choice) == selection.wrappedValue }
-                                .map(aiProcessingChoiceMenuLabel)
-                                ?? localizedCatalogString("No Fallback Model")
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(selectedFallbackLabel)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .menuStyle(.borderlessButton)
+                    .accessibilityLabel(accessibilityTitle)
+                    .accessibilityValue(selectedFallbackLabel)
                 }
             }
             .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
