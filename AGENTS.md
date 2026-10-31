@@ -115,10 +115,10 @@ otherwise.
   device model; and the note layout rules (`QuillNoteLayout`): the window's
   width and height decide whether the list sits beside the note (wide and
   not compact height), and the note column's own width decides its side
-  margins, body maximum width, and where the work-status capsule sits. The
-  Mac maps its work in `Sources/NoteBrowserWorkStatus.swift` and uses only
-  the layout's list column width; its note column keeps its own margins
-  and centred capsule. Each app passes the note's state, its localized
+  margins and body maximum width; the work-status capsule sits in the
+  middle of the visible note area at every width. The Mac maps its work in
+  `Sources/NoteBrowserWorkStatus.swift` and uses only the layout's list
+  column width; its note column keeps its own margins. Each app passes the note's state, its localized
   strings, and the actions; the views hold no app state and run no work.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
