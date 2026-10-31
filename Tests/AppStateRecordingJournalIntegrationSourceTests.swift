@@ -514,8 +514,9 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         // #699: ends the stage and drops only this job's cleanup stop.
         precondition(finish.contains("endPostProcessing(\n                noteID: noteID,\n                stopSwitch: postProcessingStopSwitchByJobID.removeValue(forKey: id)"))
         precondition(source.contains("postProcessingNoteIDs.remove(noteID)\n        if let stopSwitch, postProcessingStopSwitches[noteID] === stopSwitch {"))
-        // The row never names the stage; the note detail reads postProcessingNoteIDs.
-        precondition(!noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
+        // The row's preview line and the note detail both read
+        // postProcessingNoteIDs; the row's name never shows the stage (#697).
+        precondition(noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
         precondition(noteBrowser.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(menuBar.contains("Label(appState.transcribingStatusTitle"))
         precondition(!menuBar.contains("Label(appState.debugStatusMessage"))

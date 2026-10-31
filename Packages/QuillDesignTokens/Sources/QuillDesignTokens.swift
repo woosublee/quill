@@ -80,6 +80,12 @@ public enum QuillColor {
         public let base: Base
         public let opacity: Double
 
+        /// The same base at another opacity (a fill strengthened under
+        /// Increase Contrast).
+        public func withOpacity(_ opacity: Double) -> Tint {
+            Tint(base: base, opacity: opacity)
+        }
+
         public var color: Color {
             switch base {
             case .primary: return Color.primary.opacity(opacity)
@@ -89,13 +95,46 @@ public enum QuillColor {
         }
     }
 
+    /// An opaque color for each appearance.
+    public struct SchemeRGB: Sendable {
+        public let light: RGB
+        public let dark: RGB
+
+        public func color(for colorScheme: ColorScheme) -> Color {
+            colorScheme == .dark ? dark.color : light.color
+        }
+    }
+
+    /// `surface-page-iphone`: the iPhone app's page background, every
+    /// screen's (#F5F5F7, #1C1C1E; iOS `backgroundPrimary`).
+    public static let surfacePageIPhone = SchemeRGB(
+        light: RGB(red: 245.0 / 255, green: 245.0 / 255, blue: 247.0 / 255),
+        dark: RGB(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
+    )
+
+    /// `surface-note`: the background of a note's page, which the
+    /// work-status wash is drawn in. The Mac draws the system text
+    /// background (`textBackgroundColor`, `surface-text` in tokens.json);
+    /// the iPhone's note page is its app-wide page, `surface-page-iphone`.
+    public static func surfaceNote(for colorScheme: ColorScheme) -> Color {
+        #if os(macOS)
+        Color(nsColor: .textBackgroundColor)
+        #else
+        surfacePageIPhone.color(for: colorScheme)
+        #endif
+    }
+
     /// A tint for each appearance.
     public struct SchemeTint: Sendable, Equatable {
         public let light: Tint
         public let dark: Tint
 
         public func color(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? dark.color : light.color
+            tint(for: colorScheme).color
+        }
+
+        public func tint(for colorScheme: ColorScheme) -> Tint {
+            colorScheme == .dark ? dark : light
         }
     }
 
@@ -158,6 +197,16 @@ public enum QuillColor {
         light: Tint(base: .primary, opacity: 0.08),
         dark: Tint(base: .white, opacity: 0.07)
     )
+    /// `stroke-hover`: a note list row's edge under the pointer (0.5 pt).
+    public static let strokeHover = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .white, opacity: 0.07)
+    )
+    /// `fill-badge`: a note list row's badge ("Summary", "Audio only").
+    public static let fillBadge = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .primary, opacity: 0.08)
+    )
     /// `stroke-selected`: the open note row's edge (0.6 pt).
     public static let strokeSelected = SchemeTint(
         light: Tint(base: .primary, opacity: 0.12),
@@ -212,6 +261,8 @@ public enum QuillColor {
         ("fill-hover", fillHover),
         ("fill-selected", fillSelected),
         ("stroke-selected", strokeSelected),
+        ("stroke-hover", strokeHover),
+        ("fill-badge", fillBadge),
         ("fill-empty-disc", fillEmptyDisc),
         ("record-ring", recordRing),
         ("accent-tint-selected", accentTintSelected),
@@ -322,6 +373,10 @@ public enum QuillControlSize {
     /// `size-empty-disc`: the disc behind an empty state's glyph.
     public static let emptyDisc: CGFloat = 80
 
+    /// `size-issue-disc`: the tinted disc behind an issue's glyph (the Mac's
+    /// full issue page, the iPhone's empty transcript states).
+    public static let issueDisc: CGFloat = 64
+
     /// `size-record-button`: the round record button. On the iPhone it grows
     /// with Dynamic Type from this size.
     public static let recordButtonMac: CGFloat = 44
@@ -348,6 +403,7 @@ public enum QuillControlSize {
         ("size-checkbox-iphone", checkboxIPhone),
         ("size-status-dot", statusDot),
         ("size-empty-disc", emptyDisc),
+        ("size-issue-disc", issueDisc),
         ("size-record-button", recordButtonMac),
         ("size-record-button-iphone", recordButtonIPhone),
     ]
@@ -384,9 +440,14 @@ public enum QuillOpacity {
     /// while work will replace it, so the text stays readable underneath.
     public static let statusWash: Double = 0.35
 
+    /// `opacity-issue-disc`: an issue disc's tint, drawn in the issue's own
+    /// color (`size-issue-disc`).
+    public static let issueDisc: Double = 0.1
+
     /// Every opacity this module carries, by its token name.
     public static let all: [(name: String, value: Double)] = [
         ("opacity-status-wash", statusWash),
+        ("opacity-issue-disc", issueDisc),
     ]
 }
 
@@ -599,10 +660,17 @@ public struct QuillTypeStyle: Sendable, Equatable {
         size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline,
         lineSpacing: 5, lineSpacingIPhone: 6, paragraphSpacing: 6, paragraphSpacingIPhone: 0
     )
-    /// `callout`: an empty state's or a notice's detail line. On iOS it
-    /// scales from `.caption`, like `banner-title`, so a banner's detail
-    /// stays the size of its title (#744).
+    /// `callout`: a notice's or banner's detail line. On iOS it scales from
+    /// `.caption`, like `banner-title`, so a banner's detail stays the size
+    /// of its title (#744). An empty state's detail is `empty-detail`.
     public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .caption)
+    /// `empty-detail`: an empty state's or an issue page's explanation under
+    /// its `empty-title`. The Mac size is `callout`'s; on iOS it follows
+    /// `.subheadline`, a step under the title's weight, where a banner's
+    /// detail (`callout`) stays the size of its title.
+    public static let emptyDetail = QuillTypeStyle(
+        size: callout.size, lineHeight: callout.lineHeight, weight: callout.weight, dynamicStyle: .subheadline
+    )
     /// `row-preview`: a note list row's two-line preview.
     public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `banner-title`: a notice or status banner's title.
@@ -638,6 +706,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         ("row-title", rowTitle),
         ("transcript", transcript),
         ("callout", callout),
+        ("empty-detail", emptyDetail),
         ("row-preview", rowPreview),
         ("banner-title", bannerTitle),
         ("meta-label", metaLabel),

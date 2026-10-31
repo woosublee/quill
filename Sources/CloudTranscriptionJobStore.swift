@@ -66,8 +66,13 @@ struct CloudTranscriptionJobRecord: Codable, Equatable, Sendable {
         guard historyID == fileNameID else {
             throw CloudTranscriptionJobValidationError.historyIDMismatch
         }
-        guard Self.isSafeBasename(identity.source.audioFileName) else {
+        guard Self.isSafeBasename(identity.source.audioFileName),
+              Self.isSafeBasename(identity.source.storedAudioFileName) else {
             throw CloudTranscriptionJobValidationError.unsafeAudioFileName
+        }
+        if let convertedFrom = identity.source.convertedFrom,
+           convertedFrom.sha256.count != 64 {
+            throw CloudTranscriptionJobValidationError.invalidSourceIdentity
         }
         guard identity.source.frameCount > 0,
               identity.source.dataByteCount
@@ -397,20 +402,28 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
                     guard let record = try loadUnlocked(historyID: historyID),
                           let historyItem = historyByID[historyID],
                           historyItem.audioFileName
-                            == record.identity.source.audioFileName else {
+                            == record.identity.source.storedAudioFileName else {
                         invalid.append(historyID)
                         continue
                     }
                     let audioURL = audioRoot.appendingPathComponent(
-                        record.identity.source.audioFileName,
+                        record.identity.source.storedAudioFileName,
                         isDirectory: false
                     )
-                    let layout = try CanonicalPCM16WAV.validateFile(at: audioURL)
-                    let source = try CloudTranscriptionSourceIdentityBuilder.make(
-                        fileURL: audioURL,
-                        layout: layout
-                    )
-                    guard source == record.identity.source else {
+                    let matchesStoredAudio: Bool
+                    if let convertedFrom = record.identity.source.convertedFrom {
+                        // The canonical copy is made again on resume; here
+                        // only the stored import has to be the same file.
+                        matchesStoredAudio = try CloudTranscriptionConvertedSource
+                            .make(fileURL: audioURL) == convertedFrom
+                    } else {
+                        let layout = try CanonicalPCM16WAV.validateFile(at: audioURL)
+                        matchesStoredAudio = try CloudTranscriptionSourceIdentityBuilder.make(
+                            fileURL: audioURL,
+                            layout: layout
+                        ) == record.identity.source
+                    }
+                    guard matchesStoredAudio else {
                         invalid.append(historyID)
                         continue
                     }
@@ -457,20 +470,35 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
     ) throws {
         try lock.withCloudTranscriptionJobLock {
             try requireActiveSession(session, historyID: session.historyID)
+            var restartedCreatedAt: Date?
             if let record = try loadUnlocked(historyID: session.historyID) {
-                guard record.identity == identity,
-                      record.plan == plan,
-                      record.completionPolicy == completionPolicy else {
+                if record.identity == identity,
+                   record.plan == plan,
+                   record.completionPolicy == completionPolicy {
+                    return
+                }
+                // Converting the same stored import again gave a different
+                // copy (for example after a system update changed a
+                // decoder): the saved chunks no longer line up, so the job
+                // starts over instead of failing on every retry.
+                guard record.completionPolicy == completionPolicy,
+                      record.identity.differsOnlyInConvertedCopy(from: identity),
+                      record.plan.algorithmVersion == plan.algorithmVersion,
+                      record.plan.encodedUploadCeilingBytes
+                        == plan.encodedUploadCeilingBytes,
+                      record.plan.sizing == plan.sizing,
+                      record.plan.silenceSearchFrameCount
+                        == plan.silenceSearchFrameCount else {
                     throw CloudTranscriptionJobStoreError.identityMismatch
                 }
-                return
+                restartedCreatedAt = record.createdAt
             }
             try ensureJobsDirectory()
             let timestamp = now()
             let record = CloudTranscriptionJobRecord(
                 schemaVersion: CloudTranscriptionJobRecord.currentSchemaVersion,
                 historyID: session.historyID,
-                createdAt: timestamp,
+                createdAt: restartedCreatedAt ?? timestamp,
                 updatedAt: timestamp,
                 phase: .transcribing,
                 identity: identity,

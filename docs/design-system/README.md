@@ -22,7 +22,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 - 글자: 본문·제목은 `label-primary`, 설명은 `label-secondary`, 빈 상태 장식은 `label-tertiary`. 대비 높이기에서 `tertiary`는 `secondary`로 올립니다.
 - 표면 세 단계: 창 바탕 `surface-window` → 카드 `surface-card`(설정) / `surface-control`(선택 카드) → 읽고 쓰는 영역 `surface-text`.
 - 회색 채움은 primary 불투명도 단계로만 만듭니다: hover `fill-hover`(5%) → 칩 `fill-chip`(6%) → 선택 `fill-selected`(8%) → 누름 `fill-pressed`(12%). 다크에서는 흰색 3~12%.
-- 선: 카드 `hairline`(6%), 배너 `hairline-strong`(8%), 유리 `stroke-glass`(10%), 선택 `stroke-selected`(12~14%).
+- 선: 카드 `hairline`(6%), 배너 `hairline-strong`(8%), 유리 `stroke-glass`(10%), 선택 `stroke-selected`(12~14%), 목록 행 hover `stroke-hover`(7~8%, 0.5pt). 목록 행 배지 바탕은 `fill-badge`(primary 8%).
 - 강조: `accent`와 그 불투명도(`accent-tint-selected` 8%, `accent-tint-nav` 15%, `accent-stroke-selected` 30%, `accent-highlight` 85%). `Color.blue`를 직접 쓰지 않습니다.
 - 상태: 녹음 `status-recording`, 처리 중 `status-processing`, 완료 `status-done`. 이슈 아이콘은 `issue-warning`, `issue-error`(아이콘 전용, 글자 금지).
 - 오버레이: `overlay-surface` 위 `overlay-text`. 보조는 `overlay-text-muted`(62%), 닫기 원 `overlay-chip`.

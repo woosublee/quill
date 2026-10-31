@@ -54,10 +54,14 @@ struct CloudTranscriptionHistoryLifecycleTests {
         try expectEqual(record?.phase, .assembled, "assembled sidecar phase")
         try expectEqual(record?.completedChunks.map(\.normalizedRawText), ["zero", "one", "two"], "durable raw chunk prefix")
         try expectEqual(record?.firstIncompleteChunkIndex, 3, "assembled first incomplete index")
+        // `.preparing` only says progress is coming, so the bar shows from
+        // the start (#697); the first chunk count still waits for the
+        // durable preparation.
+        try expectEqual(progress.values().first, .preparing, "progress is announced first")
         try expectEqual(
-            progress.values().first,
+            progress.values().first { $0 != .preparing },
             .planned(completed: 0, total: 3),
-            "progress begins after durable preparation"
+            "chunk progress begins after durable preparation"
         )
     }
 

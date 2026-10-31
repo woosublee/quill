@@ -53,31 +53,31 @@ struct QuillUserIssueView: View {
     /// like the app's other empty states: no surface, just the icon, the
     /// title, one line, and the action.
     private var fullView: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: QuillSpacing.space8) {
             Image(systemName: iconName)
                 .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(accentColor)
-                .frame(width: 64, height: 64)
-                .background(accentColor.opacity(0.1), in: Circle())
-                .padding(.bottom, 4)
+                .frame(width: QuillControlSize.issueDisc, height: QuillControlSize.issueDisc)
+                .background(accentColor.opacity(QuillOpacity.issueDisc), in: Circle())
+                .padding(.bottom, QuillSpacing.space4)
 
             Text(presentation.title)
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             Text(presentation.body)
-                .font(.system(size: 12))
+                .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 6) {
+            HStack(spacing: QuillSpacing.space6) {
                 actionButton
                 secondaryActionButton
                 detailsButton
             }
-            .padding(.top, 6)
+            .padding(.top, QuillSpacing.space6)
         }
         .frame(maxWidth: 380)
         .frame(maxWidth: .infinity)

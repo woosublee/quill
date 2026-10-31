@@ -69,6 +69,9 @@ public enum CloudConsentCopy {
     /// What cancelling any other change does (a new address for a saved
     /// key, or a cleared key that falls back to another one).
     public static let cancelChangesNothingKey = "If you cancel, nothing changes."
+    /// Withdrawing, or clearing an agreed key, while recording or
+    /// transcribing (#723).
+    public static let withdrawBusyKey = "You can't withdraw while recording or transcribing. Try again when it finishes."
 
     /// One line about the data, not a list of features. The Mac mentions
     /// screen context because its Context feature sends app names, window

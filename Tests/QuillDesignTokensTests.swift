@@ -17,6 +17,7 @@ struct QuillDesignTokensTests {
         testSpacingMatchesTokensFile(tokens)
         testRadiusMatchesTokensFile(tokens)
         testIssueColorsMatchTokensFile(tokens)
+        testNoteSurfaceMatchesTokensFile(tokens)
         testTintsMatchTokensFile(tokens)
         testShadowsMatchTokensFile(tokens)
         testControlSizesMatchTokensFile(tokens)
@@ -104,6 +105,23 @@ struct QuillDesignTokensTests {
                 )
             }
         }
+    }
+
+    /// The note page background: the iPhone's opaque page colors match
+    /// `surface-page-iphone`; the Mac's `surface-note` is the system text
+    /// background, which tokens.json writes as `surface-text`'s values.
+    private static func testNoteSurfaceMatchesTokensFile(_ tokens: [String: Any]) {
+        let entries = (tokens["color"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        func themes(_ name: String) -> [String: String] {
+            guard let value = entries.first(where: { $0["name"] as? String == name })?["value"] as? [String: String] else {
+                preconditionFailure("tokens.json has no per-theme value for \(name)")
+            }
+            return value
+        }
+        let iPhone = themes("surface-page-iphone")
+        precondition(iPhone["light"]?.lowercased() == hexString(QuillColor.surfacePageIPhone.light), "surface-page-iphone light")
+        precondition(iPhone["dark"]?.lowercased() == hexString(QuillColor.surfacePageIPhone.dark), "surface-page-iphone dark")
+        precondition(themes("surface-note") == themes("surface-text"), "surface-note on the Mac is the system text background")
     }
 
     /// Each tint's opacity matches the token's alpha in both themes. A white
@@ -212,6 +230,11 @@ struct QuillDesignTokensTests {
         precondition(QuillControlSize.recordButton == QuillControlSize.recordButtonMac, "this Mac test sees the Mac record button")
         // The iPhone's toolbar button is the minimum touch target.
         precondition(QuillControlSize.noteToolbarButtonIPhone == QuillControlSize.touchMin, "the iPhone toolbar button is size-touch-min")
+        // The empty and issue discs are this module's: one only in
+        // tokens.json fails too (#736 step 4).
+        for name in sizes.keys where name.hasSuffix("-disc") {
+            precondition(names.contains(name), "tokens.json size \(name) is missing from QuillControlSize")
+        }
     }
 
     private static func testBreakpointsMatchTokensFile(_ tokens: [String: Any]) {
@@ -231,7 +254,7 @@ struct QuillDesignTokensTests {
             precondition(abs(value - file) < 0.0001, "\(name) is \(value) in Swift but \(raw) in tokens.json")
         }
         let swiftNames = Set(QuillOpacity.all.map(\.name))
-        for name in entries.compactMap({ $0["name"] as? String }) where name.hasPrefix("opacity-status-") {
+        for name in entries.compactMap({ $0["name"] as? String }) where name.hasPrefix("opacity-status-") || name.hasPrefix("opacity-issue-") {
             precondition(swiftNames.contains(name), "tokens.json opacity \(name) is missing from QuillOpacity")
         }
     }
@@ -291,6 +314,13 @@ struct QuillDesignTokensTests {
         // A banner's detail sits beside its title at the same size on both
         // platforms, so on iOS the two scale from the same text style (#744).
         precondition(QuillTypeStyle.callout.dynamicStyle == QuillTypeStyle.bannerTitle.dynamicStyle, "a banner's detail scales with its title on iOS")
+        // An empty state's detail is the Mac's callout; only its iOS text
+        // style differs (#736 step 4).
+        let detail = QuillTypeStyle.emptyDetail, callout = QuillTypeStyle.callout
+        precondition(detail.size == callout.size && detail.lineHeight == callout.lineHeight && detail.weight == callout.weight
+            && detail.tracking == callout.tracking && detail.trackingIPhone == callout.trackingIPhone
+            && detail.design == callout.design && detail.scalesFromMacSize == callout.scalesFromMacSize, "empty-detail draws like callout on the Mac")
+        precondition(QuillTypeStyle.emptyDetail.dynamicStyle == .subheadline, "empty-detail follows .subheadline on iOS")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }
@@ -301,7 +331,7 @@ struct QuillDesignTokensTests {
         // The work-status styles are this module's: one only in tokens.json
         // fails too.
         let swiftNames = Set(QuillTypeStyle.all.map(\.name))
-        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") {
+        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") || name.hasPrefix("empty-") {
             precondition(swiftNames.contains(name), "tokens.json style \(name) is missing from QuillTypeStyle")
         }
     }
