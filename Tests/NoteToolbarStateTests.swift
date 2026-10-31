@@ -104,12 +104,26 @@ struct NoteToolbarStateTests {
             firstSlot: .button(.runSummary, isEnabled: false),
             isCopyEnabled: true, isSaveEnabled: false, createSummary: .none, isDeleteEnabled: false
         ))
+        // The iPhone waits for the cleanup model (#697): the same toolbar as
+        // post-processing, with its Cancel.
+        for tab in [NoteToolbarTab.transcript, .summary] {
+            var waiting = done(tab)
+            waiting.work = .waitingToPostProcess
+            var cleaning = done(tab)
+            cleaning.work = .postProcessing
+            precondition(State.make(waiting) == State.make(cleaning), "\(tab)")
+        }
+        var waiting = done(.transcript)
+        waiting.work = .waitingToPostProcess
+        precondition(State.make(waiting).firstSlot == .button(.cancelPostProcessing, isEnabled: true))
+        precondition(NoteToolbarWork.waitingToPostProcess.isRunning)
+        precondition(NoteToolbarWork.waitingToPostProcess.progressLabelKey == "Waiting to post-process")
     }
 
     /// An app that can't stop the work from the toolbar shows progress in
     /// the first slot instead of a ✕ that would do nothing.
     private static func testWorkWithoutCancelPath() {
-        for work in [NoteToolbarWork.waitingToTranscribe, .transcribing, .retranscribing, .postProcessing] {
+        for work in NoteToolbarWork.allCases where work != .none && work != .cancelling {
             var input = done(.transcript)
             input.work = work
             input.canCancelWork = false
@@ -201,7 +215,7 @@ struct NoteToolbarStateTests {
     /// transcription and post-processing have both finished, even when
     /// there's nothing to summarize yet.
     private static func testCreateSummaryWaitsForAllWork() {
-        for work in [NoteToolbarWork.waitingToTranscribe, .transcribing, .retranscribing, .cancelling, .postProcessing] {
+        for work in NoteToolbarWork.allCases where work != .none {
             for canCreate in [Bool?.none, true, false] {
                 let input = NoteToolbarInput(
                     tab: .transcript, work: work, canCancelWork: true, canCreateSummary: canCreate
@@ -239,7 +253,7 @@ struct NoteToolbarStateTests {
     /// Whatever the input, Save and Delete are off during any work, Copy
     /// follows the open tab's content, and only the transcript tab has ✨.
     private static func testEveryCombinationKeepsTheFixedSlots() {
-        let works: [NoteToolbarWork] = [.none, .waitingToTranscribe, .transcribing, .retranscribing, .cancelling, .postProcessing]
+        let works = NoteToolbarWork.allCases
         for tab in [NoteToolbarTab.transcript, .summary] {
             for work in works {
                 for making in [false, true] {
