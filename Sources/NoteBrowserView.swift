@@ -1943,7 +1943,7 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
         textView.setAccessibilityLabel(localizedCatalogString("Note Title"))
         textView.setAccessibilityPlaceholderValue(placeholder)
         textView.string = text
-        textView.font = .systemFont(ofSize: 28, weight: .bold)
+        textView.font = QuillTypeStyle.noteTitle.nsFont
         textView.textColor = .labelColor
         textView.drawsBackground = false
         textView.isEditable = true
@@ -1972,7 +1972,7 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? TitleSingleLineTextView else { return }
         textView.placeholder = placeholder
-        textView.font = .systemFont(ofSize: 28, weight: .bold)
+        textView.font = QuillTypeStyle.noteTitle.nsFont
         textView.textColor = .labelColor
         // Never during composition, such as a Korean syllable in progress.
         if textView.string != text, !textView.hasMarkedText() {
@@ -2140,7 +2140,7 @@ private final class TitleSingleLineTextView: NSTextView {
         super.draw(dirtyRect)
         guard string.isEmpty, !placeholder.isEmpty else { return }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.systemFont(ofSize: 28, weight: .bold),
+            .font: font ?? QuillTypeStyle.noteTitle.nsFont,
             .foregroundColor: NSColor.placeholderTextColor
         ]
         placeholder.draw(at: .zero, withAttributes: attributes)
@@ -2148,7 +2148,7 @@ private final class TitleSingleLineTextView: NSTextView {
 
     func updateDocumentWidth(minimumWidth: CGFloat) {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font ?? NSFont.systemFont(ofSize: 28, weight: .bold)
+            .font: font ?? QuillTypeStyle.noteTitle.nsFont
         ]
         let measuredText = string.isEmpty ? placeholder : string
         let measuredWidth = ceil((measuredText as NSString).size(withAttributes: attributes).width) + 8
@@ -3175,11 +3175,11 @@ private struct NoteDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 40)
+        .padding(.horizontal, QuillSpacing.space40)
         // Under the transparent title bar, just below the traffic lights' row,
         // and below the title bar's band where it is taller than designed.
-        .padding(.top, 32 + titleBarExtraHeight)
-        .padding(.bottom, 14)
+        .padding(.top, QuillSpacing.space32 + titleBarExtraHeight)
+        .padding(.bottom, QuillSpacing.space14)
         .overlay(alignment: .bottom) {
             Divider().opacity(QuillContrast.opacity(0.4, increased: increasesContrast))
         }
@@ -3210,10 +3210,9 @@ private struct NoteDetailView: View {
 
     private func detailTimestampLabel(_ detailTimestamp: String) -> some View {
         Text(detailTimestamp)
-            .font(.system(size: 10, design: .monospaced))
+            .quillTextStyle(.metaMono)
             .foregroundStyle(QuillContrast.hierarchicalStyle(.tertiary, increased: increasesContrast))
             .textCase(.uppercase)
-            .kerning(0.5)
             .lineLimit(1)
     }
 
@@ -3307,8 +3306,10 @@ private struct NoteDetailView: View {
     }
 
     private var metaDot: some View {
+        // The chips' size in the regular weight: the dot stays lighter than
+        // the medium chips beside it.
         Text("·")
-            .font(.system(size: 9, design: .monospaced))
+            .font(.system(size: QuillTypeStyle.metaChipMono.size, design: .monospaced))
             .foregroundStyle(QuillContrast.hierarchicalStyle(.quaternary, increased: increasesContrast))
     }
 
@@ -3316,7 +3317,7 @@ private struct NoteDetailView: View {
     /// VoiceOver don't stop on it; the row above reads it in words.
     private func metaTag(_ label: String, active: Bool, help tooltip: LocalizedStringKey) -> some View {
         Text(label)
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .quillTextStyle(.metaChipMono)
             .foregroundStyle(Color.secondary.opacity(
                 QuillContrast.opacity(active ? 0.7 : 0.5, increased: increasesContrast)
             ))
@@ -3362,9 +3363,9 @@ private struct NoteDetailView: View {
         .frame(maxWidth: 220)
         .accessibilityLabel("Note Content")
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 40)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
+        .padding(.horizontal, QuillSpacing.space40)
+        .padding(.top, QuillSpacing.space12)
+        .padding(.bottom, QuillSpacing.space4)
     }
 
 
@@ -3474,8 +3475,8 @@ private struct NoteDetailView: View {
                             appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
                         }
                     )
-                    .padding(.horizontal, 40)
-                    .padding(.top, 14)
+                    .padding(.horizontal, QuillSpacing.space40)
+                    .padding(.top, QuillSpacing.space14)
                 }
                 if !showsUnchangedNotice || areTranscriptNoticesExpanded,
                    isNothingToPostProcess,
@@ -3493,8 +3494,8 @@ private struct NoteDetailView: View {
                             }
                         }
                     )
-                    .padding(.horizontal, 40)
-                    .padding(.top, 14)
+                    .padding(.horizontal, QuillSpacing.space40)
+                    .padding(.top, QuillSpacing.space14)
                 }
                 if !showsUnchangedNotice || areTranscriptNoticesExpanded,
                    !isWarningBannerDismissed,
@@ -3516,8 +3517,8 @@ private struct NoteDetailView: View {
                             }
                         }
                     )
-                    .padding(.horizontal, 40)
-                    .padding(.top, 16)
+                    .padding(.horizontal, QuillSpacing.space40)
+                    .padding(.top, QuillSpacing.space16)
                 }
                 NoteTextView(
                     text: displayContent,
@@ -5207,7 +5208,7 @@ private struct NoteTextView: NSViewRepresentable {
         textView.autoresizingMask = .width
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = false
-        textView.textContainerInset = NSSize(width: 40, height: 20)
+        textView.textContainerInset = NSSize(width: QuillSpacing.space40, height: QuillSpacing.space20)
         textView.delegate = context.coordinator
 
         scrollView.documentView = textView
@@ -5270,10 +5271,10 @@ private struct NoteTextView: NSViewRepresentable {
 
     private func applyText(_ text: String, to textView: NSTextView, bottomPadding: CGFloat) {
         let style = NSMutableParagraphStyle()
-        style.lineSpacing = 5
-        style.paragraphSpacing = 6
+        style.lineSpacing = QuillTypeStyle.transcript.platformLineSpacing
+        style.paragraphSpacing = QuillTypeStyle.transcript.platformParagraphSpacing
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 15),
+            .font: QuillTypeStyle.transcript.nsFont,
             .paragraphStyle: style,
             .foregroundColor: NSColor.labelColor
         ]

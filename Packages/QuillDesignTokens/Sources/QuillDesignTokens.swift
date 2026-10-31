@@ -435,6 +435,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// The Mac size in points.
     public let size: CGFloat
+    /// The line box height tokens.json gives (size plus its default
+    /// leading and any line spacing), for layout math. A text view doesn't
+    /// read it: it draws `platformLineSpacing` on top of the font's own
+    /// line height.
     public let lineHeight: CGFloat
     /// The CSS weight tokens.json uses, 100 to 900 in steps of 100.
     public let weight: Int
@@ -451,6 +455,14 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// line). `font` can't scale a fixed size by itself and gives it
     /// unscaled, so such a style is drawn with `quillTextStyle(_:)`.
     public let scalesFromMacSize: Bool
+    /// The Mac's extra space between lines in points; 0 for none.
+    public let lineSpacing: CGFloat
+    /// The iPhone's extra space between lines in points.
+    public let lineSpacingIPhone: CGFloat
+    /// The Mac's space after a paragraph in points; 0 for none.
+    public let paragraphSpacing: CGFloat
+    /// The iPhone's space after a paragraph in points.
+    public let paragraphSpacingIPhone: CGFloat
 
     public init(
         size: CGFloat,
@@ -461,7 +473,11 @@ public struct QuillTypeStyle: Sendable, Equatable {
         design: Design = .default,
         tracking: CGFloat = 0,
         trackingIPhone: CGFloat? = nil,
-        scalesFromMacSize: Bool = false
+        scalesFromMacSize: Bool = false,
+        lineSpacing: CGFloat = 0,
+        lineSpacingIPhone: CGFloat? = nil,
+        paragraphSpacing: CGFloat = 0,
+        paragraphSpacingIPhone: CGFloat? = nil
     ) {
         self.size = size
         self.lineHeight = lineHeight
@@ -472,6 +488,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
         self.tracking = tracking
         self.trackingIPhone = trackingIPhone ?? tracking
         self.scalesFromMacSize = scalesFromMacSize
+        self.lineSpacing = lineSpacing
+        self.lineSpacingIPhone = lineSpacingIPhone ?? lineSpacing
+        self.paragraphSpacing = paragraphSpacing
+        self.paragraphSpacingIPhone = paragraphSpacingIPhone ?? paragraphSpacing
     }
 
     /// The SwiftUI weight for `weight`, or nil for a value that isn't one of
@@ -510,6 +530,51 @@ public struct QuillTypeStyle: Sendable, Equatable {
         #endif
     }
 
+    /// This platform's extra space between lines.
+    public var platformLineSpacing: CGFloat {
+        #if os(macOS)
+        return lineSpacing
+        #else
+        return lineSpacingIPhone
+        #endif
+    }
+
+    /// This platform's space after a paragraph.
+    public var platformParagraphSpacing: CGFloat {
+        #if os(macOS)
+        return paragraphSpacing
+        #else
+        return paragraphSpacingIPhone
+        #endif
+    }
+
+    #if os(macOS)
+    /// This style as an AppKit font, for a text view (the note title and
+    /// the transcript editor), with its design and digits. A weight that
+    /// isn't one of the nine CSS weights is regular, as in `font`.
+    public var nsFont: NSFont {
+        let nsWeight: NSFont.Weight
+        switch fontWeight {
+        case .ultraLight?: nsWeight = .ultraLight
+        case .thin?: nsWeight = .thin
+        case .light?: nsWeight = .light
+        case .medium?: nsWeight = .medium
+        case .semibold?: nsWeight = .semibold
+        case .bold?: nsWeight = .bold
+        case .heavy?: nsWeight = .heavy
+        case .black?: nsWeight = .black
+        default: nsWeight = .regular
+        }
+        if design == .monospaced {
+            return NSFont.monospacedSystemFont(ofSize: size, weight: nsWeight)
+        }
+        if monospacedDigits {
+            return NSFont.monospacedDigitSystemFont(ofSize: size, weight: nsWeight)
+        }
+        return NSFont.systemFont(ofSize: size, weight: nsWeight)
+    }
+    #endif
+
     /// This style at a given size, for a view that scales the size itself.
     public func font(size: CGFloat) -> Font {
         let font = Font.system(size: size, weight: fontWeight ?? .regular, design: design.fontDesign)
@@ -518,7 +583,8 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// `note-title`: the note detail's editable title.
     public static let noteTitle = QuillTypeStyle(
-        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3
+        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3,
+        lineSpacingIPhone: 3
     )
     /// `empty-title`: an empty state's title, and the work status shown
     /// alone in the middle of a note with no text yet.
@@ -527,8 +593,12 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public static let rowTitle = QuillTypeStyle(
         size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline, trackingIPhone: -0.1
     )
-    /// `transcript`: a note's transcript text.
-    public static let transcript = QuillTypeStyle(size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline)
+    /// `transcript`: a note's transcript text. Each app keeps its own line
+    /// and paragraph spacing until #736 Q6 is answered.
+    public static let transcript = QuillTypeStyle(
+        size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline,
+        lineSpacing: 5, lineSpacingIPhone: 6, paragraphSpacing: 6, paragraphSpacingIPhone: 0
+    )
     /// `callout`: an empty state's or a notice's detail line. On iOS it
     /// scales from `.caption`, like `banner-title`, so a banner's detail
     /// stays the size of its title (#744).
@@ -580,8 +650,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
     ]
 }
 
-/// Draws text in a `QuillTypeStyle`: its font, this platform's tracking,
-/// and on iOS a `scalesFromMacSize` style's size scaled with Dynamic Type.
+/// Draws text in a `QuillTypeStyle`: its font, this platform's tracking
+/// and line spacing, and on iOS a `scalesFromMacSize` style's size scaled
+/// with Dynamic Type. Paragraph spacing is a text view's, not SwiftUI
+/// text's, so a view that needs it reads `platformParagraphSpacing`.
 public struct QuillTextStyleModifier: ViewModifier {
     let style: QuillTypeStyle
     @ScaledMetric private var scaledSize: CGFloat
@@ -597,7 +669,11 @@ public struct QuillTextStyleModifier: ViewModifier {
         #else
         let font = style.scalesFromMacSize ? style.font(size: scaledSize) : style.font
         #endif
+        // A style with no line spacing of its own keeps what the view
+        // around it set.
+        let lineSpacing = style.platformLineSpacing
         return content.font(font).kerning(style.platformTracking)
+            .transformEnvironment(\.lineSpacing) { if lineSpacing > 0 { $0 = lineSpacing } }
     }
 }
 

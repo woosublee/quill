@@ -1,5 +1,6 @@
 import SwiftUI
 import QuillSummaryFormatCore
+import QuillDesignTokens
 
 /// The Summary tab. Like the transcript, the summary is always editable and
 /// saves on its own: Return adds a row below, ⌫ on an empty row removes it,
@@ -78,8 +79,8 @@ struct MeetingSummaryView<Notices: View>: View {
             // retranscription, or while the copy feedback showed).
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(maxWidth: 760, alignment: .leading)
-            .padding(.horizontal, 40)
-            .padding(.top, 14)
+            .padding(.horizontal, QuillSpacing.space40)
+            .padding(.top, QuillSpacing.space14)
             .padding(.bottom, 96)
             .frame(maxWidth: .infinity, alignment: .center)
         }
