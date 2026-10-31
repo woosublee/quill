@@ -85,17 +85,23 @@ struct QuillUserIssueUIContractTests {
             try expect(surface.contains(marker), "banner surface reads the token \(marker)")
         }
         try expect(
-            shared.contains("background(NoteBannerSurface())"),
+            block(shared, from: "public func noteBannerBackground() -> some View {", to: "\n}")
+                .contains("background(NoteBannerSurface())"),
             "the banner background is the shared surface on radius-9"
         )
-        for (name, marker) in [
-            ("status banner", "NoteBanner("),
-            ("expansion pill", "NoteBannerExpansionButton(expansion: expansion, strings: .mac)"),
-            ("close button", "NoteBannerDismissButton(label: localizedCatalogString(\"Dismiss\"), action: action)"),
-            ("banner surface", "typealias QuillBannerSurface = NoteBannerSurface"),
-            ("row button", "typealias QuillBannerButtonSurface = NoteBannerButtonSurface"),
+        for (name, from, to, marker) in [
+            ("status banner", "struct QuillStatusBanner: View", "/// The \"+N\" / \"Show Less\" pill", "NoteBanner("),
+            ("expansion pill", "struct QuillBannerExpansionButton: View", "/// The close button", "NoteBannerExpansionButton(expansion: expansion, strings: .mac)"),
+            ("close button", "struct QuillBannerDismissButton: View", "\n}", "NoteBannerDismissButton(label: localizedCatalogString(\"Dismiss\"), action: action)"),
+            ("banner background", "func quillBannerBackground() -> some View {", "\n}", "noteBannerBackground()"),
         ] {
-            try expect(source.contains(marker), "the Mac \(name) is the shared one")
+            try expect(block(source, from: from, to: to).contains(marker), "the Mac \(name) is the shared one")
+        }
+        for marker in [
+            "typealias QuillBannerSurface = NoteBannerSurface",
+            "typealias QuillBannerButtonSurface = NoteBannerButtonSurface",
+        ] {
+            try expect(source.contains(marker), "the Mac uses the shared \(marker)")
         }
         let views: [(name: String, text: String, from: String, to: String, markers: [String])] = [
             ("issue banner", source, "private var bannerView: some View {", "/// A compact box inside a settings form.", [

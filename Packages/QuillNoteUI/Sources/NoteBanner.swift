@@ -306,7 +306,7 @@ public struct NoteBannerExpansionButton: View {
         .accessibilityLabel(expansion.isExpanded ? strings.showLess : strings.showAllNotices)
         #if os(iOS)
         // Folded, it also reads how many notices are hidden.
-        .accessibilityValue(expansion.isExpanded ? "" : "+\(expansion.hiddenCount)")
+        .accessibilityValue(Text(verbatim: expansion.isExpanded ? "" : "+\(expansion.hiddenCount)"))
         #endif
     }
 }
