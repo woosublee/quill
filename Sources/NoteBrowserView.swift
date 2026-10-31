@@ -4038,6 +4038,7 @@ private struct NoteDetailView: View {
             isCloudTranscribing: isCloudTranscribing,
             cloudProgress: cloudProgress,
             cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
             cleanup: appState.noteCleanupStage
         )
     }
@@ -4050,6 +4051,7 @@ private struct NoteDetailView: View {
             isAudioOnly: isAudioOnly,
             cloudProgress: cloudProgress,
             cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
             cleanup: appState.noteCleanupStage
         )
     }

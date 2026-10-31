@@ -10,6 +10,7 @@ struct NoteBrowserWorkStatusTests {
         testRetry()
         testOneBar()
         testCleanupProgressOnlyMovesForward()
+        testLocalJobShowsOneContinuousBar()
         testSummary()
         print("NoteBrowserWorkStatusTests passed")
     }
@@ -102,7 +103,13 @@ struct NoteBrowserWorkStatusTests {
             ).progress?.percent
         }
         precondition(first(.off) == 50 && first(.cloud) == 40 && first(.onDevice) == 30)
-        precondition(first(.cloud, post: true) == nil, "no chunk count yet (Edit Mode): spinner only")
+        precondition(first(.cloud, post: true) == 80, "no chunk count yet: held at the boundary, not hidden")
+        precondition(first(.onDevice, post: true) == 60, "an on-device model still loading: held at 60%")
+        let editMode = NoteBrowserWorkStatus.firstTranscription(
+            isPostProcessing: true, isCloudTranscribing: false, cloudProgress: nil,
+            cleanupReportsProgress: false, cleanup: .cloud
+        )
+        precondition(editMode == .postProcessing(nil), "Edit Mode never reports: spinner only")
         let zero = PostProcessingDisplayProgress(completedChunkCount: 0, totalChunkCount: 3)
         precondition(first(.cloud, post: true, chunks: zero) == 80, "cleanup starts at the boundary")
         precondition(first(.onDevice, post: true, chunks: zero) == 60)
@@ -129,17 +136,84 @@ struct NoteBrowserWorkStatusTests {
         precondition(retryCleanup.progress?.percent == 70)
     }
 
-    /// The cleanup bar never moves back: a fallback starts at 0 of N again,
-    /// and out-of-order reports are dropped.
+    /// Local AI transcription then on-device cleanup, as the owner saw it
+    /// (#697): every step from the start to the end shows the bar, and it
+    /// never moves back: no gap before the first transcription count, none
+    /// between transcription and cleanup's first chunk count.
+    private static func testLocalJobShowsOneContinuousBar() {
+        func p(_ c: Int, _ t: Int) -> CloudTranscriptionDisplayProgress {
+            CloudTranscriptionDisplayProgress(completedChunkCount: c, totalChunkCount: t, activeAttempt: nil)
+        }
+        func c(_ done: Int, _ total: Int) -> PostProcessingDisplayProgress {
+            PostProcessingDisplayProgress(completedChunkCount: done, totalChunkCount: total)
+        }
+        let transcription: [CloudTranscriptionDisplayProgress?] = [.preparing, p(0, 3), p(1, 3), p(3, 3)]
+        let cleanup: [PostProcessingDisplayProgress?] = [nil, c(0, 2), c(1, 2), c(2, 2)]
+        for retry in [false, true] {
+            var steps: [NoteWorkStatus] = []
+            for progress in transcription {
+                steps.append(retry
+                    ? NoteBrowserWorkStatus.retry(
+                        isRecovering: false, isPostProcessing: false, isAudioOnly: false,
+                        cloudProgress: progress, cleanup: .onDevice
+                    )
+                    : NoteBrowserWorkStatus.firstTranscription(
+                        isPostProcessing: false, isCloudTranscribing: false,
+                        cloudProgress: progress, cleanup: .onDevice
+                    ))
+            }
+            for progress in cleanup {
+                steps.append(retry
+                    ? NoteBrowserWorkStatus.retry(
+                        isRecovering: false, isPostProcessing: true, isAudioOnly: false,
+                        cloudProgress: p(3, 3), cleanupProgress: progress, cleanup: .onDevice
+                    )
+                    : NoteBrowserWorkStatus.firstTranscription(
+                        isPostProcessing: true, isCloudTranscribing: false,
+                        cloudProgress: p(3, 3), cleanupProgress: progress, cleanup: .onDevice
+                    ))
+            }
+            let percents = steps.map { $0.progress?.percent }
+            precondition(!percents.contains(nil), "the bar never disappears: \(percents)")
+            let values = percents.compactMap { $0 }
+            precondition(values == [0, 0, 20, 60, 60, 60, 80, 99], "one bar 0–60% then 60–100%: \(values)")
+        }
+    }
+
+    /// The cleanup bar never moves back and never stalls: a fallback model
+    /// splits the transcript again and continues from where the bar is, and
+    /// a late report from an earlier split is dropped (the shared rule, as
+    /// AppState keeps it).
     private static func testCleanupProgressOnlyMovesForward() {
         func p(_ c: Int, _ t: Int) -> PostProcessingDisplayProgress {
             PostProcessingDisplayProgress(completedChunkCount: c, totalChunkCount: t)
         }
-        precondition(p(1, 4).isAhead(of: p(0, 4)))
-        precondition(!p(0, 3).isAhead(of: p(3, 4)), "a fallback's 0 of N doesn't pull the bar back")
-        precondition(!p(2, 3).isAhead(of: p(3, 3)), "a late report doesn't")
-        precondition(p(2, 3).isAhead(of: p(1, 2)))
-        precondition(!p(1, 2).isAhead(of: p(2, 4)), "the same share isn't ahead")
+        func percents(_ reports: [PostProcessingDisplayProgress]) -> [Int] {
+            var kept: PostProcessingDisplayProgress?
+            var shown: [Int] = []
+            for report in reports {
+                if let next = PostProcessingDisplayProgress.kept(after: kept, report: report) { kept = next }
+                let status = NoteBrowserWorkStatus.firstTranscription(
+                    isPostProcessing: true, isCloudTranscribing: false, cloudProgress: nil,
+                    cleanupProgress: kept, cleanup: .onDevice
+                )
+                shown.append(status.progress!.percent)
+            }
+            return shown
+        }
+        // 3 of 4 done, the primary model fails, the fallback splits into 4
+        // again: the bar continues from 75% of cleanup instead of stalling
+        // until the new split passes 3 of 4.
+        let fallback = percents([p(0, 4), p(1, 4), p(3, 4), p(0, 4), p(1, 4), p(2, 4)])
+        precondition(fallback == [60, 70, 90, 90, 92, 95], "\(fallback)")
+        // A late report from the first split (a different count) is dropped.
+        let late = percents([p(0, 2), p(1, 2), p(0, 3), p(2, 2), p(1, 3)])
+        precondition(late == [60, 80, 80, 80, 86], "\(late)")
+        // Out of order in one split: never back.
+        precondition(percents([p(0, 3), p(2, 3), p(1, 3)]) == [60, 86, 86])
+        for list in [fallback, late] {
+            precondition(zip(list, list.dropFirst()).allSatisfy { $0 <= $1 }, "never back")
+        }
     }
 
     private static func testSummary() {

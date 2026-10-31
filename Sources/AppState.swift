@@ -6229,6 +6229,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         markStoppedCloudTranscriptions(among: [item.id])
     }
 
+    /// The running cleanup will report chunk progress, so the note's bar
+    /// holds at the transcription boundary until it does (#697). Edit Mode's
+    /// transform gets no stop switch and reports none.
+    @MainActor
+    func postProcessingReportsProgress(noteID: UUID) -> Bool {
+        postProcessingStopSwitches[noteID] != nil
+    }
+
     /// The cleanup step runs for this note and the person hasn't stopped it
     /// yet (#699).
     @MainActor
@@ -6942,16 +6950,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let stopSwitch = PostProcessingStopSwitch()
         postProcessingStopSwitches[noteID] = stopSwitch
-        stopSwitch.onProgress { [weak self, weak stopSwitch] completed, total in
+        stopSwitch.onProgress { [weak self, weak stopSwitch] in
             Task { @MainActor [weak self, weak stopSwitch] in
                 guard let self, let stopSwitch,
-                      self.postProcessingStopSwitches[noteID] === stopSwitch else { return }
-                let next = PostProcessingDisplayProgress(completedChunkCount: completed, totalChunkCount: total)
-                // The bar never moves back: a fallback model starts its
-                // chunks again, and reports can land out of order.
-                if let current = self.postProcessingProgressByNoteID[noteID],
-                   !next.isAhead(of: current) { return }
-                self.postProcessingProgressByNoteID[noteID] = next
+                      self.postProcessingStopSwitches[noteID] === stopSwitch,
+                      let progress = stopSwitch.progress else { return }
+                // The switch keeps the reports in order with the shared
+                // forward-only rule: a fallback model's new split continues
+                // from where the bar is, and a late report is dropped.
+                // Reading its newest value here keeps the bar right however
+                // these main-actor hops are ordered.
+                if self.postProcessingProgressByNoteID[noteID] != progress {
+                    self.postProcessingProgressByNoteID[noteID] = progress
+                }
             }
         }
         return stopSwitch
@@ -9497,6 +9508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: noteID,
                 usesJobStore: configuration.usesJobStore,
+                reportsProgressFromStart: configuration.localAIExecution != nil,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: configuration.postProcessingEnabled,
                     outputLanguage: configuration.outputLanguage,
@@ -13550,6 +13562,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: cloudHistoryID,
                 usesJobStore: capturedUsesJobStore,
+                reportsProgressFromStart: capturedLocalAIExecution != nil,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: capturedSettings.usedPostProcessing,
                     outputLanguage: capturedOutputLanguage,
@@ -13937,10 +13950,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// `reportsProgressFromStart` (Local AI, which always chunks) shows the
+    /// note's bar at 0% as soon as the job starts, before the engine's first
+    /// report, so the bar doesn't appear only partway through (#697).
     @MainActor
     private func prepareCloudTranscriptionJob(
         historyID: UUID,
         usesJobStore: Bool,
+        reportsProgressFromStart: Bool = false,
         completionPolicy: TranscriptionCompletionSnapshot
     ) -> CloudTranscriptionExecutionContext? {
         guard usesJobStore else { return nil }
@@ -13951,6 +13968,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             historyID: historyID,
             session: session
         )
+        if reportsProgressFromStart {
+            updateCloudTranscriptionProgress(.preparing, historyID: historyID, session: session)
+        }
         let checkpointStore = cloudTranscriptionJobStore.checkpointStore(
             session: session,
             completionPolicy: completionPolicy.cloudJobPolicy

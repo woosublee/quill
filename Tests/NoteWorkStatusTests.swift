@@ -19,6 +19,7 @@ struct NoteWorkStatusTests {
         testFractionProgress()
         testIPhoneOnlyStates()
         testWaitingToPostProcessToolbar()
+        testCleanupProgressAdvances()
         print("NoteWorkStatusTests passed")
     }
 
@@ -49,7 +50,15 @@ struct NoteWorkStatusTests {
         precondition(percent(.combined(transcription: progress(4, of: 4), cleanup: .cloud)) == 80)
         precondition(percent(.combined(transcription: progress(4, of: 4), cleanup: .onDevice)) == 60)
         // Cleanup picks up at the boundary and holds there until a chunk is done.
-        precondition(NoteWorkProgress.combined(cleanupProgress: nil, stage: .cloud) == nil, "Edit Mode: no cleanup bar")
+        // Cleanup that will report but hasn't yet (an on-device model still
+        // loading) holds the bar at the boundary instead of hiding it.
+        precondition(percent(.combined(cleanupProgress: nil, stage: .cloud)) == 80, "no report yet: held at 80%")
+        precondition(percent(.combined(cleanupProgress: nil, stage: .onDevice)) == 60, "no report yet: held at 60%")
+        precondition(
+            NoteWorkProgress.combined(cleanupProgress: nil, stage: .cloud, reportsProgress: false) == nil,
+            "Edit Mode: no cleanup bar"
+        )
+        precondition(NoteWorkProgress.combined(cleanupProgress: nil, stage: .off) == nil)
         precondition(percent(.combined(cleanupProgress: progress(0, of: 3), stage: .cloud)) == 80)
         precondition(percent(.combined(cleanupProgress: progress(0, of: 1), stage: .onDevice)) == 60)
         precondition(percent(.combined(cleanupProgress: progress(1, of: 4), stage: .cloud)) == 85)
@@ -65,6 +74,29 @@ struct NoteWorkStatusTests {
         let status = NoteWorkStatus.postProcessing(.combined(cleanupProgress: progress(1, of: 4), stage: .cloud))
         let presentation = status.presentation { $0 }
         precondition(presentation.title == "Post-processing..." && presentation.percentText == "85%")
+    }
+
+    /// The shared forward-only cleanup progress both apps keep (#697).
+    private static func testCleanupProgressAdvances() {
+        func p(_ c: Int, _ t: Int, base: Double = 0) -> NoteCleanupProgress {
+            NoteCleanupProgress(completedChunkCount: c, totalChunkCount: t, base: base)
+        }
+        precondition(NoteCleanupProgress.kept(after: nil, report: p(0, 3)) == p(0, 3), "first report kept")
+        precondition(NoteCleanupProgress.kept(after: nil, report: p(0, 0)) == nil, "nothing to measure")
+        precondition(p(1, 4).advanced(to: p(2, 4)) == p(2, 4), "same split moves forward")
+        precondition(p(2, 4).advanced(to: p(1, 4)) == nil, "never back")
+        precondition(p(2, 4).advanced(to: p(2, 4)) == nil, "no change")
+        precondition(p(2, 4).advanced(to: p(3, 5)) == nil, "a late report from another split is dropped")
+        // A new split after chunks were done continues from where the bar is,
+        // even with the same chunk count.
+        precondition(p(2, 4).advanced(to: p(0, 4)) == p(0, 4, base: 0.5))
+        precondition(p(0, 4, base: 0.5).advanced(to: p(2, 4)) == p(2, 4, base: 0.5))
+        precondition(abs(p(2, 4, base: 0.5).fraction - 0.75) < 1e-9)
+        // Split again before any chunk was done: the bar stays put.
+        precondition(p(0, 4).advanced(to: p(0, 2)) == p(0, 2))
+        precondition(p(0, 4).advanced(to: p(0, 4)) == nil)
+        precondition(p(0, 0).workProgress == nil && p(0, 3).workProgress?.percent == 0)
+        precondition(NoteCleanupProgress(completedChunkCount: 1, totalChunkCount: 2, base: .nan).base == 0)
     }
 
     private static func testProgressArithmetic() {

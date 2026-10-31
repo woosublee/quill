@@ -88,12 +88,87 @@ extension NoteWorkProgress {
 
     /// Cleanup's progress as part of the one bar, picking up where
     /// transcription stopped: 0 of N chunks is the boundary, and a single
-    /// chunk holds there until it is done. Nil when cleanup reports no
-    /// progress (Edit Mode) or is off.
-    public static func combined(cleanupProgress progress: NoteWorkProgress?, stage: NoteCleanupStage) -> NoteWorkProgress? {
-        guard stage != .off, let progress else { return nil }
+    /// chunk holds there until it is done. Cleanup that will report but
+    /// hasn't yet (an on-device model still loading, or the transcript still
+    /// being split) also holds at the boundary, so the bar stays on screen
+    /// from transcription into cleanup instead of vanishing and coming back.
+    /// Nil only when cleanup never reports progress (`reportsProgress` false:
+    /// the Mac's Edit Mode) or is off.
+    public static func combined(
+        cleanupProgress progress: NoteWorkProgress?,
+        stage: NoteCleanupStage,
+        reportsProgress: Bool = true
+    ) -> NoteWorkProgress? {
+        guard stage != .off else { return nil }
+        guard let progress = progress ?? (reportsProgress ? .starting : nil) else { return nil }
         let share = stage.transcriptionShare
         return NoteWorkProgress(fraction: share + (1 - share) * progress.measured)
+    }
+}
+
+/// Cleanup's own chunk progress, before it is placed on the one bar
+/// (`NoteWorkProgress.combined(cleanupProgress:stage:)`). Both apps keep the
+/// running cleanup's latest value and move it with `advanced(to:)`, so the
+/// bar never moves back and never stalls (#697).
+public struct NoteCleanupProgress: Equatable, Sendable {
+    public let completedChunkCount: Int
+    public let totalChunkCount: Int
+    /// The share already filled (0...1) before this split of the
+    /// transcript. A fallback model or a rerun splits the transcript again;
+    /// the new split fills what is left from where the bar already was.
+    public var base: Double
+
+    public init(completedChunkCount: Int, totalChunkCount: Int, base: Double = 0) {
+        self.completedChunkCount = completedChunkCount
+        self.totalChunkCount = totalChunkCount
+        self.base = base.isFinite ? min(max(base, 0), 1) : 0
+    }
+
+    /// The share of cleanup done, within 0...1.
+    public var fraction: Double {
+        guard totalChunkCount > 0 else { return base }
+        let share = Double(min(max(completedChunkCount, 0), totalChunkCount)) / Double(totalChunkCount)
+        return min(1, base + (1 - base) * share)
+    }
+
+    /// For the bar: nil while there is nothing to measure yet.
+    public var workProgress: NoteWorkProgress? {
+        guard totalChunkCount > 0 || base > 0 else { return nil }
+        return NoteWorkProgress(fraction: fraction)
+    }
+
+    /// The progress after the next report, or nil when it doesn't move the
+    /// bar forward:
+    /// - The shared chunk runner reports 0 of N each time it splits the
+    ///   transcript. A 0 of N after chunks were done is a new split (a
+    ///   fallback model, a rerun, a wait for the engine): it continues from
+    ///   where the bar is, even with the same chunk count. Comparing ratios
+    ///   alone would stall the bar until the new split passed the old ratio.
+    /// - In the same split (the same chunk count), only more chunks done
+    ///   moves it.
+    /// - Any other report is a late one from an earlier split and is
+    ///   dropped, so the bar never jumps ahead or back.
+    public func advanced(to next: NoteCleanupProgress) -> NoteCleanupProgress? {
+        guard next.totalChunkCount > 0 else { return nil }
+        guard totalChunkCount > 0 else { return next }
+        var result = next
+        if next.completedChunkCount == 0 {
+            // Split again before a chunk was done: keep where the bar is,
+            // take the new chunk count.
+            result.base = completedChunkCount > 0 ? fraction : base
+            return result == self ? nil : result
+        }
+        guard next.totalChunkCount == totalChunkCount,
+              next.completedChunkCount > completedChunkCount else { return nil }
+        result.base = base
+        return result
+    }
+
+    /// What a running cleanup keeps after `report`: the first report as is,
+    /// then `advanced(to:)`. Nil when the kept progress doesn't change.
+    public static func kept(after current: NoteCleanupProgress?, report: NoteCleanupProgress) -> NoteCleanupProgress? {
+        guard let current else { return report.totalChunkCount > 0 ? report : nil }
+        return current.advanced(to: report)
     }
 }
 

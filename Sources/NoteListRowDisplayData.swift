@@ -25,19 +25,6 @@ struct CloudTranscriptionDisplayProgress: Equatable, Sendable {
     )
 }
 
-/// Chunks cleaned out of the chunk count, while post-processing runs (#697).
-struct PostProcessingDisplayProgress: Equatable, Sendable {
-    let completedChunkCount: Int
-    let totalChunkCount: Int
-
-    /// Further along than `other`, as a share of each one's chunk count.
-    func isAhead(of other: PostProcessingDisplayProgress) -> Bool {
-        guard totalChunkCount > 0 else { return false }
-        guard other.totalChunkCount > 0 else { return true }
-        return completedChunkCount * other.totalChunkCount > other.completedChunkCount * totalChunkCount
-    }
-}
-
 /// `stoppedCloud` holds cloud-transcribing notes that no work is running
 /// for; they show as failed so the person can retry or delete them.
 func transcriptStatus(

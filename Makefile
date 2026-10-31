@@ -652,8 +652,8 @@ $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests: Sources/RecordingJournalFailure.s
 $(TEST_BUILD_DIR)/NoteToolbarStateTests: Tests/NoteToolbarStateTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteToolbarStateTests.swift -o "$@"
 
-$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests: Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift | $(TEST_BUILD_DIR)
-	@swiftc -parse-as-library $(STANDALONE_TEST_TARGET) Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift -o "$@"
+$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests: Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/PostProcessingStopSwitch.swift Tests/PostProcessingStopSwitchTests.swift -o "$@"
 
 $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests: Tests/MeetingSummaryUIContractTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/MeetingSummaryUIContractTests.swift -o "$@"

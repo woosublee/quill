@@ -237,7 +237,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         return start(
             request: request,
             runtime: runtime,
-            seededProgress: nil
+            seededProgress: request.execution.reportsProgressFromStart ? .preparing : nil
         )
     }
 
