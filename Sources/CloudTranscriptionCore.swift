@@ -68,6 +68,10 @@ struct CloudTranscriptionCheckpoint: Codable, Equatable, Sendable {
 }
 
 enum CloudTranscriptionProgress: Equatable, Sendable {
+    /// The job will report chunk progress and is still reading and
+    /// planning the audio (#697): the status shows its bar at 0% from the
+    /// start instead of growing one when the first chunk count arrives.
+    case preparing
     case planned(completed: Int, total: Int)
     case uploading(index: Int, total: Int, attempt: Int)
     case completed(total: Int)

@@ -31,6 +31,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testFailedFileWriteSavesHistoryWithoutAFile()
         try await testCommandFallbackUsesCapturedDispositionAndReason()
         try await testProgressBelongsToCurrentAttempt()
+        try await testLocalAIRetryShowsTheBarFromTheStart()
         try await testManualProviderFailurePersistsVersionedIssue()
         try await testManualFailureUsesCapturedIssueContext()
         try await testManualFailurePreservesCurrentTranscriptAIAndSummary()
@@ -2055,6 +2056,15 @@ struct TranscriptionRetryWorkflowTests {
             ),
             "older progress rejected"
         )
+        // A late "preparing" never hides counts already shown (a resumed
+        // job's seeded counts stay until its plan reports) (#697).
+        await controlled.emitProgress(call: 1, progress: .preparing)
+        await drainTasks()
+        try expectEqual(
+            workflow.state.progressByNoteID[item.id]?.completedChunkCount,
+            2,
+            "preparing keeps shown counts"
+        )
         await controlled.succeed(
             call: 0,
             result: transcriptionResult(text: "older success")
@@ -3088,6 +3098,65 @@ struct TranscriptionRetryWorkflowTests {
         try await waitUntil { events.outcomes.count == 1 }
         let contextWasNil = await invocation.contextWasNil()
         try expect(!contextWasNil, "Local AI retry gets a job-store context")
+    }
+
+    /// Local AI always chunks, so its bar is there at 0% the moment the
+    /// retry starts, before the engine's first report (#697). A cloud retry
+    /// can't tell yet (a short file goes in one request) and starts with none.
+    @MainActor
+    private static func testLocalAIRetryShowsTheBarFromTheStart() async throws {
+        for local in [true, false] {
+            let fixture = try makeFixture()
+            defer { fixture.cleanup() }
+            let item = makeHistoryItem()
+            let history = TranscriptionRetryHistoryRecorder(item: item)
+            let gate = TranscriptionRetryControlledTranscriber()
+            let workflow = TranscriptionRetryWorkflow(
+                dependencies: TranscriptionRetryWorkflowDependencies(
+                    transcribe: { _, _, _, context in
+                        try await gate.run(context: context, emitsProgress: false)
+                    },
+                    makeAttemptToken: { UUID() }
+                )
+            )
+            let completion = TranscriptionCompletionSnapshot(
+                postProcessingEnabled: true,
+                outputLanguage: "en",
+                pressEnterCommandEnabled: false
+            )
+            let started = workflow.startManual(
+                request: try makeRequest(
+                    item: item,
+                    fixture: fixture,
+                    execution: local
+                        ? .local(makeLocalAIExecution(), completion)
+                        : try makeCloudExecution(completion: completion),
+                    processing: processingBehaviorFromTranscription(),
+                    historyMetadata: local ? localHistoryMetadata() : TranscriptionRetryHistoryMetadata(
+                        customVocabulary: "",
+                        customSystemPrompt: "",
+                        usedLocalTranscription: false,
+                        usedPostProcessing: true,
+                        transcriptionLanguageCode: "en",
+                        localTranscriptionModelID: "captured/local",
+                        successDebugStatus: "Retried"
+                    ),
+                    failureContext: localFailureContext()
+                ),
+                runtime: fixture.runtime(
+                    history: history.access(),
+                    assets: TranscriptionRetryAssetRecorder().access()
+                )
+            )
+            try expect(started, "retry started")
+            try expectEqual(
+                workflow.state.progressByNoteID[item.id],
+                local ? CloudTranscriptionDisplayProgress.preparing : nil,
+                local ? "Local AI: 0% bar from the start" : "cloud: no bar until it reports"
+            )
+            await gate.waitUntilStarted()
+            await gate.succeed(transcriptionResult(text: "done"))
+        }
     }
 
     @MainActor
