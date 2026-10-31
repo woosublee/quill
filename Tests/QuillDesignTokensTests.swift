@@ -4,9 +4,10 @@ import QuillDesignTokens
 /// Keeps the shared QuillDesignTokens module and docs/design-system/tokens.json
 /// in step for the tokens the module carries: the spacing, radius, and
 /// breakpoint scales, the issue colors, the tints, the shadows, the
-/// opacities, the text styles, and the control sizes. The scales fail on a
-/// token added, removed or changed on either side; the other families fail
-/// when a Swift token is missing from tokens.json or differs from it.
+/// opacities, the text styles, and the control and layout sizes. The
+/// scales fail on a token added, removed or changed on either side; the
+/// other families fail when a Swift token is missing from tokens.json or
+/// differs from it.
 @main
 struct QuillDesignTokensTests {
     static func main() {
@@ -21,6 +22,7 @@ struct QuillDesignTokensTests {
         testOpacitiesMatchTokensFile(tokens)
         testTypeStylesMatchTokensFile(tokens)
         testStatusProgressSizeMatchesTokensFile(tokens)
+        testLayoutSizesMatchTokensFile(tokens)
         print("QuillDesignTokensTests passed")
     }
 
@@ -222,6 +224,24 @@ struct QuillDesignTokensTests {
     private static func testStatusProgressSizeMatchesTokensFile(_ tokens: [String: Any]) {
         let sizes = lengths(tokens, family: "size")
         precondition(sizes["size-status-progress"] == Double(QuillControlSize.statusProgress), "size-status-progress")
+    }
+
+    /// The note layout sizes (#697). The margins are steps of the spacing
+    /// scale, so a margin can't drift off it.
+    private static func testLayoutSizesMatchTokensFile(_ tokens: [String: Any]) {
+        let sizes = lengths(tokens, family: "size")
+        for (name, value) in QuillLayoutSize.all {
+            precondition(sizes[name] == Double(value), "\(name) is \(value) in Swift but \(sizes[name].map(String.init(describing:)) ?? "missing") in tokens.json")
+        }
+        let layoutPrefixes = ["size-sidebar-notes", "size-note-margin-", "size-note-body-"]
+        for name in sizes.keys where layoutPrefixes.contains(where: name.hasPrefix) {
+            precondition(QuillLayoutSize.all.contains { $0.name == name }, "tokens.json size \(name) is missing from QuillLayoutSize")
+        }
+        precondition(QuillLayoutSize.noteMarginCompact == QuillSpacing.space16, "compact margin is space-16")
+        precondition(QuillLayoutSize.noteMarginRegular == QuillSpacing.space24, "regular margin is space-24")
+        // Where the list first fits beside the note, it leaves the Mac's
+        // narrowest note column, 520 pt.
+        precondition(QuillBreakpoint.wide - QuillLayoutSize.sidebarNotes == 520, "800 = 280 list + 520 note")
     }
 
     /// Rounds half away from zero, as the hex values in tokens.json were
