@@ -3687,16 +3687,17 @@ private struct NoteDetailView: View {
         }
     }
 
-    /// The condition every device writes when this notice is dismissed
-    /// (#745), or nil for a notice that stays on this Mac.
-    private func syncedSummaryNoticeDismissalCondition(_ kind: SummaryNoticeKind) -> String? {
+    /// The notice as every device dismisses it (#745), or nil for a notice
+    /// about this Mac's own settings, or the same-summary notice, which
+    /// syncs as its own marker.
+    private func syncedSummaryNotice(_ kind: SummaryNoticeKind) -> NoteNoticeDismissals.Notice? {
         switch kind {
         case .failure:
-            return currentSummaryAttempt.map { NoteNoticeDismissals.condition(date: $0.occurredAt) }
+            return currentSummaryAttempt.map { .summaryFailure(attemptAt: $0.occurredAt) }
         case .stale:
-            return appState.meetingSummarySourceFingerprint(for: item)
+            return .summaryStale(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))
         case .unverifiedEvidence:
-            return summaryEnvelope.map { NoteNoticeDismissals.condition(date: $0.generatedAt) }
+            return summaryEnvelope.map { .summaryUnverifiedEvidence(generatedAt: $0.generatedAt) }
         case .unchanged, .featureDisabled, .modelUnavailable:
             return nil
         }
@@ -3707,7 +3708,7 @@ private struct NoteDetailView: View {
             noteID: item.id,
             kind: kind,
             condition: summaryNoticeDismissalCondition(kind),
-            syncedCondition: syncedSummaryNoticeDismissalCondition(kind)
+            synced: syncedSummaryNotice(kind)
         )
     }
 
@@ -3716,7 +3717,7 @@ private struct NoteDetailView: View {
             noteID: item.id,
             kind: kind,
             condition: summaryNoticeDismissalCondition(kind),
-            syncedCondition: syncedSummaryNoticeDismissalCondition(kind)
+            synced: syncedSummaryNotice(kind)
         )
     }
 

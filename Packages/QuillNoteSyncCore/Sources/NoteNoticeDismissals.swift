@@ -62,6 +62,49 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
         String(Int64((date.timeIntervalSince1970 * 1000).rounded()))
     }
 
+    // MARK: The notices that sync, alike on every device
+
+    /// A notice whose dismissal syncs, with what it is dismissed for. Both
+    /// apps build the key and condition here, so a dismissal written on one
+    /// device matches the same notice on the other.
+    public enum Notice: Equatable, Sendable {
+        /// The post-processing warning above the transcript, for the note's
+        /// `postProcessingStatus`.
+        case postProcessingWarning(code: String, status: String)
+        /// The saved summary's failed attempt, by when it happened.
+        case summaryFailure(attemptAt: Date)
+        /// "Transcript changed after this summary was generated.", for the
+        /// transcript's source fingerprint.
+        case summaryStale(sourceFingerprint: String)
+        /// "Some evidence could not be verified.", for the summary's time.
+        case summaryUnverifiedEvidence(generatedAt: Date)
+
+        public var key: String {
+            switch self {
+            case .postProcessingWarning(let code, _): NoteNoticeDismissals.postProcessingWarning(code: code)
+            case .summaryFailure: NoteNoticeDismissals.summaryFailure
+            case .summaryStale: NoteNoticeDismissals.summaryStale
+            case .summaryUnverifiedEvidence: NoteNoticeDismissals.summaryUnverifiedEvidence
+            }
+        }
+
+        public var condition: String {
+            switch self {
+            case .postProcessingWarning(_, let status): NoteNoticeDismissals.condition(postProcessingStatus: status)
+            case .summaryFailure(let date), .summaryUnverifiedEvidence(let date): NoteNoticeDismissals.condition(date: date)
+            case .summaryStale(let fingerprint): fingerprint
+            }
+        }
+    }
+
+    public func isDismissed(_ notice: Notice) -> Bool {
+        isDismissed(notice.key, condition: notice.condition)
+    }
+
+    public func dismissing(_ notice: Notice, at date: Date) -> NoteNoticeDismissals? {
+        dismissing(notice.key, condition: notice.condition, at: date)
+    }
+
     // MARK: Reading and changing
 
     public func isDismissed(_ key: String, condition: String) -> Bool {

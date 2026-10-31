@@ -2475,18 +2475,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case unverifiedEvidence
         case featureDisabled
         case modelUnavailable
-
-        /// The key a dismissal syncs under (#745). Nil for notices about
-        /// this Mac's own settings, and for the same-summary notice, which
-        /// syncs as its own marker.
-        var syncedDismissalKey: String? {
-            switch self {
-            case .failure: NoteNoticeDismissals.summaryFailure
-            case .stale: NoteNoticeDismissals.summaryStale
-            case .unverifiedEvidence: NoteNoticeDismissals.summaryUnverifiedEvidence
-            case .unchanged, .featureDisabled, .modelUnavailable: nil
-            }
-        }
     }
 
     // A per-note counter bumped every time that note is retried. Dismissals
@@ -2566,8 +2554,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func isPostProcessingWarningDismissed(_ item: PipelineHistoryItem) -> Bool {
         guard let code = item.userIssueRecord?.code else { return false }
         if noticeDismissalsByNoteID[item.id]?.isDismissed(
-            NoteNoticeDismissals.postProcessingWarning(code: code.rawValue),
-            condition: NoteNoticeDismissals.condition(postProcessingStatus: item.postProcessingStatus)
+            .postProcessingWarning(code: code.rawValue, status: item.postProcessingStatus)
         ) == true {
             return true
         }
@@ -2581,8 +2568,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func dismissPostProcessingWarning(_ item: PipelineHistoryItem) {
         guard let code = item.userIssueRecord?.code else { return }
         dismissConditionalNotice(
-            NoteNoticeDismissals.postProcessingWarning(code: code.rawValue),
-            condition: NoteNoticeDismissals.condition(postProcessingStatus: item.postProcessingStatus),
+            .postProcessingWarning(code: code.rawValue, status: item.postProcessingStatus),
             noteID: item.id,
             fallback: { self.dismissWarningBanner(noteID: item.id, code: code) }
         )
@@ -2592,15 +2578,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// device; `fallback` keeps it on this Mac when the store can't save.
     @MainActor
     private func dismissConditionalNotice(
-        _ key: String,
-        condition: String,
+        _ notice: NoteNoticeDismissals.Notice,
         noteID: UUID,
         fallback: () -> Void
     ) {
         do {
-            try pipelineHistoryStore.dismissNotice(key, condition: condition, id: noteID)
+            try pipelineHistoryStore.dismissNotice(notice.key, condition: notice.condition, id: noteID)
             if let updated = (noticeDismissalsByNoteID[noteID] ?? NoteNoticeDismissals())
-                .dismissing(key, condition: condition, at: Date()) {
+                .dismissing(notice, at: Date()) {
                 noticeDismissalsByNoteID[noteID] = updated
             }
         } catch {
@@ -2675,30 +2660,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
-    /// `syncedCondition` is the condition every device writes for this
-    /// notice (#745), or nil for a notice that stays on this Mac.
+    /// `synced` is the notice as every device dismisses it (#745), or nil
+    /// for a notice that stays on this Mac.
     func isSummaryNoticeDismissed(
         noteID: UUID,
         kind: SummaryNoticeKind,
         condition: String,
-        syncedCondition: String? = nil
+        synced: NoteNoticeDismissals.Notice? = nil
     ) -> Bool {
-        if let syncedCondition, let key = kind.syncedDismissalKey,
-           noticeDismissalsByNoteID[noteID]?.isDismissed(key, condition: syncedCondition) == true {
+        if let synced, noticeDismissalsByNoteID[noteID]?.isDismissed(synced) == true {
             return true
         }
         return dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] == condition
     }
 
-    /// Dismisses a summary notice on every device while `syncedCondition`
-    /// holds (#745). Notices with no synced condition, or a store that can't
-    /// save, keep the dismissal on this Mac.
+    /// Dismisses a summary notice on every device while `synced` holds
+    /// (#745). Notices that don't sync, or a store that can't save, keep
+    /// the dismissal on this Mac.
     @MainActor
     func dismissSummaryNotice(
         noteID: UUID,
         kind: SummaryNoticeKind,
         condition: String,
-        syncedCondition: String? = nil
+        synced: NoteNoticeDismissals.Notice? = nil
     ) {
         let dismissLocally = {
             self.dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] = condition
@@ -2707,11 +2691,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
             )
         }
-        guard let syncedCondition, let key = kind.syncedDismissalKey else {
+        guard let synced else {
             dismissLocally()
             return
         }
-        dismissConditionalNotice(key, condition: syncedCondition, noteID: noteID, fallback: dismissLocally)
+        dismissConditionalNotice(synced, noteID: noteID, fallback: dismissLocally)
     }
 
     /// A deleted summary takes its notices' dismissals with it, on every

@@ -592,6 +592,11 @@ struct NoteSyncRecordTests {
         precondition(ended.ending(keysWithPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, at: t0) == nil,
                      "nothing left to end")
         precondition(NoteNoticeDismissals.decode(ended.value) == ended)
+        let notice = NoteNoticeDismissals.Notice.postProcessingWarning(code: "postProcessingFailed", status: status)
+        precondition(notice.key == warning && notice.condition == condition, "one table for both apps")
+        precondition(NoteNoticeDismissals.Notice.summaryFailure(attemptAt: Date(timeIntervalSince1970: 2)).condition == "2000")
+        precondition(NoteNoticeDismissals.Notice.summaryStale(sourceFingerprint: "fp").condition == "fp")
+        precondition(empty.dismissing(notice, at: t0)?.isDismissed(notice) == true)
         precondition([NoteNoticeDismissals.summaryFailure, NoteNoticeDismissals.summaryStale,
                       NoteNoticeDismissals.summaryUnverifiedEvidence].allSatisfy { $0.hasPrefix(NoteNoticeDismissals.summaryPrefix) },
                      "deleting a summary ends all of its notices")
