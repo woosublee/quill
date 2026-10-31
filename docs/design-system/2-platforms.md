@@ -46,7 +46,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `setup-hero` | 34 Rounded Bold | `.title` Bold(28), 기본 글꼴 |
 | `page-error-title` | 20 Semibold | 쓰는 곳 없음. 쓰게 되면 `.title3` Semibold(20) |
 | `callout` | 12 | 쓰는 곳 없음. 쓰게 되면 `.callout`(16) |
-| `note-title` | 28 Regular | `.title` Bold(28), 자간 -0.3. 본문 안 입력란, 최대 3줄 |
+| `note-title` | 28 Bold | `.title` Bold(28), 자간 -0.3. 본문 안 입력란, 최대 3줄 |
 | `transcript` | 15 / 줄 간격 +5 | `.subheadline`(15) / 줄 간격 6 |
 | 요약 본문 | 15 | `.subheadline`(15) |
 | `body`(설정 라벨) | 13 | `List` 기본 `.body`(17) |
@@ -54,7 +54,8 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `row-title` | 13 Semibold | 15 Semibold(`.subheadline` 기준 크기 조절), 한 줄 |
 | `row-preview` | 11.5 | 15(`.subheadline` 기준), 두 줄 |
 | `meta-label`(행 날짜) | 9 Semibold | 11 Semibold(`.caption2` 기준), 대문자, 자간 0.4 |
-| 상세 메타 줄 | SF Mono 10 + 배지 | SF Mono 10(날짜) / 9 Medium(칩), `.caption2` 기준 크기 조절, 자간 0.2 |
+| 상세 메타 줄(`meta-mono`, `meta-chip-mono`) | SF Mono 10(날짜, 대문자, 자간 0.5) / 9 Medium(칩) | SF Mono 10(날짜) / 9 Medium(칩), `.caption2` 기준 크기 조절, 자간 0.2 |
+| `banner-title`(배너 제목) | 12 Semibold | `.caption` Semibold(12) |
 | `badge-label` | 8 Semibold | `.caption2` Semibold(11) |
 | `chip-label`(전사 방식 캡슐) | 11 Semibold | `.subheadline` Semibold(15) |
 | `empty-title` | 15 Semibold | `.subheadline` Semibold(15) |
@@ -68,7 +69,7 @@ iPhone 화면은 macOS와 같은 크기 체계를 15pt 본문 기준으로 한�
 
 ## 간격·크기 대응
 
-iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4 = `space-4`, `xs` 8 = `space-8`, `sm` 12 = `space-12`, `md` 16 = `space-16`, `lg` 24 = `space-24`, `xl` 32.
+iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4 = `space-4`, `xs` 8 = `space-8`, `sm` 12 = `space-12`, `md` 16 = `space-16`, `lg` 24 = `space-24`, `xl` 32 = `space-32`. 반경은 `field` 10 = `radius-10`, `object` 16 = `radius-16`, `shelf` 20 = `radius-20`, 최소 터치 영역 44 = `size-touch-min`입니다(#736에서 공통 토큰으로 추가, iPhone은 아직 자기 값을 씀).
 
 | 항목 | macOS | iPhone(실제) | iPad(제안) |
 | --- | --- | --- | --- |
@@ -227,7 +228,7 @@ iPhone Duo 값은 추정입니다. 안쪽 7.58"와 바깥 5.36" 화면의 비율
 | regular(600–799) | `size-note-margin-regular` 24 | 최대 `size-note-body-max-width` 680, 가운데 | 보이는 노트 영역 가운데(`.centered`) |
 | wide(≥ 800) | 24 | 최대 680, 가운데 | 가운데 |
 
-- regular 여백은 결정 범위 24–32 중 **24**입니다. 공통 간격 단계에 있는 값(`space-24`, iOS `Spacing.lg`, macOS 설정 여백)이라 새 간격 토큰이 필요 없고, 600–799 폭에서 본문 680에 가까운 폭을 남깁니다. 32는 공통 간격 단계에 없습니다.
+- regular 여백은 결정 범위 24–32 중 **24**입니다. 공통 간격 단계에 있는 값(`space-24`, iOS `Spacing.lg`, macOS 설정 여백)이라 새 간격 토큰이 필요 없고, 600–799 폭에서 본문 680에 가까운 폭을 남깁니다. 32(`space-32`)는 #736에서 간격 단계에 더했지만 regular 여백은 24로 둡니다.
 - wide 노트 열은 따로 정한 값이 없어 regular와 같게 둡니다.
 - 높이가 compact인 iPhone 가로도 노트 안은 열 폭으로 정하므로 열이 regular·wide이면 캡슐은 가운데입니다.
 - **macOS는 목록 열 폭(280)만 씁니다.** Mac 노트 열은 창 폭에서 목록 280을 뺀 폭이라 창 최소 폭(800)에서 520이고 창이 880보다 좁으면 compact가 됩니다. 또 노트 본문은 자체 여백(`space-40`·`space-60`)에 최대 폭이 없으며 캡슐은 늘 가운데입니다. 그래서 Mac 노트 안 배치에는 이 표를 적용하지 않습니다(바뀌는 모양 없음).
