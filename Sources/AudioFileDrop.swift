@@ -35,21 +35,24 @@ enum AudioFileDrop {
         let skippedCount: Int
     }
 
-    /// Whether the window-wide drop view answers a hit test, so AppKit finds
-    /// it as a drag's destination. Only a drag needs it, and a drag holds a
-    /// mouse button down (it may already be up as the drop lands, right
-    /// after the last drag update). Otherwise the pointer is hovering:
+    /// How long a mouse event, or a drag update, counts as the one being
+    /// handled now.
+    static let recentEventWindow: TimeInterval = 0.5
+
+    /// Whether the window-wide drop view answers a hit test that isn't for a
+    /// mouse event being handled now, so AppKit finds it as a drag's
+    /// destination. Only a drag needs it, and a drag holds a mouse button
+    /// down (it may already be up as the drop lands, right after the last
+    /// update of a drag the view takes). Otherwise the pointer is hovering:
     /// AppKit's help tags hit-test from a timer, long after the last mouse
     /// event, and answering then hid every help tag under the view (#739).
     static func dropViewTakesHitTest(
-        isHandlingPassThroughEvent: Bool,
         isMouseButtonDown: Bool,
         secondsSinceDragUpdate: TimeInterval?
     ) -> Bool {
-        if isHandlingPassThroughEvent { return false }
         if isMouseButtonDown { return true }
         guard let secondsSinceDragUpdate else { return false }
-        return secondsSinceDragUpdate < 0.5
+        return secondsSinceDragUpdate < recentEventWindow
     }
 
     static func isImportable(fileURL url: URL) -> Bool {

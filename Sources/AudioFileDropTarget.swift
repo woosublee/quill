@@ -73,15 +73,17 @@ final class AudioFileDropTargetView: NSView {
     /// Mouse, scroll, and gesture events go to the views below. AppKit finds
     /// a drag's destination by hit testing too, outside those events, so then
     /// this view answers, but only during a drag
-    /// (`AudioFileDrop.dropViewTakesHitTest`). An event older than half a
-    /// second is a leftover from before the drag, not one being handled now.
+    /// (`AudioFileDrop.dropViewTakesHitTest`). An event older than
+    /// `AudioFileDrop.recentEventWindow` is a leftover from before the drag,
+    /// not one being handled now.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let now = ProcessInfo.processInfo.systemUptime
-        let isHandlingPassThroughEvent = NSApp.currentEvent.map {
-            now - $0.timestamp < 0.5 && Self.passThroughEventTypes.contains($0.type)
-        } ?? false
+        if let event = NSApp.currentEvent,
+           now - event.timestamp < AudioFileDrop.recentEventWindow,
+           Self.passThroughEventTypes.contains(event.type) {
+            return nil
+        }
         guard AudioFileDrop.dropViewTakesHitTest(
-            isHandlingPassThroughEvent: isHandlingPassThroughEvent,
             isMouseButtonDown: NSEvent.pressedMouseButtons != 0,
             secondsSinceDragUpdate: lastDragUpdate.map { now - $0 }
         ) else {
@@ -90,7 +92,7 @@ final class AudioFileDropTargetView: NSView {
         return super.hitTest(point)
     }
 
-    /// When a drag last moved over this view.
+    /// When a drag this view would take last moved over it.
     private var lastDragUpdate: TimeInterval?
 
     private static let passThroughEventTypes: Set<NSEvent.EventType> = [
@@ -107,6 +109,7 @@ final class AudioFileDropTargetView: NSView {
     }
 
     func clearTarget() {
+        lastDragUpdate = nil
         guard currentTarget != nil else { return }
         currentTarget = nil
         onTargetChange(nil)
@@ -148,7 +151,6 @@ final class AudioFileDropTargetView: NSView {
     }
 
     private func updateTarget(for sender: NSDraggingInfo) -> NSDragOperation {
-        lastDragUpdate = ProcessInfo.processInfo.systemUptime
         guard isEnabled else {
             clearTarget()
             return []
@@ -158,7 +160,9 @@ final class AudioFileDropTargetView: NSView {
             currentTarget = target
             onTargetChange(target)
         }
-        return target == .importable ? .copy : []
+        guard target == .importable else { return [] }
+        lastDragUpdate = ProcessInfo.processInfo.systemUptime
+        return .copy
     }
 
     private func draggedItems(_ sender: NSDraggingInfo) -> [DraggedItem] {

@@ -16,21 +16,19 @@ struct AudioFileDropTests {
     /// Hovering must reach the views below, or their help tags never show
     /// (#739): AppKit hit-tests for them from a timer, with no fresh event.
     private static func testDropViewTakesHitTestOnlyDuringADrag() {
-        precondition(!AudioFileDrop.dropViewTakesHitTest(
-            isHandlingPassThroughEvent: false, isMouseButtonDown: false, secondsSinceDragUpdate: nil
-        ), "a hover's help tag lookup goes below")
-        precondition(!AudioFileDrop.dropViewTakesHitTest(
-            isHandlingPassThroughEvent: false, isMouseButtonDown: false, secondsSinceDragUpdate: 5
-        ), "an old drag doesn't keep the view answering")
-        precondition(AudioFileDrop.dropViewTakesHitTest(
-            isHandlingPassThroughEvent: false, isMouseButtonDown: true, secondsSinceDragUpdate: nil
-        ), "a drag from another app finds the view")
-        precondition(AudioFileDrop.dropViewTakesHitTest(
-            isHandlingPassThroughEvent: false, isMouseButtonDown: false, secondsSinceDragUpdate: 0.1
-        ), "the drop lands right after the button comes up")
-        precondition(!AudioFileDrop.dropViewTakesHitTest(
-            isHandlingPassThroughEvent: true, isMouseButtonDown: true, secondsSinceDragUpdate: 0.1
-        ), "the app's own clicks and drags go below")
+        precondition(!AudioFileDrop.dropViewTakesHitTest(isMouseButtonDown: false, secondsSinceDragUpdate: nil),
+                     "a hover's help tag lookup goes below")
+        precondition(AudioFileDrop.dropViewTakesHitTest(isMouseButtonDown: true, secondsSinceDragUpdate: nil),
+                     "a drag from another app finds the view")
+        precondition(AudioFileDrop.dropViewTakesHitTest(isMouseButtonDown: false, secondsSinceDragUpdate: 0.49),
+                     "the drop lands right after the button comes up")
+        precondition(!AudioFileDrop.dropViewTakesHitTest(isMouseButtonDown: false, secondsSinceDragUpdate: 0.5),
+                     "a finished drag doesn't keep the view answering")
+        let source = try! String(contentsOfFile: "Sources/AudioFileDropTarget.swift", encoding: .utf8)
+        precondition(source.contains("isMouseButtonDown: NSEvent.pressedMouseButtons != 0"), "the view asks for the button state")
+        precondition(source.contains("guard target == .importable else { return [] }\n        lastDragUpdate = "),
+                     "only a drag the view takes counts as a drag update")
+        precondition(source.contains("func clearTarget() {\n        lastDragUpdate = nil"), "a drag that leaves or lands stops counting")
     }
 
     private static func file(_ name: String) -> URL {
