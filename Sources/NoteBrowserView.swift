@@ -401,6 +401,7 @@ struct NoteBrowserView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @State private var noteListTopOffset: CGFloat = 0
     @State private var sidebarHeaderHeight: CGFloat = 0
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -1438,20 +1439,20 @@ struct NoteBrowserView: View {
                 Circle()
                     .fill(appState.isRecording ? Color.orange : Color.red)
                 if appState.isRecording {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: QuillRadius.radius3)
                         .fill(.white)
                         .frame(width: 14, height: 14)
                 }
             }
-            .frame(width: 44, height: 44)
-            .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
-            .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+            .frame(width: QuillControlSize.recordButton, height: QuillControlSize.recordButton)
+            .overlay(Circle().strokeBorder(QuillColor.recordRing.color(for: colorScheme), lineWidth: 1))
+            .quillShadow(.record)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .help(appState.isRecording ? "Stop recording" : "Start recording")
         .accessibilityLabel(appState.isRecording ? "Stop recording" : "Start recording")
-        .padding(.bottom, 16)
+        .padding(.bottom, QuillSpacing.space16)
         .overrideCursor(.arrow)
     }
 
@@ -1645,7 +1646,7 @@ struct NoteBrowserView: View {
     /// Opened by the magnifier or ⌘F. With an empty query it closes when focus
     /// leaves; Esc or the clear button clears the query and closes it.
     private var searchField: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: QuillSpacing.space6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.tertiary)
@@ -1664,9 +1665,12 @@ struct NoteBrowserView: View {
                 .help("Clear Search")
             }
         }
-        .padding(.horizontal, 9)
-        .frame(height: 26)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .padding(.horizontal, QuillSpacing.space9)
+        .frame(height: QuillControlSize.searchField)
+        .background(
+            QuillColor.fillChip.color(for: colorScheme),
+            in: RoundedRectangle(cornerRadius: QuillRadius.radius7)
+        )
         .onChange(of: isSearchFieldFocused) { isFocused in
             // Focus lost to a note the search just opened doesn't close it.
             if !isFocused && searchText.isEmpty && !isMovingOpenNoteForSearch {

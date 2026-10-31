@@ -11,6 +11,7 @@ public enum QuillSpacing {
     public static let space2: CGFloat = 2
     public static let space3: CGFloat = 3
     public static let space4: CGFloat = 4
+    public static let space5: CGFloat = 5
     public static let space6: CGFloat = 6
     public static let space8: CGFloat = 8
     public static let space9: CGFloat = 9
@@ -19,6 +20,7 @@ public enum QuillSpacing {
     public static let space14: CGFloat = 14
     public static let space16: CGFloat = 16
     public static let space20: CGFloat = 20
+    public static let space22: CGFloat = 22
     public static let space24: CGFloat = 24
     public static let space32: CGFloat = 32
     public static let space40: CGFloat = 40
@@ -27,9 +29,9 @@ public enum QuillSpacing {
     /// Every step by its token name, smallest first.
     public static let scale: [(name: String, value: CGFloat)] = [
         ("space-2", space2), ("space-3", space3), ("space-4", space4),
-        ("space-6", space6), ("space-8", space8), ("space-9", space9),
+        ("space-5", space5), ("space-6", space6), ("space-8", space8), ("space-9", space9),
         ("space-10", space10), ("space-12", space12), ("space-14", space14),
-        ("space-16", space16), ("space-20", space20), ("space-24", space24),
+        ("space-16", space16), ("space-20", space20), ("space-22", space22), ("space-24", space24),
         ("space-32", space32), ("space-40", space40), ("space-60", space60),
     ]
 }
@@ -37,6 +39,7 @@ public enum QuillSpacing {
 public enum QuillRadius {
     public static let radius3: CGFloat = 3
     public static let radius6: CGFloat = 6
+    public static let radius7: CGFloat = 7
     public static let radius8: CGFloat = 8
     public static let radius9: CGFloat = 9
     public static let radius10: CGFloat = 10
@@ -48,7 +51,7 @@ public enum QuillRadius {
 
     /// Every step by its token name, smallest first. Capsules use `Capsule()`.
     public static let scale: [(name: String, value: CGFloat)] = [
-        ("radius-3", radius3), ("radius-6", radius6), ("radius-8", radius8),
+        ("radius-3", radius3), ("radius-6", radius6), ("radius-7", radius7), ("radius-8", radius8),
         ("radius-9", radius9), ("radius-10", radius10), ("radius-12", radius12),
         ("radius-16", radius16), ("radius-18", radius18), ("radius-20", radius20),
         ("radius-26", radius26),
@@ -293,6 +296,13 @@ public struct QuillShadow: Sendable, Equatable {
     /// `shadow-record`: the record button.
     public static let record = QuillShadow(opacity: 0.28, radius: 8, x: 0, y: 3)
 
+    /// `shadow-record-iphone`: the iPhone's record button, lighter in light
+    /// mode and darker in dark mode than the Mac's (#736 Q11).
+    public static let recordIPhone = QuillSchemeShadow(
+        light: QuillShadow(opacity: 0.22, radius: 8, x: 0, y: 3),
+        dark: QuillShadow(opacity: 0.45, radius: 8, x: 0, y: 3)
+    )
+
     /// `shadow-row-selected`: the open note's row, darker in dark mode.
     public static let rowSelected = QuillSchemeShadow(
         light: QuillShadow(opacity: 0.04, radius: 6, x: 0, y: 1),
@@ -310,6 +320,7 @@ public struct QuillShadow: Sendable, Equatable {
     /// Every shadow with a value per appearance, by its token name.
     public static let schemeShadows: [(name: String, value: QuillSchemeShadow)] = [
         ("shadow-row-selected", rowSelected),
+        ("shadow-record-iphone", recordIPhone),
     ]
 }
 
@@ -382,12 +393,32 @@ public enum QuillControlSize {
     public static let recordButtonMac: CGFloat = 44
     public static let recordButtonIPhone: CGFloat = 56
 
+    /// `size-close`: a small round close or remove button (a close circle,
+    /// the overlay stop button, a summary row's remove button). So far only
+    /// the summary rows read it; the others move as their screens do. On
+    /// the iPhone it is the touch minimum.
+    public static let closeMac: CGFloat = 20
+    public static let closeIPhone: CGFloat = touchMin
+
+    /// `size-search-field`: the note list's search field height, the same
+    /// as the sidebar's other header controls (`size-toolbar-control`). On
+    /// the iPhone it is the touch minimum and grows with its text.
+    public static let searchFieldMac: CGFloat = 26
+    public static let searchFieldIPhone: CGFloat = touchMin
+
+    /// `size-summary-bullet`: the dot before a summary row on the Mac.
+    public static let summaryBullet: CGFloat = 4
+
     #if os(macOS)
     public static let checkbox = checkboxMac
     public static let recordButton = recordButtonMac
+    public static let close = closeMac
+    public static let searchField = searchFieldMac
     #else
     public static let checkbox = checkboxIPhone
     public static let recordButton = recordButtonIPhone
+    public static let close = closeIPhone
+    public static let searchField = searchFieldIPhone
     #endif
 
     /// Every size this enum carries, by its token name (both platforms'
@@ -406,6 +437,11 @@ public enum QuillControlSize {
         ("size-issue-disc", issueDisc),
         ("size-record-button", recordButtonMac),
         ("size-record-button-iphone", recordButtonIPhone),
+        ("size-close", closeMac),
+        ("size-close-iphone", closeIPhone),
+        ("size-search-field", searchFieldMac),
+        ("size-search-field-iphone", searchFieldIPhone),
+        ("size-summary-bullet", summaryBullet),
     ]
 }
 
@@ -424,6 +460,12 @@ public enum QuillLayoutSize {
     /// `size-note-body-max-width`: the widest a note's text runs in a
     /// regular or wide column; the text is centred in wider columns.
     public static let noteBodyMaxWidth: CGFloat = 680
+    /// `size-summary-max-width`: the widest the Mac's Summary tab runs
+    /// (#736 Q10 keeps it apart from the note body's 680).
+    public static let summaryMaxWidth: CGFloat = 760
+    /// `size-summary-bottom-inset`: room under the Mac's Summary tab so its
+    /// last rows scroll clear of the floating note toolbar.
+    public static let summaryBottomInset: CGFloat = 96
 
     /// Every size this enum carries, by its token name.
     public static let all: [(name: String, value: CGFloat)] = [
@@ -431,6 +473,8 @@ public enum QuillLayoutSize {
         ("size-note-margin-compact", noteMarginCompact),
         ("size-note-margin-regular", noteMarginRegular),
         ("size-note-body-max-width", noteBodyMaxWidth),
+        ("size-summary-max-width", summaryMaxWidth),
+        ("size-summary-bottom-inset", summaryBottomInset),
     ]
 }
 
@@ -439,6 +483,12 @@ public enum QuillOpacity {
     /// `opacity-status-wash`: the note's own background laid over its text
     /// while work will replace it, so the text stays readable underneath.
     public static let statusWash: Double = 0.35
+    /// `opacity-surface-card`: a settings card's control-background fill on
+    /// the Mac; the alpha of the `surface-card` color in tokens.json.
+    public static let surfaceCard: Double = 0.5
+    /// `opacity-summary-bullet`: the secondary color of a Mac summary row's
+    /// dot.
+    public static let summaryBullet: Double = 0.45
 
     /// `opacity-issue-disc`: an issue disc's tint, drawn in the issue's own
     /// color (`size-issue-disc`).
@@ -447,6 +497,8 @@ public enum QuillOpacity {
     /// Every opacity this module carries, by its token name.
     public static let all: [(name: String, value: Double)] = [
         ("opacity-status-wash", statusWash),
+        ("opacity-surface-card", surfaceCard),
+        ("opacity-summary-bullet", summaryBullet),
         ("opacity-issue-disc", issueDisc),
     ]
 }

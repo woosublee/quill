@@ -132,16 +132,18 @@ otherwise.
   background (a color per platform, #697), the tints (glass,
   toolbar, hairline, banner, chip, row hover, selection and badge, empty disc,
   record ring, and the accent tints), the glass, status, banner, record,
-  and selected-row shadows (the last one per appearance), the status wash
-  opacity, the text styles (note title, transcript, row, banner, meta
-  line, and work status: a fixed size on the Mac, Dynamic Type on iOS;
+  iPhone record, and selected-row shadows (the last two per appearance),
+  the status wash, settings card, and summary bullet opacities, the text
+  styles (note title, transcript, row, banner, meta line, and work status:
+  a fixed size on the Mac, Dynamic Type on iOS;
   draw a style with `quillTextStyle(_:)`, which also applies its
   per-platform tracking and scales the meta line from its Mac size on iOS),
   the control sizes (note toolbar, status progress, touch minimum, note
-  row, checkbox, status dot, empty disc, record button; a value per
-  platform where they differ), the note layout sizes (`QuillLayoutSize`:
-  list column, note side margins, body maximum width), and the width
-  breakpoints (#697).
+  row, checkbox, status dot, empty disc, record button, close button,
+  search field, summary bullet; a value per platform where they differ),
+  the note layout sizes (`QuillLayoutSize`: list column, note side margins,
+  body maximum width, and the Mac Summary tab's width and bottom room), and
+  the width breakpoints (#697).
   `Tests/QuillDesignTokensTests.swift` checks them against
   `docs/design-system/tokens.json`; change both together.
   `QuillNoteUI` imports it.

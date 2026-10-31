@@ -195,6 +195,11 @@ struct QuillDesignTokensTests {
             assertShadow(shadow.dark, dark, "\(name) (dark)")
             precondition(shadow.shadow(for: .dark) == shadow.dark && shadow.shadow(for: .light) == shadow.light, "\(name) picks by appearance")
         }
+        // #736 Q11: the iPhone's record shadow is lighter than the Mac's in
+        // light mode and darker in dark mode, at the same size and offset.
+        let mac = QuillShadow.record, iPhone = QuillShadow.recordIPhone
+        precondition(iPhone.light.opacity < mac.opacity && iPhone.dark.opacity > mac.opacity, "shadow-record-iphone is lighter in light and darker in dark")
+        precondition([iPhone.light, iPhone.dark].allSatisfy { $0.radius == mac.radius && $0.x == mac.x && $0.y == mac.y }, "shadow-record-iphone has the Mac's size")
     }
 
     private static func assertShadow(_ shadow: QuillShadow, _ value: String, _ name: String) {
@@ -228,6 +233,13 @@ struct QuillDesignTokensTests {
         precondition(QuillControlSize.noteToolbarButton == QuillControlSize.noteToolbarButtonMac, "this Mac test sees the Mac value")
         precondition(QuillControlSize.checkbox == QuillControlSize.checkboxMac, "this Mac test sees the Mac checkbox")
         precondition(QuillControlSize.recordButton == QuillControlSize.recordButtonMac, "this Mac test sees the Mac record button")
+        precondition(QuillControlSize.close == QuillControlSize.closeMac, "this Mac test sees the Mac close button")
+        precondition(QuillControlSize.searchField == QuillControlSize.searchFieldMac, "this Mac test sees the Mac search field")
+        // The iPhone's close button and search field are the touch minimum.
+        precondition(QuillControlSize.closeIPhone == QuillControlSize.touchMin, "the iPhone close button is size-touch-min")
+        precondition(QuillControlSize.searchFieldIPhone == QuillControlSize.touchMin, "the iPhone search field is size-touch-min")
+        // The search field lines up with the sidebar's other header controls.
+        precondition(sizes["size-toolbar-control"] == Double(QuillControlSize.searchFieldMac), "the search field is as tall as size-toolbar-control")
         // The iPhone's toolbar button is the minimum touch target.
         precondition(QuillControlSize.noteToolbarButtonIPhone == QuillControlSize.touchMin, "the iPhone toolbar button is size-touch-min")
         // The empty and issue discs are this module's: one only in
@@ -256,6 +268,16 @@ struct QuillDesignTokensTests {
         let swiftNames = Set(QuillOpacity.all.map(\.name))
         for name in entries.compactMap({ $0["name"] as? String }) where name.hasPrefix("opacity-status-") || name.hasPrefix("opacity-issue-") {
             precondition(swiftNames.contains(name), "tokens.json opacity \(name) is missing from QuillOpacity")
+        }
+        // The settings card's opacity is the alpha of the surface-card color.
+        let colors = (tokens["color"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        guard let card = colors.first(where: { $0["name"] as? String == "surface-card" })?["value"] as? [String: String],
+              card.count == 2 else {
+            preconditionFailure("tokens.json has no light and dark surface-card")
+        }
+        for (theme, value) in card {
+            guard let alpha = rgba(value)?.alpha else { preconditionFailure("surface-card (\(theme)) is \(value)") }
+            precondition(abs(alpha - QuillOpacity.surfaceCard) < 0.0001, "surface-card (\(theme)) alpha \(alpha) vs opacity-surface-card \(QuillOpacity.surfaceCard)")
         }
     }
 
