@@ -329,7 +329,7 @@ struct MeetingSummaryUIContractTests {
         // Summary tab's status banner; other notices wait behind its "+1".
         precondition(noteBrowser.contains("let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]\n                    == item.displayedTranscript"), "the notice ends once the transcript changes")
         precondition(noteBrowser.contains("title: localizedCatalogString(\"The new transcript is the same as the current one.\")"))
-        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   isNothingToPostProcess,"))
+        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   showsNothingToPostProcessNotice,"))
         precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   !isWarningBannerDismissed,"))
 
         for unexpected in [

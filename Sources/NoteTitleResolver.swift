@@ -204,10 +204,10 @@ enum NoteTitleResolver {
                 bundle: bundle
             )
         }
-        if item.postProcessingStatus == "live-recording" {
+        if item.machineStatus == .liveRecording {
             return localizedCatalogString("Recording...", language: language, bundle: bundle)
         }
-        if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" {
+        if item.isTranscriptionPlaceholder || item.machineStatus == .importing {
             return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
         }
         return nil
