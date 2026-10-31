@@ -580,8 +580,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
     )
     /// `transcript`: a note's transcript text.
     public static let transcript = QuillTypeStyle(size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline)
-    /// `callout`: an empty state's or a notice's detail line.
-    public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .callout)
+    /// `callout`: an empty state's or a notice's detail line. On iOS it
+    /// scales from `.caption`, like `banner-title`, so a banner's detail
+    /// stays the size of its title (#744).
+    public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .caption)
     /// `row-preview`: a note list row's two-line preview.
     public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `banner-title`: a notice or status banner's title.

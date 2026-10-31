@@ -1,6 +1,7 @@
 import QuillUserIssueCore
 import SwiftUI
 import QuillDesignTokens
+import QuillNoteUI
 
 enum QuillUserIssueViewStyle {
     case full
@@ -284,21 +285,6 @@ struct QuillUserIssueView: View {
 
 }
 
-/// A banner or issue row button's chrome: a primary 8% fill (no token yet,
-/// #736) and a 1 pt `hairline` edge, on `radius-6`.
-private struct QuillBannerButtonSurface: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: QuillRadius.radius6)
-            .fill(Color.primary.opacity(0.08))
-            .overlay(
-                RoundedRectangle(cornerRadius: QuillRadius.radius6)
-                    .strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)
-            )
-    }
-}
-
 /// A quiet, dismissible line for an outcome that needs no action, such as
 /// cleanup having nothing to change.
 struct QuillInfoNotice: View {
@@ -328,33 +314,38 @@ struct QuillInfoNotice: View {
     }
 }
 
-/// A one-line status banner in the shared issue look, for notes that are
-/// not tied to an issue record (for example, a summary's review reminders).
-/// The detail shows beside the title when it fits, and as a tooltip always.
+/// The text the shared banner's own controls show, in this app's language.
+extension NoteBannerStrings {
+    static var mac: NoteBannerStrings {
+        NoteBannerStrings(
+            showLess: localizedCatalogString("Show Less"),
+            showAllNotices: localizedCatalogString("Show All Notices"),
+            dismiss: localizedCatalogString("Dismiss")
+        )
+    }
+}
+
+/// A banner or issue row button's chrome (`NoteBannerButtonSurface`).
+private typealias QuillBannerButtonSurface = NoteBannerButtonSurface
+
+/// The surface behind every banner and inline issue row
+/// (`NoteBannerSurface`, shared with the iPhone).
+typealias QuillBannerSurface = NoteBannerSurface
+
+/// Lets the first banner of a group reveal or hide the rest.
+typealias QuillBannerExpansion = NoteBannerExpansion
+
 extension View {
     /// The shared banner look: a light fill, a hairline, and a soft shadow.
     func quillBannerBackground() -> some View {
-        background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))
+        noteBannerBackground()
     }
 }
 
-/// The surface behind every banner and inline issue row: `fill-banner`, a
-/// 1 pt `hairline-strong` edge, and `shadow-banner`.
-struct QuillBannerSurface: View {
-    let cornerRadius: CGFloat
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(QuillColor.fillBanner.color(for: colorScheme))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)
-            )
-            .quillShadow(.banner)
-    }
-}
-
+/// A one-line status banner in the shared issue look, for notes that are
+/// not tied to an issue record (for example, a summary's review reminders).
+/// The detail shows beside the title when it fits, and as a tooltip always.
+/// Drawn by the shared `NoteBanner` (#744).
 struct QuillStatusBanner: View {
     let systemImage: String
     let tint: Color
@@ -366,65 +357,16 @@ struct QuillStatusBanner: View {
     static let warningTint = QuillColor.issueWarning
 
     var body: some View {
-        HStack(spacing: QuillSpacing.space8) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(tint)
-                .accessibilityHidden(true)
-            if let expansion {
-                titleText
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(Text(verbatim: spokenText))
-                Spacer(minLength: 0)
-                QuillBannerExpansionButton(expansion: expansion)
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: QuillSpacing.space8) {
-                        titleText
-                        Text(detail)
-                            .quillTextStyle(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                        Spacer(minLength: 0)
-                    }
-                    HStack(spacing: 0) {
-                        titleText
-                        Spacer(minLength: 0)
-                    }
-                }
-                // Title and detail read as one element; the close button
-                // stays a separate control.
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(verbatim: spokenText))
-            }
-            if let onDismiss {
-                QuillBannerDismissButton(action: onDismiss)
-            }
-        }
-        .padding(.leading, QuillSpacing.space10)
-        .padding(.trailing, onDismiss == nil ? QuillSpacing.space10 : QuillSpacing.space6)
-        // 7 is off the spacing scale (#736); it stays a literal for now.
-        .padding(.vertical, onDismiss == nil ? 7 : QuillSpacing.space6)
-        .quillBannerBackground()
-        .help(Text(verbatim: detail))
+        NoteBanner(
+            systemImage: systemImage,
+            tint: tint,
+            title: title,
+            detail: detail,
+            strings: .mac,
+            expansion: expansion,
+            onDismiss: onDismiss
+        )
     }
-
-    private var spokenText: String { "\(title) \(detail)" }
-
-    private var titleText: some View {
-        Text(title)
-            .quillTextStyle(.bannerTitle)
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-}
-
-/// Lets the first banner of a group reveal or hide the rest.
-struct QuillBannerExpansion {
-    let hiddenCount: Int
-    let isExpanded: Bool
-    let toggle: () -> Void
 }
 
 /// The "+N" / "Show Less" pill on the first banner of a group.
@@ -432,29 +374,7 @@ struct QuillBannerExpansionButton: View {
     let expansion: QuillBannerExpansion
 
     var body: some View {
-        Button(action: expansion.toggle) {
-            Group {
-                if expansion.isExpanded {
-                    Text("Show Less")
-                } else {
-                    Text(verbatim: "+\(expansion.hiddenCount)")
-                }
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            // 7 and the primary 8% fill have no token yet (#736).
-            .padding(.horizontal, 7)
-            .padding(.vertical, QuillSpacing.space2)
-            .background(Capsule().fill(Color.primary.opacity(0.08)))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(expansion.isExpanded
-            ? localizedCatalogString("Show Less")
-            : localizedCatalogString("Show All Notices"))
-        .accessibilityLabel(expansion.isExpanded
-            ? localizedCatalogString("Show Less")
-            : localizedCatalogString("Show All Notices"))
+        NoteBannerExpansionButton(expansion: expansion, strings: .mac)
     }
 }
 
@@ -463,14 +383,6 @@ struct QuillBannerDismissButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(localizedCatalogString("Dismiss"))
+        NoteBannerDismissButton(label: localizedCatalogString("Dismiss"), action: action)
     }
 }
