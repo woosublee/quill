@@ -20,7 +20,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 
 | macOS 토큰 | iOS 역할 | 라이트 / 다크 |
 | --- | --- | --- |
-| `surface-window` | `backgroundPrimary`(토큰 `surface-note-iphone`) | `#F5F5F7` / `#1C1C1E` |
+| `surface-window` | `backgroundPrimary`(토큰 `surface-page-iphone`) | `#F5F5F7` / `#1C1C1E` |
 | `surface-card` · `surface-control` | `surfaceRaised`(설정 행, 오디오 카드, 툴바 불투명 대체) | `#FFFFFF` / `#2C2C2E` |
 | — | `backgroundSecondary` | `#E5E5EA` / `#2C2C2E` |
 | `fill-chip` | `controlFillQuiet` | primary 6% / 흰색 8% |

@@ -50,7 +50,7 @@ struct NoteBrowserWorkStatusTests {
         precondition(status(cloud: true, progress: allIn) == .transcribing(NoteWorkProgress(completed: 4, total: 4)))
 
         let title = status(cloud: true, progress: running).presentation { $0 }.title
-        precondition(title == "Transcribing 2 of 4…", title)
+        precondition(title == "Transcribing...", title)
     }
 
     private static func testRetry() {

@@ -9,7 +9,7 @@ struct NoteWorkStatusTests {
     static func main() {
         testProgressArithmetic()
         testEveryStateReadsFromTheTable()
-        testChunkTitleTakesCurrentAndTotal()
+        testTitleNeverCountsChunks()
         testReasonOnlyForWaitingAndPaused()
         testPausedHasNoSpinner()
         testAllTitleKeysCoversEveryState()
@@ -38,14 +38,14 @@ struct NoteWorkStatusTests {
         precondition(NoteWorkProgress(completed: 3, total: -1) == nil)
 
         let start = progress(0, of: 4)
-        precondition(start.fraction == 0 && start.percent == 0 && start.current == 1)
+        precondition(start.fraction == 0 && start.percent == 0)
         let middle = progress(1, of: 4)
-        precondition(middle.percent == 25 && middle.current == 2)
+        precondition(middle.percent == 25)
         // Rounded down: 2 of 3 is 66%, not 67%.
         precondition(progress(2, of: 3).percent == 66)
         // The last chunk is still saving: never 100% while work runs.
         let done = progress(4, of: 4)
-        precondition(done.fraction == 0.99 && done.percent == 99 && done.current == 4)
+        precondition(done.fraction == 0.99 && done.percent == 99)
         // Out-of-range counts are clamped.
         precondition(progress(9, of: 4) == done)
         precondition(progress(-2, of: 4) == start)
@@ -59,7 +59,7 @@ struct NoteWorkStatusTests {
         let rows: [(NoteWorkStatus, String, NoteWorkStatus.Indicator, NoteWorkProgress?)] = [
             (.waitingToTranscribe(reason: nil), "Waiting to transcribe...", .spinner, nil),
             (.transcribing(nil), "Transcribing...", .spinner, nil),
-            (.transcribing(half), "Transcribing %d of %d…", .spinner, half),
+            (.transcribing(half), "Transcribing...", .spinner, half),
             (.resumingCloudTranscription(nil), "Resuming cloud transcription…", .spinner, nil),
             (.resumingCloudTranscription(half), "Resuming cloud transcription…", .spinner, half),
             (.retranscribing(nil), "Retranscribing...", .spinner, nil),
@@ -87,14 +87,15 @@ struct NoteWorkStatusTests {
         }
     }
 
-    private static func testChunkTitleTakesCurrentAndTotal() {
+    /// The status shows a percentage only (#697): the title is the plain
+    /// one whatever the progress, and the percent carries how far it got.
+    private static func testTitleNeverCountsChunks() {
         let presentation = NoteWorkStatus.transcribing(progress(1, of: 3)).presentation { key in
-            key == "Transcribing %d of %d…" ? "%d/%d 청크 전사 중…" : key
+            key == "Transcribing..." ? "전사 중..." : key
         }
-        precondition(presentation.title == "2/3 청크 전사 중…", presentation.title)
-        let korean = NoteWorkStatus.transcribing(progress(1, of: 3)).presentation(localize: { $0 }, locale: Locale(identifier: "ko"))
-        precondition(korean.title == "Transcribing 2 of 3…", korean.title)
+        precondition(presentation.title == "전사 중...", presentation.title)
         precondition(presentation.percentText == "33%")
+        precondition(present(.transcribing(nil)).title == "Transcribing...")
     }
 
     private static func testReasonOnlyForWaitingAndPaused() {
@@ -119,10 +120,10 @@ struct NoteWorkStatusTests {
 
     private static func testAllTitleKeysCoversEveryState() {
         let keys = Set(NoteWorkStatus.allTitleKeys)
-        precondition(keys.count == 15, "\(keys.count) keys")
+        precondition(keys.count == 14, "\(keys.count) keys")
         precondition(NoteWorkStatus.Kind.allCases.allSatisfy { kind in kind.examples.allSatisfy { $0.kind == kind } })
         for key in [
-            "Waiting to transcribe...", "Transcribing...", "Transcribing %d of %d…",
+            "Waiting to transcribe...", "Transcribing...",
             "Resuming cloud transcription…", "Retranscribing...", "Cancelling transcription...",
             "Transcription paused", "Waiting to post-process", "Post-processing...",
             "Recovering…", "Creating summary…", "Regenerating summary…",
@@ -168,35 +169,35 @@ struct NoteWorkStatusTests {
         }
     }
 
-    /// A finer fraction drives the bar; chunk counts, when given, still name
-    /// the title. Fraction-only progress names no chunks.
+    /// A finer fraction drives the bar in place of the chunk counts.
+    /// Fraction-only progress has no chunks.
     private static func testFractionProgress() {
         guard let fine = NoteWorkProgress(completed: 1, total: 4, fraction: 0.375) else {
             preconditionFailure("chunks with a fraction have progress")
         }
-        precondition(fine.countsChunks && fine.current == 2 && fine.total == 4)
         precondition(fine.fraction == 0.375 && fine.percent == 37)
         precondition(fine != progress(1, of: 4), "the fraction is part of the value")
         precondition(NoteWorkProgress(completed: 1, total: 4, fraction: .nan) == progress(1, of: 4), "a NaN fraction falls back to the counts")
         precondition(NoteWorkProgress(completed: 1, total: 0, fraction: 0.5) == nil)
         precondition(NoteWorkProgress(completed: 4, total: 4, fraction: 1)?.percent == 99, "never 100% while work runs")
-        // The bar stays within the chunk the title names.
-        precondition(NoteWorkProgress(completed: 3, total: 4, fraction: 0.1)?.fraction == 0.75)
-        precondition(NoteWorkProgress(completed: 0, total: 4, fraction: 0.9)?.fraction == 0.25)
+        // No title names a chunk, so the fraction isn't held to one.
+        precondition(NoteWorkProgress(completed: 3, total: 4, fraction: 0.1)?.fraction == 0.1)
+        precondition(NoteWorkProgress(completed: 0, total: 4, fraction: 0.9)?.fraction == 0.9)
+        precondition(NoteWorkProgress(completed: 1, total: 4, fraction: -1)?.fraction == 0)
         precondition(NoteWorkProgress(completed: 1, total: 4, fraction: nil) == progress(1, of: 4))
 
         guard let only = NoteWorkProgress(fraction: 0.5) else { preconditionFailure("a fraction has progress") }
-        precondition(!only.countsChunks && only.percent == 50 && only.current == 0)
+        precondition(only.percent == 50)
         precondition(NoteWorkProgress(fraction: 1.5)?.percent == 99)
         precondition(NoteWorkProgress(fraction: -1)?.percent == 0)
         precondition(NoteWorkProgress(fraction: .infinity) == nil)
-        // Without chunk counts the title doesn't say "N of M".
         precondition(NoteWorkStatus.transcribing(only).titleKey == "Transcribing...")
         precondition(present(.transcribing(only)).title == "Transcribing...")
         precondition(present(.transcribing(only)).percentText == "50%")
-        precondition(present(.transcribing(fine)).title == "Transcribing 2 of 4…")
-        // Chunk-count progress (all the Mac sends) reads exactly as before.
-        precondition(progress(2, of: 3).countsChunks && progress(2, of: 3).fraction == 2.0 / 3.0)
+        precondition(present(.transcribing(fine)).title == "Transcribing...")
+        precondition(present(.transcribing(fine)).percentText == "37%")
+        // Chunk-count progress (all the Mac sends) fills the bar as before.
+        precondition(progress(2, of: 3).fraction == 2.0 / 3.0)
     }
 
     /// The iPhone-only states the Mac never sends.

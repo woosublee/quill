@@ -130,23 +130,13 @@ struct LocalizationResourceTests {
             assert(strings[retiredArtifactManagementKey] == nil)
         }
 
-        let cloudProgressEnglish = try localizedValue(
-            key: "Transcribing %d of %d…",
-            language: "en",
-            root: root
-        )
-        let cloudProgressKorean = try localizedValue(
-            key: "Transcribing %d of %d…",
-            language: "ko",
-            root: root
-        )
         let cloudResumeKorean = try localizedValue(
             key: "Resuming cloud transcription…",
             language: "ko",
             root: root
         )
-        assert(cloudProgressEnglish == "Transcribing %d of %d…")
-        assert(cloudProgressKorean == "%d/%d 청크 전사 중…")
+        // The work status shows a percentage only (#697): no chunk count title.
+        assert(strings["Transcribing %d of %d…"] == nil)
         assert(cloudResumeKorean == "클라우드 전사 재개 중…")
         let recoverySingularCounts: [String: String] = [
             "%lld record found.": "%lld개 기록을 찾았어요.",

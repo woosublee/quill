@@ -91,8 +91,9 @@ public enum QuillColor {
         }
     }
 
-    /// `surface-note-iphone`: the iPhone note page (#F5F5F7, #1C1C1E).
-    public static let surfaceNoteIPhone = SchemeRGB(
+    /// `surface-page-iphone`: the iPhone app's page background, every
+    /// screen's (#F5F5F7, #1C1C1E; iOS `backgroundPrimary`).
+    public static let surfacePageIPhone = SchemeRGB(
         light: RGB(red: 245.0 / 255, green: 245.0 / 255, blue: 247.0 / 255),
         dark: RGB(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
     )
@@ -100,12 +101,12 @@ public enum QuillColor {
     /// `surface-note`: the background of a note's page, which the
     /// work-status wash is drawn in. The Mac draws the system text
     /// background (`textBackgroundColor`, `surface-text` in tokens.json);
-    /// the iPhone draws `surface-note-iphone`.
+    /// the iPhone's note page is its app-wide page, `surface-page-iphone`.
     public static func surfaceNote(for colorScheme: ColorScheme) -> Color {
         #if os(macOS)
         Color(nsColor: .textBackgroundColor)
         #else
-        surfaceNoteIPhone.color(for: colorScheme)
+        surfacePageIPhone.color(for: colorScheme)
         #endif
     }
 

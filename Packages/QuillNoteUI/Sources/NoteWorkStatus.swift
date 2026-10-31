@@ -5,63 +5,43 @@ import Foundation
 // `NoteWorkStatusView` draws the result. The text is copy keys: each app
 // looks them up in its own String Catalog. The keys are the Mac's.
 
-/// How far a transcription has got: chunks done out of the chunk count, a
-/// measured fraction, or both.
+/// How far a transcription has got, for the progress bar and its
+/// percentage. The title never counts chunks: the status shows a percentage
+/// only (#697).
 public struct NoteWorkProgress: Equatable, Sendable {
-    /// Chunks done, within 0...total. 0 when the work counts no chunks.
-    public let completed: Int
-    /// The chunk count. 0 when the work only reports a fraction
-    /// (`countsChunks` is false).
-    public let total: Int
-    /// A finer fraction than whole chunks, when the work reports one.
-    private let measuredFraction: Double?
+    /// Within 0...1.
+    private let measured: Double
 
-    /// Nil when there is no total to measure against. `completed` is kept
-    /// within 0...total. A `fraction` is finer progress for the bar (the
-    /// iPhone counts progress inside the current chunk); it is kept within
-    /// the current chunk, so the bar never contradicts the "N of M" title,
-    /// and one that isn't a number falls back to the chunk counts.
+    /// Chunks done out of the chunk count. Nil when there is no total to
+    /// measure against; `completed` is kept within 0...total. A `fraction`
+    /// is finer progress for the bar (the iPhone counts progress inside the
+    /// current chunk) and replaces the counts; one that isn't a number
+    /// falls back to them.
     public init?(completed: Int, total: Int, fraction: Double? = nil) {
         guard total > 0 else { return nil }
-        let completed = min(max(completed, 0), total)
-        self.completed = completed
-        self.total = total
-        self.measuredFraction = fraction.flatMap { fraction in
-            guard fraction.isFinite else { return nil }
-            let low = Double(completed) / Double(total)
-            let high = Double(min(completed + 1, total)) / Double(total)
-            return min(max(fraction, low), high)
+        if let fraction, fraction.isFinite {
+            self.measured = min(max(fraction, 0), 1)
+        } else {
+            self.measured = Double(min(max(completed, 0), total)) / Double(total)
         }
     }
 
-    /// Work that reports only a fraction, with no chunks to name (an
-    /// iPhone retranscription of a Mac note). Nil when it isn't a number.
+    /// Work that reports only a fraction, with no chunks (an iPhone
+    /// retranscription of a Mac note). Nil when it isn't a number.
     public init?(fraction: Double) {
         guard fraction.isFinite else { return nil }
-        self.completed = 0
-        self.total = 0
-        self.measuredFraction = min(max(fraction, 0), 1)
+        self.measured = min(max(fraction, 0), 1)
     }
-
-    /// The work counts chunks, so a title can say "N of M".
-    public var countsChunks: Bool { total > 0 }
 
     /// Never 1 while the work still runs: the last chunk is still being
     /// saved, so it stops at 99%.
     public var fraction: Double {
-        let measured = measuredFraction ?? (total > 0 ? Double(completed) / Double(total) : 0)
-        return min(0.99, measured)
+        min(0.99, measured)
     }
 
     /// Whole percent, rounded down.
     public var percent: Int {
         Int(fraction * 100)
-    }
-
-    /// The chunk being worked on, counting from 1 (0 when the work counts
-    /// no chunks).
-    public var current: Int {
-        min(completed + 1, total)
     }
 }
 
@@ -129,13 +109,11 @@ public enum NoteWorkStatus: Equatable, Sendable {
         }
     }
 
-    /// The title's copy key. "Transcribing %d of %d…" takes the current
-    /// chunk and the total.
+    /// The title's copy key.
     public var titleKey: String {
         switch self {
         case .waitingToTranscribe: return "Waiting to transcribe..."
-        case .transcribing(let progress):
-            return progress?.countsChunks == true ? "Transcribing %d of %d…" : "Transcribing..."
+        case .transcribing: return "Transcribing..."
         case .resumingCloudTranscription: return "Resuming cloud transcription…"
         case .retranscribing: return "Retranscribing..."
         case .cancellingTranscription: return "Cancelling transcription..."
@@ -188,13 +166,11 @@ public enum NoteWorkStatus: Equatable, Sendable {
     }
 
     /// `localize` looks a copy key up in the app's String Catalog; `locale`
-    /// is the app's chosen language, for the numbers in a formatted title.
+    /// is the app's chosen language, for a formatted title.
     public func presentation(localize: (String) -> String, locale: Locale? = nil) -> Presentation {
         let format = localize(titleKey)
         let title: String
         switch self {
-        case .transcribing(let progress?) where progress.countsChunks:
-            title = String(format: format, locale: locale, progress.current, progress.total)
         case .restartingTranscription(let modelName, _):
             title = String(format: format, locale: locale, modelName)
         default:
@@ -215,7 +191,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
         public var examples: [NoteWorkStatus] {
             switch self {
             case .waitingToTranscribe: return [.waitingToTranscribe(reason: nil)]
-            case .transcribing: return [.transcribing(nil), .transcribing(NoteWorkProgress(completed: 0, total: 1))]
+            case .transcribing: return [.transcribing(nil)]
             case .resumingCloudTranscription: return [.resumingCloudTranscription(nil)]
             case .retranscribing: return [.retranscribing(nil)]
             case .cancellingTranscription: return [.cancellingTranscription(reason: nil)]
