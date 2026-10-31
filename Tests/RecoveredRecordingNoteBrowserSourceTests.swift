@@ -357,7 +357,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         )
         let header = block(
             row,
-            from: "HStack(spacing: 4) {",
+            from: "HStack(spacing: QuillSpacing.space4) {",
             to: "Text(displayData.displayTitle)"
         )
         precondition(header.contains("if displayData.status == .audioOnly"))
