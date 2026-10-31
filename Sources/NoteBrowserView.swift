@@ -2114,52 +2114,45 @@ private struct NoteListRow: View {
     private var increasesContrast: Bool { colorSchemeContrast == .increased }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: QuillSpacing.space10) {
             if let selectionMark {
                 NoteSelectionCheckbox(mark: selectionMark)
                     .frame(maxHeight: .infinity, alignment: .center)
             }
             // Content
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: QuillSpacing.space3) {
+                HStack(spacing: QuillSpacing.space4) {
                     Text(displayData.rowDate)
-                        .font(.system(size: 9, weight: .semibold))
+                        .quillTextStyle(.metaLabel)
                         .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
-                        .kerning(0.4)
                     if displayData.status == .audioOnly {
                         Text(localizedCatalogString("Audio only"))
-                            .font(.system(size: 8, weight: .semibold))
+                            .quillTextStyle(.badgeLabel)
                             .foregroundStyle(selectedMetaColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(
-                                Color.primary.opacity(QuillContrast.fillOpacity(0.08, increased: increasesContrast)),
-                                in: Capsule()
-                            )
+                            .background(badgeFill, in: Capsule())
                     }
                     if displayData.hasMeetingSummary {
                         Text(localizedCatalogString("Summary"))
-                            .font(.system(size: 8, weight: .semibold))
+                            .quillTextStyle(.badgeLabel)
                             .foregroundStyle(selectedMetaColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(
-                                Color.primary.opacity(QuillContrast.fillOpacity(0.08, increased: increasesContrast)),
-                                in: Capsule()
-                            )
+                            .background(badgeFill, in: Capsule())
                     }
                     Spacer()
                     statusIndicator
                 }
 
                 Text(displayData.displayTitle)
-                .font(.system(size: 13, weight: .semibold))
+                .quillTextStyle(.rowTitle)
                 .foregroundStyle(selectedTitleColor)
                 .lineLimit(1)
 
                 Text(displayData.preview.isEmpty ? " " : displayData.preview)
-                    .font(.system(size: 11.5))
+                    .quillTextStyle(.rowPreview)
                     .foregroundStyle(selectedPreviewColor)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -2167,43 +2160,52 @@ private struct NoteListRow: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80, alignment: .topLeading)
+        .padding(.horizontal, QuillSpacing.space12)
+        .padding(.vertical, QuillSpacing.space9)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: QuillControlSize.noteRow,
+            maxHeight: QuillControlSize.noteRow,
+            alignment: .topLeading
+        )
         .background {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: QuillRadius.radius8)
                 .fill(
                     isKeyboardHighlighted
-                        ? Color.accentColor.opacity(0.85)
+                        ? QuillColor.accentHighlight.color(for: colorScheme)
                         : isSelected
-                        ? (colorScheme == .dark ? Color.white.opacity(0.07) : Color.primary.opacity(0.08))
-                        : (isHovered
-                            ? (colorScheme == .dark ? Color.white.opacity(0.03) : Color.primary.opacity(0.05))
-                            : Color.clear)
+                        ? QuillColor.fillSelected.color(for: colorScheme)
+                        : (isHovered ? QuillColor.fillHover.color(for: colorScheme) : Color.clear)
                 )
                 .overlay {
                     // Only on a plain row, so it never reads as a selection state.
                     if isJustArrived && !isSelected && selectionMark == nil {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.accentColor.opacity(0.14))
+                        RoundedRectangle(cornerRadius: QuillRadius.radius8)
+                            .fill(QuillColor.accentTintArrived.color(for: colorScheme))
                             .transition(.opacity)
                     }
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: QuillRadius.radius8)
                         .strokeBorder(
                             isKeyboardHighlighted
                                 ? Color.accentColor
                                 : isSelected
-                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.primary.opacity(0.12))
-                                : (colorScheme == .dark
-                                    ? Color.white.opacity(isHovered ? 0.07 : 0)
-                                    : Color.primary.opacity(isHovered ? 0.08 : 0)),
+                                ? QuillColor.strokeSelected.color(for: colorScheme)
+                                // Hidden by opacity, not `.clear`, so the edge keeps its
+                                // color while it fades in.
+                                : QuillColor.strokeHover.color(for: colorScheme).opacity(isHovered ? 1 : 0),
                             lineWidth: isSelected ? 0.6 : 0.5
                         )
                 }
         }
-        .shadow(color: isSelected ? .black.opacity(colorScheme == .dark ? 0.08 : 0.04) : .clear, radius: 6, x: 0, y: 1)
+        // Always applied (clear when not selected), as before.
+        .shadow(
+            color: isSelected ? .black.opacity(selectedShadow.opacity) : .clear,
+            radius: selectedShadow.radius,
+            x: selectedShadow.x,
+            y: selectedShadow.y
+        )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         // One element for VoiceOver, with the state in words.
@@ -2224,6 +2226,16 @@ private struct NoteListRow: View {
             workStageKey: displayData.workStageKey
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var selectedShadow: QuillShadow {
+        QuillShadow.rowSelected.shadow(for: colorScheme)
+    }
+
+    /// A badge's capsule; stronger under Increase Contrast.
+    private var badgeFill: Color {
+        let tint = QuillColor.fillBadge.tint(for: colorScheme)
+        return tint.withOpacity(QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast)).color
     }
 
     /// Row date and badges; stronger under Increase Contrast.
@@ -2278,13 +2290,13 @@ private struct NoteListRow: View {
         case .done:
             Circle()
                 .fill(Color.green)
-                .frame(width: 6, height: 6)
+                .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recording:
             // A red dot and the running time; the stage text is in the detail.
-            HStack(spacing: 4) {
+            HStack(spacing: QuillSpacing.space4) {
                 Circle()
                     .fill(Color.red)
-                    .frame(width: 6, height: 6)
+                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
                 if let startedAt = displayData.recordingStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
@@ -2298,7 +2310,7 @@ private struct NoteListRow: View {
         case .audioOnly:
             Circle()
                 .fill(Color.green)
-                .frame(width: 6, height: 6)
+                .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
@@ -2313,7 +2325,7 @@ private struct NoteListRow: View {
             } else {
                 Circle()
                     .fill(Color.red)
-                    .frame(width: 6, height: 6)
+                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
             }
         }
     }
@@ -2361,7 +2373,7 @@ private struct NoteSelectionCheckbox: View {
                     )
             }
         }
-        .frame(width: 18, height: 18)
+        .frame(width: QuillControlSize.checkbox, height: QuillControlSize.checkbox)
         .accessibilityHidden(true)
         .modifier(UnavailableSelectionHelp(isUnavailable: mark == .unavailable))
     }

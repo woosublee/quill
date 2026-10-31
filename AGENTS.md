@@ -70,8 +70,7 @@ otherwise.
   session rules (WebSocket URL, connection request, `session.update`), the
   chat completion request, and cloud consent (#693): the per-origin grants
   (`CloudConsentLedger`), which providers a set of saved keys goes to and
-  what withdrawing one clears (`CloudConsentTargets`), which provider clearing
-  a key withdraws (#723), and the prompt's copy
+  what withdrawing one clears (`CloudConsentTargets`), and the prompt's copy
   keys (`CloudConsentCopy`). Each app still sends the request with its own
   transport and logging, reads the reply, and runs the realtime socket
   itself, and draws its own consent prompt. Cooldowns, the temperature
@@ -128,7 +127,7 @@ otherwise.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
   (#623): spacing and radius scales, the issue colors, the note page
   background (a color per platform, #697), the tints (glass,
-  toolbar, hairline, banner, chip, row hover and selection, empty disc,
+  toolbar, hairline, banner, chip, row hover, selection and badge, empty disc,
   record ring, and the accent tints), the glass, status, banner, record,
   and selected-row shadows (the last one per appearance), the status wash
   opacity, the text styles (note title, transcript, row, banner, meta

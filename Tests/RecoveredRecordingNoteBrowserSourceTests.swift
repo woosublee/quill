@@ -287,7 +287,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             "isKeyboardHighlighted: isNoteListFocused",
             ".accessibilityAction(named: Text(\"Select\"))",
             ".accessibilityAction(named: Text(\"Delete…\"))",
-            "? Color.accentColor.opacity(0.85)",
+            "? QuillColor.accentHighlight.color(for: colorScheme)",
             "NoteListRowAccessibility.label(",
             ".accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)",
             // The moved-to row stays visible between the header and Record button.
@@ -372,7 +372,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         )
         let header = block(
             row,
-            from: "HStack(spacing: 4) {",
+            from: "HStack(spacing: QuillSpacing.space4) {",
             to: "Text(displayData.displayTitle)"
         )
         precondition(header.contains("if displayData.status == .audioOnly"))
@@ -458,7 +458,20 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let row = block(source, from: "private struct NoteListRow: View {", to: "private struct SidebarCapsuleButtonStyle")
         precondition(row.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
         precondition(row.contains(": Color.secondary.opacity(metaOpacity(0.7))"))
-        precondition(row.contains("QuillContrast.fillOpacity(0.08, increased: increasesContrast)"))
+        precondition(row.contains("QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast)"))
+        // The row draws from the shared tokens (#736 step 5), not literals.
+        let rowOnly = block(source, from: "private struct NoteListRow: View {", to: "/// Neutral capsule matching the sidebar")
+        for token in [
+            "QuillColor.fillBadge", "QuillColor.fillHover", "QuillColor.strokeHover",
+            "QuillColor.fillSelected", "QuillColor.strokeSelected", "QuillColor.accentHighlight",
+            "QuillColor.accentTintArrived", "QuillShadow.rowSelected", "QuillControlSize.noteRow",
+            "QuillRadius.radius8", ".quillTextStyle(.metaLabel)", ".quillTextStyle(.badgeLabel)",
+            ".quillTextStyle(.rowTitle)", ".quillTextStyle(.rowPreview)",
+        ] {
+            precondition(rowOnly.contains(token), "NoteListRow should use \(token)")
+        }
+        precondition(!rowOnly.contains("Color.white.opacity(0.07)"))
+        precondition(!rowOnly.contains("cornerRadius: 8)"))
         let detail = block(source, from: "private struct NoteDetailView: View {", to: "private struct SummaryIssueViewAction")
         precondition(detail.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
         precondition(detail.contains("QuillContrast.hierarchicalStyle(.tertiary, increased: increasesContrast)"))
@@ -475,7 +488,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         ))
         precondition(row.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))
         precondition(row.contains(
-            "            } else {\n                Circle()\n                    .fill(Color.red)\n                    .frame(width: 6, height: 6)"
+            "            } else {\n                Circle()\n                    .fill(Color.red)\n"
+                + "                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)"
         ))
 
         // Reduce Transparency: sidebar, header, and floating toolbars are opaque.
