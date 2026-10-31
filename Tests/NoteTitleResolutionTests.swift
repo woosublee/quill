@@ -15,6 +15,7 @@ struct NoteTitleResolutionTests {
         testCalendarAppliedTitleIncludesRecordingDate()
         testRecoveredRecordingTitlesNameAvailableSource()
         testStorageInterruptionReasonWinsRecoveredTitle()
+        testEveryInterruptedPlaceholderFormTitlesAsTranscribing()
         testAudioOnlyTitleUsesNormalPrecedence()
         testSuggestedCalendarTitleShownEvenWhenTranscriptReadsLikeIt()
         testSuggestedCalendarTitleTreatsWhitespaceTitleAsNone()
@@ -156,6 +157,37 @@ struct NoteTitleResolutionTests {
             )
             assert(NoteTitleResolver.displayTitle(for: recovered) == expected)
         }
+    }
+
+    private static func testEveryInterruptedPlaceholderFormTitlesAsTranscribing() {
+        let statuses = [
+            "transcription-interrupted",
+            "transcription-interrupted:storage-full",
+            "transcription-interrupted:partial",
+            "transcription-interrupted:microphone-only",
+            "transcription-interrupted:permission-denied:system-audio-only",
+            "transcription-interrupted:journal-io-failure:partial",
+            "importing"
+        ]
+        for status in statuses {
+            let interrupted = item(
+                transcript: "",
+                calendarMatch: nil,
+                postProcessingStatus: status
+            )
+            assert(
+                NoteTitleResolver.displayTitle(for: interrupted) == "Transcribing...",
+                "\(status) titles as transcribing"
+            )
+            assert(!NoteTitleResolver.isNamedByDate(interrupted))
+        }
+        // A status that only looks interrupted is a settled note, named by date.
+        let malformed = item(
+            transcript: "",
+            calendarMatch: nil,
+            postProcessingStatus: "transcription-interrupted:unknown-reason"
+        )
+        assert(NoteTitleResolver.displayTitle(for: malformed) == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
     }
 
     private static func testAudioOnlyTitleUsesNormalPrecedence() {

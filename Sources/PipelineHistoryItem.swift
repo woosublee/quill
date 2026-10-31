@@ -135,6 +135,12 @@ struct PipelineHistoryItem: Identifiable, Codable {
         )
     }
 
+    /// The transcription was interrupted and the note waits for recovery,
+    /// in any of its forms (`transcription-interrupted[:<reason>][:<mode>]`).
+    var isTranscriptionPlaceholder: Bool {
+        NoteMachineStatus.isTranscriptionPlaceholder(postProcessingStatus: postProcessingStatus)
+    }
+
     let intent: PipelineHistoryItemIntent
     let selectedText: String?
     let capturedSelection: String?
