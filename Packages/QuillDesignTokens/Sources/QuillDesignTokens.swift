@@ -493,6 +493,11 @@ public enum QuillOpacity {
     /// `opacity-issue-disc`: an issue disc's tint, drawn in the issue's own
     /// color (`size-issue-disc`).
     public static let issueDisc: Double = 0.1
+    /// `opacity-status-disc`: a note's state disc (recording, audio only),
+    /// drawn in the state's color at `size-empty-disc` (#736 Q8).
+    public static let statusDisc: Double = 0.08
+    /// `opacity-status-glyph`: the symbol inside a state disc.
+    public static let statusGlyph: Double = 0.75
 
     /// Every opacity this module carries, by its token name.
     public static let all: [(name: String, value: Double)] = [
@@ -500,6 +505,8 @@ public enum QuillOpacity {
         ("opacity-surface-card", surfaceCard),
         ("opacity-summary-bullet", summaryBullet),
         ("opacity-issue-disc", issueDisc),
+        ("opacity-status-disc", statusDisc),
+        ("opacity-status-glyph", statusGlyph),
     ]
 }
 
