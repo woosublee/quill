@@ -572,10 +572,9 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public let lineSpacing: CGFloat
     /// The iPhone's extra space between lines in points.
     public let lineSpacingIPhone: CGFloat
-    /// The Mac's space after a paragraph in points; 0 for none.
+    /// The space after a paragraph in points, the same on both apps (#736
+    /// Q6); 0 for none.
     public let paragraphSpacing: CGFloat
-    /// The iPhone's space after a paragraph in points.
-    public let paragraphSpacingIPhone: CGFloat
 
     public init(
         size: CGFloat,
@@ -589,8 +588,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         scalesFromMacSize: Bool = false,
         lineSpacing: CGFloat = 0,
         lineSpacingIPhone: CGFloat? = nil,
-        paragraphSpacing: CGFloat = 0,
-        paragraphSpacingIPhone: CGFloat? = nil
+        paragraphSpacing: CGFloat = 0
     ) {
         self.size = size
         self.lineHeight = lineHeight
@@ -604,7 +602,6 @@ public struct QuillTypeStyle: Sendable, Equatable {
         self.lineSpacing = lineSpacing
         self.lineSpacingIPhone = lineSpacingIPhone ?? lineSpacing
         self.paragraphSpacing = paragraphSpacing
-        self.paragraphSpacingIPhone = paragraphSpacingIPhone ?? paragraphSpacing
     }
 
     /// The SwiftUI weight for `weight`, or nil for a value that isn't one of
@@ -652,14 +649,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
         #endif
     }
 
-    /// This platform's space after a paragraph.
-    public var platformParagraphSpacing: CGFloat {
-        #if os(macOS)
-        return paragraphSpacing
-        #else
-        return paragraphSpacingIPhone
-        #endif
-    }
+    /// The space after a paragraph, which only a text view draws (an
+    /// NSParagraphStyle); `quillTextStyle(_:)` can't apply it. The same on
+    /// both apps.
+    public var platformParagraphSpacing: CGFloat { paragraphSpacing }
 
     #if os(macOS)
     /// This style as an AppKit font, for a text view (the note title and
@@ -706,11 +699,13 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public static let rowTitle = QuillTypeStyle(
         size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline, trackingIPhone: -0.1
     )
-    /// `transcript`: a note's transcript text. Each app keeps its own line
-    /// and paragraph spacing until #736 Q6 is answered.
+    /// `transcript`: a note's transcript text. Both apps use the Mac's line
+    /// spacing 5 and paragraph spacing 6 (#736 Q6). The paragraph spacing
+    /// reaches the screen only through each app's text view, which reads
+    /// `platformParagraphSpacing`.
     public static let transcript = QuillTypeStyle(
         size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline,
-        lineSpacing: 5, lineSpacingIPhone: 6, paragraphSpacing: 6, paragraphSpacingIPhone: 0
+        lineSpacing: 5, paragraphSpacing: 6
     )
     /// `callout`: a notice's or banner's detail line. On iOS it scales from
     /// `.caption`, like `banner-title`, so a banner's detail stays the size

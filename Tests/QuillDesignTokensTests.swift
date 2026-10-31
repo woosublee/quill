@@ -317,11 +317,10 @@ struct QuillDesignTokensTests {
             let lineSpacing = spacing("lineSpacing", default: 0)
             let lineSpacingIPhone = spacing("lineSpacingIphone", default: lineSpacing)
             let paragraphSpacing = spacing("paragraphSpacing", default: 0)
-            let paragraphSpacingIPhone = spacing("paragraphSpacingIphone", default: paragraphSpacing)
+            precondition(entry["paragraphSpacingIphone"] == nil, "\(name): paragraph spacing is the same on both apps (#736 Q6)")
             precondition(Double(style.lineSpacing) == lineSpacing, "\(name) line spacing \(style.lineSpacing) vs tokens.json \(lineSpacing)")
             precondition(Double(style.lineSpacingIPhone) == lineSpacingIPhone, "\(name) iPhone line spacing \(style.lineSpacingIPhone) vs tokens.json \(lineSpacingIPhone)")
             precondition(Double(style.paragraphSpacing) == paragraphSpacing, "\(name) paragraph spacing \(style.paragraphSpacing) vs tokens.json \(paragraphSpacing)")
-            precondition(Double(style.paragraphSpacingIPhone) == paragraphSpacingIPhone, "\(name) iPhone paragraph spacing \(style.paragraphSpacingIPhone) vs tokens.json \(paragraphSpacingIPhone)")
             let isMono = (entry["family"] as? String ?? found.family) == "mono"
             precondition((style.design == .monospaced) == isMono, "\(name) is \(style.design) in Swift but family \(found.family ?? "-") in tokens.json")
         }
