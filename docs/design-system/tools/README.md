@@ -32,7 +32,17 @@ python3 docs/design-system/tools/gen_components.py docs/design-system
 
 ## Swift 토큰과 맞추기
 
-Mac과 iPhone이 함께 쓰는 Swift 모듈 `Packages/QuillDesignTokens`가 `tokens.json`의 일부를 Swift 값으로 가지고 있습니다(#623). 지금 들어 있는 것은 간격·반경, 색 `issue-warning`·`issue-error`·`stroke-glass`·`fill-toolbar-hover`·`fill-pressed`, 그림자 `shadow-glass`, 크기 `size-note-toolbar`·`size-note-toolbar-button`(`-iphone`)입니다. `Tests/QuillDesignTokensTests.swift`가 두 파일을 비교하므로, 토큰을 더하거나 바꾸면 양쪽을 함께 고칩니다(`make check`에서 실패로 드러남).
+Mac과 iPhone이 함께 쓰는 Swift 모듈 `Packages/QuillDesignTokens`가 `tokens.json`의 일부를 Swift 값으로 가지고 있습니다(#623). 지금 들어 있는 것은 다음과 같습니다.
+
+- 간격·반경 단계 전부(`space-32`, `radius-16`, `radius-20`은 #736에서 추가).
+- 색 `issue-warning`·`issue-error`, 틴트 `stroke-glass`·`fill-toolbar-hover`·`fill-pressed`·`hairline-strong`·`hairline`·`fill-banner`·`fill-chip`·`fill-hover`·`fill-selected`·`stroke-selected`·`fill-empty-disc`·`record-ring`·`accent-tint-selected`·`accent-stroke-selected`·`accent-tint-arrived`·`accent-tint-nav`·`accent-highlight`(`QuillColor`).
+- 그림자 `shadow-glass`·`shadow-status`·`shadow-banner`·`shadow-record`, 라이트·다크 값이 다른 `shadow-row-selected`(`QuillShadow`, `QuillSchemeShadow`).
+- 불투명도 `opacity-status-wash`.
+- 글자 `note-title`·`empty-title`·`row-title`·`transcript`·`callout`·`row-preview`·`banner-title`·`meta-label`·`badge-label`·`meta-mono`·`meta-chip-mono`·`status-title`·`status-percent`·`status-detail`(`QuillTypeStyle`: macOS는 고정 크기, iOS는 Dynamic Type. 메타 줄 두 스타일은 iOS에서도 macOS 크기에서 `.caption2` 기준으로 커짐. 자간이 플랫폼마다 다르면 `letterSpacingIphone`. 화면에서는 `quillTextStyle(_:)`로 그림).
+- 크기 `size-note-toolbar`·`size-note-toolbar-button`(`-iphone`)·`size-status-progress`·`size-touch-min`·`size-note-row`·`size-checkbox`(`-iphone`)·`size-status-dot`·`size-empty-disc`·`size-record-button`(`-iphone`)(`QuillControlSize`).
+- 노트 배치 크기 `size-sidebar-notes`·`size-note-margin-compact`·`size-note-margin-regular`·`size-note-body-max-width`(`QuillLayoutSize`, #697), 폭 경계 `breakpoint-regular`·`breakpoint-wide`.
+
+#736 1단계에서 더한 토큰은 아직 두 앱 어느 화면도 읽지 않습니다(화면별로 다음 단계에서 옮김). `Tests/QuillDesignTokensTests.swift`가 두 파일을 비교하므로, 토큰을 더하거나 바꾸면 양쪽을 함께 고칩니다(`make check`에서 실패로 드러남).
 
 - 이름은 두 앱이 같이 쓰고, 플랫폼마다 값이 다르면 `-iphone` 토큰을 따로 둡니다(예: 툴바 버튼 macOS 36, iPhone 44).
 - 공통 노트 툴바(`QuillNoteUI`)는 이 모듈의 값을 씁니다. 다른 색과 그림자는 그 값을 쓰는 화면을 옮길 때 같은 방식으로 추가합니다.

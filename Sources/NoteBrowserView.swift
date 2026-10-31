@@ -1583,7 +1583,7 @@ struct NoteBrowserView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, selection.showsSelectionUI ? 16 : 72)
         }
-        .frame(width: 280)
+        .frame(width: QuillNoteLayout.listColumnWidth)
         .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
         .overlay(alignment: .trailing) {
             Rectangle()
@@ -2878,12 +2878,8 @@ private struct NoteDetailView: View {
         }
         return issuePresentation
     }
-    /// Post-processing returned nothing to change. The original transcript is
-    /// the result, so this is a quiet notice rather than a warning.
     private var isNothingToPostProcess: Bool {
-        guard let record = item.userIssueRecord else { return false }
-        return record.code == .postProcessingFailed
-            && record.context.postProcessingFailureReason == .emptyOutput
+        NoteBrowserRecoveryPresentation.isNothingToPostProcess(item.userIssueRecord)
     }
     private var warningBannerCode: QuillUserIssueCode? {
         item.userIssueRecord?.code
@@ -2899,7 +2895,10 @@ private struct NoteDetailView: View {
             || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
     }
     private var showsNothingToPostProcessNotice: Bool {
-        isNothingToPostProcess && !isNothingToPostProcessDismissed
+        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: item.userIssueRecord,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
+        ) && !isNothingToPostProcessDismissed
     }
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
@@ -3924,8 +3923,7 @@ private struct NoteDetailView: View {
                 .padding(.horizontal, 60)
             } else if isCloudTranscribing
                         || item.machineStatus == .importing
-                        || item.postProcessingStatus
-                        == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
+                        || item.isTranscriptionPlaceholder {
                 ProgressView()
                     .controlSize(.regular)
                 Text(verbatim: processingStatusText)
@@ -4162,7 +4160,7 @@ private struct NoteDetailView: View {
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,
-            // The shared table hides ✨ on an audio-only or failed note.
+            // The shared table hides ✨ when the action is Transcribe.
             canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
             hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasSummaryToCopy: summaryEnvelope != nil,

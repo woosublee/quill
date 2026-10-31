@@ -20,6 +20,7 @@ public enum QuillSpacing {
     public static let space16: CGFloat = 16
     public static let space20: CGFloat = 20
     public static let space24: CGFloat = 24
+    public static let space32: CGFloat = 32
     public static let space40: CGFloat = 40
     public static let space60: CGFloat = 60
 
@@ -29,7 +30,7 @@ public enum QuillSpacing {
         ("space-6", space6), ("space-8", space8), ("space-9", space9),
         ("space-10", space10), ("space-12", space12), ("space-14", space14),
         ("space-16", space16), ("space-20", space20), ("space-24", space24),
-        ("space-40", space40), ("space-60", space60),
+        ("space-32", space32), ("space-40", space40), ("space-60", space60),
     ]
 }
 
@@ -40,14 +41,17 @@ public enum QuillRadius {
     public static let radius9: CGFloat = 9
     public static let radius10: CGFloat = 10
     public static let radius12: CGFloat = 12
+    public static let radius16: CGFloat = 16
     public static let radius18: CGFloat = 18
+    public static let radius20: CGFloat = 20
     public static let radius26: CGFloat = 26
 
     /// Every step by its token name, smallest first. Capsules use `Capsule()`.
     public static let scale: [(name: String, value: CGFloat)] = [
         ("radius-3", radius3), ("radius-6", radius6), ("radius-8", radius8),
         ("radius-9", radius9), ("radius-10", radius10), ("radius-12", radius12),
-        ("radius-18", radius18), ("radius-26", radius26),
+        ("radius-16", radius16), ("radius-18", radius18), ("radius-20", radius20),
+        ("radius-26", radius26),
     ]
 }
 
@@ -62,12 +66,15 @@ public enum QuillColor {
         public var color: Color { Color(red: red, green: green, blue: blue) }
     }
 
-    /// A fill or stroke drawn as the label color or white at some opacity.
-    /// `primary` follows the appearance (dark ink in light, light ink in dark).
+    /// A fill or stroke drawn as the label color, white, or the accent color
+    /// at some opacity. `primary` follows the appearance (dark ink in light,
+    /// light ink in dark); `accent` is `Color.accentColor`, the system accent
+    /// the user picked.
     public struct Tint: Sendable, Equatable {
         public enum Base: Sendable, Equatable {
             case primary
             case white
+            case accent
         }
 
         public let base: Base
@@ -77,6 +84,7 @@ public enum QuillColor {
             switch base {
             case .primary: return Color.primary.opacity(opacity)
             case .white: return Color.white.opacity(opacity)
+            case .accent: return Color.accentColor.opacity(opacity)
             }
         }
     }
@@ -124,12 +132,93 @@ public enum QuillColor {
         dark: Tint(base: .primary, opacity: 0.08)
     )
 
+    /// `hairline`: the 1 pt edge of a settings card and a banner's row button.
+    public static let hairline = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.06),
+        dark: Tint(base: .primary, opacity: 0.06)
+    )
+
+    /// `fill-banner`: a notice or status banner's neutral surface.
+    public static let fillBanner = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.045),
+        dark: Tint(base: .primary, opacity: 0.045)
+    )
+    /// `fill-chip`: a quiet control's fill (the search field, a chip).
+    public static let fillChip = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.06),
+        dark: Tint(base: .primary, opacity: 0.06)
+    )
+    /// `fill-hover`: a note list row under the pointer.
+    public static let fillHover = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.05),
+        dark: Tint(base: .white, opacity: 0.03)
+    )
+    /// `fill-selected`: the open note's row.
+    public static let fillSelected = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .white, opacity: 0.07)
+    )
+    /// `stroke-selected`: the open note row's edge (0.6 pt).
+    public static let strokeSelected = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.12),
+        dark: Tint(base: .white, opacity: 0.14)
+    )
+    /// `fill-empty-disc`: the neutral disc behind an empty state's glyph.
+    public static let fillEmptyDisc = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.04),
+        dark: Tint(base: .primary, opacity: 0.04)
+    )
+    /// `record-ring`: the 1 pt edge of the record button.
+    public static let recordRing = SchemeTint(
+        light: Tint(base: .white, opacity: 0.18),
+        dark: Tint(base: .white, opacity: 0.18)
+    )
+
+    /// `accent-tint-selected`: a selected option card or row.
+    public static let accentTintSelected = SchemeTint(
+        light: Tint(base: .accent, opacity: 0.08),
+        dark: Tint(base: .accent, opacity: 0.08)
+    )
+    /// `accent-stroke-selected`: the 1 pt edge of a selected model row.
+    public static let accentStrokeSelected = SchemeTint(
+        light: Tint(base: .accent, opacity: 0.3),
+        dark: Tint(base: .accent, opacity: 0.3)
+    )
+    /// `accent-tint-arrived`: a note row for a moment after the note arrives.
+    public static let accentTintArrived = SchemeTint(
+        light: Tint(base: .accent, opacity: 0.14),
+        dark: Tint(base: .accent, opacity: 0.14)
+    )
+    /// `accent-tint-nav`: the selected settings sidebar item.
+    public static let accentTintNav = SchemeTint(
+        light: Tint(base: .accent, opacity: 0.15),
+        dark: Tint(base: .accent, opacity: 0.15)
+    )
+    /// `accent-highlight`: the open note's row while the list has keyboard focus.
+    public static let accentHighlight = SchemeTint(
+        light: Tint(base: .accent, opacity: 0.85),
+        dark: Tint(base: .accent, opacity: 0.85)
+    )
+
     /// Every tint by its token name.
     public static let tints: [(name: String, value: SchemeTint)] = [
         ("stroke-glass", strokeGlass),
         ("fill-toolbar-hover", fillToolbarHover),
         ("fill-pressed", fillPressed),
         ("hairline-strong", hairlineStrong),
+        ("hairline", hairline),
+        ("fill-banner", fillBanner),
+        ("fill-chip", fillChip),
+        ("fill-hover", fillHover),
+        ("fill-selected", fillSelected),
+        ("stroke-selected", strokeSelected),
+        ("fill-empty-disc", fillEmptyDisc),
+        ("record-ring", recordRing),
+        ("accent-tint-selected", accentTintSelected),
+        ("accent-stroke-selected", accentStrokeSelected),
+        ("accent-tint-arrived", accentTintArrived),
+        ("accent-tint-nav", accentTintNav),
+        ("accent-highlight", accentHighlight),
     ]
 }
 
@@ -147,17 +236,51 @@ public struct QuillShadow: Sendable, Equatable {
     /// ("Retranscribing...", "Creating summary…").
     public static let status = QuillShadow(opacity: 0.12, radius: 8, x: 0, y: 2)
 
-    /// Every shadow by its token name.
+    /// `shadow-banner`: a notice or status banner.
+    public static let banner = QuillShadow(opacity: 0.12, radius: 1.5, x: 0, y: 1)
+
+    /// `shadow-record`: the record button.
+    public static let record = QuillShadow(opacity: 0.28, radius: 8, x: 0, y: 3)
+
+    /// `shadow-row-selected`: the open note's row, darker in dark mode.
+    public static let rowSelected = QuillSchemeShadow(
+        light: QuillShadow(opacity: 0.04, radius: 6, x: 0, y: 1),
+        dark: QuillShadow(opacity: 0.08, radius: 6, x: 0, y: 1)
+    )
+
+    /// Every single-value shadow by its token name.
     public static let all: [(name: String, value: QuillShadow)] = [
         ("shadow-glass", glass),
         ("shadow-status", status),
+        ("shadow-banner", banner),
+        ("shadow-record", record),
     ]
+
+    /// Every shadow with a value per appearance, by its token name.
+    public static let schemeShadows: [(name: String, value: QuillSchemeShadow)] = [
+        ("shadow-row-selected", rowSelected),
+    ]
+}
+
+/// A named shadow with a value for each appearance.
+public struct QuillSchemeShadow: Sendable, Equatable {
+    public let light: QuillShadow
+    public let dark: QuillShadow
+
+    public func shadow(for colorScheme: ColorScheme) -> QuillShadow {
+        colorScheme == .dark ? dark : light
+    }
 }
 
 extension View {
     /// Draws a named black shadow.
     public func quillShadow(_ shadow: QuillShadow) -> some View {
         self.shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, x: shadow.x, y: shadow.y)
+    }
+
+    /// Draws a named black shadow for the given appearance.
+    public func quillShadow(_ shadow: QuillSchemeShadow, colorScheme: ColorScheme) -> some View {
+        quillShadow(shadow.shadow(for: colorScheme))
     }
 }
 
@@ -179,6 +302,80 @@ public enum QuillControlSize {
 
     /// `size-status-progress`: the width of a work-status progress bar.
     public static let statusProgress: CGFloat = 200
+
+    /// `size-touch-min`: the smallest touch target on the iPhone and iPad
+    /// (Apple's 44 pt). Controls that grow with Dynamic Type start here.
+    public static let touchMin: CGFloat = 44
+
+    /// `size-note-row`: a note list row's fixed height on the Mac. The iPhone
+    /// row grows with its text instead.
+    public static let noteRow: CGFloat = 80
+
+    /// `size-checkbox`: the round multi-selection checkbox. On the iPhone it
+    /// grows with Dynamic Type from this size.
+    public static let checkboxMac: CGFloat = 18
+    public static let checkboxIPhone: CGFloat = 20
+
+    /// `size-status-dot`: a note row's done, recording, or failed dot.
+    public static let statusDot: CGFloat = 6
+
+    /// `size-empty-disc`: the disc behind an empty state's glyph.
+    public static let emptyDisc: CGFloat = 80
+
+    /// `size-record-button`: the round record button. On the iPhone it grows
+    /// with Dynamic Type from this size.
+    public static let recordButtonMac: CGFloat = 44
+    public static let recordButtonIPhone: CGFloat = 56
+
+    #if os(macOS)
+    public static let checkbox = checkboxMac
+    public static let recordButton = recordButtonMac
+    #else
+    public static let checkbox = checkboxIPhone
+    public static let recordButton = recordButtonIPhone
+    #endif
+
+    /// Every size this enum carries, by its token name (both platforms'
+    /// values for a size that has two).
+    public static let all: [(name: String, value: CGFloat)] = [
+        ("size-note-toolbar", noteToolbar),
+        ("size-note-toolbar-button", noteToolbarButtonMac),
+        ("size-note-toolbar-button-iphone", noteToolbarButtonIPhone),
+        ("size-status-progress", statusProgress),
+        ("size-touch-min", touchMin),
+        ("size-note-row", noteRow),
+        ("size-checkbox", checkboxMac),
+        ("size-checkbox-iphone", checkboxIPhone),
+        ("size-status-dot", statusDot),
+        ("size-empty-disc", emptyDisc),
+        ("size-record-button", recordButtonMac),
+        ("size-record-button-iphone", recordButtonIPhone),
+    ]
+}
+
+/// Note screen layout sizes (#697). `QuillNoteLayout` in QuillNoteUI picks
+/// between them by width class; the margins are steps of `QuillSpacing`.
+public enum QuillLayoutSize {
+    /// `size-sidebar-notes`: the note list's column when it sits beside the
+    /// note, on the Mac and in a wide iPad window.
+    public static let sidebarNotes: CGFloat = 280
+    /// `size-note-margin-compact`: a note's side margins in a compact
+    /// column (an iPhone in portrait). `space-16`.
+    public static let noteMarginCompact: CGFloat = 16
+    /// `size-note-margin-regular`: a note's side margins in a regular or
+    /// wide column. `space-24`.
+    public static let noteMarginRegular: CGFloat = 24
+    /// `size-note-body-max-width`: the widest a note's text runs in a
+    /// regular or wide column; the text is centred in wider columns.
+    public static let noteBodyMaxWidth: CGFloat = 680
+
+    /// Every size this enum carries, by its token name.
+    public static let all: [(name: String, value: CGFloat)] = [
+        ("size-sidebar-notes", sidebarNotes),
+        ("size-note-margin-compact", noteMarginCompact),
+        ("size-note-margin-regular", noteMarginRegular),
+        ("size-note-body-max-width", noteBodyMaxWidth),
+    ]
 }
 
 /// Named opacities, applied to a whole view or a fill.
@@ -197,17 +394,41 @@ public enum QuillOpacity {
 /// it follows Dynamic Type from the text style docs/design-system/2-platforms.md
 /// maps it to. `lineHeight` is the Mac's line box from tokens.json, kept so
 /// the test can compare it: SwiftUI sets line spacing, not line height, so
-/// `font` doesn't use it.
+/// `font` doesn't use it. `tracking` and `trackingIPhone` are the letter
+/// spacing on each platform (`letterSpacing` and `letterSpacingIphone` in
+/// tokens.json). `quillTextStyle(_:)` applies the font and this platform's
+/// tracking, and scales a `scalesFromMacSize` style on iOS.
 public struct QuillTypeStyle: Sendable, Equatable {
     /// The system text style an iOS style scales with.
     public enum DynamicStyle: Sendable, Equatable {
+        case title
+        case callout
         case subheadline
         case footnote
+        case caption
+        case caption2
 
         public var textStyle: Font.TextStyle {
             switch self {
+            case .title: return .title
+            case .callout: return .callout
             case .subheadline: return .subheadline
             case .footnote: return .footnote
+            case .caption: return .caption
+            case .caption2: return .caption2
+            }
+        }
+    }
+
+    /// The typeface: the system font, or SF Mono.
+    public enum Design: Sendable, Equatable {
+        case `default`
+        case monospaced
+
+        public var fontDesign: Font.Design {
+            switch self {
+            case .default: return .default
+            case .monospaced: return .monospaced
             }
         }
     }
@@ -220,13 +441,37 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public let dynamicStyle: DynamicStyle
     /// Digits all one width, for numbers that change in place (a percentage).
     public let monospacedDigits: Bool
+    public let design: Design
+    /// The Mac's letter spacing in points; 0 for none.
+    public let tracking: CGFloat
+    /// The iPhone's letter spacing in points.
+    public let trackingIPhone: CGFloat
+    /// On iOS the style keeps the Mac size and scales it with `dynamicStyle`
+    /// instead of taking that text style's own size (the note detail's meta
+    /// line). `font` can't scale a fixed size by itself and gives it
+    /// unscaled, so such a style is drawn with `quillTextStyle(_:)`.
+    public let scalesFromMacSize: Bool
 
-    public init(size: CGFloat, lineHeight: CGFloat, weight: Int, dynamicStyle: DynamicStyle, monospacedDigits: Bool = false) {
+    public init(
+        size: CGFloat,
+        lineHeight: CGFloat,
+        weight: Int,
+        dynamicStyle: DynamicStyle,
+        monospacedDigits: Bool = false,
+        design: Design = .default,
+        tracking: CGFloat = 0,
+        trackingIPhone: CGFloat? = nil,
+        scalesFromMacSize: Bool = false
+    ) {
         self.size = size
         self.lineHeight = lineHeight
         self.weight = weight
         self.dynamicStyle = dynamicStyle
         self.monospacedDigits = monospacedDigits
+        self.design = design
+        self.tracking = tracking
+        self.trackingIPhone = trackingIPhone ?? tracking
+        self.scalesFromMacSize = scalesFromMacSize
     }
 
     /// The SwiftUI weight for `weight`, or nil for a value that isn't one of
@@ -247,18 +492,64 @@ public struct QuillTypeStyle: Sendable, Equatable {
     }
 
     public var font: Font {
-        let weight = fontWeight ?? .regular
         #if os(macOS)
-        let font = Font.system(size: size, weight: weight)
+        return font(size: size)
         #else
-        let font = Font.system(dynamicStyle.textStyle, weight: weight)
+        if scalesFromMacSize { return font(size: size) }
+        let font = Font.system(dynamicStyle.textStyle, design: design.fontDesign, weight: fontWeight ?? .regular)
+        return monospacedDigits ? font.monospacedDigit() : font
         #endif
+    }
+
+    /// This platform's letter spacing.
+    public var platformTracking: CGFloat {
+        #if os(macOS)
+        return tracking
+        #else
+        return trackingIPhone
+        #endif
+    }
+
+    /// This style at a given size, for a view that scales the size itself.
+    public func font(size: CGFloat) -> Font {
+        let font = Font.system(size: size, weight: fontWeight ?? .regular, design: design.fontDesign)
         return monospacedDigits ? font.monospacedDigit() : font
     }
 
+    /// `note-title`: the note detail's editable title.
+    public static let noteTitle = QuillTypeStyle(
+        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3
+    )
     /// `empty-title`: an empty state's title, and the work status shown
     /// alone in the middle of a note with no text yet.
     public static let emptyTitle = QuillTypeStyle(size: 15, lineHeight: 20, weight: 600, dynamicStyle: .subheadline)
+    /// `row-title`: a note list row's title.
+    public static let rowTitle = QuillTypeStyle(
+        size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline, trackingIPhone: -0.1
+    )
+    /// `transcript`: a note's transcript text.
+    public static let transcript = QuillTypeStyle(size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline)
+    /// `callout`: an empty state's or a notice's detail line.
+    public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .callout)
+    /// `row-preview`: a note list row's two-line preview.
+    public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
+    /// `banner-title`: a notice or status banner's title.
+    public static let bannerTitle = QuillTypeStyle(size: 12, lineHeight: 15, weight: 600, dynamicStyle: .caption)
+    /// `meta-label`: a note list row's date (shown uppercase).
+    public static let metaLabel = QuillTypeStyle(size: 9, lineHeight: 11, weight: 600, dynamicStyle: .caption2, tracking: 0.4)
+    /// `badge-label`: a note list row's badge ("Summary", "Audio only").
+    public static let badgeLabel = QuillTypeStyle(size: 8, lineHeight: 10, weight: 600, dynamicStyle: .caption2)
+    /// `meta-mono`: the date on the note detail's meta line (shown uppercase).
+    public static let metaMono = QuillTypeStyle(
+        size: 10, lineHeight: 13, weight: 400, dynamicStyle: .caption2,
+        design: .monospaced, tracking: 0.5, trackingIPhone: 0.2, scalesFromMacSize: true
+    )
+    /// `meta-chip-mono`: a chip on the note detail's meta line (transcription
+    /// method, language).
+    public static let metaChipMono = QuillTypeStyle(
+        size: 9, lineHeight: 11, weight: 500, dynamicStyle: .caption2,
+        design: .monospaced, trackingIPhone: 0.2, scalesFromMacSize: true
+    )
     /// `status-title`: the work status over a note's text ("Retranscribing...").
     public static let statusTitle = QuillTypeStyle(size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline)
     /// `status-percent`: the percentage beside a work status's progress bar.
@@ -270,11 +561,49 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// Every style this module carries, by its token name.
     public static let all: [(name: String, value: QuillTypeStyle)] = [
+        ("note-title", noteTitle),
         ("empty-title", emptyTitle),
+        ("row-title", rowTitle),
+        ("transcript", transcript),
+        ("callout", callout),
+        ("row-preview", rowPreview),
+        ("banner-title", bannerTitle),
+        ("meta-label", metaLabel),
+        ("badge-label", badgeLabel),
+        ("meta-mono", metaMono),
+        ("meta-chip-mono", metaChipMono),
         ("status-title", statusTitle),
         ("status-percent", statusPercent),
         ("status-detail", statusDetail),
     ]
+}
+
+/// Draws text in a `QuillTypeStyle`: its font, this platform's tracking,
+/// and on iOS a `scalesFromMacSize` style's size scaled with Dynamic Type.
+public struct QuillTextStyleModifier: ViewModifier {
+    let style: QuillTypeStyle
+    @ScaledMetric private var scaledSize: CGFloat
+
+    public init(_ style: QuillTypeStyle) {
+        self.style = style
+        _scaledSize = ScaledMetric(wrappedValue: style.size, relativeTo: style.dynamicStyle.textStyle)
+    }
+
+    public func body(content: Content) -> some View {
+        #if os(macOS)
+        let font = style.font
+        #else
+        let font = style.scalesFromMacSize ? style.font(size: scaledSize) : style.font
+        #endif
+        return content.font(font).kerning(style.platformTracking)
+    }
+}
+
+extension View {
+    /// Draws text in a named type style (see `QuillTextStyleModifier`).
+    public func quillTextStyle(_ style: QuillTypeStyle) -> some View {
+        modifier(QuillTextStyleModifier(style))
+    }
 }
 
 /// Where a layout changes with the width it has (#697). A layout reads the

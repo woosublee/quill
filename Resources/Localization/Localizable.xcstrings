@@ -10564,6 +10564,22 @@
         }
       }
     },
+    "Fallback Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대체 모델"
+          }
+        }
+      }
+    },
     "Post-Processing Fallback Model": {
       "localizations": {
         "en": {
