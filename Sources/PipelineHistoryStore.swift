@@ -932,6 +932,55 @@ final class PipelineHistoryStore {
         return result
     }
 
+    /// Every note's dismissed notices (#730), for notes that have any.
+    func dismissedNotices() -> [UUID: Set<String>] {
+        guard availability == .ready, isStoreLoaded else { return [:] }
+        var result: [UUID: Set<String>] = [:]
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.predicate = NSPredicate(format: "syncExtraFieldsJSON != nil")
+            for entity in (try? historyFetcher(container.viewContext, request)) ?? [] {
+                let ids = NoteDismissedNotices.decode(Self.extraFields(of: entity)[NoteSyncField.dismissedNotices.rawValue])
+                if !ids.isEmpty { result[entity.id] = ids }
+            }
+        }
+        return result
+    }
+
+    /// Records that a notice was dismissed on this note, for good, and
+    /// stamps the notices group so the dismissal reaches the other devices.
+    /// The field is kept beside the note, never on `PipelineHistoryItem`, so
+    /// code that copies an item can't drop it.
+    func dismissNotice(_ notice: String, id: UUID) throws {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        var changed = false
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                guard let entity = try fetchEntry(id: id) else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                let extras = Self.extraFields(of: entity)
+                let key = NoteSyncField.dismissedNotices.rawValue
+                guard !NoteDismissedNotices.decode(extras[key]).contains(notice) else { return }
+                entity.syncExtraFieldsJSON = try NoteSyncPayload.encodeFields(NoteDismissedNotices.adding(notice, to: extras))
+                let clock = (Self.decodeClock(entity.fieldClockJSON)
+                    ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
+                    .setting(.notices, to: now())
+                entity.fieldClockJSON = Self.encodeClock(clock)
+                try saveContext()
+                changed = true
+            } catch {
+                container.viewContext.rollback()
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+        if changed { onChange?([.saved(id)]) }
+    }
+
     /// Deletes a note that was deleted in iCloud. `onChange` is not called.
     /// Returns nil when the note is already gone.
     func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? {
@@ -989,8 +1038,7 @@ final class PipelineHistoryStore {
         if let manifest = entity.audioSyncManifestJSON {
             record.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest)
         }
-        let extras = entity.syncExtraFieldsJSON.flatMap { try? NoteSyncPayload.decodeFields($0) } ?? [:]
-        for (key, value) in extras {
+        for (key, value) in extraFields(of: entity) {
             if key == NoteSyncRecord.schemaVersionKey {
                 if case .int(let kept) = value, case .int(let current)? = record.fields[key], kept > current {
                     record.fields[key] = value
@@ -1002,14 +1050,26 @@ final class PipelineHistoryStore {
         return record
     }
 
-    /// Keys this build doesn't know, plus a newer schema version.
+    /// Synced fields kept beside the note rather than in its columns.
+    private static func extraFields(of entity: PipelineHistoryEntry) -> [String: NoteSyncValue] {
+        entity.syncExtraFieldsJSON.flatMap { try? NoteSyncPayload.decodeFields($0) } ?? [:]
+    }
+
+    /// Store-level fields with no column of their own (the audio manifest
+    /// has one), kept with the extra keys.
+    private static let extraKnownSyncKeys = Set(
+        NoteSyncField.allCases.filter { $0.isStoreLevel && $0 != .audioManifest }.map(\.rawValue)
+    )
+
+    /// Keys this build doesn't know, a newer schema version, and the known
+    /// fields kept beside the note (`extraKnownSyncKeys`).
     private static func encodeExtraFields(_ fields: [String: NoteSyncValue]) -> Data? {
         let extras = fields.filter { key, value in
             if key == NoteSyncRecord.schemaVersionKey {
                 if case .int(let version) = value { return version > NoteSyncRecord.schemaVersion }
                 return true
             }
-            return !knownSyncKeys.contains(key)
+            return !knownSyncKeys.contains(key) || extraKnownSyncKeys.contains(key)
         }
         return extras.isEmpty ? nil : try? NoteSyncPayload.encodeFields(extras)
     }

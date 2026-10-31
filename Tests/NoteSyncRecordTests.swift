@@ -30,6 +30,7 @@ struct NoteSyncRecordTests {
         testNewNoteNeedsEveryRequiredField()
         testUnreadableKnownValuesAreDetected()
         testSharedCoreKnowsEveryMacRawValue()
+        testDismissedNoticesJoinOnMerge()
         print("NoteSyncRecordTests passed")
     }
 
@@ -486,6 +487,31 @@ struct NoteSyncRecordTests {
         var future = NoteSyncRecord(item: item())
         future.fields["futureField"] = .raw(Data("[1]".utf8))
         precondition(!future.hasUnreadableKnownFields, "unknown keys are fine")
+    }
+
+    /// A notice dismissed on one device stays dismissed whichever side's
+    /// notices group is newer, and both devices settle alike (#730).
+    static func testDismissedNoticesJoinOnMerge() {
+        let key = NoteSyncField.dismissedNotices.rawValue
+        let base = item()
+        var dismissed = record(base, stamps: [.notices: t0.addingTimeInterval(10)])
+        dismissed.fields[key] = NoteDismissedNotices.value([NoteDismissedNotices.nothingToCleanUp])
+        let newerWithout = record(base, stamps: [.notices: t0.addingTimeInterval(20)])
+        var other = record(base, stamps: [.notices: t0.addingTimeInterval(30)])
+        other.fields[key] = NoteDismissedNotices.value(["synthetic.otherNotice"])
+        for (local, remote) in [(dismissed, newerWithout), (newerWithout, dismissed)] {
+            let merged = NoteSyncMerge.merge(local: local, remote: remote)
+            precondition(NoteDismissedNotices.decode(merged.fields[key]) == [NoteDismissedNotices.nothingToCleanUp])
+        }
+        let both: Set<String> = [NoteDismissedNotices.nothingToCleanUp, "synthetic.otherNotice"]
+        let onA = NoteSyncMerge.merge(local: dismissed, remote: other)
+        let onB = NoteSyncMerge.merge(local: other, remote: dismissed)
+        precondition(NoteDismissedNotices.decode(onA.fields[key]) == both)
+        precondition(onA.fields[key] == onB.fields[key], "both devices store the same bytes")
+        let plain = record(base, stamps: [:])
+        precondition(NoteSyncMerge.merge(local: plain, remote: plain).fields[key] == nil, "no dismissals, no field")
+        precondition(NoteDismissedNotices.value(both) == .data(Data(#"["postProcessing.nothingToCleanUp","synthetic.otherNotice"]"#.utf8)))
+        precondition(NoteDismissedNotices.decode(.string("x")).isEmpty && NoteDismissedNotices.decode(.data(Data("{}".utf8))).isEmpty)
     }
 
     /// QuillNoteSyncCore keeps the raw values of these enums: the intent enum

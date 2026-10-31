@@ -89,6 +89,35 @@ public enum QuillColor {
         }
     }
 
+    /// An opaque color for each appearance.
+    public struct SchemeRGB: Sendable {
+        public let light: RGB
+        public let dark: RGB
+
+        public func color(for colorScheme: ColorScheme) -> Color {
+            colorScheme == .dark ? dark.color : light.color
+        }
+    }
+
+    /// `surface-page-iphone`: the iPhone app's page background, every
+    /// screen's (#F5F5F7, #1C1C1E; iOS `backgroundPrimary`).
+    public static let surfacePageIPhone = SchemeRGB(
+        light: RGB(red: 245.0 / 255, green: 245.0 / 255, blue: 247.0 / 255),
+        dark: RGB(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
+    )
+
+    /// `surface-note`: the background of a note's page, which the
+    /// work-status wash is drawn in. The Mac draws the system text
+    /// background (`textBackgroundColor`, `surface-text` in tokens.json);
+    /// the iPhone's note page is its app-wide page, `surface-page-iphone`.
+    public static func surfaceNote(for colorScheme: ColorScheme) -> Color {
+        #if os(macOS)
+        Color(nsColor: .textBackgroundColor)
+        #else
+        surfacePageIPhone.color(for: colorScheme)
+        #endif
+    }
+
     /// A tint for each appearance.
     public struct SchemeTint: Sendable, Equatable {
         public let light: Tint

@@ -136,6 +136,32 @@ enum NoteTitleResolver {
         ) ?? dateTitle(for: item, locale: locale)
     }
 
+    /// The note list row's name (#697): the note's own title, else when it
+    /// was recorded, from the moment it is recorded or imported, as the
+    /// iPhone names it. The row's preview line shows the stage, so the name
+    /// never does. A settled recovered recording keeps its recovered name.
+    static func listRowTitle(
+        for item: PipelineHistoryItem,
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        if explicitTitle(for: item) == nil, isStillTranscribing(item) {
+            return dateTitle(for: item, locale: locale)
+        }
+        return displayTitle(for: item, language: language, bundle: bundle, locale: locale)
+    }
+
+    /// True when the list row's name is the note's date, so the row doesn't
+    /// read the date twice.
+    static func isListRowNamedByDate(_ item: PipelineHistoryItem) -> Bool {
+        explicitTitle(for: item) == nil && (isStillTranscribing(item) || isNamedByDate(item))
+    }
+
+    private static func isStillTranscribing(_ item: PipelineHistoryItem) -> Bool {
+        NoteMachineStatus.isIncompleteTranscription(postProcessingStatus: item.postProcessingStatus)
+    }
+
     /// True when the note is named by its date: no title of its own, and
     /// settled. Its row then doesn't read the date twice.
     static func isNamedByDate(_ item: PipelineHistoryItem) -> Bool {
