@@ -118,10 +118,16 @@ otherwise.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the glass, toolbar,
-  and hairline tints, the glass and status shadows, the status wash
-  opacity, the work-status text styles (a fixed size on the Mac, Dynamic
-  Type on iOS), the note toolbar and status progress sizes (a value per
+  (#623): spacing and radius scales, the issue colors, the tints (glass,
+  toolbar, hairline, banner, chip, row hover and selection, empty disc,
+  record ring, and the accent tints), the glass, status, banner, record,
+  and selected-row shadows (the last one per appearance), the status wash
+  opacity, the text styles (note title, transcript, row, banner, meta
+  line, and work status: a fixed size on the Mac, Dynamic Type on iOS;
+  draw a style with `quillTextStyle(_:)`, which also applies its
+  per-platform tracking and scales the meta line from its Mac size on iOS),
+  the control sizes (note toolbar, status progress, touch minimum, note
+  row, checkbox, status dot, empty disc, record button; a value per
   platform where they differ), the note layout sizes (`QuillLayoutSize`:
   list column, note side margins, body maximum width), and the width
   breakpoints (#697).
