@@ -52,31 +52,32 @@ struct QuillUserIssueView: View {
     /// like the app's other empty states: no surface, just the icon, the
     /// title, one line, and the action.
     private var fullView: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: QuillSpacing.space8) {
+            // The 64 pt issue disc and its 10% tint have no token yet (#736).
             Image(systemName: iconName)
                 .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(accentColor)
                 .frame(width: 64, height: 64)
                 .background(accentColor.opacity(0.1), in: Circle())
-                .padding(.bottom, 4)
+                .padding(.bottom, QuillSpacing.space4)
 
             Text(presentation.title)
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             Text(presentation.body)
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 6) {
+            HStack(spacing: QuillSpacing.space6) {
                 actionButton
                 secondaryActionButton
                 detailsButton
             }
-            .padding(.top, 6)
+            .padding(.top, QuillSpacing.space6)
         }
         .frame(maxWidth: 380)
         .frame(maxWidth: .infinity)
@@ -86,7 +87,7 @@ struct QuillUserIssueView: View {
     /// full, and one action. A reason that would be cut off is left to the
     /// info popover instead of showing half a sentence.
     private var bannerView: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: QuillSpacing.space8) {
             Image(systemName: iconName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(accentColor)
@@ -96,10 +97,10 @@ struct QuillUserIssueView: View {
                 QuillBannerExpansionButton(expansion: expansion)
             } else {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: QuillSpacing.space8) {
                         bannerTitle
                         Text(presentation.body)
-                            .font(.system(size: 12))
+                            .quillTextStyle(.callout)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .fixedSize()
@@ -115,31 +116,31 @@ struct QuillUserIssueView: View {
             detailsButton
             dismissButton
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .padding(.vertical, 6)
-        .background(issueSurface(cornerRadius: 9))
+        .padding(.leading, QuillSpacing.space10)
+        .padding(.trailing, QuillSpacing.space6)
+        .padding(.vertical, QuillSpacing.space6)
+        .background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))
     }
 
     private var bannerTitle: some View {
         Text(presentation.title)
-            .font(.system(size: 12, weight: .semibold))
+            .quillTextStyle(.bannerTitle)
             .lineLimit(1)
             .truncationMode(.tail)
     }
 
     /// A compact box inside a settings form.
     private var inlineView: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: QuillSpacing.space8) {
             Image(systemName: iconName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(accentColor)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 2) {
+                .padding(.top, QuillSpacing.space2)
+            VStack(alignment: .leading, spacing: QuillSpacing.space2) {
                 Text(presentation.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .quillTextStyle(.bannerTitle)
                 Text(presentation.body)
-                    .font(.system(size: 12))
+                    .quillTextStyle(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -147,19 +148,9 @@ struct QuillUserIssueView: View {
             actionButton
             detailsButton
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(issueSurface(cornerRadius: 8))
-    }
-
-    private func issueSurface(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(Color.primary.opacity(0.045))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
+        .padding(.horizontal, QuillSpacing.space10)
+        .padding(.vertical, QuillSpacing.space8)
+        .background(QuillBannerSurface(cornerRadius: QuillRadius.radius8))
     }
 
     @ViewBuilder
@@ -264,17 +255,10 @@ struct QuillUserIssueView: View {
             Text(localizedCatalogString(title))
                 .font(.system(size: 11.5, weight: .medium))
                 .lineLimit(1)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 3)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.08))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, QuillSpacing.space9)
+                .padding(.vertical, QuillSpacing.space3)
+                .background(QuillBannerButtonSurface())
+                .contentShape(RoundedRectangle(cornerRadius: QuillRadius.radius6))
         }
         .buttonStyle(.plain)
         .fixedSize()
@@ -300,6 +284,21 @@ struct QuillUserIssueView: View {
 
 }
 
+/// A banner or issue row button's chrome: a primary 8% fill (no token yet,
+/// #736) and a 1 pt `hairline` edge, on `radius-6`.
+private struct QuillBannerButtonSurface: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: QuillRadius.radius6)
+            .fill(Color.primary.opacity(0.08))
+            .overlay(
+                RoundedRectangle(cornerRadius: QuillRadius.radius6)
+                    .strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)
+            )
+    }
+}
+
 /// A quiet, dismissible line for an outcome that needs no action, such as
 /// cleanup having nothing to change.
 struct QuillInfoNotice: View {
@@ -307,13 +306,13 @@ struct QuillInfoNotice: View {
     var onDismiss: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: QuillSpacing.space6) {
             Image(systemName: "info.circle")
                 .font(.system(size: 11, weight: .medium))
             Text(text)
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 6)
+            Spacer(minLength: QuillSpacing.space6)
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
@@ -335,15 +334,24 @@ struct QuillInfoNotice: View {
 extension View {
     /// The shared banner look: a light fill, a hairline, and a soft shadow.
     func quillBannerBackground() -> some View {
-        background(
-            RoundedRectangle(cornerRadius: 9)
-                .fill(Color.primary.opacity(0.045))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
-        )
+        background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))
+    }
+}
+
+/// The surface behind every banner and inline issue row: `fill-banner`, a
+/// 1 pt `hairline-strong` edge, and `shadow-banner`.
+struct QuillBannerSurface: View {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(QuillColor.fillBanner.color(for: colorScheme))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)
+            )
+            .quillShadow(.banner)
     }
 }
 
@@ -358,7 +366,7 @@ struct QuillStatusBanner: View {
     static let warningTint = QuillColor.issueWarning
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: QuillSpacing.space8) {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(tint)
@@ -371,10 +379,10 @@ struct QuillStatusBanner: View {
                 QuillBannerExpansionButton(expansion: expansion)
             } else {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: QuillSpacing.space8) {
                         titleText
                         Text(detail)
-                            .font(.system(size: 12))
+                            .quillTextStyle(.callout)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .fixedSize()
@@ -394,9 +402,10 @@ struct QuillStatusBanner: View {
                 QuillBannerDismissButton(action: onDismiss)
             }
         }
-        .padding(.leading, 10)
-        .padding(.trailing, onDismiss == nil ? 10 : 6)
-        .padding(.vertical, onDismiss == nil ? 7 : 6)
+        .padding(.leading, QuillSpacing.space10)
+        .padding(.trailing, onDismiss == nil ? QuillSpacing.space10 : QuillSpacing.space6)
+        // 7 is off the spacing scale (#736); it stays a literal for now.
+        .padding(.vertical, onDismiss == nil ? 7 : QuillSpacing.space6)
         .quillBannerBackground()
         .help(Text(verbatim: detail))
     }
@@ -405,7 +414,7 @@ struct QuillStatusBanner: View {
 
     private var titleText: some View {
         Text(title)
-            .font(.system(size: 12, weight: .semibold))
+            .quillTextStyle(.bannerTitle)
             .lineLimit(1)
             .truncationMode(.tail)
     }
@@ -433,8 +442,9 @@ struct QuillBannerExpansionButton: View {
             }
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
+            // 7 and the primary 8% fill have no token yet (#736).
             .padding(.horizontal, 7)
-            .padding(.vertical, 2)
+            .padding(.vertical, QuillSpacing.space2)
             .background(Capsule().fill(Color.primary.opacity(0.08)))
             .contentShape(Capsule())
         }

@@ -11,14 +11,17 @@ public enum NoteToolbarTab: Equatable, Sendable {
 }
 
 /// The transcription work running for the note.
-public enum NoteToolbarWork: Equatable, Sendable {
+public enum NoteToolbarWork: Equatable, CaseIterable, Sendable {
     case none
     case waitingToTranscribe
     /// A first transcription.
     case transcribing
     case retranscribing
     case cancelling
-    /// Cleaning up the transcript, or waiting to.
+    /// The transcript waits for the cleanup model (the iPhone); it can be
+    /// cancelled like post-processing.
+    case waitingToPostProcess
+    /// Cleaning up the transcript (on the Mac, also while it waits).
     case postProcessing
 
     /// Any transcription work, including cancelling and post-processing.
@@ -36,7 +39,7 @@ public enum NoteToolbarTranscriptAction: Equatable, Sendable {
 }
 
 /// What the first slot does when pressed.
-public enum NoteToolbarFirstAction: Equatable, Sendable {
+public enum NoteToolbarFirstAction: Equatable, CaseIterable, Sendable {
     case transcribe
     case retry
     case retranscribe
@@ -204,7 +207,7 @@ public struct NoteToolbarState: Equatable, Sendable {
             cancel = .cancelTranscription
         case .retranscribing:
             cancel = .cancelRetranscription
-        case .postProcessing:
+        case .waitingToPostProcess, .postProcessing:
             cancel = .cancelPostProcessing
         case .none:
             guard let action = input.transcriptAction else { return .none }
@@ -228,8 +231,10 @@ public struct NoteToolbarState: Equatable, Sendable {
         // A note without a summary keeps ✨ in its slot, dimmed, until
         // transcription and post-processing have both finished.
         if input.work.isRunning { return .button(isEnabled: false) }
-        // An audio-only or failed note (its action is Transcribe) has no
-        // transcript to summarize: no ✨, on both apps (2026-10-28 decision).
+        // A note whose action is Transcribe (audio only, or a failed
+        // transcription that kept no text) has nothing to summarize: no ✨,
+        // on both apps (2026-10-28 decision). A failed note whose action is
+        // Retry keeps ✨, dimmed while its transcript is empty, as on the Mac.
         if input.transcriptAction == .transcribe { return .none }
         return input.canCreateSummary.map { .button(isEnabled: $0) } ?? .none
     }

@@ -211,9 +211,9 @@ C["NoteListRow"] = (500, "노트 목록 한 줄과 상태", None, f'''<div class
 노트 브라우저 사이드바의 한 줄입니다(`NoteListRow`).
 
 - 높이 `size-note-row`(80) 고정, 여백 12×9, `radius-8`. 내용 세 줄(간격 `space-3`): 날짜 줄 / 제목 / 미리보기 두 줄.
-- 날짜 `meta-label`(대문자), 배지(`badge-label`, `fill-selected` 캡슐: 오디오만·요약), 오른쪽 끝 상태 표시.
+- 날짜 `meta-label`(대문자), 배지(`badge-label`, `fill-badge` 캡슐: 오디오만·요약), 오른쪽 끝 상태 표시.
 - 제목 `row-title` 한 줄, 미리보기 `row-preview` + `label-secondary` 두 줄. 미리보기가 없어도 높이는 같습니다.
-- 상태 바탕: 기본 없음 → hover `fill-hover` + 0.5 테두리 → 선택 `fill-selected` + `stroke-selected` 0.6 + `shadow-row-selected` → 키보드 포커스 `accent-highlight` + 흰 글자 → 방금 도착 `accent-tint-arrived`(잠깐).
+- 상태 바탕: 기본 없음 → hover `fill-hover` + `stroke-hover` 0.5 → 선택 `fill-selected` + `stroke-selected` 0.6 + `shadow-row-selected` → 키보드 포커스 `accent-highlight` + 흰 글자 → 방금 도착 `accent-tint-arrived`(잠깐).
 - 상태 표시: 완료 초록 점, 녹음 중 빨간 점 + `timer-mono`, 전사 중 주황 스피너, 복구됨 주황 화살표 원, 실패 빨간 점(색 구분 없이 보기에서는 삼각형).
 - VoiceOver는 행 하나로 묶어 제목·날짜·상태·선택 여부를 말로 읽습니다.
 - iPhone은 이 행을 옮긴 공유 뷰(`quill-universal`의 `Sources/SharedUI/NoteRowView.swift`)를 씁니다. 화면 폭을 가득 채우고 반경·선택 바탕이 없으며, 글자는 메타 11 / 제목 15 Semibold / 미리보기 15로 Dynamic Type을 따릅니다. 높이는 견본 글자로 잡아 모든 행이 같고, 메타 줄에 녹음 길이가 붙습니다("날짜 · 길이").
@@ -273,7 +273,7 @@ C["Badge"] = (80, "노트 행 배지와 상세 머리 태그", None, f'''<div cl
 
 노트의 성격을 짧게 붙이는 표시입니다. 두 종류만 씁니다.
 
-- **행 배지**(`NoteListRow`): 8 Semibold, 좌우 5 · 위아래 1, `fill-selected` 캡슐, 글자는 행 날짜와 같은 색. `요약`(요약이 있을 때), `오디오만`(전사 없이 녹음만).
+- **행 배지**(`NoteListRow`): 8 Semibold, 좌우 5 · 위아래 1, `fill-badge` 캡슐, 글자는 행 날짜와 같은 색. `요약`(요약이 있을 때), `오디오만`(전사 없이 녹음만).
 - **상세 머리 태그**(`metaTag`): SF Mono 9 Medium 대문자, 배경 없음, `label-secondary` 70%(꺼진 값은 50%). `CLOUD`/`LOCAL`, `CTX`/`NO CTX`, `LLM`/`NO LLM`, 전사 언어. 가운데 점으로 구분하고, VoiceOver는 문장으로 읽습니다.
 - 새 배지 색을 만들지 않습니다. 상태(녹음 중·실패)는 배지가 아니라 `StatusIndicator`.
 """)
@@ -571,7 +571,7 @@ iPhone 설정입니다(지금 앱 구조의 정적 재현, 색은 macOS 토큰�
 
 # ---------- Screens iPad ----------
 pad_notes = f'''<div class="q-stage" style="padding:28px;background:var(--surface-window)"><div class="q-tablet">
-<div style="width:320px;flex:none;background:var(--surface-window);box-shadow:inset -.5px 0 0 var(--divider-sidebar);display:flex;flex-direction:column;position:relative">
+<div style="width:280px;flex:none;background:var(--surface-window);box-shadow:inset -.5px 0 0 var(--divider-sidebar);display:flex;flex-direction:column;position:relative">
 <div class="q-nav" style="margin-top:14px"><span>{ic("sidebar", 18, 1.4)}</span><span style="display:flex;gap:16px">{ic("gear", 18, 1.4)}{ic("dots", 18)}</span></div>
 <div class="q-large" style="font-size:28px">노트</div>
 <div style="display:flex;gap:8px;padding:0 12px 8px"><span class="q-input" style="height:34px;width:72px;border-radius:10px">{ic("mic", 13)}{ic("chev", 10, 1.8)}</span><div class="q-search" style="margin:0;flex:1">{ic("search", 14)}검색</div></div>
@@ -581,7 +581,7 @@ pad_notes = f'''<div class="q-stage" style="padding:28px;background:var(--surfac
 C["PadNotes"] = (680, "두 열 노트 화면 (제안)", 920, pad_notes,
 """# PadNotes
 
-iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 사이드바 320, 녹음 버튼 44, 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 세로·좁은 창에서는 사이드바가 덮개로 열립니다. iPad 앱은 아직 없습니다.
+iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 사이드바 280(`size-sidebar-notes`), 녹음 버튼 44, 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 창 폭이 800보다 좁으면 목록과 노트가 따로 된 화면입니다(`QuillNoteLayout`). iPad 앱은 아직 없습니다.
 """)
 
 pad_set = f'''<div class="q-stage" style="padding:28px;background:var(--surface-window)"><div class="q-tablet" style="background:var(--surface-window)">
