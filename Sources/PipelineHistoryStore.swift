@@ -932,6 +932,112 @@ final class PipelineHistoryStore {
         return result
     }
 
+    /// The synced notice state kept beside each note, read in one pass:
+    /// dismissed notices (#730) and live "same transcript" markers (#742),
+    /// only for notes that have any. A cleared marker isn't listed.
+    func noticeState() -> (
+        dismissed: [UUID: Set<String>],
+        unchanged: [UUID: NoteUnchangedRetranscription]
+    ) {
+        guard availability == .ready, isStoreLoaded else { return ([:], [:]) }
+        var dismissed: [UUID: Set<String>] = [:]
+        var unchanged: [UUID: NoteUnchangedRetranscription] = [:]
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.predicate = NSPredicate(format: "syncExtraFieldsJSON != nil")
+            for entity in (try? historyFetcher(container.viewContext, request)) ?? [] {
+                let extras = Self.extraFields(of: entity)
+                let ids = NoteDismissedNotices.decode(extras[NoteSyncField.dismissedNotices.rawValue])
+                if !ids.isEmpty { dismissed[entity.id] = ids }
+                if let marker = NoteUnchangedRetranscription.decode(
+                    extras[NoteSyncField.unchangedRetranscription.rawValue]
+                ), !marker.isCleared {
+                    unchanged[entity.id] = marker
+                }
+            }
+        }
+        return (dismissed, unchanged)
+    }
+
+    /// Every note's dismissed notices (#730), for notes that have any.
+    func dismissedNotices() -> [UUID: Set<String>] { noticeState().dismissed }
+
+    /// Every note's live "same transcript" marker (#742).
+    func unchangedRetranscriptions() -> [UUID: NoteUnchangedRetranscription] { noticeState().unchanged }
+
+    /// Records that a notice was dismissed on this note, for good, and
+    /// stamps the notices group so the dismissal reaches the other devices.
+    /// The field is kept beside the note, never on `PipelineHistoryItem`, so
+    /// code that copies an item can't drop it.
+    func dismissNotice(_ notice: String, id: UUID) throws {
+        try updateExtraFields(id: id, group: .notices) { extras in
+            let key = NoteSyncField.dismissedNotices.rawValue
+            guard !NoteDismissedNotices.decode(extras[key]).contains(notice) else { return nil }
+            return NoteDismissedNotices.adding(notice, to: extras)
+        }
+    }
+
+    /// Saves this note's "same transcript" marker (#742) and stamps its group
+    /// so the notice reaches the other devices. Kept beside the note like the
+    /// dismissed notices.
+    func setUnchangedRetranscription(_ marker: NoteUnchangedRetranscription, id: UUID) throws {
+        try updateExtraFields(id: id, group: .unchangedRetranscription) { extras in
+            let key = NoteSyncField.unchangedRetranscription.rawValue
+            guard NoteUnchangedRetranscription.decode(extras[key]) != marker else { return nil }
+            var extras = extras
+            extras[key] = marker.value
+            return extras
+        }
+    }
+
+    /// Ends this note's "same transcript" notice on every device (#742):
+    /// dismissed, or a new retry started. Writes nothing when the stored
+    /// marker is already cleared or there is none, so a retry on a note
+    /// that never had the notice doesn't upload the note again.
+    func clearUnchangedRetranscription(id: UUID) throws {
+        try updateExtraFields(id: id, group: .unchangedRetranscription) { extras in
+            let key = NoteSyncField.unchangedRetranscription.rawValue
+            guard let current = NoteUnchangedRetranscription.decode(extras[key]), !current.isCleared else { return nil }
+            var extras = extras
+            extras[key] = NoteUnchangedRetranscription.cleared(at: now()).value
+            return extras
+        }
+    }
+
+    /// Rewrites a note's extra fields and stamps `group`. `transform` returns
+    /// nil when nothing changes.
+    private func updateExtraFields(
+        id: UUID,
+        group: NoteFieldGroup,
+        _ transform: ([String: NoteSyncValue]) -> [String: NoteSyncValue]?
+    ) throws {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        var changed = false
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                guard let entity = try fetchEntry(id: id) else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                guard let extras = transform(Self.extraFields(of: entity)) else { return }
+                entity.syncExtraFieldsJSON = try NoteSyncPayload.encodeFields(extras)
+                let clock = (Self.decodeClock(entity.fieldClockJSON)
+                    ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
+                    .setting(group, to: now())
+                entity.fieldClockJSON = Self.encodeClock(clock)
+                try saveContext()
+                changed = true
+            } catch {
+                container.viewContext.rollback()
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+        if changed { onChange?([.saved(id)]) }
+    }
+
     /// Deletes a note that was deleted in iCloud. `onChange` is not called.
     /// Returns nil when the note is already gone.
     func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? {
@@ -989,8 +1095,7 @@ final class PipelineHistoryStore {
         if let manifest = entity.audioSyncManifestJSON {
             record.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest)
         }
-        let extras = entity.syncExtraFieldsJSON.flatMap { try? NoteSyncPayload.decodeFields($0) } ?? [:]
-        for (key, value) in extras {
+        for (key, value) in extraFields(of: entity) {
             if key == NoteSyncRecord.schemaVersionKey {
                 if case .int(let kept) = value, case .int(let current)? = record.fields[key], kept > current {
                     record.fields[key] = value
@@ -1002,14 +1107,26 @@ final class PipelineHistoryStore {
         return record
     }
 
-    /// Keys this build doesn't know, plus a newer schema version.
+    /// Synced fields kept beside the note rather than in its columns.
+    private static func extraFields(of entity: PipelineHistoryEntry) -> [String: NoteSyncValue] {
+        entity.syncExtraFieldsJSON.flatMap { try? NoteSyncPayload.decodeFields($0) } ?? [:]
+    }
+
+    /// Store-level fields with no column of their own (the audio manifest
+    /// has one), kept with the extra keys.
+    private static let extraKnownSyncKeys = Set(
+        NoteSyncField.allCases.filter { $0.isStoreLevel && $0 != .audioManifest }.map(\.rawValue)
+    )
+
+    /// Keys this build doesn't know, a newer schema version, and the known
+    /// fields kept beside the note (`extraKnownSyncKeys`).
     private static func encodeExtraFields(_ fields: [String: NoteSyncValue]) -> Data? {
         let extras = fields.filter { key, value in
             if key == NoteSyncRecord.schemaVersionKey {
                 if case .int(let version) = value { return version > NoteSyncRecord.schemaVersion }
                 return true
             }
-            return !knownSyncKeys.contains(key)
+            return !knownSyncKeys.contains(key) || extraKnownSyncKeys.contains(key)
         }
         return extras.isEmpty ? nil : try? NoteSyncPayload.encodeFields(extras)
     }

@@ -405,6 +405,13 @@ public struct MeetingSummaryGenerator: Sendable {
         let evidenceVerification: MeetingSummaryEvidenceVerification
     }
 
+    /// A chunk, its extraction prompt, and the budget it was counted against.
+    private typealias FittedExtraction = (
+        chunk: MeetingSummaryTextChunk,
+        prompt: MeetingSummaryPrompt,
+        budget: LocalAITokenBudget
+    )
+
     private let requester: any MeetingSummaryDraftRequesting
     private let tokenBudgeter: LocalAITokenBudgeter
     private let chunker: MeetingSummaryTextChunker
@@ -463,28 +470,29 @@ public struct MeetingSummaryGenerator: Sendable {
             chunker.maximumSourceBytes,
             max(1, sourceBytes / 2)
         )
-        let chunks = MeetingSummaryTextChunker(
+        let byteChunks = MeetingSummaryTextChunker(
             maximumSourceBytes: sourceByteLimit
         ).chunks(for: normalizedTranscript)
-        guard !chunks.isEmpty else {
+        guard !byteChunks.isEmpty else {
             throw MeetingSummaryError.invalidInput
         }
+        let extractions = try await fittedExtractions(
+            byteChunks,
+            calendar: source.calendar,
+            outputLanguage: promptLanguage
+        )
 
         let sourceData = SummarySourceData(
             transcript: normalizedTranscript,
             calendar: source.calendar
         )
         var records: [MergeRecord] = []
-        for chunk in chunks {
-            let prompt = try MeetingSummaryPromptFactory.chunkExtraction(
-                chunk: chunk,
-                calendar: source.calendar,
-                outputLanguage: promptLanguage
-            )
+        for extraction in extractions {
             let partial = try await generateDraft(
-                prompt: prompt,
+                prompt: extraction.prompt,
                 role: .summaryExtraction,
-                outputLanguageCode: languageCode
+                outputLanguageCode: languageCode,
+                checkedBudget: extraction.budget
             )
             let repaired = try repairAndValidate(
                 partial,
@@ -525,6 +533,70 @@ public struct MeetingSummaryGenerator: Sendable {
             backendKind: final.backendKind,
             evidenceVerification: final.evidenceVerification
         )
+    }
+
+    /// Counts each byte-cut chunk's extraction prompt with the token
+    /// counter and splits a chunk that doesn't fit again, at half its bytes
+    /// with the same paragraph, line, and sentence boundaries, until every
+    /// piece fits, as cleanup does (#716). A chunk denser than the
+    /// transcript's average can outgrow the byte cut. When every byte-cut
+    /// chunk fits, as it does with the byte counter unless JSON escaping
+    /// outgrows the halved room, the chunks are the byte cut's. A piece that
+    /// can't be split and still doesn't fit fails as an over-budget prompt,
+    /// as its request would.
+    ///
+    /// A re-split piece that is only whitespace is dropped, as cleanup's
+    /// splitter never returns one. The kept chunks are numbered in order,
+    /// with offsets into the whole transcript.
+    ///
+    /// Returns each chunk's prompt with the budget it was checked against,
+    /// so its request doesn't build and count it again.
+    private func fittedExtractions(
+        _ byteChunks: [MeetingSummaryTextChunk],
+        calendar: MeetingSummaryCalendarContext?,
+        outputLanguage: String?
+    ) async throws -> [FittedExtraction] {
+        var fitted: [FittedExtraction] = []
+        var pending = Array(byteChunks.reversed())
+        while let chunk = pending.popLast() {
+            let prompt = try MeetingSummaryPromptFactory.chunkExtraction(
+                chunk: chunk,
+                calendar: calendar,
+                outputLanguage: outputLanguage
+            )
+            if let budget = try await tokenBudgeter.budget(
+                forRenderedChatPrompt: renderedPrompt(prompt),
+                role: .summaryExtraction
+            ) {
+                let numbered = MeetingSummaryTextChunk(
+                    index: fitted.count,
+                    startOffset: chunk.startOffset,
+                    endOffset: chunk.endOffset,
+                    text: chunk.text
+                )
+                fitted.append((numbered, prompt, budget))
+                continue
+            }
+            let pieces = MeetingSummaryTextChunker(
+                maximumSourceBytes: max(1, chunk.text.utf8.count / 2)
+            ).chunks(for: chunk.text)
+            guard pieces.count > 1 else {
+                throw MeetingSummaryError.invalidResponse(.contextBudget)
+            }
+            // Each piece is shorter than its chunk, so this ends.
+            let kept = pieces
+                .filter { !$0.text.allSatisfy(\.isWhitespace) }
+                .map {
+                    MeetingSummaryTextChunk(
+                        index: 0,
+                        startOffset: chunk.startOffset + $0.startOffset,
+                        endOffset: chunk.startOffset + $0.endOffset,
+                        text: $0.text
+                    )
+                }
+            pending.append(contentsOf: kept.reversed())
+        }
+        return fitted
     }
 
     private func merge(
@@ -686,16 +758,19 @@ public struct MeetingSummaryGenerator: Sendable {
         return batches
     }
 
+    /// `checkedBudget` is the budget the prompt was already counted against
+    /// for this role; without one, the prompt is counted here.
     private func generateDraft(
         prompt: MeetingSummaryPrompt,
         role: LocalAITokenBudgetRole,
-        outputLanguageCode: String
+        outputLanguageCode: String,
+        checkedBudget: LocalAITokenBudget? = nil
     ) async throws -> DraftResult {
-        guard let budget = try await tokenBudgeter.budget(
-            forRenderedChatPrompt: renderedPrompt(prompt),
-            role: role
-        ) else {
-            throw MeetingSummaryError.invalidResponse(.contextBudget)
+        let budget: LocalAITokenBudget
+        if let checkedBudget {
+            budget = checkedBudget
+        } else {
+            budget = try await sourceBudget(for: prompt, role: role)
         }
         let reply = try await requester.requestDraft(
             MeetingSummaryDraftRequest(

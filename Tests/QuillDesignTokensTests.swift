@@ -16,6 +16,7 @@ struct QuillDesignTokensTests {
         testSpacingMatchesTokensFile(tokens)
         testRadiusMatchesTokensFile(tokens)
         testIssueColorsMatchTokensFile(tokens)
+        testNoteSurfaceMatchesTokensFile(tokens)
         testTintsMatchTokensFile(tokens)
         testShadowsMatchTokensFile(tokens)
         testControlSizesMatchTokensFile(tokens)
@@ -103,6 +104,23 @@ struct QuillDesignTokensTests {
                 )
             }
         }
+    }
+
+    /// The note page background: the iPhone's opaque page colors match
+    /// `surface-page-iphone`; the Mac's `surface-note` is the system text
+    /// background, which tokens.json writes as `surface-text`'s values.
+    private static func testNoteSurfaceMatchesTokensFile(_ tokens: [String: Any]) {
+        let entries = (tokens["color"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        func themes(_ name: String) -> [String: String] {
+            guard let value = entries.first(where: { $0["name"] as? String == name })?["value"] as? [String: String] else {
+                preconditionFailure("tokens.json has no per-theme value for \(name)")
+            }
+            return value
+        }
+        let iPhone = themes("surface-page-iphone")
+        precondition(iPhone["light"]?.lowercased() == hexString(QuillColor.surfacePageIPhone.light), "surface-page-iphone light")
+        precondition(iPhone["dark"]?.lowercased() == hexString(QuillColor.surfacePageIPhone.dark), "surface-page-iphone dark")
+        precondition(themes("surface-note") == themes("surface-text"), "surface-note on the Mac is the system text background")
     }
 
     /// Each tint's opacity matches the token's alpha in both themes. A white

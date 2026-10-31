@@ -20,7 +20,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 
 | macOS 토큰 | iOS 역할 | 라이트 / 다크 |
 | --- | --- | --- |
-| `surface-window` | `backgroundPrimary` | `#F5F5F7` / `#1C1C1E` |
+| `surface-window` | `backgroundPrimary`(토큰 `surface-page-iphone`) | `#F5F5F7` / `#1C1C1E` |
 | `surface-card` · `surface-control` | `surfaceRaised`(설정 행, 오디오 카드, 툴바 불투명 대체) | `#FFFFFF` / `#2C2C2E` |
 | — | `backgroundSecondary` | `#E5E5EA` / `#2C2C2E` |
 | `fill-chip` | `controlFillQuiet` | primary 6% / 흰색 8% |
@@ -223,16 +223,18 @@ iPhone Duo 값은 추정입니다. 안쪽 7.58"와 바깥 5.36" 화면의 비율
 
 - **목록을 노트 옆에**(`showsListBesideNote`): 창이 wide(≥ 800)이고 높이가 compact가 아닐 때만. 목록 열 폭은 `size-sidebar-notes` 280(`QuillNoteLayout.listColumnWidth`)으로 macOS와 iPad가 같습니다. iPhone 가로처럼 높이가 compact이면(Apple의 vertical size class) 폭이 800을 넘어도 한 열입니다. 그 밖에는 목록과 노트가 따로 된 화면입니다.
 
-| 노트 열 | 좌우 여백(`noteSideMargin`) | 본문 폭(`bodyMaxWidth`) | 재전사 캡슐(`capsulePlacement`) |
-| --- | --- | --- | --- |
-| compact(< 600) | `size-note-margin-compact` 16 | 열 폭 가득 | 본문 위(`.top`) |
-| regular(600–799) | `size-note-margin-regular` 24 | 최대 `size-note-body-max-width` 680, 가운데 | 보이는 노트 영역 가운데(`.centered`) |
-| wide(≥ 800) | 24 | 최대 680, 가운데 | 가운데 |
+| 노트 열 | 좌우 여백(`noteSideMargin`) | 본문 폭(`bodyMaxWidth`) |
+| --- | --- | --- |
+| compact(< 600) | `size-note-margin-compact` 16 | 열 폭 가득 |
+| regular(600–799) | `size-note-margin-regular` 24 | 최대 `size-note-body-max-width` 680, 가운데 |
+| wide(≥ 800) | 24 | 최대 680, 가운데 |
+
+- 재전사 캡슐은 모든 폭에서 macOS처럼 **보이는 노트 영역 가운데**에 둡니다(2026-10-31 결정 변경: 처음에는 compact에서 본문 위였음).
 
 - regular 여백은 결정 범위 24–32 중 **24**입니다. 공통 간격 단계에 있는 값(`space-24`, iOS `Spacing.lg`, macOS 설정 여백)이라 새 간격 토큰이 필요 없고, 600–799 폭에서 본문 680에 가까운 폭을 남깁니다. 32(`space-32`)는 #736에서 간격 단계에 더했지만 regular 여백은 24로 둡니다.
 - wide 노트 열은 따로 정한 값이 없어 regular와 같게 둡니다.
-- 높이가 compact인 iPhone 가로도 노트 안은 열 폭으로 정하므로 열이 regular·wide이면 캡슐은 가운데입니다.
-- **macOS는 목록 열 폭(280)만 씁니다.** Mac 노트 열은 창 폭에서 목록 280을 뺀 폭이라 창 최소 폭(800)에서 520이고 창이 880보다 좁으면 compact가 됩니다. 또 노트 본문은 자체 여백(`space-40`·`space-60`)에 최대 폭이 없으며 캡슐은 늘 가운데입니다. 그래서 Mac 노트 안 배치에는 이 표를 적용하지 않습니다(바뀌는 모양 없음).
+- 높이가 compact인 iPhone 가로도 노트 안은 열 폭으로 정합니다.
+- **macOS는 목록 열 폭(280)만 씁니다.** Mac 노트 열은 창 폭에서 목록 280을 뺀 폭이라 창 최소 폭(800)에서 520이고 창이 880보다 좁으면 compact가 됩니다. 또 노트 본문은 자체 여백(`space-40`·`space-60`)에 최대 폭이 없습니다. 그래서 Mac 노트 안 배치에는 이 표를 적용하지 않습니다(바뀌는 모양 없음).
 
 ## iPad 구성(제안)
 

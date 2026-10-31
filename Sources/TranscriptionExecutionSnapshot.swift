@@ -136,4 +136,13 @@ enum TranscriptionExecutionSnapshot: Sendable {
             return completion
         }
     }
+
+    /// Local AI always transcribes in chunks, so its note shows the bar at
+    /// 0% from the moment the job starts, not only once the engine reports
+    /// (#697). Cloud jobs can't tell yet (a short file goes in one request
+    /// with no progress), and the other local engines never report.
+    var reportsProgressFromStart: Bool {
+        guard case .local(let local, _) = self else { return false }
+        return local.localAIExecution != nil
+    }
 }

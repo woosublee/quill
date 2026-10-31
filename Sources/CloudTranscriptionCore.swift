@@ -20,6 +20,24 @@ struct CloudTranscriptionJobIdentity: Codable, Equatable, Sendable {
     let planID: String
 }
 
+extension CloudTranscriptionJobIdentity {
+    /// Both jobs read a converted copy of the same stored import with the
+    /// same request settings, and the copies themselves differ. (A plan
+    /// change on the same copy is not this; callers also compare the plan
+    /// rules.)
+    func differsOnlyInConvertedCopy(from other: CloudTranscriptionJobIdentity) -> Bool {
+        guard let convertedFrom = source.convertedFrom,
+              convertedFrom == other.source.convertedFrom,
+              source.sha256 != other.source.sha256 else {
+            return false
+        }
+        return providerID == other.providerID
+            && model == other.model
+            && language == other.language
+            && responseFormat == other.responseFormat
+    }
+}
+
 enum TranscriptionJobBackend: Equatable, Sendable {
     case cloud
     case localAI(modelID: String)
@@ -68,6 +86,10 @@ struct CloudTranscriptionCheckpoint: Codable, Equatable, Sendable {
 }
 
 enum CloudTranscriptionProgress: Equatable, Sendable {
+    /// The job will report chunk progress and is still reading and
+    /// planning the audio (#697): the status shows its bar at 0% from the
+    /// start instead of growing one when the first chunk count arrives.
+    case preparing
     case planned(completed: Int, total: Int)
     case uploading(index: Int, total: Int, attempt: Int)
     case completed(total: Int)

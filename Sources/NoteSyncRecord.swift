@@ -10,7 +10,9 @@ import QuillUserIssueCore
 extension NoteSyncField {
     /// Kept by the store beside the note rather than on
     /// `PipelineHistoryItem`: the item never carries it.
-    var isStoreLevel: Bool { self == .audioManifest }
+    var isStoreLevel: Bool {
+        self == .audioManifest || self == .dismissedNotices || self == .unchangedRetranscription
+    }
 
     /// The `PipelineHistoryItem` coding key this field comes from.
     var itemKey: String {

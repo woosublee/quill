@@ -7,83 +7,9 @@ import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillAudioLevelCore
 import QuillNoteCore
+import QuillNoteSyncCore
 import QuillNoteUI
 import QuillDesignTokens
-
-// MARK: - Cursor helper
-
-private class CursorNSView: NSView {
-    var cursor: NSCursor
-
-    /// Cursor overrides currently in a window. Text views underneath one
-    /// (such as the transcript under the floating toolbar) defer to it.
-    private static let liveViews = NSHashTable<CursorNSView>.weakObjects()
-
-    init(cursor: NSCursor) {
-        self.cursor = cursor
-        super.init(frame: .zero)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil {
-            Self.liveViews.remove(self)
-        } else {
-            Self.liveViews.add(self)
-        }
-    }
-
-    /// The override cursor for a point in window coordinates, if one covers it.
-    static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
-        guard let window else { return nil }
-        for view in liveViews.allObjects
-        where view.window === window && !view.isHiddenOrHasHiddenAncestor {
-            if view.convert(view.bounds, to: nil).contains(point) {
-                return view.cursor
-            }
-        }
-        return nil
-    }
-
-    override func layout() {
-        super.layout()
-        updateTrackingAreas()
-        window?.invalidateCursorRects(for: self)
-    }
-
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        guard !bounds.isEmpty else { return }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.activeInKeyWindow, .cursorUpdate, .mouseEnteredAndExited],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        cursor.set()
-    }
-}
-
-private struct CursorView: NSViewRepresentable {
-    var cursor: NSCursor = .arrow
-    func makeNSView(context: Context) -> CursorNSView { CursorNSView(cursor: cursor) }
-    func updateNSView(_ nsView: CursorNSView, context: Context) { nsView.cursor = cursor }
-}
-
-extension View {
-    func overrideCursor(_ cursor: NSCursor) -> some View {
-        self.background(CursorView(cursor: cursor))
-    }
-}
 
 // MARK: - Visual effect helpers
 
@@ -1630,6 +1556,7 @@ struct NoteBrowserView: View {
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
                                         stoppedCloudIDs: appState.stoppedCloudTranscriptionIDs,
+                                        postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selection.showsSelectionUI
@@ -2081,7 +2008,11 @@ private final class CursorDeferringTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+        if let cursor = QuillCursorOverride.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            // Skip the text view's I-beam, but still pass the move up the
+            // responder chain so the views above it, such as the toolbar's
+            // hosting view and its help tags, see it.
+            nextResponder?.mouseMoved(with: event)
             cursor.set()
             return
         }
@@ -2089,7 +2020,7 @@ private final class CursorDeferringTextView: NSTextView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+        if let cursor = QuillCursorOverride.cursor(atWindowPoint: event.locationInWindow, in: window) {
             cursor.set()
             return
         }
@@ -2183,52 +2114,45 @@ private struct NoteListRow: View {
     private var increasesContrast: Bool { colorSchemeContrast == .increased }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: QuillSpacing.space10) {
             if let selectionMark {
                 NoteSelectionCheckbox(mark: selectionMark)
                     .frame(maxHeight: .infinity, alignment: .center)
             }
             // Content
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: QuillSpacing.space3) {
+                HStack(spacing: QuillSpacing.space4) {
                     Text(displayData.rowDate)
-                        .font(.system(size: 9, weight: .semibold))
+                        .quillTextStyle(.metaLabel)
                         .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
-                        .kerning(0.4)
                     if displayData.status == .audioOnly {
                         Text(localizedCatalogString("Audio only"))
-                            .font(.system(size: 8, weight: .semibold))
+                            .quillTextStyle(.badgeLabel)
                             .foregroundStyle(selectedMetaColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(
-                                Color.primary.opacity(QuillContrast.fillOpacity(0.08, increased: increasesContrast)),
-                                in: Capsule()
-                            )
+                            .background(badgeFill, in: Capsule())
                     }
                     if displayData.hasMeetingSummary {
                         Text(localizedCatalogString("Summary"))
-                            .font(.system(size: 8, weight: .semibold))
+                            .quillTextStyle(.badgeLabel)
                             .foregroundStyle(selectedMetaColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(
-                                Color.primary.opacity(QuillContrast.fillOpacity(0.08, increased: increasesContrast)),
-                                in: Capsule()
-                            )
+                            .background(badgeFill, in: Capsule())
                     }
                     Spacer()
                     statusIndicator
                 }
 
                 Text(displayData.displayTitle)
-                .font(.system(size: 13, weight: .semibold))
+                .quillTextStyle(.rowTitle)
                 .foregroundStyle(selectedTitleColor)
                 .lineLimit(1)
 
                 Text(displayData.preview.isEmpty ? " " : displayData.preview)
-                    .font(.system(size: 11.5))
+                    .quillTextStyle(.rowPreview)
                     .foregroundStyle(selectedPreviewColor)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -2236,43 +2160,52 @@ private struct NoteListRow: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80, alignment: .topLeading)
+        .padding(.horizontal, QuillSpacing.space12)
+        .padding(.vertical, QuillSpacing.space9)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: QuillControlSize.noteRow,
+            maxHeight: QuillControlSize.noteRow,
+            alignment: .topLeading
+        )
         .background {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: QuillRadius.radius8)
                 .fill(
                     isKeyboardHighlighted
-                        ? Color.accentColor.opacity(0.85)
+                        ? QuillColor.accentHighlight.color(for: colorScheme)
                         : isSelected
-                        ? (colorScheme == .dark ? Color.white.opacity(0.07) : Color.primary.opacity(0.08))
-                        : (isHovered
-                            ? (colorScheme == .dark ? Color.white.opacity(0.03) : Color.primary.opacity(0.05))
-                            : Color.clear)
+                        ? QuillColor.fillSelected.color(for: colorScheme)
+                        : (isHovered ? QuillColor.fillHover.color(for: colorScheme) : Color.clear)
                 )
                 .overlay {
                     // Only on a plain row, so it never reads as a selection state.
                     if isJustArrived && !isSelected && selectionMark == nil {
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.accentColor.opacity(0.14))
+                        RoundedRectangle(cornerRadius: QuillRadius.radius8)
+                            .fill(QuillColor.accentTintArrived.color(for: colorScheme))
                             .transition(.opacity)
                     }
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: QuillRadius.radius8)
                         .strokeBorder(
                             isKeyboardHighlighted
                                 ? Color.accentColor
                                 : isSelected
-                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.primary.opacity(0.12))
-                                : (colorScheme == .dark
-                                    ? Color.white.opacity(isHovered ? 0.07 : 0)
-                                    : Color.primary.opacity(isHovered ? 0.08 : 0)),
+                                ? QuillColor.strokeSelected.color(for: colorScheme)
+                                // Hidden by opacity, not `.clear`, so the edge keeps its
+                                // color while it fades in.
+                                : QuillColor.strokeHover.color(for: colorScheme).opacity(isHovered ? 1 : 0),
                             lineWidth: isSelected ? 0.6 : 0.5
                         )
                 }
         }
-        .shadow(color: isSelected ? .black.opacity(colorScheme == .dark ? 0.08 : 0.04) : .clear, radius: 6, x: 0, y: 1)
+        // Always applied (clear when not selected), as before.
+        .shadow(
+            color: isSelected ? .black.opacity(selectedShadow.opacity) : .clear,
+            radius: selectedShadow.radius,
+            x: selectedShadow.x,
+            y: selectedShadow.y
+        )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         // One element for VoiceOver, with the state in words.
@@ -2289,9 +2222,20 @@ private struct NoteListRow: View {
                 case .unavailable: return .unavailable
                 }
             },
-            isUnrecoveredRecording: displayData.isUnrecoveredRecording
+            isUnrecoveredRecording: displayData.isUnrecoveredRecording,
+            workStageKey: displayData.workStageKey
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var selectedShadow: QuillShadow {
+        QuillShadow.rowSelected.shadow(for: colorScheme)
+    }
+
+    /// A badge's capsule; stronger under Increase Contrast.
+    private var badgeFill: Color {
+        let tint = QuillColor.fillBadge.tint(for: colorScheme)
+        return tint.withOpacity(QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast)).color
     }
 
     /// Row date and badges; stronger under Increase Contrast.
@@ -2346,13 +2290,13 @@ private struct NoteListRow: View {
         case .done:
             Circle()
                 .fill(Color.green)
-                .frame(width: 6, height: 6)
+                .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recording:
             // A red dot and the running time; the stage text is in the detail.
-            HStack(spacing: 4) {
+            HStack(spacing: QuillSpacing.space4) {
                 Circle()
                     .fill(Color.red)
-                    .frame(width: 6, height: 6)
+                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
                 if let startedAt = displayData.recordingStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
@@ -2366,7 +2310,7 @@ private struct NoteListRow: View {
         case .audioOnly:
             Circle()
                 .fill(Color.green)
-                .frame(width: 6, height: 6)
+                .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
@@ -2381,7 +2325,7 @@ private struct NoteListRow: View {
             } else {
                 Circle()
                     .fill(Color.red)
-                    .frame(width: 6, height: 6)
+                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
             }
         }
     }
@@ -2429,7 +2373,7 @@ private struct NoteSelectionCheckbox: View {
                     )
             }
         }
-        .frame(width: 18, height: 18)
+        .frame(width: QuillControlSize.checkbox, height: QuillControlSize.checkbox)
         .accessibilityHidden(true)
         .modifier(UnavailableSelectionHelp(isUnavailable: mark == .unavailable))
     }
@@ -2700,22 +2644,6 @@ private struct NoteDetailView: View {
     private var cloudProgress: CloudTranscriptionDisplayProgress? {
         appState.cloudTranscriptionProgressByHistoryID[item.id]
     }
-    private var cloudProgressText: String {
-        guard let cloudProgress else {
-            return localizedCatalogString("Resuming cloud transcription…")
-        }
-        guard cloudProgress.activeAttempt != nil else {
-            return localizedCatalogString("Resuming cloud transcription…")
-        }
-        return localizedCatalogFormat(
-            "Transcribing %d of %d…",
-            min(
-                cloudProgress.completedChunkCount + 1,
-                cloudProgress.totalChunkCount
-            ),
-            cloudProgress.totalChunkCount
-        )
-    }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
     private var unrecoveredContext: UnrecoveredRecordingContext? {
         item.unrecoveredRecordingContext
@@ -2869,12 +2797,8 @@ private struct NoteDetailView: View {
         }
         return issuePresentation
     }
-    /// Post-processing returned nothing to change. The original transcript is
-    /// the result, so this is a quiet notice rather than a warning.
     private var isNothingToPostProcess: Bool {
-        guard let record = item.userIssueRecord else { return false }
-        return record.code == .postProcessingFailed
-            && record.context.postProcessingFailureReason == .emptyOutput
+        NoteBrowserRecoveryPresentation.isNothingToPostProcess(item.userIssueRecord)
     }
     private var warningBannerCode: QuillUserIssueCode? {
         item.userIssueRecord?.code
@@ -2882,6 +2806,18 @@ private struct NoteDetailView: View {
     private var isWarningBannerDismissed: Bool {
         guard let warningBannerCode else { return false }
         return appState.isWarningBannerDismissed(noteID: item.id, code: warningBannerCode)
+    }
+    /// Dismissed on any device (synced, #730), or on this Mac before the
+    /// dismissal synced.
+    private var isNothingToPostProcessDismissed: Bool {
+        isWarningBannerDismissed
+            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    }
+    private var showsNothingToPostProcessNotice: Bool {
+        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: item.userIssueRecord,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
+        ) && !isNothingToPostProcessDismissed
     }
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
@@ -2908,11 +2844,7 @@ private struct NoteDetailView: View {
                                   selectedContentMode == .summary,
                                   showsSummaryTab {
                             // Same progress look as transcribing again (#262).
-                            progressOverlay(
-                                summaryEnvelope == nil
-                                    ? localizedCatalogString("Creating summary…")
-                                    : localizedCatalogString("Regenerating summary…")
-                            )
+                            NoteWorkStatusOverlay(workStatusPresentation(summaryWorkStatus))
                         }
                     }
             }
@@ -3366,10 +3298,7 @@ private struct NoteDetailView: View {
     private var transcriptTabIndicator: some View {
         if isShowingSummaryTab {
             if isRetrying {
-                ProgressView()
-                    .controlSize(.mini)
-                    .help("Retranscribing")
-                    .accessibilityLabel(Text("Retranscribing"))
+                NoteWorkStatusIndicator(workStatusPresentation(retryingWorkStatus))
             } else if transcriptCandidate != nil {
                 Circle()
                     .fill(Color.accentColor)
@@ -3390,10 +3319,7 @@ private struct NoteDetailView: View {
     private var summaryTabIndicator: some View {
         if selectedContentMode != .summary {
             if isGeneratingSummary {
-                ProgressView()
-                    .controlSize(.mini)
-                    .help("Making a summary")
-                    .accessibilityLabel(Text("Making a summary"))
+                NoteWorkStatusIndicator(workStatusPresentation(summaryWorkStatus))
             } else if summaryCandidate != nil {
                 Circle()
                     .fill(Color.accentColor)
@@ -3440,10 +3366,10 @@ private struct NoteDetailView: View {
                 // Notices stay while retranscribing, under the progress layer.
                 // A same-result retry notice leads, grouped like the
                 // Summary tab's notices: the others wait behind "+1".
-                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]
-                    == item.displayedTranscript
-                let hasOtherNotice = !isWarningBannerDismissed
-                    && (isNothingToPostProcess || warningPresentation != nil)
+                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?
+                    .matches(item.displayedTranscript) == true
+                let hasOtherNotice = showsNothingToPostProcessNotice
+                    || (!isWarningBannerDismissed && warningPresentation != nil)
                 if showsUnchangedNotice {
                     QuillStatusBanner(
                         systemImage: "info.circle",
@@ -3470,19 +3396,17 @@ private struct NoteDetailView: View {
                     .padding(.top, 14)
                 }
                 if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   isNothingToPostProcess,
-                   !isWarningBannerDismissed {
+                   showsNothingToPostProcessNotice {
                     QuillInfoNotice(
                         text: localizedCatalogString(
                             "Nothing to clean up; showing the original transcript."
                         ),
                         onDismiss: {
-                            if let warningBannerCode {
-                                appState.dismissWarningBanner(
-                                    noteID: item.id,
-                                    code: warningBannerCode
-                                )
-                            }
+                            appState.dismissNotice(
+                                noteID: item.id,
+                                notice: NoteDismissedNotices.nothingToCleanUp,
+                                fallbackCode: warningBannerCode
+                            )
                         }
                     )
                     .padding(.horizontal, 40)
@@ -3908,13 +3832,8 @@ private struct NoteDetailView: View {
                 .padding(.horizontal, QuillSpacing.space60)
             } else if isCloudTranscribing
                         || item.machineStatus == .importing
-                        || item.postProcessingStatus
-                        == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
-                ProgressView()
-                    .controlSize(.regular)
-                Text(verbatim: processingStatusText)
-                    .quillTextStyle(.emptyTitle)
-                    .foregroundStyle(.secondary)
+                        || item.isTranscriptionPlaceholder {
+                NoteWorkStatusView(workStatusPresentation(processingWorkStatus), style: .centered)
             } else if let unrecoveredContext,
                       let unrecoveredPresentation {
                 unrecoveredRecordingState(
@@ -4052,58 +3971,46 @@ private struct NoteDetailView: View {
         }
     }
 
-    /// The same stage the note list shows: "Post-processing…" once the
-    /// transcript is being cleaned up, cloud chunk progress, or "Transcribing…".
-    private var processingStatusText: String {
-        if appState.postProcessingNoteIDs.contains(item.id) {
-            return localizedCatalogString("Post-processing...")
-        }
-        return isCloudTranscribing
-            ? cloudProgressText
-            : localizedCatalogString("Transcribing...")
+    /// The first transcription, shown alone while the note has no text.
+    private var processingWorkStatus: NoteWorkStatus {
+        NoteBrowserWorkStatus.firstTranscription(
+            isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
+            isCloudTranscribing: isCloudTranscribing,
+            cloudProgress: cloudProgress,
+            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
+            cleanup: appState.noteCleanupStage
+        )
     }
 
-    /// "Retranscribing…", or "Transcribing…" for an audio-only note that was
-    /// never transcribed, then "Post-processing…" once the new transcript is
-    /// being cleaned up.
-    private var retryingStatusText: String {
-        if isRecoveringRecording {
-            return localizedCatalogString("Recovering…")
-        }
-        if appState.postProcessingNoteIDs.contains(item.id) {
-            return localizedCatalogString("Post-processing...")
-        }
-        return localizedCatalogString(isAudioOnly ? "Transcribing..." : "Retranscribing...")
+    /// Transcribing again, or recovering, over the note's text.
+    private var retryingWorkStatus: NoteWorkStatus {
+        NoteBrowserWorkStatus.retry(
+            isRecovering: isRecoveringRecording,
+            isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
+            isAudioOnly: isAudioOnly,
+            cloudProgress: cloudProgress,
+            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
+            cleanup: appState.noteCleanupStage
+        )
+    }
+
+    private var summaryWorkStatus: NoteWorkStatus {
+        NoteBrowserWorkStatus.summary(hasSummary: summaryEnvelope != nil)
+    }
+
+    private func workStatusPresentation(_ status: NoteWorkStatus) -> NoteWorkStatus.Presentation {
+        status.presentation(
+            localize: { localizedCatalogString($0) },
+            locale: Locale(identifier: preferredLocalizedStringLanguage())
+        )
     }
 
     /// Covers the note body while it is transcribed again, keeping the
-    /// existing content visible underneath.
+    /// existing content visible underneath (the shared #697 look).
     private var retryingOverlay: some View {
-        progressOverlay(retryingStatusText)
-    }
-
-    /// The shared look for work that will replace what the tab shows.
-    private func progressOverlay(_ statusText: String) -> some View {
-        ZStack {
-            // A light wash, not a blur, so the text underneath stays readable.
-            Rectangle()
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.35))
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(statusText)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-            .padding(.bottom, 60)
-        }
-        .transition(.opacity)
-        .allowsHitTesting(true)
+        NoteWorkStatusOverlay(workStatusPresentation(retryingWorkStatus))
     }
 
     // MARK: Floating Toolbar
@@ -4127,6 +4034,9 @@ private struct NoteDetailView: View {
         )
         .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
+        // As before #698: the pointer stays on the toolbar at the capsule's edges.
+        .contentShape(Capsule())
+        .allowsHitTesting(true)
         .overrideCursor(.arrow)
         // A press meant for the slot's last button mustn't land as the next
         // one: transcription can turn into post-processing under the cursor.
@@ -4168,7 +4078,9 @@ private struct NoteDetailView: View {
     /// alone, a retranscription, or the first transcription (#699).
     private var canCancelToolbarWork: Bool {
         switch toolbarWork {
-        case .postProcessing:
+        // The Mac reports waiting for cleanup as `.postProcessing`; the
+        // iPhone's `.waitingToPostProcess` never comes from here.
+        case .postProcessing, .waitingToPostProcess:
             return appState.canCancelPostProcessing(noteID: item.id)
         case .transcribing, .retranscribing:
             return isRetrying
@@ -4181,19 +4093,22 @@ private struct NoteDetailView: View {
 
     private var toolbarLabels: NoteToolbarLabels {
         NoteToolbarLabels(
+            // The work labels come from the shared table (#697), so they
+            // read the same as the status they cancel.
             firstAction: { action in
                 switch action {
-                case .transcribe: localizedCatalogString("Transcribe audio")
-                case .retry, .retranscribe: localizedCatalogString("Retry transcription")
-                case .openModelSetup: localizedCatalogString("Open Models Settings")
                 case .runSummary: summaryToolbarAction.helpText
-                case .cancelTranscription: localizedCatalogString("Cancel Transcription")
-                case .cancelRetranscription: localizedCatalogString("Cancel Retranscription")
-                case .cancelPostProcessing: localizedCatalogString("Cancel Post-processing")
-                case .cancelSummary: localizedCatalogString("Cancel Summary")
+                case .openModelSetup: localizedCatalogString("Open Models Settings")
+                case .transcribe, .retry, .retranscribe, .cancelTranscription,
+                     .cancelRetranscription, .cancelPostProcessing, .cancelSummary:
+                    localizedCatalogString(action.labelKey ?? "")
                 }
             },
-            progress: localizedCatalogString(toolbarWork == .postProcessing ? "Post-processing..." : "Transcribing..."),
+            // While retrying (or recovering) the progress slot says what
+            // the overlay says.
+            progress: isRetrying
+                ? workStatusPresentation(retryingWorkStatus).title
+                : localizedCatalogString(toolbarWork.progressLabelKey),
             copy: localizedCatalogString("Copy content"),
             copyUnavailable: localizedCatalogString(
                 isShowingSummaryTab ? "No summary text to copy." : "No transcript text to copy."
