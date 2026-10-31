@@ -105,8 +105,10 @@ struct AppStateTranscriptionConfigurationTests {
     static func main() async throws {
         try testDefaultAppStateUsesExplicitCredentialLayout()
         try testClearingAnAgreedKeyWithdrawsItsProvider()
+        try await testWithdrawalWaitsForAPendingAudioImport()
         try testClearingAKeySavedBeforeConsentOnlyDeletesIt()
         testWithdrawalPromptPlacesItsMessageAndKeepsTheURL()
+        testConsentDialogTitleNamesTheShownProvider()
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
@@ -341,6 +343,74 @@ struct AppStateTranscriptionConfigurationTests {
         let appState = makeAppState()
 
         precondition(appState.apiKey == "suite-key")
+    }
+
+    /// #753: a cloud import copies its keys and URLs before it saves its
+    /// file, so a withdrawal waits for that save like it waits for a running
+    /// transcription. Synthetic host and key; the file is missing, so the
+    /// save fails and nothing is sent.
+    @MainActor
+    private static func testWithdrawalWaitsForAPendingAudioImport() async throws {
+        resetCredentialStore()
+        UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        let appState = makeAppState()
+        let previousBaseURL = appState.apiBaseURL
+        defer {
+            appState.apiBaseURL = previousBaseURL
+            resetCredentialStore()
+            UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        }
+        let mainURL = "https://api.example-import.test/v1"
+        appState.apiBaseURL = mainURL
+        appState.apiKey = "sk-synthetic-import"
+        appState.grantCloudConsent(forBaseURL: mainURL)
+        guard case .withdraw(let main) = appState.cloudConsentKeyClear(.main) else {
+            preconditionFailure("an agreed main key withdraws its provider")
+        }
+
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-missing-import-\(UUID().uuidString).wav")
+        appState.importAudioFile(missing, choice: .apiStandard(modelID: "whisper-large-v3"))
+        precondition(!appState.pendingAudioImportJobIDs.isEmpty, "the import is pending while its file saves")
+        precondition(appState.isTranscriptionConfigurationLocked, "a pending import locks the transcription settings")
+        precondition(appState.cloudConsentKeyClear(.main) == .refusedWhileBusy, "Settings refuses while an import is pending")
+        precondition(appState.withdrawCloudConsent(for: main) == .refusedWhileBusy, "refused while an import is pending")
+        precondition(appState.apiKey == "sk-synthetic-import" && appState.cloudConsent.hasConsent(forBaseURL: mainURL))
+
+        // The save fails on the missing file, which ends the import.
+        let deadline = Date().addingTimeInterval(10)
+        while !appState.pendingAudioImportJobIDs.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        precondition(appState.pendingAudioImportJobIDs.isEmpty, "the failed save ends the import")
+        precondition(appState.withdrawCloudConsent(for: main) == .withdrawn, "withdrawal goes through once nothing is pending")
+        precondition(appState.apiKey.isEmpty)
+    }
+
+    /// #729 follow-up: the title names the request's provider from its
+    /// first frame, and keeps the last one while the dialog closes.
+    private static func testConsentDialogTitleNamesTheShownProvider() {
+        let targets = CloudConsentTargets(
+            apiBaseURL: "https://api.example-title.test/v1",
+            apiKey: "sk-synthetic-title",
+            apiKeyIsUnreadable: false,
+            transcriptionAPIURL: "",
+            transcriptionAPIKey: "",
+            transcriptionAPIKeyIsUnreadable: false
+        )
+        guard let target = targets.unconsented(in: CloudConsentLedger()).first else {
+            preconditionFailure("a key without consent needs asking")
+        }
+        let request = CloudConsentRequest(
+            targets: [target],
+            cancelNoteKey: CloudConsentCopy.cancelChangesNothingKey,
+            onAgree: {},
+            onCancel: {}
+        )
+        precondition(CloudConsentRequest.titleName(for: request, held: "") == target.displayName,
+                     "the first frame already names the provider")
+        precondition(CloudConsentRequest.titleName(for: nil, held: target.displayName) == target.displayName,
+                     "the name stays while the dialog closes")
     }
 
     /// #723: clearing a key that goes to an agreed provider withdraws that
