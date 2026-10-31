@@ -33,6 +33,7 @@ struct NoteListRowDisplayDataTests {
         testDegradedRecoveredRecordingNamesAvailableSource()
         testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
+        testEveryInterruptedPlaceholderFormReadsTheSame()
         testPostProcessingNoteShowsPostProcessingTitle()
         testRowAccessibilityLabelSpellsOutState()
         testRetriedNoteKeepsItsNameInsteadOfTheStage()
@@ -654,6 +655,35 @@ struct NoteListRowDisplayDataTests {
         assert(
             partialData.preview == "Quill stopped recording because storage was full. Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
         )
+    }
+
+    private static func testEveryInterruptedPlaceholderFormReadsTheSame() {
+        let statuses = [
+            "transcription-interrupted",
+            "transcription-interrupted:storage-full",
+            "transcription-interrupted:partial",
+            "transcription-interrupted:microphone-only",
+            "transcription-interrupted:permission-denied:system-audio-only",
+            "transcription-interrupted:journal-io-failure:partial"
+        ]
+        for status in statuses {
+            let item = historyItem(transcript: "", postProcessingStatus: status)
+            assert(item.isTranscriptionPlaceholder, status)
+            let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+            assert(data.status == .transcribing, "\(status) row status: \(data.status)")
+            assert(data.displayTitle == "New Recording", "\(status) row title: \(data.displayTitle)")
+            assert(!data.isNamedByDate, status)
+            assert(data.preview.isEmpty, "\(status) preview: \(data.preview)")
+        }
+        // A status that only looks interrupted is a settled note.
+        let malformed = historyItem(
+            transcript: "",
+            postProcessingStatus: "transcription-interrupted:unknown-reason"
+        )
+        assert(!malformed.isTranscriptionPlaceholder)
+        let malformedData = NoteListRowDisplayData(item: malformed, retryingIDs: [])
+        assert(malformedData.status == .done)
+        assert(malformedData.isNamedByDate, "A settled note is named by date")
     }
 
     private static func testTranscribingTitleAndEmptyPreview() {
