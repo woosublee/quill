@@ -15,6 +15,9 @@ public enum NoteFieldGroup: String, CaseIterable, Sendable {
     case audio
     /// Notices dismissed on this note (`NoteDismissedNotices`).
     case notices
+    /// The "same transcript" retranscription notice
+    /// (`NoteUnchangedRetranscription`), last writer wins.
+    case unchangedRetranscription
     case deletion
 }
 

@@ -3366,8 +3366,8 @@ private struct NoteDetailView: View {
                 // Notices stay while retranscribing, under the progress layer.
                 // A same-result retry notice leads, grouped like the
                 // Summary tab's notices: the others wait behind "+1".
-                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]
-                    == item.displayedTranscript
+                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?
+                    .matches(item.displayedTranscript) == true
                 let hasOtherNotice = showsNothingToPostProcessNotice
                     || (!isWarningBannerDismissed && warningPresentation != nil)
                 if showsUnchangedNotice {

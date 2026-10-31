@@ -72,8 +72,9 @@ extension NoteFieldClock {
             ]
         case .audio:
             return [item.audioFileName]
-        case .notices:
-            // Not on the item; the store stamps it (`dismissNotice`).
+        case .notices, .unchangedRetranscription:
+            // Not on the item; the store stamps them (`dismissNotice`,
+            // `setUnchangedRetranscription`).
             return []
         case .deletion:
             return []
