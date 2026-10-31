@@ -105,6 +105,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testDefaultAppStateUsesExplicitCredentialLayout()
         try testClearingAnAgreedKeyWithdrawsItsProvider()
         try testClearingAKeySavedBeforeConsentOnlyDeletesIt()
+        testWithdrawalPromptPlacesItsMessageAndKeepsTheURL()
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
@@ -421,6 +422,58 @@ struct AppStateTranscriptionConfigurationTests {
         appState.apiKey = ""
         precondition(credentialStore.load(account: CredentialStore.providerAPIKeyAccount) == nil, "deleted as before")
         precondition(appState.transcriptionAPIKey == "sk-synthetic-voice", "the other key stays")
+    }
+
+    /// #723 review: a refused Withdraw row's message goes under the consent
+    /// rows, not under a key it guessed; the message never outlasts the work;
+    /// a URL the Save button saved with a cleared transcription key is saved
+    /// after the withdrawal when it needs no new consent, instead of being
+    /// dropped.
+    private static func testWithdrawalPromptPlacesItsMessageAndKeepsTheURL() {
+        let target = CloudConsentTargets(
+            apiBaseURL: "https://voice.example-consent.test/v1",
+            apiKey: "sk-synthetic-voice",
+            apiKeyIsUnreadable: false,
+            transcriptionAPIURL: "",
+            transcriptionAPIKey: "",
+            transcriptionAPIKeyIsUnreadable: false
+        ).targets[0]
+        let row = CloudConsentWithdrawalPrompt(target: target)
+        precondition(row.busyPlace == .consentRows, "a Withdraw row's refusal stays at the rows")
+        precondition(row.clearedField == nil, "a Withdraw row cleared no field, so a close restores none")
+        precondition(CloudConsentWithdrawalPrompt(target: target, clearedField: .main).busyPlace == .mainKey)
+        precondition(CloudConsentBusyPlace.consentRows.isShown(at: .consentRows, isLocked: true))
+        precondition(!CloudConsentBusyPlace.consentRows.isShown(at: .mainKey, isLocked: true))
+        precondition(!CloudConsentBusyPlace.mainKey.isShown(at: .mainKey, isLocked: false), "gone once recording ends")
+
+        let saved = "https://voice.example-consent.test/v1"
+        let typed = "https://other.example-consent.test/v1"
+        precondition(CloudConsentWithdrawalPrompt.transcriptionURLToSave(typed: " \(typed) ", saved: saved) == typed)
+        precondition(CloudConsentWithdrawalPrompt.transcriptionURLToSave(typed: saved, saved: saved) == nil)
+        let cleared = CloudConsentWithdrawalPrompt(
+            target: target, clearedField: .transcription, transcriptionURLToSave: typed
+        )
+        precondition(cleared.busyPlace == .transcriptionKey)
+        precondition(cleared.transcriptionURLToSave == typed, "the URL saved with the key is saved after withdrawing")
+        precondition(CloudConsentWithdrawalPrompt(
+            target: target, clearedField: .main, transcriptionURLToSave: typed
+        ).transcriptionURLToSave == nil, "clearing the main key saves no transcription URL")
+
+        // Saved after the withdrawal only when it reaches no provider without
+        // consent; otherwise it stays typed for Save to ask.
+        resetCredentialStore()
+        UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        defer {
+            resetCredentialStore()
+            UserDefaults.standard.removeObject(forKey: CloudConsentLedger.defaultsKey)
+        }
+        let mainURL = "https://api.example-consent.test/v1"
+        let appState = makeAppState()
+        appState.apiBaseURL = mainURL
+        appState.apiKey = "sk-synthetic-main"
+        appState.grantCloudConsent(forBaseURL: mainURL)
+        precondition(CloudConsentWithdrawalPrompt.savesWithoutConsent("", in: appState), "back to the agreed main provider")
+        precondition(!CloudConsentWithdrawalPrompt.savesWithoutConsent(typed, in: appState), "the main key would reach a new provider")
     }
 
     private static func transcriptionTestDependencies(
