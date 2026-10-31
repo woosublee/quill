@@ -7,6 +7,7 @@ import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillAudioLevelCore
 import QuillNoteCore
+import QuillNoteSyncCore
 import QuillNoteUI
 import QuillDesignTokens
 
@@ -2891,6 +2892,15 @@ private struct NoteDetailView: View {
         guard let warningBannerCode else { return false }
         return appState.isWarningBannerDismissed(noteID: item.id, code: warningBannerCode)
     }
+    /// Dismissed on any device (synced, #730), or on this Mac before the
+    /// dismissal synced.
+    private var isNothingToPostProcessDismissed: Bool {
+        isWarningBannerDismissed
+            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    }
+    private var showsNothingToPostProcessNotice: Bool {
+        isNothingToPostProcess && !isNothingToPostProcessDismissed
+    }
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
     }
@@ -3450,8 +3460,8 @@ private struct NoteDetailView: View {
                 // Summary tab's notices: the others wait behind "+1".
                 let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]
                     == item.displayedTranscript
-                let hasOtherNotice = !isWarningBannerDismissed
-                    && (isNothingToPostProcess || warningPresentation != nil)
+                let hasOtherNotice = showsNothingToPostProcessNotice
+                    || (!isWarningBannerDismissed && warningPresentation != nil)
                 if showsUnchangedNotice {
                     QuillStatusBanner(
                         systemImage: "info.circle",
@@ -3478,19 +3488,17 @@ private struct NoteDetailView: View {
                     .padding(.top, 14)
                 }
                 if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   isNothingToPostProcess,
-                   !isWarningBannerDismissed {
+                   showsNothingToPostProcessNotice {
                     QuillInfoNotice(
                         text: localizedCatalogString(
                             "Nothing to clean up; showing the original transcript."
                         ),
                         onDismiss: {
-                            if let warningBannerCode {
-                                appState.dismissWarningBanner(
-                                    noteID: item.id,
-                                    code: warningBannerCode
-                                )
-                            }
+                            appState.dismissNotice(
+                                noteID: item.id,
+                                notice: NoteDismissedNotices.nothingToCleanUp,
+                                fallbackCode: warningBannerCode
+                            )
                         }
                     )
                     .padding(.horizontal, 40)
