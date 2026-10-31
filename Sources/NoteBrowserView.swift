@@ -1726,7 +1726,7 @@ struct NoteBrowserView: View {
     private var emptyListState: some View {
         VStack {
             Text("No recordings yet")
-                .quillTextStyle(.callout)
+                .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .padding(.top, QuillSpacing.space24)
             Spacer()
@@ -1776,7 +1776,7 @@ struct NoteBrowserView: View {
                 .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
             Text("No notes match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word, or clear the search.")
-                .quillTextStyle(.callout)
+                .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
@@ -1799,7 +1799,7 @@ struct NoteBrowserView: View {
                 .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
             Text("Select a recording from the list to view its transcript")
-                .quillTextStyle(.callout)
+                .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
             Spacer()
@@ -3820,7 +3820,7 @@ private struct NoteDetailView: View {
                 .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
                 Text(verbatim: appState.activeRecordingNoteHint)
-                    .quillTextStyle(.callout)
+                    .quillTextStyle(.emptyDetail)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, QuillSpacing.space60)
@@ -3866,7 +3866,7 @@ private struct NoteDetailView: View {
                     .quillTextStyle(.emptyTitle)
                     .foregroundStyle(.secondary)
                 Text("Saved without transcription. You can transcribe it later.")
-                    .quillTextStyle(.callout)
+                    .quillTextStyle(.emptyDetail)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             } else if isError {
@@ -3895,7 +3895,7 @@ private struct NoteDetailView: View {
             Spacer()
             noContentLabel
             Text("Click to type")
-                .quillTextStyle(.callout)
+                .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .opacity(isHoveringEmptyTranscript ? 1 : 0)
             Spacer()
