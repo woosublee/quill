@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 
 struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
@@ -77,7 +78,7 @@ struct MenuBarView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .background(Color.orange)
+                .background(QuillColor.fillAlertWarning)
 
                 Divider()
             }
@@ -95,7 +96,7 @@ struct MenuBarView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .background(Color.red)
+                .background(QuillColor.fillAlertError)
 
                 Divider()
             }
@@ -103,7 +104,7 @@ struct MenuBarView: View {
             // Status
             if appState.isRecording {
                 Label("Recording...", systemImage: "record.circle")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.statusRecording)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             } else if appState.isTranscribing {
@@ -134,7 +135,7 @@ struct MenuBarView: View {
             if let hotkeyError = appState.hotkeyMonitoringErrorMessage {
                 Divider()
                 Text(hotkeyError)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
                     .font(.caption)
                     .padding(.horizontal, 16)
                     .lineLimit(3)
@@ -157,7 +158,7 @@ struct MenuBarView: View {
                     HistoryUnavailableRecoveryActions()
                         .controlSize(.small)
                 }
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 4)
             } else if !appState.historyRecoverySnapshots.isEmpty {
@@ -171,7 +172,7 @@ struct MenuBarView: View {
                     warning.presentation().compactMessage,
                     systemImage: "exclamationmark.triangle.fill"
                 )
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
                 .font(.caption)
                 .padding(.horizontal, 16)
                 .lineLimit(3)
@@ -180,7 +181,7 @@ struct MenuBarView: View {
             if let error = appState.errorMessage {
                 Divider()
                 Text(error)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
                     .font(.caption)
                     .padding(.horizontal, 16)
                     .lineLimit(3)
@@ -501,7 +502,7 @@ struct MenuBarView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)
-                    .background(Color.red)
+                    .background(QuillColor.fillAlertError)
 
                 case .idle:
                     Button {

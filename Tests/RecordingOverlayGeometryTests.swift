@@ -626,9 +626,9 @@ struct RecordingOverlayGeometryTests {
         }
         assert(source.contains("func showRecordingNotice(\n        _ message: String,\n        severity: RecordingNoticeSeverity,"))
         assert(source.contains("DegradedCaptureNoticeView(\n                message: request.message,\n                severity: .warning\n"))
-        // The pill error and failure mark stay red.
-        assert(source.contains("Image(systemName: \"exclamationmark.circle.fill\")\n                .font(.system(size: 13, weight: .bold))\n                .foregroundStyle(Color.red.opacity(0.92))"))
-        assert(source.contains(".background(Circle().fill(Color.red.opacity(0.92)))"))
+        // The pill error mark takes the error token; the stop mark keeps the recording red.
+        assert(source.contains("Image(systemName: \"exclamationmark.circle.fill\")\n                .font(.system(size: 13, weight: .bold))\n                .foregroundStyle(QuillColor.issueErrorOnDark)"))
+        assert(source.contains(".background(Circle().fill(QuillColor.statusRecording.opacity(0.92)))"))
 
         // Every mid-recording notice call site states its severity.
         let callCount = appState.components(separatedBy: "overlayManager.showRecordingNotice(").count - 1

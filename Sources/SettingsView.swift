@@ -642,13 +642,13 @@ struct CalendarSettingsView: View {
                     .foregroundStyle(.secondary)
             case .healthy:
                 Label("Connected", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
             case .needsReconnect:
                 Label("Reconnect required", systemImage: "calendar.badge.exclamationmark")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
             case .temporaryFailure:
                 Label("Calendar refresh issue", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(QuillColor.issueWarning)
             case .offline:
                 Label("Offline", systemImage: "wifi.slash")
                     .foregroundStyle(.secondary)
@@ -693,7 +693,7 @@ struct CalendarSettingsView: View {
     }
 
     private var googleCalendarHealthMessageColor: Color {
-        appState.googleCalendarConnection.health.status == .needsReconnect ? .red : .orange
+        appState.googleCalendarConnection.health.status == .needsReconnect ? QuillColor.issueError : QuillColor.issueWarning
     }
 
     @ViewBuilder
@@ -855,7 +855,7 @@ struct CalendarSettingsView: View {
             if !appState.googleCalendarOAuthConfiguration.isConfigured {
                 Text("Google Calendar sign-in is not configured for this build.")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(QuillColor.issueWarning)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -868,7 +868,7 @@ struct CalendarSettingsView: View {
                       !error.isEmpty {
                 Text(verbatim: error)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -912,11 +912,11 @@ struct CalendarSettingsView: View {
                     case .needsAccess:
                         Label("Calendar access is off", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(QuillColor.issueWarning)
                     case .connected(let needsSelection):
                         statusLine(
                             Label("Connected", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green),
+                                .foregroundStyle(QuillColor.statusDone),
                             detail: CalendarSelectionSummary.status(
                                 account: nil,
                                 hasSelection: !needsSelection,
@@ -1026,7 +1026,7 @@ struct CalendarSettingsView: View {
             if notificationAuthorizationStatus == .denied {
                 Label("Notifications are disabled in System Settings.", systemImage: "bell.slash")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(QuillColor.issueWarning)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -1382,7 +1382,7 @@ struct GeneralSettingsView: View {
             if SMAppService.mainApp.status == .requiresApproval {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                         .font(.caption)
                     Text("Login item requires approval in System Settings.")
                         .font(.caption)
@@ -1487,10 +1487,10 @@ struct GeneralSettingsView: View {
                     case .error(let message):
                         HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
+                                .foregroundStyle(QuillColor.issueError)
                             Text(message)
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(QuillColor.issueError)
                             Spacer()
                             Button("Check Again") {
                                 Task {
@@ -1594,10 +1594,10 @@ struct GeneralSettingsView: View {
             Spacer()
             if granted {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
                 Text("Granted")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
             } else {
                 Button(actionTitle) { action() }
                     .font(.caption)
@@ -1985,7 +1985,7 @@ struct ModelsSettingsView: View {
                         } else {
                             Text(localizedCatalogFormat("%@ · Not agreed", target.displayName))
                                 .font(.caption)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(QuillColor.issueWarning)
                             Spacer()
                             Button("Agree…") {
                                 askConsentForSavedKey(target)
@@ -2142,7 +2142,7 @@ struct ModelsSettingsView: View {
     private var clearKeyBusyMessage: some View {
         Text(localizedCatalogString(CloudConsentCopy.withdrawBusyKey))
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(QuillColor.issueWarning)
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -2155,7 +2155,7 @@ struct ModelsSettingsView: View {
         } else {
             if hasConfiguredCloudAPIKey {
                 Label("API Key configured", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
                     .font(.caption)
             }
 
@@ -2167,7 +2167,7 @@ struct ModelsSettingsView: View {
             } else if let keyValidationReason {
                 Label(keyValidationReason, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(QuillColor.issueWarning)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -2776,7 +2776,7 @@ struct ModelsSettingsView: View {
             systemImage: "exclamationmark.triangle"
         )
         .font(.caption)
-        .foregroundStyle(.orange)
+        .foregroundStyle(QuillColor.issueWarning)
     }
 
     private var transcriptionFeatureSection: some View {
@@ -2831,7 +2831,7 @@ struct ModelsSettingsView: View {
                           let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                     Label(reason, systemImage: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                 }
 
                 DisclosureGroup("Details") {
@@ -2997,7 +2997,7 @@ struct ModelsSettingsView: View {
                 if let warning = appState.contextModelCapabilityWarning {
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                 }
 
                 if let model = managedLocalAIModel(for: .context) {
@@ -3619,12 +3619,12 @@ struct ModelsSettingsView: View {
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
                 .fixedSize(horizontal: false, vertical: true)
             } else if transcriptionPairCheckPassed && transcriptionInputsMatchSaved {
                 Label("Transcription URL and key checked", systemImage: "checkmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
             }
         }
     }
@@ -4112,7 +4112,7 @@ struct PromptsSettingsView: View {
     private func providerConfigurationWarning(_ message: String) -> some View {
         Label(localizedCatalogString(message), systemImage: "exclamationmark.triangle")
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(QuillColor.issueWarning)
     }
 
     // MARK: System Prompt
@@ -4271,7 +4271,7 @@ struct PromptsSettingsView: View {
                             .font(.system(.caption, design: .monospaced))
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.green.opacity(0.08))
+                            .background(QuillColor.statusDone.opacity(0.08))
                             .cornerRadius(6)
                     }
                 }
@@ -4463,7 +4463,7 @@ struct PromptsSettingsView: View {
                 if let error = contextTestError {
                     Label(error, systemImage: "xmark.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(QuillColor.issueError)
                 }
 
                 if let output = contextTestOutput {
@@ -4474,7 +4474,7 @@ struct PromptsSettingsView: View {
                             .font(.system(.caption, design: .monospaced))
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.green.opacity(0.08))
+                            .background(QuillColor.statusDone.opacity(0.08))
                             .cornerRadius(6)
                     }
                 }
@@ -4655,7 +4655,7 @@ struct ShortcutsSettingsView: View {
             if let validationMessage = appState.commandModeManualModifierValidationMessage {
                 Label(validationMessage, systemImage: "xmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
             }
         }
     }
@@ -4747,7 +4747,7 @@ struct ShortcutsSettingsView: View {
                                 }
                                 .buttonStyle(.borderless)
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(QuillColor.issueError)
                             }
                             Text(verbatim: macro.payload)
                                 .font(.caption)
@@ -4872,7 +4872,7 @@ struct InputSettingsView: View {
                 if showMutedHint {
                     HStack(spacing: 4) {
                         Image(systemName: "speaker.slash.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(QuillColor.issueWarning)
                         Text("System volume is muted or very low. Unmute to hear the preview.")
                             .foregroundStyle(.secondary)
                     }
@@ -5125,7 +5125,7 @@ struct RunLogView: View {
                     Spacer()
                     Image(systemName: "externaldrive.badge.exclamationmark")
                         .font(.system(size: 30, weight: .light))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                     Text("Recording history couldn’t be opened")
                         .font(.headline)
                     Text("Your notes and audio files were not deleted. Restart Quill to try again, or open the data folder for support and recovery.")
@@ -5262,7 +5262,7 @@ struct RunLogEntryView: View {
                         if isError {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(QuillColor.issueError)
                         }
                         VStack(alignment: .leading, spacing: 3) {
                             Text(item.timestamp.formatted(date: .numeric, time: .standard))
@@ -5282,8 +5282,8 @@ struct RunLogEntryView: View {
                                         .font(.caption2)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Color.orange.opacity(0.15))
-                                        .foregroundStyle(.orange)
+                                        .background(QuillColor.issueWarning.opacity(0.15))
+                                        .foregroundStyle(QuillColor.issueWarning)
                                         .cornerRadius(4)
                                 }
                                 if !item.usedPostProcessing {
@@ -5300,8 +5300,8 @@ struct RunLogEntryView: View {
                                         .font(.caption2)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
-                                        .background(Color.green.opacity(0.15))
-                                        .foregroundStyle(.green)
+                                        .background(QuillColor.statusDone.opacity(0.15))
+                                        .foregroundStyle(QuillColor.statusDone)
                                         .cornerRadius(4)
                                 }
                             }
@@ -5342,7 +5342,7 @@ struct RunLogEntryView: View {
                             } else {
                                 Image(systemName: "arrow.clockwise")
                                     .font(.caption)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(QuillColor.issueWarning)
                                     .frame(width: actionIconSize, height: actionIconSize)
                                     .contentShape(Rectangle())
                             }
@@ -5382,7 +5382,7 @@ struct RunLogEntryView: View {
 
                     actionIconButton(
                         systemName: copiedTranscript ? "checkmark" : "doc.on.doc",
-                        color: copiedTranscript ? .green : .secondary,
+                        color: copiedTranscript ? QuillColor.statusDone : Color.secondary,
                         help: copiedTranscript ? "Copied transcript" : "Copy transcript",
                         disabled: resolvedTranscriptForCopy().isEmpty
                     ) {
@@ -5535,7 +5535,7 @@ struct RunLogEntryView: View {
                                                 } label: {
                                                     Image(systemName: copiedRawTranscript ? "checkmark" : "doc.on.doc")
                                                         .font(.caption)
-                                                        .foregroundStyle(copiedRawTranscript ? .green : .secondary)
+                                                        .foregroundStyle(copiedRawTranscript ? QuillColor.statusDone : Color.secondary)
                                                         .padding(6)
                                                         .contentShape(Rectangle())
                                                 }
@@ -5565,7 +5565,7 @@ struct RunLogEntryView: View {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(displayPostProcessingStatus)
                                             .font(.caption)
-                                            .foregroundStyle(isWarning ? .orange : .secondary)
+                                            .foregroundStyle(isWarning ? QuillColor.issueWarning : Color.secondary)
 
                                         if let prompt = item.postProcessingPrompt, !prompt.isEmpty {
                                             Button {
@@ -5607,7 +5607,7 @@ struct RunLogEntryView: View {
                                                     } label: {
                                                         Image(systemName: copiedCleanedTranscript ? "checkmark" : "doc.on.doc")
                                                             .font(.caption)
-                                                            .foregroundStyle(copiedCleanedTranscript ? .green : .secondary)
+                                                            .foregroundStyle(copiedCleanedTranscript ? QuillColor.statusDone : Color.secondary)
                                                             .padding(6)
                                                             .contentShape(Rectangle())
                                                     }
@@ -5630,7 +5630,7 @@ struct RunLogEntryView: View {
         .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(isError ? Color.red.opacity(0.4) : Color.secondary.opacity(0.2), lineWidth: 1)
+                .stroke(isError ? QuillColor.issueError.opacity(0.4) : Color.secondary.opacity(0.2), lineWidth: 1)
         )
         .onReceive(appState.$retryingItemIDs) { ids in
             isRetrying = ids.contains(item.id)
@@ -6129,7 +6129,7 @@ struct NativeWhisperModelRowView: View {
             HStack(spacing: 8) {
                 Label("Installed", systemImage: "checkmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
                 Button {
                     showDeleteConfirmation = true
                 } label: {
@@ -6336,7 +6336,7 @@ struct ModelRowView: View {
             HStack(spacing: 8) {
                 Label("Installed", systemImage: "checkmark.circle.fill")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
                 Button {
                     showDeleteConfirmation = true
                 } label: {

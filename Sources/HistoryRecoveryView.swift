@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import QuillDesignTokens
 
 struct HistoryUnavailableRecoveryActions: View {
     @EnvironmentObject private var appState: AppState
@@ -180,7 +181,7 @@ struct HistoryRecoverySettingsView: View {
                importResult.failedRecordCount > 0 || importResult.conflictRecordCount > 0 {
                 Text(localizedCatalogString("Some history could not be recovered."))
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(QuillColor.issueWarning)
             }
 
             if let deletionDate = snapshot.scheduledDeletionAt {
@@ -298,7 +299,7 @@ struct HistoryRecoverySettingsView: View {
                         pluralKey: "%lld records conflict with the current history."
                     )
                 )
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
             }
         }
         .font(.caption)
@@ -328,14 +329,14 @@ struct HistoryRecoverySettingsView: View {
     }
 
     private func statusColor(for snapshot: HistoryRecoverySnapshotDescriptor) -> Color {
-        guard snapshot.integrity == .ready else { return .orange }
+        guard snapshot.integrity == .ready else { return QuillColor.issueWarning }
         switch snapshot.status {
         case .available:
             return .secondary
         case .partial, .inspectionFailed:
-            return .orange
+            return QuillColor.issueWarning
         case .completed:
-            return .green
+            return QuillColor.statusDone
         }
     }
 }
