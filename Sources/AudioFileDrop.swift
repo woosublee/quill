@@ -35,6 +35,23 @@ enum AudioFileDrop {
         let skippedCount: Int
     }
 
+    /// Whether the window-wide drop view answers a hit test, so AppKit finds
+    /// it as a drag's destination. Only a drag needs it, and a drag holds a
+    /// mouse button down (it may already be up as the drop lands, right
+    /// after the last drag update). Otherwise the pointer is hovering:
+    /// AppKit's help tags hit-test from a timer, long after the last mouse
+    /// event, and answering then hid every help tag under the view (#739).
+    static func dropViewTakesHitTest(
+        isHandlingPassThroughEvent: Bool,
+        isMouseButtonDown: Bool,
+        secondsSinceDragUpdate: TimeInterval?
+    ) -> Bool {
+        if isHandlingPassThroughEvent { return false }
+        if isMouseButtonDown { return true }
+        guard let secondsSinceDragUpdate else { return false }
+        return secondsSinceDragUpdate < 0.5
+    }
+
     static func isImportable(fileURL url: URL) -> Bool {
         url.isFileURL
             && AudioImportOptions.broadlySupportedExtensions.contains(url.pathExtension.lowercased())

@@ -9,7 +9,28 @@ struct AudioFileDropTests {
         try testPromiseFoldersStayInsideTheirRoot()
         try testStalePromiseFoldersAreRemoved()
         testNoteBrowserUsesOneImportPath()
+        testDropViewTakesHitTestOnlyDuringADrag()
         print("AudioFileDropTests passed")
+    }
+
+    /// Hovering must reach the views below, or their help tags never show
+    /// (#739): AppKit hit-tests for them from a timer, with no fresh event.
+    private static func testDropViewTakesHitTestOnlyDuringADrag() {
+        precondition(!AudioFileDrop.dropViewTakesHitTest(
+            isHandlingPassThroughEvent: false, isMouseButtonDown: false, secondsSinceDragUpdate: nil
+        ), "a hover's help tag lookup goes below")
+        precondition(!AudioFileDrop.dropViewTakesHitTest(
+            isHandlingPassThroughEvent: false, isMouseButtonDown: false, secondsSinceDragUpdate: 5
+        ), "an old drag doesn't keep the view answering")
+        precondition(AudioFileDrop.dropViewTakesHitTest(
+            isHandlingPassThroughEvent: false, isMouseButtonDown: true, secondsSinceDragUpdate: nil
+        ), "a drag from another app finds the view")
+        precondition(AudioFileDrop.dropViewTakesHitTest(
+            isHandlingPassThroughEvent: false, isMouseButtonDown: false, secondsSinceDragUpdate: 0.1
+        ), "the drop lands right after the button comes up")
+        precondition(!AudioFileDrop.dropViewTakesHitTest(
+            isHandlingPassThroughEvent: true, isMouseButtonDown: true, secondsSinceDragUpdate: 0.1
+        ), "the app's own clicks and drags go below")
     }
 
     private static func file(_ name: String) -> URL {

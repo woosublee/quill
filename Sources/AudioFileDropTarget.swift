@@ -72,16 +72,26 @@ final class AudioFileDropTargetView: NSView {
 
     /// Mouse, scroll, and gesture events go to the views below. AppKit finds
     /// a drag's destination by hit testing too, outside those events, so then
-    /// this view answers. An event older than half a second is a leftover from
-    /// before the drag, not one being handled now.
+    /// this view answers, but only during a drag
+    /// (`AudioFileDrop.dropViewTakesHitTest`). An event older than half a
+    /// second is a leftover from before the drag, not one being handled now.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let event = NSApp.currentEvent,
-           ProcessInfo.processInfo.systemUptime - event.timestamp < 0.5,
-           Self.passThroughEventTypes.contains(event.type) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let isHandlingPassThroughEvent = NSApp.currentEvent.map {
+            now - $0.timestamp < 0.5 && Self.passThroughEventTypes.contains($0.type)
+        } ?? false
+        guard AudioFileDrop.dropViewTakesHitTest(
+            isHandlingPassThroughEvent: isHandlingPassThroughEvent,
+            isMouseButtonDown: NSEvent.pressedMouseButtons != 0,
+            secondsSinceDragUpdate: lastDragUpdate.map { now - $0 }
+        ) else {
             return nil
         }
         return super.hitTest(point)
     }
+
+    /// When a drag last moved over this view.
+    private var lastDragUpdate: TimeInterval?
 
     private static let passThroughEventTypes: Set<NSEvent.EventType> = [
         .leftMouseDown, .leftMouseUp, .leftMouseDragged,
@@ -138,6 +148,7 @@ final class AudioFileDropTargetView: NSView {
     }
 
     private func updateTarget(for sender: NSDraggingInfo) -> NSDragOperation {
+        lastDragUpdate = ProcessInfo.processInfo.systemUptime
         guard isEnabled else {
             clearTarget()
             return []
