@@ -2269,7 +2269,9 @@ private struct NoteListRow: View {
                                 ? Color.accentColor
                                 : isSelected
                                 ? QuillColor.strokeSelected.color(for: colorScheme)
-                                : (isHovered ? QuillColor.strokeHover.color(for: colorScheme) : Color.clear),
+                                // Hidden by opacity, not `.clear`, so the edge keeps its
+                                // color while it fades in.
+                                : QuillColor.strokeHover.color(for: colorScheme).opacity(isHovered ? 1 : 0),
                             lineWidth: isSelected ? 0.6 : 0.5
                         )
                 }
@@ -2308,8 +2310,8 @@ private struct NoteListRow: View {
 
     /// A badge's capsule; stronger under Increase Contrast.
     private var badgeFill: Color {
-        let tint = colorScheme == .dark ? QuillColor.fillBadge.dark : QuillColor.fillBadge.light
-        return Color.primary.opacity(QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast))
+        let tint = QuillColor.fillBadge.tint(for: colorScheme)
+        return tint.withOpacity(QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast)).color
     }
 
     /// Row date and badges; stronger under Increase Contrast.
@@ -2367,7 +2369,7 @@ private struct NoteListRow: View {
                 .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recording:
             // A red dot and the running time; the stage text is in the detail.
-            HStack(spacing: 4) {
+            HStack(spacing: QuillSpacing.space4) {
                 Circle()
                     .fill(Color.red)
                     .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)

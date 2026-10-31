@@ -80,6 +80,12 @@ public enum QuillColor {
         public let base: Base
         public let opacity: Double
 
+        /// The same base at another opacity (a fill strengthened under
+        /// Increase Contrast).
+        public func withOpacity(_ opacity: Double) -> Tint {
+            Tint(base: base, opacity: opacity)
+        }
+
         public var color: Color {
             switch base {
             case .primary: return Color.primary.opacity(opacity)
@@ -95,7 +101,11 @@ public enum QuillColor {
         public let dark: Tint
 
         public func color(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? dark.color : light.color
+            tint(for: colorScheme).color
+        }
+
+        public func tint(for colorScheme: ColorScheme) -> Tint {
+            colorScheme == .dark ? dark : light
         }
     }
 

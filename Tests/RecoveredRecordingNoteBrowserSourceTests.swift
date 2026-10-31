@@ -445,6 +445,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(row.contains(": Color.secondary.opacity(metaOpacity(0.7))"))
         precondition(row.contains("QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast)"))
         // The row draws from the shared tokens (#736 step 5), not literals.
+        let rowOnly = block(source, from: "private struct NoteListRow: View {", to: "/// Neutral capsule matching the sidebar")
         for token in [
             "QuillColor.fillBadge", "QuillColor.fillHover", "QuillColor.strokeHover",
             "QuillColor.fillSelected", "QuillColor.strokeSelected", "QuillColor.accentHighlight",
@@ -452,10 +453,10 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             "QuillRadius.radius8", ".quillTextStyle(.metaLabel)", ".quillTextStyle(.badgeLabel)",
             ".quillTextStyle(.rowTitle)", ".quillTextStyle(.rowPreview)",
         ] {
-            precondition(row.contains(token), "NoteListRow should use \(token)")
+            precondition(rowOnly.contains(token), "NoteListRow should use \(token)")
         }
-        precondition(!row.contains("Color.white.opacity(0.07)"))
-        precondition(!row.contains("cornerRadius: 8)"))
+        precondition(!rowOnly.contains("Color.white.opacity(0.07)"))
+        precondition(!rowOnly.contains("cornerRadius: 8)"))
         let detail = block(source, from: "private struct NoteDetailView: View {", to: "private struct SummaryIssueViewAction")
         precondition(detail.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
         precondition(detail.contains("QuillContrast.hierarchicalStyle(.tertiary, increased: increasesContrast)"))
