@@ -1799,13 +1799,13 @@ struct NoteBrowserView: View {
     private var emptyListState: some View {
         VStack {
             Text("No recordings yet")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
-                .padding(.top, 24)
+                .padding(.top, QuillSpacing.space24)
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, QuillSpacing.space20)
     }
 
     // MARK: - Detail
@@ -1837,22 +1837,19 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSearchResults: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: QuillSpacing.space12) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 80, height: 80)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                EmptyStateDisc(edge: .solid)
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 30, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
             Text("No Matching Notes")
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
             Text("No notes match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word, or clear the search.")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
@@ -1863,22 +1860,19 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSelection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: QuillSpacing.space12) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 80, height: 80)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                EmptyStateDisc(edge: .solid)
                 Image(systemName: "doc.text")
                     .font(.system(size: 32, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
             Text("Select a Note")
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
             Text("Select a recording from the list to view its transcript")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
             Spacer()
@@ -1888,17 +1882,15 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoRecordings: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 96, height: 96)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [4])))
+                EmptyStateDisc(size: 96, edge: .dashed)
                 Image(systemName: "mic")
                     .font(.system(size: 38, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
+            // 18 / 13 here and the 96 dashed disc have no token yet (#736).
             Text("No Recordings")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -3862,7 +3854,7 @@ private struct NoteDetailView: View {
                 action: summaryAction.action,
                 actionTitleOverride: summaryAction.actionTitleOverride
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, QuillSpacing.space60)
             Spacer()
         }
         .padding(.bottom, Self.floatingToolbarClearance)
@@ -3883,13 +3875,13 @@ private struct NoteDetailView: View {
 
     @ViewBuilder
     private var emptyContentState: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             Spacer()
             if isLiveRecording {
                 ZStack {
                     Circle()
                         .fill(Color.red.opacity(0.08))
-                        .frame(width: 80, height: 80)
+                        .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "mic.fill")
                         .font(.system(size: 28, weight: .light))
                         .foregroundStyle(.red.opacity(0.75))
@@ -3901,19 +3893,19 @@ private struct NoteDetailView: View {
                         Text("Recording...")
                     }
                 }
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
                 Text(verbatim: appState.activeRecordingNoteHint)
-                    .font(.system(size: 12))
+                    .quillTextStyle(.callout)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 60)
+                    .padding(.horizontal, QuillSpacing.space60)
             } else if isCloudTranscriptionStopped {
                 QuillUserIssueView(
                     presentation: cloudTranscriptionStoppedPresentation,
                     action: retryAvailability == .noAudio ? nil : { retryTranscription() }
                 )
-                .padding(.horizontal, 60)
+                .padding(.horizontal, QuillSpacing.space60)
             } else if isCloudTranscribing
                         || item.machineStatus == .importing
                         || item.postProcessingStatus
@@ -3921,7 +3913,7 @@ private struct NoteDetailView: View {
                 ProgressView()
                     .controlSize(.regular)
                 Text(verbatim: processingStatusText)
-                    .font(.system(size: 15, weight: .semibold))
+                    .quillTextStyle(.emptyTitle)
                     .foregroundStyle(.secondary)
             } else if let unrecoveredContext,
                       let unrecoveredPresentation {
@@ -3941,21 +3933,21 @@ private struct NoteDetailView: View {
                     systemImageOverride: "arrow.clockwise",
                     tintOverride: .orange
                 )
-                .padding(.horizontal, 60)
+                .padding(.horizontal, QuillSpacing.space60)
             } else if isAudioOnly {
                 ZStack {
                     Circle()
                         .fill(Color.blue.opacity(0.08))
-                        .frame(width: 80, height: 80)
+                        .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "waveform")
                         .font(.system(size: 30, weight: .ultraLight))
                         .foregroundStyle(.blue.opacity(0.75))
                 }
                 Text("Audio recording")
-                    .font(.system(size: 15, weight: .semibold))
+                    .quillTextStyle(.emptyTitle)
                     .foregroundStyle(.secondary)
                 Text("Saved without transcription. You can transcribe it later.")
-                    .font(.system(size: 12))
+                    .quillTextStyle(.callout)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             } else if isError {
@@ -3968,7 +3960,7 @@ private struct NoteDetailView: View {
                             )
                         }
                     )
-                    .padding(.horizontal, 60)
+                    .padding(.horizontal, QuillSpacing.space60)
                 }
             } else {
                 noContentLabel
@@ -3980,11 +3972,11 @@ private struct NoteDetailView: View {
     }
 
     private var emptyTranscriptPlaceholder: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             Spacer()
             noContentLabel
             Text("Click to type")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .opacity(isHoveringEmptyTranscript ? 1 : 0)
             Spacer()
@@ -4006,15 +3998,14 @@ private struct NoteDetailView: View {
     }
 
     private var noContentLabel: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 80, height: 80)
+                EmptyStateDisc(edge: .none)
                 Image(systemName: "doc.text")
                     .font(.system(size: 30, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
+            // 14 has no token yet (#736).
             Text("No content")
                 .font(.system(size: 14))
                 .foregroundStyle(.tertiary)
@@ -4036,7 +4027,7 @@ private struct NoteDetailView: View {
                 action: { showDeleteConfirmation = true },
                 actionTitleOverride: "Delete Note"
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, QuillSpacing.space60)
         case .recoveryFailed:
             QuillUserIssueView(
                 presentation: presentation,
@@ -4049,7 +4040,7 @@ private struct NoteDetailView: View {
                 actionDisabled: !appState.canRecoverRecordingAgain(item),
                 secondaryActionDisabled: isRecoveringRecording
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, QuillSpacing.space60)
         }
     }
 
@@ -5434,6 +5425,39 @@ private struct YellowSpinner: View {
                 rotation = 0
                 withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false)) {
                     rotation = 360
+                }
+            }
+    }
+}
+
+/// The neutral disc behind an empty state's glyph: `fill-empty-disc`, with
+/// a 1 pt `hairline-strong` edge (solid or dashed) or none.
+private struct EmptyStateDisc: View {
+    enum Edge {
+        case none
+        case solid
+        case dashed
+    }
+
+    var size: CGFloat = QuillControlSize.emptyDisc
+    let edge: Edge
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Circle()
+            .fill(QuillColor.fillEmptyDisc.color(for: colorScheme))
+            .frame(width: size, height: size)
+            .overlay {
+                switch edge {
+                case .none:
+                    EmptyView()
+                case .solid:
+                    Circle().stroke(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)
+                case .dashed:
+                    Circle().stroke(
+                        QuillColor.hairlineStrong.color(for: colorScheme),
+                        style: StrokeStyle(lineWidth: 1, dash: [4])
+                    )
                 }
             }
     }
