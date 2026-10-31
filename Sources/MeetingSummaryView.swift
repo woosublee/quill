@@ -402,7 +402,7 @@ struct MeetingSummaryView<Notices: View>: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: QuillSpacing.space12) {
             Text(title)
-                .font(.title3.weight(.semibold))
+                .quillTextStyle(.summarySectionTitle)
                 .accessibilityAddTraits(.isHeader)
             content()
         }

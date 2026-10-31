@@ -343,6 +343,8 @@ struct QuillDesignTokensTests {
             && detail.tracking == callout.tracking && detail.trackingIPhone == callout.trackingIPhone
             && detail.design == callout.design && detail.scalesFromMacSize == callout.scalesFromMacSize, "empty-detail draws like callout on the Mac")
         precondition(QuillTypeStyle.emptyDetail.dynamicStyle == .subheadline, "empty-detail follows .subheadline on iOS")
+        precondition(QuillTypeStyle.summarySectionTitle.size == 15 && QuillTypeStyle.summarySectionTitle.weight == 600
+            && QuillTypeStyle.summarySectionTitle.dynamicStyle == .title3, "summary-section-title is .title3 Semibold on both apps (#736 Q1)")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }

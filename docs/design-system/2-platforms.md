@@ -63,6 +63,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `status-title`(작업 상태, #697) | 13 Semibold | `.subheadline` Semibold(15) |
 | `status-percent`(작업 백분율, #697에서 새로 추가) | 13, monospacedDigit | `.subheadline`(15), monospacedDigit |
 | `status-detail`(대기·일시정지 까닭, iPhone 상태용 새 스타일) | 12 | `.footnote`(13) |
+| `summary-section-title`(요약 섹션 제목, #736 Q1) | 15 Semibold(`.title3`) | `.title3` Semibold(20) |
 | `elapsed-time`(녹음) | 13 | `.title3` Rounded Semibold, monospacedDigit |
 | `timer-mono`(오디오 재생) | 9 | `.footnote` SF Mono Semibold |
 

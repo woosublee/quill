@@ -134,7 +134,8 @@ otherwise.
   record ring, and the accent tints), the glass, status, banner, record,
   iPhone record, and selected-row shadows (the last two per appearance),
   the status wash, settings card, and summary bullet opacities, the text
-  styles (note title, transcript, row, banner, meta line, and work status:
+  styles (note title, transcript, row, banner, meta line, work status, and
+  summary section title:
   a fixed size on the Mac, Dynamic Type on iOS;
   draw a style with `quillTextStyle(_:)`, which also applies its
   per-platform tracking and scales the meta line from its Mac size on iOS),
