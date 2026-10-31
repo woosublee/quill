@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillNoteUI
 import Combine
 import AppKit
 import AVFoundation
@@ -709,9 +710,41 @@ final class AppState: ObservableObject, @unchecked Sendable {
         cloudConsent.save(to: .standard)
     }
 
+    /// What clearing a key in Settings does (#723).
+    enum CloudConsentKeyClear: Equatable {
+        /// Only that key is deleted: one saved before consent, as before, or
+        /// one whose provider the other key still goes to, which keeps
+        /// consent and its key.
+        case delete
+        /// The key goes to an agreed provider: the same withdrawal as
+        /// Withdraw, after the same confirmation.
+        case withdraw(CloudConsentTargets.Target)
+        /// As `withdraw`, but recording or transcribing: the key stays.
+        case refusedWhileBusy
+    }
+
+    func cloudConsentKeyClear(_ field: CloudConsentTargets.KeyField) -> CloudConsentKeyClear {
+        guard let target = cloudConsentTargets.consentedTarget(forClearing: field, in: cloudConsent) else {
+            return .delete
+        }
+        return isTranscriptionConfigurationLocked ? .refusedWhileBusy : .withdraw(target)
+    }
+
     /// Withdrawing clears each saved key that would go to that provider, so
     /// nothing more is sent there until a key is saved (and agreed to) again.
-    func withdrawCloudConsent(for target: CloudConsentTargets.Target) {
+    /// It's refused while recording or transcribing, as a realtime stream
+    /// keeps sending until it ends; Settings says so before calling this.
+    enum CloudConsentWithdrawResult: Equatable {
+        case withdrawn
+        case refusedWhileBusy
+        /// The Keychain couldn't delete a key; `errorMessage` says so, and
+        /// consent and the keys stay.
+        case keychainFailed
+    }
+
+    @discardableResult
+    func withdrawCloudConsent(for target: CloudConsentTargets.Target) -> CloudConsentWithdrawResult {
+        guard !isTranscriptionConfigurationLocked else { return .refusedWhileBusy }
         let withdrawal = cloudConsentTargets.withdrawal(forOrigin: target.origin)
         // A cleared key goes from the Keychain too, one it couldn't return at
         // launch included: a later launch could read it and send it here.
@@ -730,13 +763,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 prefix: localizedCatalogString("Unable to save API key"),
                 providerDetail: error.localizedDescription
             )
-            return
+            return .keychainFailed
         }
         cloudConsent.revoke(forBaseURL: target.baseURL)
         cloudConsent.save(to: .standard)
         if withdrawal.clearsAPIKey { apiKey = "" }
         if withdrawal.clearsTranscriptionAPIKey { transcriptionAPIKey = "" }
         if withdrawal.clearsTranscriptionAPIURL { transcriptionAPIURL = "" }
+        return .withdrawn
     }
 
     @Published var transcriptionModel: String {
@@ -2487,6 +2521,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         forKey: AppState.dismissedWarningBannerGenerationDefaultsKey
     )
 
+    /// Notices dismissed on a note on any device (#730), kept in the note
+    /// store and synced. Unlike the banner dismissals above, these never
+    /// come back, not even after a retry.
+    @Published private(set) var dismissedNoticesByNoteID: [UUID: Set<String>] = [:]
+
     private static let noteRetryGenerationDefaultsKey = "note_retry_generation_by_id"
     private static let dismissedWarningBannerGenerationDefaultsKey = "dismissed_warning_banner_generation_by_key"
 
@@ -2539,6 +2578,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return false
         }
         return dismissedGeneration == noteRetryGeneration(for: noteID)
+    }
+
+    func isNoticeDismissed(noteID: UUID, notice: String) -> Bool {
+        dismissedNoticesByNoteID[noteID]?.contains(notice) == true
+    }
+
+    /// Dismisses a notice on this note for good, on every device. If the
+    /// store can't save it, the banner dismissal for this generation still
+    /// keeps it hidden on this Mac.
+    @MainActor
+    func dismissNotice(noteID: UUID, notice: String, fallbackCode: QuillUserIssueCode? = nil) {
+        dismissedNoticesByNoteID[noteID, default: []].insert(notice)
+        do {
+            try pipelineHistoryStore.dismissNotice(notice, id: noteID)
+        } catch {
+            if let fallbackCode { dismissWarningBanner(noteID: noteID, code: fallbackCode) }
+        }
     }
 
     @MainActor
@@ -2687,6 +2743,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// settings) or the resume failed. The stored status is left as is, so a
     /// later launch can still resume them.
     @Published private(set) var stoppedCloudTranscriptionIDs: Set<UUID> = []
+    /// Each running cleanup's chunk progress, for the note's one bar (#697).
+    @Published private(set) var postProcessingProgressByNoteID: [UUID: PostProcessingDisplayProgress] = [:]
+
+    /// What cleans up a new transcript, for how the one bar is split (#697).
+    var noteCleanupStage: NoteCleanupStage {
+        if disablePostProcessing { return .off }
+        return postProcessingBackendChoice.isLocal ? .onDevice : .cloud
+    }
     private var transcriptionRetryWorkflowItemIDs: Set<UUID> = []
     private var transcriptionRetryWorkflowProgressIDs: Set<UUID> = []
     @Published var lastTranscript: String = ""
@@ -6220,6 +6284,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         markStoppedCloudTranscriptions(among: [item.id])
     }
 
+    /// The running cleanup will report chunk progress, so the note's bar
+    /// holds at the transcription boundary until it does (#697). Edit Mode's
+    /// transform gets no stop switch and reports none.
+    @MainActor
+    func postProcessingReportsProgress(noteID: UUID) -> Bool {
+        postProcessingStopSwitches[noteID] != nil
+    }
+
     /// The cleanup step runs for this note and the person hasn't stopped it
     /// yet (#699).
     @MainActor
@@ -6428,6 +6500,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             cloudTranscriptionJobStore = runtime.cloudTranscriptionJobStore
             pipelineHistory = []
             recentlyDeletedNotes = []
+            dismissedNoticesByNoteID = [:]
             retryingItemIDs = []
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
@@ -6933,6 +7006,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let stopSwitch = PostProcessingStopSwitch()
         postProcessingStopSwitches[noteID] = stopSwitch
+        stopSwitch.onProgress { [weak self, weak stopSwitch] in
+            Task { @MainActor [weak self, weak stopSwitch] in
+                guard let self, let stopSwitch,
+                      self.postProcessingStopSwitches[noteID] === stopSwitch,
+                      let progress = stopSwitch.progress else { return }
+                // The switch keeps the reports in order with the shared
+                // forward-only rule: a fallback model's new split continues
+                // from where the bar is, and a late report is dropped.
+                // Reading its newest value here keeps the bar right however
+                // these main-actor hops are ordered.
+                if self.postProcessingProgressByNoteID[noteID] != progress {
+                    self.postProcessingProgressByNoteID[noteID] = progress
+                }
+            }
+        }
         return stopSwitch
     }
 
@@ -6943,6 +7031,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingNoteIDs.remove(noteID)
         if let stopSwitch, postProcessingStopSwitches[noteID] === stopSwitch {
             postProcessingStopSwitches.removeValue(forKey: noteID)
+        }
+        // A newer cleanup of the same note keeps its own progress.
+        if postProcessingStopSwitches[noteID] == nil {
+            postProcessingProgressByNoteID.removeValue(forKey: noteID)
         }
     }
 
@@ -8420,6 +8512,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             pipelineHistory = []
             recentlyDeletedNotes = []
+            dismissedNoticesByNoteID = [:]
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(
                     removedAssets,
@@ -9472,6 +9565,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: noteID,
                 usesJobStore: configuration.usesJobStore,
+                reportsProgressFromStart: configuration.localAIExecution != nil,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: configuration.postProcessingEnabled,
                     outputLanguage: configuration.outputLanguage,
@@ -12849,7 +12943,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     customVocabulary: customVocabulary,
                     customSystemPrompt: customSystemPrompt,
                     outputLanguage: outputLanguage,
-                    spokenLanguage: spokenLanguage
+                    spokenLanguage: spokenLanguage,
+                    progress: stopSwitch.map { stopSwitch in
+                        { @Sendable completed, total in
+                            stopSwitch.reportProgress(completed: completed, total: total)
+                        }
+                    }
                 )
             }
             let stoppedResult: PostProcessingResult?
@@ -13520,6 +13619,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: cloudHistoryID,
                 usesJobStore: capturedUsesJobStore,
+                reportsProgressFromStart: capturedLocalAIExecution != nil,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: capturedSettings.usedPostProcessing,
                     outputLanguage: capturedOutputLanguage,
@@ -13907,10 +14007,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// `reportsProgressFromStart` (Local AI, which always chunks) shows the
+    /// note's bar at 0% as soon as the job starts, before the engine's first
+    /// report, so the bar doesn't appear only partway through (#697).
     @MainActor
     private func prepareCloudTranscriptionJob(
         historyID: UUID,
         usesJobStore: Bool,
+        reportsProgressFromStart: Bool = false,
         completionPolicy: TranscriptionCompletionSnapshot
     ) -> CloudTranscriptionExecutionContext? {
         guard usesJobStore else { return nil }
@@ -13921,6 +14025,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             historyID: historyID,
             session: session
         )
+        if reportsProgressFromStart {
+            updateCloudTranscriptionProgress(.preparing, historyID: historyID, session: session)
+        }
         let checkpointStore = cloudTranscriptionJobStore.checkpointStore(
             session: session,
             completionPolicy: completionPolicy.cloudJobPolicy
@@ -13961,6 +14068,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) {
         let displayProgress: CloudTranscriptionDisplayProgress
         switch progress {
+        case .preparing:
+            // Counts already shown (a resumed job) stay until the plan reports.
+            guard cloudTranscriptionProgressByHistoryID[historyID] == nil else { return }
+            displayProgress = .preparing
         case .planned(let completed, let total):
             displayProgress = CloudTranscriptionDisplayProgress(
                 completedChunkCount: completed,
@@ -14326,6 +14437,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let split = RecentlyDeletedPolicy.partition(rows)
         pipelineHistory = split.live
         recentlyDeletedNotes = split.deleted
+        dismissedNoticesByNoteID = pipelineHistoryStore.dismissedNotices()
     }
 
     @MainActor

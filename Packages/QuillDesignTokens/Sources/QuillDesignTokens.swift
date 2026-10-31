@@ -80,6 +80,12 @@ public enum QuillColor {
         public let base: Base
         public let opacity: Double
 
+        /// The same base at another opacity (a fill strengthened under
+        /// Increase Contrast).
+        public func withOpacity(_ opacity: Double) -> Tint {
+            Tint(base: base, opacity: opacity)
+        }
+
         public var color: Color {
             switch base {
             case .primary: return Color.primary.opacity(opacity)
@@ -89,13 +95,46 @@ public enum QuillColor {
         }
     }
 
+    /// An opaque color for each appearance.
+    public struct SchemeRGB: Sendable {
+        public let light: RGB
+        public let dark: RGB
+
+        public func color(for colorScheme: ColorScheme) -> Color {
+            colorScheme == .dark ? dark.color : light.color
+        }
+    }
+
+    /// `surface-page-iphone`: the iPhone app's page background, every
+    /// screen's (#F5F5F7, #1C1C1E; iOS `backgroundPrimary`).
+    public static let surfacePageIPhone = SchemeRGB(
+        light: RGB(red: 245.0 / 255, green: 245.0 / 255, blue: 247.0 / 255),
+        dark: RGB(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
+    )
+
+    /// `surface-note`: the background of a note's page, which the
+    /// work-status wash is drawn in. The Mac draws the system text
+    /// background (`textBackgroundColor`, `surface-text` in tokens.json);
+    /// the iPhone's note page is its app-wide page, `surface-page-iphone`.
+    public static func surfaceNote(for colorScheme: ColorScheme) -> Color {
+        #if os(macOS)
+        Color(nsColor: .textBackgroundColor)
+        #else
+        surfacePageIPhone.color(for: colorScheme)
+        #endif
+    }
+
     /// A tint for each appearance.
     public struct SchemeTint: Sendable, Equatable {
         public let light: Tint
         public let dark: Tint
 
         public func color(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? dark.color : light.color
+            tint(for: colorScheme).color
+        }
+
+        public func tint(for colorScheme: ColorScheme) -> Tint {
+            colorScheme == .dark ? dark : light
         }
     }
 
@@ -158,6 +197,16 @@ public enum QuillColor {
         light: Tint(base: .primary, opacity: 0.08),
         dark: Tint(base: .white, opacity: 0.07)
     )
+    /// `stroke-hover`: a note list row's edge under the pointer (0.5 pt).
+    public static let strokeHover = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .white, opacity: 0.07)
+    )
+    /// `fill-badge`: a note list row's badge ("Summary", "Audio only").
+    public static let fillBadge = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .primary, opacity: 0.08)
+    )
     /// `stroke-selected`: the open note row's edge (0.6 pt).
     public static let strokeSelected = SchemeTint(
         light: Tint(base: .primary, opacity: 0.12),
@@ -212,6 +261,8 @@ public enum QuillColor {
         ("fill-hover", fillHover),
         ("fill-selected", fillSelected),
         ("stroke-selected", strokeSelected),
+        ("stroke-hover", strokeHover),
+        ("fill-badge", fillBadge),
         ("fill-empty-disc", fillEmptyDisc),
         ("record-ring", recordRing),
         ("accent-tint-selected", accentTintSelected),

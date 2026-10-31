@@ -12,35 +12,26 @@ import QuillDesignTokens
 ///   wide, but its height is compact, so it keeps one column, as Apple's
 ///   vertical size class does.
 /// - The note column's own width decides everything inside the note: its
-///   side margins, how wide its text runs, and where the work-status
-///   capsule sits.
+///   side margins and how wide its text runs.
 ///
-/// | Note column | Side margin | Body width     | Capsule  |
-/// | ----------- | ----------- | -------------- | -------- |
-/// | compact     | 16          | column width   | top      |
-/// | regular     | 24          | at most 680    | centred  |
-/// | wide        | 24          | at most 680    | centred  |
+/// | Note column | Side margin | Body width     |
+/// | ----------- | ----------- | -------------- |
+/// | compact     | 16          | column width   |
+/// | regular     | 24          | at most 680    |
+/// | wide        | 24          | at most 680    |
 ///
 /// A wide column gets the regular values; the decisions gave it none of its
-/// own. A phone in landscape keeps one column, but its note column is
-/// regular or wide by width, so its capsule is centred.
+/// own. The work-status capsule ("Retranscribing...") sits in the middle of
+/// the visible note area at every width, as on the Mac (owner decision
+/// 2026-10-31, #697), so it isn't part of this layout.
 ///
 /// The Mac adopts only the list column width (`listColumnWidth`). Its note
 /// column is the window less the list: 520 pt at the window's 800 pt
 /// minimum, so `compact` here until the window reaches 880 pt. Its note
-/// text uses its own 40 and 60 pt margins with no maximum width and its
-/// capsule is always centred, so it keeps its own in-note layout; see
+/// text uses its own 40 and 60 pt margins with no maximum width, so it keeps
+/// its own in-note layout; see
 /// `Sources/NoteBrowserView.swift`.
 public struct QuillNoteLayout: Equatable, Sendable {
-    /// Where the work-status capsule ("Retranscribing...") sits over a
-    /// note's text.
-    public enum CapsulePlacement: Equatable, Sendable {
-        /// In the middle of the visible note area.
-        case centered
-        /// Above the text, at the top of the note area.
-        case top
-    }
-
     /// The note list's column width when it sits beside the note: the
     /// `size-sidebar-notes` token (`QuillLayoutSize.sidebarNotes`), the Mac
     /// note browser's value, named here beside the rule that uses it.
@@ -55,7 +46,6 @@ public struct QuillNoteLayout: Equatable, Sendable {
     /// The widest the note's text runs, centred in the column; nil runs it
     /// across the column (inside the side margins).
     public let bodyMaxWidth: CGFloat?
-    public let capsulePlacement: CapsulePlacement
 
     /// - Parameters:
     ///   - windowWidth: the whole window's (scene's) width, before any
@@ -75,11 +65,9 @@ public struct QuillNoteLayout: Equatable, Sendable {
         case .compact:
             noteSideMargin = QuillLayoutSize.noteMarginCompact
             bodyMaxWidth = nil
-            capsulePlacement = .top
         case .regular, .wide:
             noteSideMargin = QuillLayoutSize.noteMarginRegular
             bodyMaxWidth = QuillLayoutSize.noteBodyMaxWidth
-            capsulePlacement = .centered
         }
     }
 

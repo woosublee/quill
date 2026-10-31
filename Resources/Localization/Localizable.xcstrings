@@ -65,6 +65,38 @@
         }
       }
     },
+    "Preparing transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문 준비 중"
+          }
+        }
+      }
+    },
+    "Retranscription paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retranscription paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사 일시정지됨"
+          }
+        }
+      }
+    },
     "This uploads 1 note from this Mac.": {
       "localizations": {
         "en": {
@@ -141,6 +173,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요."
+          }
+        }
+      }
+    },
+    "Transcribing with %@...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribing with %@..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 모델로 전사 중..."
           }
         }
       }
@@ -10564,6 +10612,22 @@
         }
       }
     },
+    "Fallback Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대체 모델"
+          }
+        }
+      }
+    },
     "Post-Processing Fallback Model": {
       "localizations": {
         "en": {
@@ -11136,22 +11200,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Free up space or restore storage access, then relaunch Quill to recover the audio."
-          }
-        }
-      }
-    },
-    "Transcribing %d of %d…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transcribing %d of %d…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d/%d 청크 전사 중…"
           }
         }
       }
@@ -19620,22 +19668,6 @@
         }
       }
     },
-    "Making a summary": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Making a summary"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "요약을 만드는 중"
-          }
-        }
-      }
-    },
     "A new summary is ready to choose": {
       "localizations": {
         "en": {
@@ -19728,22 +19760,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "새 전사문"
-          }
-        }
-      }
-    },
-    "Retranscribing": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retranscribing"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재전사 중"
           }
         }
       }
@@ -22308,6 +22324,22 @@
         }
       }
     },
+    "You can't withdraw while recording or transcribing. Try again when it finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't withdraw while recording or transcribing. Try again when it finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음하거나 전사하는 동안에는 철회할 수 없어요. 끝난 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
     "Nothing more goes to %@.": {
       "localizations": {
         "en": {
@@ -22336,6 +22368,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "클라우드 모델을 쓰던 기능은 이 Mac의 모델로 바뀌거나 꺼져요."
+          }
+        }
+      }
+    },
+    "Waiting to transcribe...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to transcribe..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 대기 중..."
+          }
+        }
+      }
+    },
+    "Cancelling transcription...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelling transcription..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 취소 중..."
+          }
+        }
+      }
+    },
+    "Transcription paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 일시정지됨"
+          }
+        }
+      }
+    },
+    "Waiting to post-process": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to post-process"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 대기 중"
           }
         }
       }

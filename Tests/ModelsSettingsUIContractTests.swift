@@ -970,6 +970,14 @@ struct ModelsSettingsUIContractTests {
         precondition(postProcessingDetails.contains("aiProcessingFallbackSetting("))
         precondition(postProcessingDetails.contains("for: .postProcessing"))
         precondition(postProcessingDetails.contains("draft: $postProcessingFallbackModelDraft"))
+        // quill-universal-private#209: the fallback row sits in its feature's
+        // card, so it reads just "Fallback Model"; VoiceOver hears the feature.
+        precondition(postProcessingDetails.contains("accessibilityTitle: \"Post-Processing Fallback Model\""))
+        precondition(models.contains("accessibilityTitle: \"Summary Fallback Model\""))
+        precondition(models.contains("Text(\"Fallback Model\")"))
+        precondition(models.contains("Picker(accessibilityTitle, selection: selection)"))
+        precondition(models.contains(".accessibilityLabel(accessibilityTitle)"))
+        precondition(models.contains(".accessibilityValue(selectedFallbackLabel)"))
         precondition(!postProcessingDetails.contains(".disabled(postProcessingUsesLocal)"))
         precondition(!postProcessingDetails.contains("Cloud fallback is only used when"))
         precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))

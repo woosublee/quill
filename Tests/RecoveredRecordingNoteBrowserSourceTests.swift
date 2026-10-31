@@ -42,9 +42,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
         precondition(source.contains("cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]"))
         // Cloud chunk progress, "Transcribing…", and "Post-processing…" share
-        // one stage label in the note detail.
-        precondition(source.contains("Text(verbatim: processingStatusText)"))
-        precondition(source.contains("? cloudProgressText"))
+        // one stage label in the note detail: the shared work status (#697).
+        let workStatus = (try? String(contentsOfFile: "Sources/NoteBrowserWorkStatus.swift", encoding: .utf8)) ?? ""
+        precondition(source.contains("NoteWorkStatusView(workStatusPresentation(processingWorkStatus), style: .centered)"))
+        precondition(source.contains("cloudProgress: cloudProgress"))
+        precondition(workStatus.contains("return .resumingCloudTranscription(progress)"))
         precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(source.contains("actionState.showsRetryButton"))
         precondition(source.contains("NoteFileExportView("))
@@ -166,15 +168,26 @@ struct RecoveredRecordingNoteBrowserSourceTests {
 
         // Retrying covers the body with a loading layer instead of replacing it.
         precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
-        precondition(source.contains(".fill(Color(nsColor: .textBackgroundColor).opacity(0.35))"))
+        let sharedStatusView = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatusView.swift", encoding: .utf8)) ?? ""
+        precondition(sharedStatusView.contains(".fill(QuillColor.surfaceNote(for: colorScheme).opacity(QuillOpacity.statusWash))"))
+        // The wash is the note page token, which on the Mac is still the
+        // system text background (#697), so the Mac look is unchanged.
+        let tokensSource = (try? String(contentsOfFile: "Packages/QuillDesignTokens/Sources/QuillDesignTokens.swift", encoding: .utf8)) ?? ""
+        let surfaceNote = tokensSource.range(of: "public static func surfaceNote(").map { String(tokensSource[$0.lowerBound...].prefix(400)) } ?? ""
+        precondition(surfaceNote.contains("#if os(macOS)"), "surfaceNote branches per platform")
+        precondition(surfaceNote.contains("Color(nsColor: .textBackgroundColor)"), "the Mac keeps the system text background")
+        // The Mac's overlays keep the centred capsule; `.top` is the iPhone's.
+        precondition(sharedStatusView.contains("placement: Placement = .center"))
+        precondition(!source.contains("placement: .top"))
 
         // The layer says "Post-processing…" while a retry cleans up its transcript.
         precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
-        precondition(source.contains("progressOverlay(retryingStatusText)"))
+        precondition(source.contains("NoteWorkStatusOverlay(workStatusPresentation(retryingWorkStatus))"))
         // #262: making a summary uses the same layer, not a banner of its own.
-        precondition(source.contains("Text(statusText)"))
-        precondition(source.contains("localizedCatalogString(\"Regenerating summary…\")"))
-        precondition(source.contains("isAudioOnly ? \"Transcribing...\" : \"Retranscribing...\""))
+        precondition(source.contains("NoteWorkStatusOverlay(workStatusPresentation(summaryWorkStatus))"))
+        let browserWorkStatus = (try? String(contentsOfFile: "Sources/NoteBrowserWorkStatus.swift", encoding: .utf8)) ?? ""
+        precondition(browserWorkStatus.contains("hasSummary ? .regeneratingSummary : .creatingSummary"))
+        precondition(browserWorkStatus.contains("isAudioOnly ? .transcribing(progress) : .retranscribing(progress)"))
 
         // Retry state is published once per update, so the layer does not blink.
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
@@ -274,7 +287,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             "isKeyboardHighlighted: isNoteListFocused",
             ".accessibilityAction(named: Text(\"Select\"))",
             ".accessibilityAction(named: Text(\"Delete…\"))",
-            "? Color.accentColor.opacity(0.85)",
+            "? QuillColor.accentHighlight.color(for: colorScheme)",
             "NoteListRowAccessibility.label(",
             ".accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)",
             // The moved-to row stays visible between the header and Record button.
@@ -346,7 +359,9 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("Text(\"Audio recording\")"))
         precondition(source.contains("help: \"Audio-only recording\""))
         precondition(source.contains("Saved without transcription. You can transcribe it later."))
-        precondition(source.contains("Transcribe audio"))
+        // The toolbar's Transcribe label comes from the shared table (#697).
+        let sharedWorkStatus = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatus.swift", encoding: .utf8)) ?? ""
+        precondition(sharedWorkStatus.contains("case .transcribe: return \"Transcribe audio\""))
         precondition(source.contains(".fill(Color.blue.opacity(0.08))"))
         precondition(source.contains(".foregroundStyle(.blue.opacity(0.75))"))
 
@@ -357,7 +372,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         )
         let header = block(
             row,
-            from: "HStack(spacing: 4) {",
+            from: "HStack(spacing: QuillSpacing.space4) {",
             to: "Text(displayData.displayTitle)"
         )
         precondition(header.contains("if displayData.status == .audioOnly"))
@@ -443,7 +458,20 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let row = block(source, from: "private struct NoteListRow: View {", to: "private struct SidebarCapsuleButtonStyle")
         precondition(row.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
         precondition(row.contains(": Color.secondary.opacity(metaOpacity(0.7))"))
-        precondition(row.contains("QuillContrast.fillOpacity(0.08, increased: increasesContrast)"))
+        precondition(row.contains("QuillContrast.fillOpacity(tint.opacity, increased: increasesContrast)"))
+        // The row draws from the shared tokens (#736 step 5), not literals.
+        let rowOnly = block(source, from: "private struct NoteListRow: View {", to: "/// Neutral capsule matching the sidebar")
+        for token in [
+            "QuillColor.fillBadge", "QuillColor.fillHover", "QuillColor.strokeHover",
+            "QuillColor.fillSelected", "QuillColor.strokeSelected", "QuillColor.accentHighlight",
+            "QuillColor.accentTintArrived", "QuillShadow.rowSelected", "QuillControlSize.noteRow",
+            "QuillRadius.radius8", ".quillTextStyle(.metaLabel)", ".quillTextStyle(.badgeLabel)",
+            ".quillTextStyle(.rowTitle)", ".quillTextStyle(.rowPreview)",
+        ] {
+            precondition(rowOnly.contains(token), "NoteListRow should use \(token)")
+        }
+        precondition(!rowOnly.contains("Color.white.opacity(0.07)"))
+        precondition(!rowOnly.contains("cornerRadius: 8)"))
         let detail = block(source, from: "private struct NoteDetailView: View {", to: "private struct SummaryIssueViewAction")
         precondition(detail.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
         precondition(detail.contains("QuillContrast.hierarchicalStyle(.tertiary, increased: increasesContrast)"))
@@ -460,7 +488,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         ))
         precondition(row.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))
         precondition(row.contains(
-            "            } else {\n                Circle()\n                    .fill(Color.red)\n                    .frame(width: 6, height: 6)"
+            "            } else {\n                Circle()\n                    .fill(Color.red)\n"
+                + "                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)"
         ))
 
         // Reduce Transparency: sidebar, header, and floating toolbars are opaque.
