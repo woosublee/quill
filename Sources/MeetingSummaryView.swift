@@ -1,5 +1,7 @@
 import SwiftUI
+import QuillDesignTokens
 import QuillSummaryFormatCore
+import QuillDesignTokens
 
 /// The Summary tab. Like the transcript, the summary is always editable and
 /// saves on its own: Return adds a row below, ⌫ on an empty row removes it,
@@ -65,22 +67,22 @@ struct MeetingSummaryView<Notices: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: QuillSpacing.space22) {
                 notices
                 if envelope.isEdited {
                     editedMarker
                 }
                 summaryContent
             }
-            // Always as wide as the column allows (up to 760). Without this
+            // Always as wide as the column allows (up to `size-summary-max-width`). Without this
             // the column shrinks to its widest row, so it changed width when
             // a full-width notice came or went (for example during a
             // retranscription, or while the copy feedback showed).
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxWidth: 760, alignment: .leading)
-            .padding(.horizontal, 40)
-            .padding(.top, 14)
-            .padding(.bottom, 96)
+            .frame(maxWidth: QuillLayoutSize.summaryMaxWidth, alignment: .leading)
+            .padding(.horizontal, QuillSpacing.space40)
+            .padding(.top, QuillSpacing.space14)
+            .padding(.bottom, QuillLayoutSize.summaryBottomInset)
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .onChange(of: draft) { _ in scheduleSave() }
@@ -160,7 +162,7 @@ struct MeetingSummaryView<Notices: View>: View {
 
     /// Sized like `QuillInfoNotice`, the app's one-line notes.
     private var editedMarker: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: QuillSpacing.space6) {
             Image(systemName: "pencil")
                 .font(.system(size: 11, weight: .medium))
             Text("Edited summary")
@@ -177,7 +179,7 @@ struct MeetingSummaryView<Notices: View>: View {
     }
 
     private var summaryContent: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: QuillSpacing.space24) {
             summarySection(title: "Overview") {
                 TextField(
                     "Overview",
@@ -202,7 +204,7 @@ struct MeetingSummaryView<Notices: View>: View {
         points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
     ) -> some View {
         summarySection(title: title) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: QuillSpacing.space12) {
                 ForEach(rowsWithNewRow(points)) { point in
                     pointRow(point, in: points)
                 }
@@ -228,10 +230,10 @@ struct MeetingSummaryView<Notices: View>: View {
         in points: WritableKeyPath<MeetingSummaryContent, [MeetingSummaryPoint]>
     ) -> some View {
         let isNewRow = point.id == newPointIDs[points]
-        return HStack(alignment: .top, spacing: 10) {
+        return HStack(alignment: .top, spacing: QuillSpacing.space10) {
             bulletMarker
-                .padding(.top, 6)
-            VStack(alignment: .leading, spacing: 5) {
+                .padding(.top, QuillSpacing.space6)
+            VStack(alignment: .leading, spacing: QuillSpacing.space5) {
                 TextField(
                     "Item",
                     text: pointText(point.id, in: points),
@@ -263,7 +265,7 @@ struct MeetingSummaryView<Notices: View>: View {
 
     private var actionSection: some View {
         summarySection(title: "Action Items") {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: QuillSpacing.space14) {
                 ForEach(actionsWithNewRow) { item in
                     actionRow(item)
                 }
@@ -284,7 +286,7 @@ struct MeetingSummaryView<Notices: View>: View {
         let isFocused = focusedField == .task(item.id)
             || focusedField == .owner(item.id)
             || focusedField == .dueDate(item.id)
-        return HStack(alignment: .top, spacing: 10) {
+        return HStack(alignment: .top, spacing: QuillSpacing.space10) {
             Toggle(
                 item.task,
                 isOn: Binding(
@@ -297,7 +299,7 @@ struct MeetingSummaryView<Notices: View>: View {
             .disabled(isNewRow)
             .accessibilityLabel(item.task)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: QuillSpacing.space5) {
                 TextField(
                     "Action item",
                     text: actionBinding(item.id, \.task),
@@ -316,7 +318,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 })
                 // Owner and due date come with the row once it has text.
                 if !isNewRow {
-                    HStack(spacing: 8) {
+                    HStack(spacing: QuillSpacing.space8) {
                         TextField(
                             "Owner",
                             text: optionalActionBinding(item.id, \.owner),
@@ -359,8 +361,8 @@ struct MeetingSummaryView<Notices: View>: View {
 
     private var bulletMarker: some View {
         Circle()
-            .fill(Color.secondary.opacity(0.45))
-            .frame(width: 4, height: 4)
+            .fill(Color.secondary.opacity(QuillOpacity.summaryBullet))
+            .frame(width: QuillControlSize.summaryBullet, height: QuillControlSize.summaryBullet)
     }
 
     /// Shown while the row is hovered or being edited.
@@ -372,7 +374,7 @@ struct MeetingSummaryView<Notices: View>: View {
         Button(action: action) {
             Image(systemName: "xmark")
                 .font(.system(size: 10, weight: .medium))
-                .frame(width: 20, height: 20)
+                .frame(width: QuillControlSize.close, height: QuillControlSize.close)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -398,7 +400,7 @@ struct MeetingSummaryView<Notices: View>: View {
         title: LocalizedStringKey,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: QuillSpacing.space12) {
             Text(title)
                 .font(.title3.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)

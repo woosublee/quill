@@ -22,30 +22,30 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 - 글자: 본문·제목은 `label-primary`, 설명은 `label-secondary`, 빈 상태 장식은 `label-tertiary`. 대비 높이기에서 `tertiary`는 `secondary`로 올립니다.
 - 표면 세 단계: 창 바탕 `surface-window` → 카드 `surface-card`(설정) / `surface-control`(선택 카드) → 읽고 쓰는 영역 `surface-text`.
 - 회색 채움은 primary 불투명도 단계로만 만듭니다: hover `fill-hover`(5%) → 칩 `fill-chip`(6%) → 선택 `fill-selected`(8%) → 누름 `fill-pressed`(12%). 다크에서는 흰색 3~12%.
-- 선: 카드 `hairline`(6%), 배너 `hairline-strong`(8%), 유리 `stroke-glass`(10%), 선택 `stroke-selected`(12~14%).
+- 선: 카드 `hairline`(6%), 배너 `hairline-strong`(8%), 유리 `stroke-glass`(10%), 선택 `stroke-selected`(12~14%), 목록 행 hover `stroke-hover`(7~8%, 0.5pt). 목록 행 배지 바탕은 `fill-badge`(primary 8%).
 - 강조: `accent`와 그 불투명도(`accent-tint-selected` 8%, `accent-tint-nav` 15%, `accent-stroke-selected` 30%, `accent-highlight` 85%). `Color.blue`를 직접 쓰지 않습니다.
 - 상태: 녹음 `status-recording`, 처리 중 `status-processing`, 완료 `status-done`. 이슈 아이콘은 `issue-warning`, `issue-error`(아이콘 전용, 글자 금지).
 - 오버레이: `overlay-surface` 위 `overlay-text`. 보조는 `overlay-text-muted`(62%), 닫기 원 `overlay-chip`.
-- 네이티브 코드에서는 공통 모듈 `Packages/QuillDesignTokens`의 `QuillSpacing`, `QuillRadius`, `QuillColor`, `QuillShadow`, `QuillControlSize`를 씁니다(토큰 이름 `space-12` = `QuillSpacing.space12`). hex를 직접 쓰지 않습니다. 표의 값은 기본 파랑 강조색 기준의 근사값이고, 코드에서는 `Color.primary`, `.secondary`, `Color(nsColor: .windowBackgroundColor)`와 불투명도를 씁니다. iPhone은 `QuillVisualSystem`의 색 역할을 쓰며, 대응은 **iPhone · iPad › 색 대응**에 있습니다.
+- 네이티브 코드에서는 공통 모듈 `Packages/QuillDesignTokens`의 `QuillSpacing`, `QuillRadius`, `QuillColor`, `QuillShadow`, `QuillControlSize`, `QuillLayoutSize`, `QuillBreakpoint`를 씁니다(토큰 이름 `space-12` = `QuillSpacing.space12`). hex를 직접 쓰지 않습니다. 표의 값은 기본 파랑 강조색 기준의 근사값이고, 코드에서는 `Color.primary`, `.secondary`, `Color(nsColor: .windowBackgroundColor)`와 불투명도를 씁니다. iPhone은 `QuillVisualSystem`의 색 역할을 쓰며, 대응은 **iPhone · iPad › 색 대응**에 있습니다.
 
 ## 글자
 
 - 글꼴은 시스템 하나: SF Pro(`sans`), 온보딩 큰 제목만 SF Rounded(`rounded`), 코드·로그·타이머는 SF Mono(`mono`). 한글은 시스템 대체(Apple SD Gothic Neo).
 - 크기는 역할 이름으로 고릅니다. 화면 제목 `note-title`, 본문 `transcript`, 설정 라벨 `body`, 설정 도움말 `caption`, 행 제목 `row-title`, 행 미리보기 `row-preview`, 행 날짜 `meta-label`.
 - 굵기는 regular / medium / semibold / bold 넷. 강조는 semibold가 기본, bold는 오버레이·회의 알림·온보딩 제목에만.
-- 본문(`transcript`)은 줄 간격 +5pt, 문단 간격 6pt, 좌우 `space-40`.
+- 본문(`transcript`)은 Mac 줄 간격 +5pt, 문단 간격 6pt, 좌우 `space-40`. iPhone은 줄 간격 +6pt, 문단 간격 없음(#736 Q6에서 정함).
 - 플랫폼별 크기는 다르고 역할은 같습니다. iPhone은 15pt 본문 기준으로 한두 단계 크고 Dynamic Type을 따릅니다. 대응표는 **iPhone · iPad** 섹션.
 
 ## 간격과 배치
 
-- 간격 단계: `space-2` `space-3` `space-4` `space-6` `space-8` `space-10` `space-12` `space-14` `space-16` `space-20` `space-24` `space-40`. 이 밖의 값(5, 7, 18, 22 등)은 새로 쓰지 않습니다. 노트 행의 위아래 9만 예외로 둡니다(80pt 행 높이에 맞춘 값).
+- 간격 단계: `space-2` `space-3` `space-4` `space-6` `space-8` `space-10` `space-12` `space-14` `space-16` `space-20` `space-24` `space-32` `space-40`. `space-32`는 노트 상세 머리 위 여백과 iPhone `Spacing.xl`의 값입니다(#736). 이 밖의 값(5, 7, 18, 22 등)은 새로 쓰지 않습니다. 노트 행의 위아래 9만 예외로 둡니다(80pt 행 높이에 맞춘 값).
 - 설정 페이지: 바깥 `space-24`, 카드 사이 `space-20`, 카드 안 `space-16`, 카드 제목과 내용 `space-12`, 컨트롤 사이 `space-10`.
 - 노트 행: 좌우 `space-12`, 위아래 9, 높이 `size-note-row`(80).
 - 창: 노트 브라우저 최소 800×520, 사이드바 `size-sidebar-notes`. 설정 최소 680×520, 사이드바 `size-sidebar-settings`, 피커 280~`size-settings-control`. 온보딩 최소 560×600.
 
 ## 모양: 반경, 표면, 그림자
 
-- 반경 단계: `radius-3`(정지 사각형·요약 하이라이트) → `radius-6`(작은 컨트롤) → `radius-8`(행·선택 카드) → `radius-9`(배너·토스트) → `radius-10`(설정 카드·오버레이 토스트) → `radius-12`(녹음 오버레이 아래 모서리·오디오 카드) → `radius-18`(유리 캡슐) → `radius-26`(회의 알림). 알약·배지는 `radius-capsule`. 오버레이처럼 화면 위에 뜨는 것은 연속 곡률(`.continuous`)을 씁니다.
+- 반경 단계: `radius-3`(정지 사각형·요약 하이라이트) → `radius-6`(작은 컨트롤) → `radius-8`(행·선택 카드) → `radius-9`(배너·토스트) → `radius-10`(설정 카드·오버레이 토스트) → `radius-12`(녹음 오버레이 아래 모서리·오디오 카드) → `radius-16`(iPhone 카드·패널) → `radius-18`(유리 캡슐) → `radius-20`(iPhone 녹음 선반) → `radius-26`(회의 알림). 알약·배지는 `radius-capsule`. 오버레이처럼 화면 위에 뜨는 것은 연속 곡률(`.continuous`)을 씁니다.
 - 카드 스타일은 역할이 있을 때만: 설정 카드, 선택 카드, 배너, 토스트. 노트 본문에는 카드 없음.
 - 유리(재질)는 노트 사이드바(`.ultraThinMaterial`), 삭제 알림 캡슐, 노트 툴바 캡슐에만. macOS 26 이상은 `glassEffect`, 투명도 줄이기에서는 `surface-window`로 불투명하게.
 - 그림자는 다섯 가지뿐: `shadow-banner`, `shadow-row-selected`, `shadow-toast`, `shadow-glass`, `shadow-record`.

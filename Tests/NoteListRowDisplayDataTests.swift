@@ -33,8 +33,10 @@ struct NoteListRowDisplayDataTests {
         testDegradedRecoveredRecordingNamesAvailableSource()
         testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
+        testEveryInterruptedPlaceholderFormReadsTheSame()
         testPostProcessingNoteShowsPostProcessingTitle()
         testRowAccessibilityLabelSpellsOutState()
+        testRowAccessibilityReadsWorkStage()
         testRetriedNoteKeepsItsNameInsteadOfTheStage()
         testCloudChunkProgressDisplaysActiveChunk()
         testRestoredCloudProgressDisplaysWaitingCopy()
@@ -78,8 +80,12 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: recording, retryingIDs: [])
         assert(data.status == .recording)
         assert(data.recordingStartedAt == startedAt, "Recording row shows a running elapsed time")
-        assert(data.displayTitle == "New Recording")
-        assert(data.preview.isEmpty)
+        // Named by its date from the start, like the iPhone (#697); the
+        // preview line shows the stage.
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: startedAt), data.displayTitle)
+        assert(data.isNamedByDate)
+        assert(data.preview == "Recording...", data.preview)
+        assert(data.workStageKey == "Recording...")
 
         let titled = historyItem(
             recordingStartedAt: startedAt,
@@ -110,7 +116,9 @@ struct NoteListRowDisplayDataTests {
         )
         let liveTextData = NoteListRowDisplayData(item: liveText, retryingIDs: [])
         assert(liveTextData.recordingStartedAt == startedAt)
-        assert(liveTextData.displayTitle != "New Recording", "Live text names the note")
+        assert(liveTextData.displayTitle == NoteTitleResolver.dateTitle(for: startedAt))
+        assert(liveTextData.preview == "Let's review the roadmap.", "Live text shows instead of the stage")
+        assert(liveTextData.workStageKey == nil)
 
         let finished = historyItem(recordingStartedAt: startedAt, transcript: "Done.")
         assert(NoteListRowDisplayData(item: finished, retryingIDs: []).recordingStartedAt == nil)
@@ -656,6 +664,35 @@ struct NoteListRowDisplayDataTests {
         )
     }
 
+    private static func testEveryInterruptedPlaceholderFormReadsTheSame() {
+        let statuses = [
+            "transcription-interrupted",
+            "transcription-interrupted:storage-full",
+            "transcription-interrupted:partial",
+            "transcription-interrupted:microphone-only",
+            "transcription-interrupted:permission-denied:system-audio-only",
+            "transcription-interrupted:journal-io-failure:partial"
+        ]
+        for status in statuses {
+            let item = historyItem(transcript: "", postProcessingStatus: status)
+            assert(item.isTranscriptionPlaceholder, status)
+            let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+            assert(data.status == .transcribing, "\(status) row status: \(data.status)")
+            assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)), "\(status) row title: \(data.displayTitle)")
+            assert(data.isNamedByDate, status)
+            assert(data.preview == "Transcribing...", "\(status) preview: \(data.preview)")
+        }
+        // A status that only looks interrupted is a settled note.
+        let malformed = historyItem(
+            transcript: "",
+            postProcessingStatus: "transcription-interrupted:unknown-reason"
+        )
+        assert(!malformed.isTranscriptionPlaceholder)
+        let malformedData = NoteListRowDisplayData(item: malformed, retryingIDs: [])
+        assert(malformedData.status == .done)
+        assert(malformedData.isNamedByDate, "A settled note is named by date")
+    }
+
     private static func testTranscribingTitleAndEmptyPreview() {
         let id = UUID()
         let item = historyItem(id: id, transcript: "", postProcessingStatus: "importing")
@@ -663,16 +700,17 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [id])
 
         assert(data.status == .transcribing)
-        // The row names the note; the stage text lives in the note detail.
-        // A note being retried keeps its own name rather than "New Recording".
-        assert(data.displayTitle != "New Recording")
-        assert(data.preview.isEmpty)
+        // The row names the note by its date; the preview shows the stage.
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
+        assert(data.preview == "Retranscribing...", data.preview)
 
         let importing = NoteListRowDisplayData(
             item: historyItem(transcript: "", postProcessingStatus: "importing"),
             retryingIDs: []
         )
-        assert(importing.displayTitle == "Imported Audio")
+        assert(importing.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)), importing.displayTitle)
+        assert(importing.isNamedByDate)
+        assert(importing.preview == "Transcribing...", importing.preview)
 
         // A cloud-transcribed import has the cloud status, not "importing" (#386).
         let cloudImport = NoteListRowDisplayData(
@@ -683,7 +721,7 @@ struct NoteListRowDisplayDataTests {
             ),
             retryingIDs: []
         )
-        assert(cloudImport.displayTitle == "Imported Audio", "Unexpected title: \(cloudImport.displayTitle)")
+        assert(cloudImport.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)), "Unexpected title: \(cloudImport.displayTitle)")
 
         // A cloud-transcribed recording is still a new recording.
         let cloudRecording = NoteListRowDisplayData(
@@ -693,8 +731,9 @@ struct NoteListRowDisplayDataTests {
             ),
             retryingIDs: []
         )
-        assert(cloudRecording.displayTitle == "New Recording")
+        assert(cloudRecording.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
         assert(cloudRecording.status == .transcribing)
+        assert(cloudRecording.preview == "Transcribing...")
 
         // A cloud transcription no work is running for shows as failed, so
         // it can be retried or deleted; other notes ignore the stopped set.
@@ -778,12 +817,55 @@ struct NoteListRowDisplayDataTests {
         )
 
         let transcribing = NoteListRowDisplayData(item: item, retryingIDs: [])
-        assert(transcribing.displayTitle == "New Recording")
-        assert(transcribing.preview.isEmpty)
+        assert(transcribing.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
+        assert(transcribing.preview == "Transcribing...")
+
+        // The cleanup step shows its own stage, then the transcript (#697).
+        let postProcessing = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            postProcessingIDs: [id]
+        )
+        assert(postProcessing.displayTitle == transcribing.displayTitle, "The name doesn't change with the stage")
+        assert(postProcessing.preview == "Post-processing...", postProcessing.preview)
+        assert(postProcessing.workStageKey == "Post-processing...")
+
+        // Retry Post-processing on a finished note.
+        let finished = historyItem(id: id, transcript: "Weekly sync\nNotes follow")
+        let retriedCleanup = NoteListRowDisplayData(
+            item: finished,
+            retryingIDs: [id],
+            postProcessingIDs: [id]
+        )
+        assert(retriedCleanup.preview == "Post-processing...", retriedCleanup.preview)
+
+        // Once work ends the preview is the transcript's first line again.
+        let settled = NoteListRowDisplayData(item: finished, retryingIDs: [])
+        assert(settled.preview == "Weekly sync\nNotes follow", settled.preview)
+        assert(settled.workStageKey == nil)
+        // A finished note isn't post-processing for the row even if the
+        // set briefly still holds it.
+        let stale = NoteListRowDisplayData(item: finished, retryingIDs: [], postProcessingIDs: [id])
+        assert(stale.preview == settled.preview)
     }
 
-    /// A retried note keeps its resting name in the list; the spinner and
-    /// the note detail show the stage (#387).
+    /// The row's VoiceOver state is the stage while work runs (#697).
+    private static func testRowAccessibilityReadsWorkStage() {
+        let identity: (String) -> String = { $0 }
+        let label = NoteListRowAccessibility.label(
+            title: "Weekly sync",
+            date: "Sep 27, 7:40 PM",
+            status: .transcribing,
+            hasSummary: false,
+            selection: nil,
+            workStageKey: "Post-processing...",
+            localize: identity
+        )
+        assert(label == "Weekly sync, Sep 27, 7:40 PM, Post-processing...", label)
+    }
+
+    /// A retried note keeps its resting name in the list; the preview line,
+    /// the spinner, and the note detail show the stage (#387, #697).
     private static func testRetriedNoteKeepsItsNameInsteadOfTheStage() {
         let stageTitles = ["Transcribing...", "Post-processing..."]
 
@@ -829,6 +911,11 @@ struct NoteListRowDisplayDataTests {
         for data in [retriedAudioOnly, retriedFailed, retriedTitled, retriedWithText] {
             assert(!stageTitles.contains(data.displayTitle), "Row must not name the stage")
         }
+        // The preview line shows the stage, named as in the note detail:
+        // an audio-only note is transcribed for the first time.
+        assert(retriedAudioOnly.preview == "Transcribing...", retriedAudioOnly.preview)
+        assert(retriedFailed.preview == "Retranscribing...", retriedFailed.preview)
+        assert(retriedWithText.preview == "Retranscribing...", retriedWithText.preview)
     }
 
     private static func testOnlyFinishedNotesAreBulkSelectable() {
@@ -857,17 +944,13 @@ struct NoteListRowDisplayDataTests {
             item: item,
             retryingIDs: [],
             cloudProgress: progress,
-            localization: { key, arguments in
-                key == "Transcribing %d of %d…"
-                    ? String(format: key, arguments: arguments)
-                    : key
-            }
+            localization: { key, _ in key }
         )
 
         assert(data.status == .transcribing)
-        assert(data.displayTitle == "New Recording")
+        assert(data.displayTitle == NoteTitleResolver.dateTitle(for: Date(timeIntervalSince1970: 1)))
         // Chunk progress is shown in the note detail only.
-        assert(data.preview.isEmpty, "Unexpected progress: \(data.preview)")
+        assert(data.preview == "Transcribing...", "Unexpected progress: \(data.preview)")
     }
 
     private static func testRestoredCloudProgressDisplaysWaitingCopy() {
@@ -888,7 +971,7 @@ struct NoteListRowDisplayDataTests {
             localization: { key, _ in key }
         )
 
-        assert(data.preview.isEmpty)
+        assert(data.preview == "Transcribing...")
     }
 
     private static func testCloudProgressCopyLocalizesInKorean() {
@@ -902,7 +985,6 @@ struct NoteListRowDisplayDataTests {
             activeAttempt: 2
         )
         let translations = [
-            "Transcribing %d of %d…": "%d/%d 청크 전사 중…",
             "Resuming cloud transcription…": "클라우드 전사 재개 중…"
         ]
 
@@ -919,7 +1001,7 @@ struct NoteListRowDisplayDataTests {
             }
         )
 
-        assert(data.preview.isEmpty)
+        assert(data.preview == "Transcribing...")
     }
 
     private static func testRetryingItemHidesExistingPreview() {
@@ -929,7 +1011,7 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [id])
 
         assert(data.status == .transcribing)
-        assert(data.preview.isEmpty, "Expected retrying item to hide stale preview, got: \(data.preview)")
+        assert(data.preview == "Retranscribing...", "Expected retrying item to show the stage, got: \(data.preview)")
     }
 
     private static func testAudioOnlyRowUsesBlueStateAndNotTranscribedPreview() {

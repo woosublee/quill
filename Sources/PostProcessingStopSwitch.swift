@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteUI
 
 /// Lets the person stop only a note's cleanup step from the Note Browser
 /// (#699). The transcript is then kept as it is, recorded as not
@@ -7,6 +8,36 @@ final class PostProcessingStopSwitch: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
     private var cancelRunningStep: (() -> Void)?
+    private var progressSink: (@Sendable () -> Void)?
+    private var keptProgress: NoteCleanupProgress?
+
+    /// Called when this cleanup's progress moves (#697): the note's one bar
+    /// then reads `progress`. A sink that runs later than the next report
+    /// still reads the newest value, so reports that hop threads out of
+    /// order can't move the bar back or make a new split out of an early 0
+    /// of N.
+    func onProgress(_ sink: @escaping @Sendable () -> Void) {
+        lock.withLock { progressSink = sink }
+    }
+
+    /// The progress kept so far, in the order the cleanup reported it, with
+    /// the shared forward-only rule (`NoteCleanupProgress.kept`).
+    var progress: NoteCleanupProgress? {
+        lock.withLock { keptProgress }
+    }
+
+    /// Chunks cleaned out of the chunk count. Nothing is reported once the
+    /// person stopped the cleanup.
+    func reportProgress(completed: Int, total: Int) {
+        let sink = lock.withLock { () -> (@Sendable () -> Void)? in
+            guard !stopped, let progressSink else { return nil }
+            let report = NoteCleanupProgress(completedChunkCount: completed, totalChunkCount: total)
+            guard let next = NoteCleanupProgress.kept(after: keptProgress, report: report) else { return nil }
+            keptProgress = next
+            return progressSink
+        }
+        sink?()
+    }
 
     var isStopped: Bool {
         lock.withLock { stopped }

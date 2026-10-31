@@ -20,7 +20,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 
 | macOS 토큰 | iOS 역할 | 라이트 / 다크 |
 | --- | --- | --- |
-| `surface-window` | `backgroundPrimary` | `#F5F5F7` / `#1C1C1E` |
+| `surface-window` | `backgroundPrimary`(토큰 `surface-page-iphone`) | `#F5F5F7` / `#1C1C1E` |
 | `surface-card` · `surface-control` | `surfaceRaised`(설정 행, 오디오 카드, 툴바 불투명 대체) | `#FFFFFF` / `#2C2C2E` |
 | — | `backgroundSecondary` | `#E5E5EA` / `#2C2C2E` |
 | `fill-chip` | `controlFillQuiet` | primary 6% / 흰색 8% |
@@ -45,19 +45,21 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | --- | --- | --- |
 | `setup-hero` | 34 Rounded Bold | `.title` Bold(28), 기본 글꼴 |
 | `page-error-title` | 20 Semibold | 쓰는 곳 없음. 쓰게 되면 `.title3` Semibold(20) |
-| `callout` | 12 | 쓰는 곳 없음. 쓰게 되면 `.callout`(16) |
-| `note-title` | 28 Regular | `.title` Bold(28), 자간 -0.3. 본문 안 입력란, 최대 3줄 |
-| `transcript` | 15 / 줄 간격 +5 | `.subheadline`(15) / 줄 간격 6 |
+| `callout` | 12 | `.caption`(12), 배너 상세. 제목(`banner-title`)과 같은 크기로 함께 커진다(#744) |
+| `note-title` | 28 Bold | `.title` Bold(28), 자간 -0.3, 줄 간격 3. 본문 안 입력란, 최대 3줄 |
+| `transcript` | 15 / 줄 간격 +5, 문단 간격 6 | `.subheadline`(15) / 줄 간격 6, 문단 간격 없음(#736 Q6) |
 | 요약 본문 | 15 | `.subheadline`(15) |
 | `body`(설정 라벨) | 13 | `List` 기본 `.body`(17) |
 | `caption`(설정 도움말) | 10 | 섹션 꼬리(footer) 기본 글자 |
 | `row-title` | 13 Semibold | 15 Semibold(`.subheadline` 기준 크기 조절), 한 줄 |
 | `row-preview` | 11.5 | 15(`.subheadline` 기준), 두 줄 |
 | `meta-label`(행 날짜) | 9 Semibold | 11 Semibold(`.caption2` 기준), 대문자, 자간 0.4 |
-| 상세 메타 줄 | SF Mono 10 + 배지 | SF Mono 10(날짜) / 9 Medium(칩), `.caption2` 기준 크기 조절, 자간 0.2 |
+| 상세 메타 줄(`meta-mono`, `meta-chip-mono`) | SF Mono 10(날짜, 대문자, 자간 0.5) / 9 Medium(칩) | SF Mono 10(날짜) / 9 Medium(칩), `.caption2` 기준 크기 조절, 자간 0.2 |
+| `banner-title`(배너 제목) | 12 Semibold | `.caption` Semibold(12) |
 | `badge-label` | 8 Semibold | `.caption2` Semibold(11) |
 | `chip-label`(전사 방식 캡슐) | 11 Semibold | `.subheadline` Semibold(15) |
 | `empty-title` | 15 Semibold | `.subheadline` Semibold(15) |
+| `empty-detail` | 12 | `.subheadline`(15), 빈 상태·오류 카드 설명(#736 4단계). Mac은 `callout`과 같다 |
 | `status-title`(작업 상태, #697) | 13 Semibold | `.subheadline` Semibold(15) |
 | `status-percent`(작업 백분율, #697에서 새로 추가) | 13, monospacedDigit | `.subheadline`(15), monospacedDigit |
 | `status-detail`(대기·일시정지 까닭, iPhone 상태용 새 스타일) | 12 | `.footnote`(13) |
@@ -68,15 +70,15 @@ iPhone 화면은 macOS와 같은 크기 체계를 15pt 본문 기준으로 한�
 
 ## 간격·크기 대응
 
-iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4 = `space-4`, `xs` 8 = `space-8`, `sm` 12 = `space-12`, `md` 16 = `space-16`, `lg` 24 = `space-24`, `xl` 32.
+iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4 = `space-4`, `xs` 8 = `space-8`, `sm` 12 = `space-12`, `md` 16 = `space-16`, `lg` 24 = `space-24`, `xl` 32 = `space-32`. 반경은 `field` 10 = `radius-10`, `object` 16 = `radius-16`, `shelf` 20 = `radius-20`, 최소 터치 영역 44 = `size-touch-min`입니다(#736에서 공통 토큰으로 추가, iPhone은 아직 자기 값을 씀).
 
 | 항목 | macOS | iPhone(실제) | iPad(제안) |
 | --- | --- | --- | --- |
-| 화면 좌우 여백 | `space-24`(설정) / `space-40`(본문) | 16(목록 머리, 행 글자, 상세 본문) | 20 / 본문 최대 폭 680 가운데 |
+| 화면 좌우 여백 | `space-24`(설정) / `space-40`(본문) | 16(목록 머리, 행 글자, 상세 본문) | 노트 열 폭으로: `size-note-margin-regular` 24 / 본문 최대 폭 `size-note-body-max-width` 680 가운데(아래 **폭 구분**) |
 | 상세 본문 위 여백 | 32 | 24 | 32 |
 | `size-note-row` | 80 고정 | 고정 높이. 견본 글자로 메타 1줄 + 제목 1줄 + 미리보기 2줄 높이를 잡고 글자 크기를 따라 커짐. 위아래 9 | 80 |
 | 노트 행 폭 | 사이드바 안 `radius-8` 행 | 화면 폭 가득, 0.5pt 구분선도 끝까지 | 사이드바 안 `radius-8` 행 |
-| `size-sidebar-notes` | 280 | — | 320(`NavigationSplitView` 기본 폭) |
+| `size-sidebar-notes` | 280 | — | 280(macOS와 같음, 2026-10-31 결정) |
 | `size-sidebar-settings` | 180 | — | 320 |
 | `size-record-button` / `size-record-button-iphone` | 44 | 56(`size-record-button-iphone`)에서 시작해 글자 크기를 따라 커짐, 최대 88 | 44(사이드바 아래) |
 | `AudioPlayer` 높이 | 72 | 최소 72(접근성 크기 88), 반경 16 | 72 |
@@ -215,11 +217,30 @@ macOS의 `SettingsCard` 하나 = iOS `List(.insetGrouped)`의 Section 하나. �
 
 iPhone Duo 값은 추정입니다. 안쪽 7.58"와 바깥 5.36" 화면의 비율이 같고 대각선 비가 √2이므로 화면 비율은 약 √2:1이고, iPhone과 같은 밀도(약 153pt/inch)로 계산했습니다. 접고 펼 때 폭이 바뀌면 같은 화면이 상태를 지닌 채 다시 배치됩니다. iPhone 가로(667–956)는 폭에 따라 regular나 wide가 됩니다.
 
+### 폭에 따른 배치(2026-10-31 결정)
+
+`QuillNoteUI`의 `QuillNoteLayout(windowWidth:isHeightCompact:noteColumnWidth:)`가 아래 규칙을 답합니다. 노트 열을 따로 재지 않으면 `QuillNoteLayout(windowWidth:isHeightCompact:)`가 창 폭에서 목록 열을 빼서 씁니다. 목록을 노트 옆에 둘지는 **창 폭**으로, 노트 안의 배치는 **노트 열의 폭**으로 정합니다.
+
+- **목록을 노트 옆에**(`showsListBesideNote`): 창이 wide(≥ 800)이고 높이가 compact가 아닐 때만. 목록 열 폭은 `size-sidebar-notes` 280(`QuillNoteLayout.listColumnWidth`)으로 macOS와 iPad가 같습니다. iPhone 가로처럼 높이가 compact이면(Apple의 vertical size class) 폭이 800을 넘어도 한 열입니다. 그 밖에는 목록과 노트가 따로 된 화면입니다.
+
+| 노트 열 | 좌우 여백(`noteSideMargin`) | 본문 폭(`bodyMaxWidth`) |
+| --- | --- | --- |
+| compact(< 600) | `size-note-margin-compact` 16 | 열 폭 가득 |
+| regular(600–799) | `size-note-margin-regular` 24 | 최대 `size-note-body-max-width` 680, 가운데 |
+| wide(≥ 800) | 24 | 최대 680, 가운데 |
+
+- 재전사 캡슐은 모든 폭에서 macOS처럼 **보이는 노트 영역 가운데**에 둡니다(2026-10-31 결정 변경: 처음에는 compact에서 본문 위였음).
+
+- regular 여백은 결정 범위 24–32 중 **24**입니다. 공통 간격 단계에 있는 값(`space-24`, iOS `Spacing.lg`, macOS 설정 여백)이라 새 간격 토큰이 필요 없고, 600–799 폭에서 본문 680에 가까운 폭을 남깁니다. 32(`space-32`)는 #736에서 간격 단계에 더했지만 regular 여백은 24로 둡니다.
+- wide 노트 열은 따로 정한 값이 없어 regular와 같게 둡니다.
+- 높이가 compact인 iPhone 가로도 노트 안은 열 폭으로 정합니다.
+- **macOS는 목록 열 폭(280)만 씁니다.** Mac 노트 열은 창 폭에서 목록 280을 뺀 폭이라 창 최소 폭(800)에서 520이고 창이 880보다 좁으면 compact가 됩니다. 또 노트 본문은 자체 여백(`space-40`·`space-60`)에 최대 폭이 없습니다. 그래서 Mac 노트 안 배치에는 이 표를 적용하지 않습니다(바뀌는 모양 없음).
+
 ## iPad 구성(제안)
 
 **`NavigationSplitView` 두 열**: macOS 노트 브라우저와 같은 모양입니다. 미리보기: **6 · 화면 · iPad › PadNotes**, 설정은 **PadSettings**.
 
-- 가로: 두 열 항상 보임(사이드바 320, 유리 재질 `.ultraThinMaterial`). 세로·좁은 Stage Manager 창: 사이드바가 덮개로 열림. 아주 좁으면(Slide Over) iPhone 스택으로.
+- 창 폭이 wide(≥ 800, 가로와 11인치 이상 세로)이면 두 열 항상 보임(사이드바 280, 유리 재질 `.ultraThinMaterial`). 그보다 좁으면(iPad mini 세로, 좁은 Stage Manager 창, Slide Over) 목록과 노트가 따로 된 화면입니다(위 **폭에 따른 배치**).
 - 사이드바 머리는 iPhone 목록 머리(전사 방식 캡슐, 검색, `…`)와 같고, 녹음 버튼·녹음 막대는 사이드바 아래.
 - 선택 행은 macOS와 같은 `fill-selected` + `stroke-selected` + `radius-8`(시스템 강조 하이라이트 대신). 하드웨어 키보드 포커스 시 `accent-highlight`.
 - 하드웨어 키보드: ⌘N 새 녹음, ⌘F 검색, ⌘, 설정, ↑↓ 노트 이동, ⌫ 삭제. 포인터 hover 시 macOS의 hover 상태(`fill-hover`) 그대로.
