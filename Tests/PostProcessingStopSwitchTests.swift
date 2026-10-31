@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteUI
 
 /// #699: Cancel Post-processing stops only the cleanup step.
 @main
@@ -10,10 +11,42 @@ struct PostProcessingStopSwitchTests {
         try await testUnstoppedStepFailureStillThrows()
         try await testCallerCancelStillThrows()
         try await testStopDoesNotWaitForASlowStep()
+        testProgressReachesTheSinkUntilStopped()
         print("PostProcessingStopSwitchTests passed")
     }
 
     private struct SyntheticFailure: Error {}
+
+    /// The cleanup's chunk progress feeds the note's one bar (#697) until
+    /// the person stops it, kept in report order with the shared
+    /// forward-only rule, so a sink that runs late still reads the newest
+    /// value.
+    private static func testProgressReachesTheSinkUntilStopped() {
+        final class Log: @unchecked Sendable {
+            let lock = NSLock()
+            var calls = 0
+        }
+        let log = Log()
+        let stopSwitch = PostProcessingStopSwitch()
+        stopSwitch.reportProgress(completed: 0, total: 3)
+        precondition(stopSwitch.progress == nil, "nothing kept before a sink")
+        stopSwitch.onProgress {
+            log.lock.withLock { log.calls += 1 }
+        }
+        stopSwitch.reportProgress(completed: 0, total: 3)
+        stopSwitch.reportProgress(completed: 1, total: 3)
+        stopSwitch.reportProgress(completed: 1, total: 3)
+        precondition(log.lock.withLock { log.calls } == 2, "a report that doesn't move the bar isn't sent")
+        precondition(stopSwitch.progress == NoteCleanupProgress(completedChunkCount: 1, totalChunkCount: 3))
+        // A fallback model splits again: it continues from a third.
+        stopSwitch.reportProgress(completed: 0, total: 2)
+        stopSwitch.reportProgress(completed: 1, total: 2)
+        let kept = stopSwitch.progress!
+        precondition(abs(kept.fraction - (1.0 / 3 + 2.0 / 3 / 2)) < 1e-9, "\(kept.fraction)")
+        stopSwitch.stop()
+        stopSwitch.reportProgress(completed: 2, total: 2)
+        precondition(stopSwitch.progress == kept, "progress after a stop is dropped")
+    }
 
     private static func testStopBeforeTheStepSkipsIt() async throws {
         let stopSwitch = PostProcessingStopSwitch()

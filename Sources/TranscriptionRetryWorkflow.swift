@@ -237,7 +237,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         return start(
             request: request,
             runtime: runtime,
-            seededProgress: nil
+            seededProgress: request.execution.reportsProgressFromStart ? .preparing : nil
         )
     }
 
@@ -368,7 +368,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         for record in reconciliation.resumable {
             guard let item = historyByID[record.historyID],
                   let audioFileName = item.audioFileName,
-                  audioFileName == record.identity.source.audioFileName,
+                  audioFileName == record.identity.source.storedAudioFileName,
                   Self.isSafeAudioBasename(audioFileName) else {
                 continue
             }
@@ -644,6 +644,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             token: token,
             revision: revision
         ) else { return }
+        // A resumed job's seeded counts stay until its plan reports.
+        if progress == .preparing, state.progressByNoteID[noteID] != nil { return }
         state.progressByNoteID[noteID] = Self.displayProgress(progress)
         emitState()
     }
@@ -652,6 +654,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         _ progress: CloudTranscriptionProgress
     ) -> CloudTranscriptionDisplayProgress {
         switch progress {
+        case .preparing:
+            return .preparing
         case .planned(let completed, let total):
             return CloudTranscriptionDisplayProgress(
                 completedChunkCount: completed,

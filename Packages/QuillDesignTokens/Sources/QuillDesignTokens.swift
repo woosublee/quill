@@ -83,6 +83,12 @@ public enum QuillColor {
         public let base: Base
         public let opacity: Double
 
+        /// The same base at another opacity (a fill strengthened under
+        /// Increase Contrast).
+        public func withOpacity(_ opacity: Double) -> Tint {
+            Tint(base: base, opacity: opacity)
+        }
+
         public var color: Color {
             switch base {
             case .primary: return Color.primary.opacity(opacity)
@@ -92,13 +98,46 @@ public enum QuillColor {
         }
     }
 
+    /// An opaque color for each appearance.
+    public struct SchemeRGB: Sendable {
+        public let light: RGB
+        public let dark: RGB
+
+        public func color(for colorScheme: ColorScheme) -> Color {
+            colorScheme == .dark ? dark.color : light.color
+        }
+    }
+
+    /// `surface-page-iphone`: the iPhone app's page background, every
+    /// screen's (#F5F5F7, #1C1C1E; iOS `backgroundPrimary`).
+    public static let surfacePageIPhone = SchemeRGB(
+        light: RGB(red: 245.0 / 255, green: 245.0 / 255, blue: 247.0 / 255),
+        dark: RGB(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
+    )
+
+    /// `surface-note`: the background of a note's page, which the
+    /// work-status wash is drawn in. The Mac draws the system text
+    /// background (`textBackgroundColor`, `surface-text` in tokens.json);
+    /// the iPhone's note page is its app-wide page, `surface-page-iphone`.
+    public static func surfaceNote(for colorScheme: ColorScheme) -> Color {
+        #if os(macOS)
+        Color(nsColor: .textBackgroundColor)
+        #else
+        surfacePageIPhone.color(for: colorScheme)
+        #endif
+    }
+
     /// A tint for each appearance.
     public struct SchemeTint: Sendable, Equatable {
         public let light: Tint
         public let dark: Tint
 
         public func color(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? dark.color : light.color
+            tint(for: colorScheme).color
+        }
+
+        public func tint(for colorScheme: ColorScheme) -> Tint {
+            colorScheme == .dark ? dark : light
         }
     }
 
@@ -161,6 +200,16 @@ public enum QuillColor {
         light: Tint(base: .primary, opacity: 0.08),
         dark: Tint(base: .white, opacity: 0.07)
     )
+    /// `stroke-hover`: a note list row's edge under the pointer (0.5 pt).
+    public static let strokeHover = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .white, opacity: 0.07)
+    )
+    /// `fill-badge`: a note list row's badge ("Summary", "Audio only").
+    public static let fillBadge = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .primary, opacity: 0.08)
+    )
     /// `stroke-selected`: the open note row's edge (0.6 pt).
     public static let strokeSelected = SchemeTint(
         light: Tint(base: .primary, opacity: 0.12),
@@ -215,6 +264,8 @@ public enum QuillColor {
         ("fill-hover", fillHover),
         ("fill-selected", fillSelected),
         ("stroke-selected", strokeSelected),
+        ("stroke-hover", strokeHover),
+        ("fill-badge", fillBadge),
         ("fill-empty-disc", fillEmptyDisc),
         ("record-ring", recordRing),
         ("accent-tint-selected", accentTintSelected),
@@ -333,6 +384,10 @@ public enum QuillControlSize {
     /// `size-empty-disc`: the disc behind an empty state's glyph.
     public static let emptyDisc: CGFloat = 80
 
+    /// `size-issue-disc`: the tinted disc behind an issue's glyph (the Mac's
+    /// full issue page, the iPhone's empty transcript states).
+    public static let issueDisc: CGFloat = 64
+
     /// `size-record-button`: the round record button. On the iPhone it grows
     /// with Dynamic Type from this size.
     public static let recordButtonMac: CGFloat = 44
@@ -379,6 +434,7 @@ public enum QuillControlSize {
         ("size-checkbox-iphone", checkboxIPhone),
         ("size-status-dot", statusDot),
         ("size-empty-disc", emptyDisc),
+        ("size-issue-disc", issueDisc),
         ("size-record-button", recordButtonMac),
         ("size-record-button-iphone", recordButtonIPhone),
         ("size-close", closeMac),
@@ -434,11 +490,16 @@ public enum QuillOpacity {
     /// dot.
     public static let summaryBullet: Double = 0.45
 
+    /// `opacity-issue-disc`: an issue disc's tint, drawn in the issue's own
+    /// color (`size-issue-disc`).
+    public static let issueDisc: Double = 0.1
+
     /// Every opacity this module carries, by its token name.
     public static let all: [(name: String, value: Double)] = [
         ("opacity-status-wash", statusWash),
         ("opacity-surface-card", surfaceCard),
         ("opacity-summary-bullet", summaryBullet),
+        ("opacity-issue-disc", issueDisc),
     ]
 }
 
@@ -487,6 +548,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// The Mac size in points.
     public let size: CGFloat
+    /// The line box height tokens.json gives (size plus its default
+    /// leading and any line spacing), for layout math. A text view doesn't
+    /// read it: it draws `platformLineSpacing` on top of the font's own
+    /// line height.
     public let lineHeight: CGFloat
     /// The CSS weight tokens.json uses, 100 to 900 in steps of 100.
     public let weight: Int
@@ -503,6 +568,14 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// line). `font` can't scale a fixed size by itself and gives it
     /// unscaled, so such a style is drawn with `quillTextStyle(_:)`.
     public let scalesFromMacSize: Bool
+    /// The Mac's extra space between lines in points; 0 for none.
+    public let lineSpacing: CGFloat
+    /// The iPhone's extra space between lines in points.
+    public let lineSpacingIPhone: CGFloat
+    /// The Mac's space after a paragraph in points; 0 for none.
+    public let paragraphSpacing: CGFloat
+    /// The iPhone's space after a paragraph in points.
+    public let paragraphSpacingIPhone: CGFloat
 
     public init(
         size: CGFloat,
@@ -513,7 +586,11 @@ public struct QuillTypeStyle: Sendable, Equatable {
         design: Design = .default,
         tracking: CGFloat = 0,
         trackingIPhone: CGFloat? = nil,
-        scalesFromMacSize: Bool = false
+        scalesFromMacSize: Bool = false,
+        lineSpacing: CGFloat = 0,
+        lineSpacingIPhone: CGFloat? = nil,
+        paragraphSpacing: CGFloat = 0,
+        paragraphSpacingIPhone: CGFloat? = nil
     ) {
         self.size = size
         self.lineHeight = lineHeight
@@ -524,6 +601,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
         self.tracking = tracking
         self.trackingIPhone = trackingIPhone ?? tracking
         self.scalesFromMacSize = scalesFromMacSize
+        self.lineSpacing = lineSpacing
+        self.lineSpacingIPhone = lineSpacingIPhone ?? lineSpacing
+        self.paragraphSpacing = paragraphSpacing
+        self.paragraphSpacingIPhone = paragraphSpacingIPhone ?? paragraphSpacing
     }
 
     /// The SwiftUI weight for `weight`, or nil for a value that isn't one of
@@ -562,6 +643,51 @@ public struct QuillTypeStyle: Sendable, Equatable {
         #endif
     }
 
+    /// This platform's extra space between lines.
+    public var platformLineSpacing: CGFloat {
+        #if os(macOS)
+        return lineSpacing
+        #else
+        return lineSpacingIPhone
+        #endif
+    }
+
+    /// This platform's space after a paragraph.
+    public var platformParagraphSpacing: CGFloat {
+        #if os(macOS)
+        return paragraphSpacing
+        #else
+        return paragraphSpacingIPhone
+        #endif
+    }
+
+    #if os(macOS)
+    /// This style as an AppKit font, for a text view (the note title and
+    /// the transcript editor), with its design and digits. A weight that
+    /// isn't one of the nine CSS weights is regular, as in `font`.
+    public var nsFont: NSFont {
+        let nsWeight: NSFont.Weight
+        switch fontWeight {
+        case .ultraLight?: nsWeight = .ultraLight
+        case .thin?: nsWeight = .thin
+        case .light?: nsWeight = .light
+        case .medium?: nsWeight = .medium
+        case .semibold?: nsWeight = .semibold
+        case .bold?: nsWeight = .bold
+        case .heavy?: nsWeight = .heavy
+        case .black?: nsWeight = .black
+        default: nsWeight = .regular
+        }
+        if design == .monospaced {
+            return NSFont.monospacedSystemFont(ofSize: size, weight: nsWeight)
+        }
+        if monospacedDigits {
+            return NSFont.monospacedDigitSystemFont(ofSize: size, weight: nsWeight)
+        }
+        return NSFont.systemFont(ofSize: size, weight: nsWeight)
+    }
+    #endif
+
     /// This style at a given size, for a view that scales the size itself.
     public func font(size: CGFloat) -> Font {
         let font = Font.system(size: size, weight: fontWeight ?? .regular, design: design.fontDesign)
@@ -570,7 +696,8 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// `note-title`: the note detail's editable title.
     public static let noteTitle = QuillTypeStyle(
-        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3
+        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3,
+        lineSpacingIPhone: 3
     )
     /// `empty-title`: an empty state's title, and the work status shown
     /// alone in the middle of a note with no text yet.
@@ -579,12 +706,23 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public static let rowTitle = QuillTypeStyle(
         size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline, trackingIPhone: -0.1
     )
-    /// `transcript`: a note's transcript text.
-    public static let transcript = QuillTypeStyle(size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline)
-    /// `callout`: an empty state's or a notice's detail line. On iOS it
-    /// scales from `.caption`, like `banner-title`, so a banner's detail
-    /// stays the size of its title (#744).
+    /// `transcript`: a note's transcript text. Each app keeps its own line
+    /// and paragraph spacing until #736 Q6 is answered.
+    public static let transcript = QuillTypeStyle(
+        size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline,
+        lineSpacing: 5, lineSpacingIPhone: 6, paragraphSpacing: 6, paragraphSpacingIPhone: 0
+    )
+    /// `callout`: a notice's or banner's detail line. On iOS it scales from
+    /// `.caption`, like `banner-title`, so a banner's detail stays the size
+    /// of its title (#744). An empty state's detail is `empty-detail`.
     public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .caption)
+    /// `empty-detail`: an empty state's or an issue page's explanation under
+    /// its `empty-title`. The Mac size is `callout`'s; on iOS it follows
+    /// `.subheadline`, a step under the title's weight, where a banner's
+    /// detail (`callout`) stays the size of its title.
+    public static let emptyDetail = QuillTypeStyle(
+        size: callout.size, lineHeight: callout.lineHeight, weight: callout.weight, dynamicStyle: .subheadline
+    )
     /// `row-preview`: a note list row's two-line preview.
     public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `banner-title`: a notice or status banner's title.
@@ -620,6 +758,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         ("row-title", rowTitle),
         ("transcript", transcript),
         ("callout", callout),
+        ("empty-detail", emptyDetail),
         ("row-preview", rowPreview),
         ("banner-title", bannerTitle),
         ("meta-label", metaLabel),
@@ -632,8 +771,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
     ]
 }
 
-/// Draws text in a `QuillTypeStyle`: its font, this platform's tracking,
-/// and on iOS a `scalesFromMacSize` style's size scaled with Dynamic Type.
+/// Draws text in a `QuillTypeStyle`: its font, this platform's tracking
+/// and line spacing, and on iOS a `scalesFromMacSize` style's size scaled
+/// with Dynamic Type. Paragraph spacing is a text view's, not SwiftUI
+/// text's, so a view that needs it reads `platformParagraphSpacing`.
 public struct QuillTextStyleModifier: ViewModifier {
     let style: QuillTypeStyle
     @ScaledMetric private var scaledSize: CGFloat
@@ -649,7 +790,11 @@ public struct QuillTextStyleModifier: ViewModifier {
         #else
         let font = style.scalesFromMacSize ? style.font(size: scaledSize) : style.font
         #endif
+        // A style with no line spacing of its own keeps what the view
+        // around it set.
+        let lineSpacing = style.platformLineSpacing
         return content.font(font).kerning(style.platformTracking)
+            .transformEnvironment(\.lineSpacing) { if lineSpacing > 0 { $0 = lineSpacing } }
     }
 }
 

@@ -523,6 +523,7 @@ struct CloudTranscriptionCoreTests {
         try expectEqual(result, "zero one two", "retried chunk completes")
         let completedCounts = progressValues.values().compactMap { event -> Int? in
             switch event {
+            case .preparing: return 0
             case .planned(let completed, _): return completed
             case .uploading(let index, _, _): return index
             case .completed(let total): return total

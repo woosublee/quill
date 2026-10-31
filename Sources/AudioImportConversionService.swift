@@ -43,19 +43,28 @@ struct AudioImportConversionService {
         self.convert = convert
     }
 
-    func prepareForNativeWhisper(_ sourceURL: URL) async throws -> PreparedNativeWhisperAudio {
+    /// `outputDirectory` is where a converted file is written (the system
+    /// temporary directory when nil).
+    func prepareForNativeWhisper(
+        _ sourceURL: URL,
+        outputDirectory: URL? = nil
+    ) async throws -> PreparedNativeWhisperAudio {
         try Task.checkCancellation()
         if Self.isNativeWhisperCompatibleWAV(sourceURL) {
             return PreparedNativeWhisperAudio(fileURL: sourceURL)
         }
 
         let convert = self.convert
+        let outputDirectory = outputDirectory ?? FileManager.default.temporaryDirectory
         let conversionTask = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
             if let convert {
                 return try convert(sourceURL)
             }
-            return try Self.convertToNativeWhisperWAV(sourceURL)
+            return try Self.convertToNativeWhisperWAV(
+                sourceURL,
+                outputDirectory: outputDirectory
+            )
         }
 
         return try await withTaskCancellationHandler {
@@ -74,7 +83,10 @@ struct AudioImportConversionService {
             && format.commonFormat == .pcmFormatInt16
     }
 
-    private static func convertToNativeWhisperWAV(_ sourceURL: URL) throws -> PreparedNativeWhisperAudio {
+    private static func convertToNativeWhisperWAV(
+        _ sourceURL: URL,
+        outputDirectory: URL
+    ) throws -> PreparedNativeWhisperAudio {
         let inputFile: AVAudioFile
         do {
             inputFile = try AVAudioFile(forReading: sourceURL)
@@ -95,7 +107,7 @@ struct AudioImportConversionService {
             throw AudioImportConversionError.converterUnavailable
         }
 
-        let outputURL = FileManager.default.temporaryDirectory
+        let outputURL = outputDirectory
             .appendingPathComponent("quill-native-whisper-import-\(UUID().uuidString)")
             .appendingPathExtension("wav")
 
