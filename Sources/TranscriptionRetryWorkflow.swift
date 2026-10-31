@@ -368,7 +368,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         for record in reconciliation.resumable {
             guard let item = historyByID[record.historyID],
                   let audioFileName = item.audioFileName,
-                  audioFileName == record.identity.source.audioFileName,
+                  audioFileName == record.identity.source.storedAudioFileName,
                   Self.isSafeAudioBasename(audioFileName) else {
                 continue
             }
