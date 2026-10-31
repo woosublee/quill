@@ -539,15 +539,17 @@ public struct QuillTypeStyle: Sendable, Equatable {
     )
     /// `transcript`: a note's transcript text.
     public static let transcript = QuillTypeStyle(size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline)
-    /// `callout`: an empty state's or a notice's detail line. On iOS it
-    /// scales from `.caption`, like `banner-title`, so a banner's detail
-    /// stays the size of its title (#744).
+    /// `callout`: a notice's or banner's detail line. On iOS it scales from
+    /// `.caption`, like `banner-title`, so a banner's detail stays the size
+    /// of its title (#744). An empty state's detail is `empty-detail`.
     public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .caption)
     /// `empty-detail`: an empty state's or an issue page's explanation under
     /// its `empty-title`. The Mac size is `callout`'s; on iOS it follows
     /// `.subheadline`, a step under the title's weight, where a banner's
     /// detail (`callout`) stays the size of its title.
-    public static let emptyDetail = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
+    public static let emptyDetail = QuillTypeStyle(
+        size: callout.size, lineHeight: callout.lineHeight, weight: callout.weight, dynamicStyle: .subheadline
+    )
     /// `row-preview`: a note list row's two-line preview.
     public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `banner-title`: a notice or status banner's title.
