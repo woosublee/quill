@@ -128,7 +128,8 @@ otherwise.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the note page
+  (#623): spacing and radius scales, the issue colors (the warning one darker in
+  light mode), the status colors (system red; orange and green darker in light mode for 3:1, the system colors in dark), the note page
   background (a color per platform, #697), the tints (glass,
   toolbar, hairline, banner, chip, row hover, selection and badge, empty disc,
   record ring, and the accent tints), the glass, status, banner, record,
