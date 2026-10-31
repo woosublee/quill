@@ -1630,6 +1630,7 @@ struct NoteBrowserView: View {
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
                                         stoppedCloudIDs: appState.stoppedCloudTranscriptionIDs,
+                                        postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selection.showsSelectionUI
@@ -2297,7 +2298,8 @@ private struct NoteListRow: View {
                 case .unavailable: return .unavailable
                 }
             },
-            isUnrecoveredRecording: displayData.isUnrecoveredRecording
+            isUnrecoveredRecording: displayData.isUnrecoveredRecording,
+            workStageKey: displayData.workStageKey
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -4060,8 +4062,9 @@ private struct NoteDetailView: View {
         }
     }
 
-    /// The same stage the note list shows: "Post-processing…" once the
-    /// transcript is being cleaned up, cloud chunk progress, or "Transcribing…".
+    /// The stage: "Post-processing…" once the transcript is being cleaned
+    /// up, cloud chunk progress, or "Transcribing…". The note list's preview
+    /// line shows the same stage without the chunk progress.
     private var processingStatusText: String {
         if appState.postProcessingNoteIDs.contains(item.id) {
             return localizedCatalogString("Post-processing...")

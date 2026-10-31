@@ -102,6 +102,11 @@ struct NoteListRowDisplayData: Equatable {
     let isNamedByDate: Bool
     let displayTitle: String
     let preview: String
+    /// The catalog key of the stage the preview line shows while work runs
+    /// ("Recording...", "Transcribing...", "Retranscribing...",
+    /// "Post-processing..."); nil once the note is settled. VoiceOver reads
+    /// it as the row's state.
+    let workStageKey: String?
     let hasMeetingSummary: Bool
     /// The recording could not be recovered, so the red dot means
     /// "Couldn't recover" rather than a failed transcription.
@@ -114,6 +119,7 @@ struct NoteListRowDisplayData: Equatable {
         item: PipelineHistoryItem,
         retryingIDs: Set<UUID>,
         stoppedCloudIDs: Set<UUID> = [],
+        postProcessingIDs: Set<UUID> = [],
         cloudProgress: CloudTranscriptionDisplayProgress? = nil,
         locale: Locale = .current,
         localizationLanguage: String = preferredLocalizedStringLanguage(),
@@ -134,48 +140,29 @@ struct NoteListRowDisplayData: Equatable {
             retrying: retryingIDs,
             stoppedCloud: stoppedCloudIDs
         )
-        let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The row names the note; the stage ("Transcribing…", "Post-
-        // processing…") is shown once, in the note detail, and by the row's
-        // spinner. A recording or import with no title or transcript yet
-        // gets a neutral name; a note being retried keeps its own name
-        // (its title, or when it was recorded), never the stage.
-        let hasOwnTitle = customTitle != nil || item.calendarMatch?.appliedTitle != nil
-        let isUnnamed = !hasOwnTitle && content.isEmpty && !retryingIDs.contains(item.id)
-        // An import transcribed by a cloud model has the cloud status, not
-        // "importing", so its import mark comes from the debug status.
-        let isImporting = isUnnamed && (
-            item.machineStatus == .importing
-                || item.debugStatus == PipelineHistoryItem.importingDebugStatus
+        // The row names the note the same way from the start, as the iPhone
+        // does: its own title, or when it was recorded (#697). The preview
+        // line shows the stage while work runs.
+        self.displayTitle = NoteTitleResolver.listRowTitle(
+            for: item,
+            language: localizationLanguage,
+            bundle: localizationBundle,
+            locale: locale
         )
-        let isNewRecording = isUnnamed && !isImporting && (
-            status == .recording
-                || item.isTranscriptionPlaceholder
-                || item.machineStatus == .cloudTranscribing
+        self.isNamedByDate = NoteTitleResolver.isListRowNamedByDate(item)
+        let workStageKey = Self.workStageKey(
+            for: item,
+            status: status,
+            content: content,
+            isRetrying: retryingIDs.contains(item.id),
+            isPostProcessing: postProcessingIDs.contains(item.id)
         )
-        let displayTitle: String
-        if isNewRecording || isImporting {
-            displayTitle = localizedCatalogString(
-                isImporting ? "Imported Audio" : "New Recording",
-                language: localizationLanguage,
-                bundle: localizationBundle
-            )
-        } else {
-            displayTitle = NoteTitleResolver.displayTitle(
-                for: item,
-                language: localizationLanguage,
-                bundle: localizationBundle,
-                locale: locale
-            )
-        }
-        self.isNamedByDate = !isNewRecording && !isImporting && NoteTitleResolver.isNamedByDate(item)
+        self.workStageKey = workStageKey
 
         self.id = item.id
         self.status = status
         self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
-        self.displayTitle = displayTitle
         self.hasMeetingSummary = item.meetingSummaryJSON != nil
         self.isUnrecoveredRecording = item.unrecoveredRecordingContext != nil
         self.recordingStartedAt = status == .recording ? item.recordingStartedAt : nil
@@ -183,6 +170,7 @@ struct NoteListRowDisplayData: Equatable {
             for: item,
             status: status,
             content: content,
+            workStageKey: workStageKey,
             cloudProgress: cloudProgress,
             localizationLanguage: localizationLanguage,
             localizationBundle: localizationBundle,
@@ -190,10 +178,35 @@ struct NoteListRowDisplayData: Equatable {
         )
     }
 
+    /// The stage a working note's preview line shows, as the iPhone row
+    /// does (#697), named like the note detail's progress: recording with
+    /// no live text yet, transcribing (again, for a note that had been
+    /// transcribed or failed), then post-processing. A recording with live
+    /// text shows that text instead.
+    static func workStageKey(
+        for item: PipelineHistoryItem,
+        status: TranscriptStatus,
+        content: String,
+        isRetrying: Bool,
+        isPostProcessing: Bool
+    ) -> String? {
+        switch status {
+        case .recording:
+            return content.isEmpty ? "Recording..." : nil
+        case .transcribing:
+            if isPostProcessing { return "Post-processing..." }
+            if isRetrying, item.machineStatus != .audioOnly { return "Retranscribing..." }
+            return "Transcribing..."
+        case .done, .audioOnly, .recovered, .fail:
+            return nil
+        }
+    }
+
     private static func preview(
         for item: PipelineHistoryItem,
         status: TranscriptStatus,
         content: String,
+        workStageKey: String?,
         cloudProgress: CloudTranscriptionDisplayProgress?,
         localizationLanguage: String,
         localizationBundle: Bundle,
@@ -221,9 +234,13 @@ struct NoteListRowDisplayData: Equatable {
         if status == .recovered {
             return item.recoveredRecordingContext?.localizedDescription() ?? ""
         }
-        if status == .transcribing || (status == .recording && content.isEmpty) {
-            // Progress lives in the note detail and the row's spinner.
-            return ""
+        if let workStageKey {
+            // Chunk progress stays in the note detail.
+            return localizedCatalogString(
+                workStageKey,
+                language: localizationLanguage,
+                bundle: localizationBundle
+            )
         }
         // The title is the note's own or its date, never the transcript, so
         // the preview starts at the transcript's first line.
@@ -232,7 +249,8 @@ struct NoteListRowDisplayData: Equatable {
 }
 
 /// What VoiceOver reads for a note list row: the name, the date, the state
-/// in words (not only the dot's color), the Summary badge, and, while
+/// in words (not only the dot's color; the work stage while work runs), the
+/// Summary badge, and, while
 /// selecting several notes, whether this one is checked.
 enum NoteListRowAccessibility {
     enum SelectionState: Equatable {
@@ -264,11 +282,12 @@ enum NoteListRowAccessibility {
         hasSummary: Bool,
         selection: SelectionState?,
         isUnrecoveredRecording: Bool = false,
+        workStageKey: String? = nil,
         localize: (String) -> String = { localizedCatalogString($0) }
     ) -> String {
         var parts = [title]
         if let date { parts.append(date) }
-        parts.append(localize(statusKey(
+        parts.append(localize(workStageKey ?? statusKey(
             for: status,
             isUnrecoveredRecording: isUnrecoveredRecording
         )))
