@@ -7,6 +7,7 @@ import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillAudioLevelCore
 import QuillNoteCore
+import QuillNoteSyncCore
 import QuillNoteUI
 import QuillDesignTokens
 
@@ -1630,6 +1631,7 @@ struct NoteBrowserView: View {
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
                                         stoppedCloudIDs: appState.stoppedCloudTranscriptionIDs,
+                                        postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selection.showsSelectionUI
@@ -1799,13 +1801,13 @@ struct NoteBrowserView: View {
     private var emptyListState: some View {
         VStack {
             Text("No recordings yet")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
-                .padding(.top, 24)
+                .padding(.top, QuillSpacing.space24)
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, QuillSpacing.space20)
     }
 
     // MARK: - Detail
@@ -1837,22 +1839,19 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSearchResults: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: QuillSpacing.space12) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 80, height: 80)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                EmptyStateDisc(edge: .solid)
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 30, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
             Text("No Matching Notes")
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
             Text("No notes match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word, or clear the search.")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
@@ -1863,22 +1862,19 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSelection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: QuillSpacing.space12) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 80, height: 80)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                EmptyStateDisc(edge: .solid)
                 Image(systemName: "doc.text")
                     .font(.system(size: 32, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
             Text("Select a Note")
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
             Text("Select a recording from the list to view its transcript")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
             Spacer()
@@ -1888,17 +1884,15 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoRecordings: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             Spacer()
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 96, height: 96)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [4])))
+                EmptyStateDisc(size: 96, edge: .dashed)
                 Image(systemName: "mic")
                     .font(.system(size: 38, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
+            // 18 / 13 here and the 96 dashed disc have no token yet (#736).
             Text("No Recordings")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -2299,7 +2293,8 @@ private struct NoteListRow: View {
                 case .unavailable: return .unavailable
                 }
             },
-            isUnrecoveredRecording: displayData.isUnrecoveredRecording
+            isUnrecoveredRecording: displayData.isUnrecoveredRecording,
+            workStageKey: displayData.workStageKey
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -2720,22 +2715,6 @@ private struct NoteDetailView: View {
     private var cloudProgress: CloudTranscriptionDisplayProgress? {
         appState.cloudTranscriptionProgressByHistoryID[item.id]
     }
-    private var cloudProgressText: String {
-        guard let cloudProgress else {
-            return localizedCatalogString("Resuming cloud transcription…")
-        }
-        guard cloudProgress.activeAttempt != nil else {
-            return localizedCatalogString("Resuming cloud transcription…")
-        }
-        return localizedCatalogFormat(
-            "Transcribing %d of %d…",
-            min(
-                cloudProgress.completedChunkCount + 1,
-                cloudProgress.totalChunkCount
-            ),
-            cloudProgress.totalChunkCount
-        )
-    }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
     private var unrecoveredContext: UnrecoveredRecordingContext? {
         item.unrecoveredRecordingContext
@@ -2892,18 +2871,24 @@ private struct NoteDetailView: View {
     private var isNothingToPostProcess: Bool {
         NoteBrowserRecoveryPresentation.isNothingToPostProcess(item.userIssueRecord)
     }
-    private var showsNothingToPostProcessNotice: Bool {
-        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: item.userIssueRecord,
-            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
-        )
-    }
     private var warningBannerCode: QuillUserIssueCode? {
         item.userIssueRecord?.code
     }
     private var isWarningBannerDismissed: Bool {
         guard let warningBannerCode else { return false }
         return appState.isWarningBannerDismissed(noteID: item.id, code: warningBannerCode)
+    }
+    /// Dismissed on any device (synced, #730), or on this Mac before the
+    /// dismissal synced.
+    private var isNothingToPostProcessDismissed: Bool {
+        isWarningBannerDismissed
+            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    }
+    private var showsNothingToPostProcessNotice: Bool {
+        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: item.userIssueRecord,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
+        ) && !isNothingToPostProcessDismissed
     }
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
@@ -2930,11 +2915,7 @@ private struct NoteDetailView: View {
                                   selectedContentMode == .summary,
                                   showsSummaryTab {
                             // Same progress look as transcribing again (#262).
-                            progressOverlay(
-                                summaryEnvelope == nil
-                                    ? localizedCatalogString("Creating summary…")
-                                    : localizedCatalogString("Regenerating summary…")
-                            )
+                            NoteWorkStatusOverlay(workStatusPresentation(summaryWorkStatus))
                         }
                     }
             }
@@ -3388,10 +3369,7 @@ private struct NoteDetailView: View {
     private var transcriptTabIndicator: some View {
         if isShowingSummaryTab {
             if isRetrying {
-                ProgressView()
-                    .controlSize(.mini)
-                    .help("Retranscribing")
-                    .accessibilityLabel(Text("Retranscribing"))
+                NoteWorkStatusIndicator(workStatusPresentation(retryingWorkStatus))
             } else if transcriptCandidate != nil {
                 Circle()
                     .fill(Color.accentColor)
@@ -3412,10 +3390,7 @@ private struct NoteDetailView: View {
     private var summaryTabIndicator: some View {
         if selectedContentMode != .summary {
             if isGeneratingSummary {
-                ProgressView()
-                    .controlSize(.mini)
-                    .help("Making a summary")
-                    .accessibilityLabel(Text("Making a summary"))
+                NoteWorkStatusIndicator(workStatusPresentation(summaryWorkStatus))
             } else if summaryCandidate != nil {
                 Circle()
                     .fill(Color.accentColor)
@@ -3464,8 +3439,8 @@ private struct NoteDetailView: View {
                 // Summary tab's notices: the others wait behind "+1".
                 let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]
                     == item.displayedTranscript
-                let hasOtherNotice = !isWarningBannerDismissed
-                    && (showsNothingToPostProcessNotice || warningPresentation != nil)
+                let hasOtherNotice = showsNothingToPostProcessNotice
+                    || (!isWarningBannerDismissed && warningPresentation != nil)
                 if showsUnchangedNotice {
                     QuillStatusBanner(
                         systemImage: "info.circle",
@@ -3492,19 +3467,17 @@ private struct NoteDetailView: View {
                     .padding(.top, 14)
                 }
                 if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   showsNothingToPostProcessNotice,
-                   !isWarningBannerDismissed {
+                   showsNothingToPostProcessNotice {
                     QuillInfoNotice(
                         text: localizedCatalogString(
                             "Nothing to clean up; showing the original transcript."
                         ),
                         onDismiss: {
-                            if let warningBannerCode {
-                                appState.dismissWarningBanner(
-                                    noteID: item.id,
-                                    code: warningBannerCode
-                                )
-                            }
+                            appState.dismissNotice(
+                                noteID: item.id,
+                                notice: NoteDismissedNotices.nothingToCleanUp,
+                                fallbackCode: warningBannerCode
+                            )
                         }
                     )
                     .padding(.horizontal, 40)
@@ -3876,7 +3849,7 @@ private struct NoteDetailView: View {
                 action: summaryAction.action,
                 actionTitleOverride: summaryAction.actionTitleOverride
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, QuillSpacing.space60)
             Spacer()
         }
         .padding(.bottom, Self.floatingToolbarClearance)
@@ -3897,13 +3870,13 @@ private struct NoteDetailView: View {
 
     @ViewBuilder
     private var emptyContentState: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             Spacer()
             if isLiveRecording {
                 ZStack {
                     Circle()
                         .fill(Color.red.opacity(0.08))
-                        .frame(width: 80, height: 80)
+                        .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "mic.fill")
                         .font(.system(size: 28, weight: .light))
                         .foregroundStyle(.red.opacity(0.75))
@@ -3915,27 +3888,23 @@ private struct NoteDetailView: View {
                         Text("Recording...")
                     }
                 }
-                .font(.system(size: 15, weight: .semibold))
+                .quillTextStyle(.emptyTitle)
                 .foregroundStyle(.secondary)
                 Text(verbatim: appState.activeRecordingNoteHint)
-                    .font(.system(size: 12))
+                    .quillTextStyle(.callout)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 60)
+                    .padding(.horizontal, QuillSpacing.space60)
             } else if isCloudTranscriptionStopped {
                 QuillUserIssueView(
                     presentation: cloudTranscriptionStoppedPresentation,
                     action: retryAvailability == .noAudio ? nil : { retryTranscription() }
                 )
-                .padding(.horizontal, 60)
+                .padding(.horizontal, QuillSpacing.space60)
             } else if isCloudTranscribing
                         || item.machineStatus == .importing
                         || item.isTranscriptionPlaceholder {
-                ProgressView()
-                    .controlSize(.regular)
-                Text(verbatim: processingStatusText)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                NoteWorkStatusView(workStatusPresentation(processingWorkStatus), style: .centered)
             } else if let unrecoveredContext,
                       let unrecoveredPresentation {
                 unrecoveredRecordingState(
@@ -3954,21 +3923,21 @@ private struct NoteDetailView: View {
                     systemImageOverride: "arrow.clockwise",
                     tintOverride: .orange
                 )
-                .padding(.horizontal, 60)
+                .padding(.horizontal, QuillSpacing.space60)
             } else if isAudioOnly {
                 ZStack {
                     Circle()
                         .fill(Color.blue.opacity(0.08))
-                        .frame(width: 80, height: 80)
+                        .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "waveform")
                         .font(.system(size: 30, weight: .ultraLight))
                         .foregroundStyle(.blue.opacity(0.75))
                 }
                 Text("Audio recording")
-                    .font(.system(size: 15, weight: .semibold))
+                    .quillTextStyle(.emptyTitle)
                     .foregroundStyle(.secondary)
                 Text("Saved without transcription. You can transcribe it later.")
-                    .font(.system(size: 12))
+                    .quillTextStyle(.callout)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             } else if isError {
@@ -3981,7 +3950,7 @@ private struct NoteDetailView: View {
                             )
                         }
                     )
-                    .padding(.horizontal, 60)
+                    .padding(.horizontal, QuillSpacing.space60)
                 }
             } else {
                 noContentLabel
@@ -3993,11 +3962,11 @@ private struct NoteDetailView: View {
     }
 
     private var emptyTranscriptPlaceholder: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             Spacer()
             noContentLabel
             Text("Click to type")
-                .font(.system(size: 12))
+                .quillTextStyle(.callout)
                 .foregroundStyle(.tertiary)
                 .opacity(isHoveringEmptyTranscript ? 1 : 0)
             Spacer()
@@ -4019,15 +3988,14 @@ private struct NoteDetailView: View {
     }
 
     private var noContentLabel: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: QuillSpacing.space14) {
             ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 80, height: 80)
+                EmptyStateDisc(edge: .none)
                 Image(systemName: "doc.text")
                     .font(.system(size: 30, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
+            // 14 has no token yet (#736).
             Text("No content")
                 .font(.system(size: 14))
                 .foregroundStyle(.tertiary)
@@ -4049,7 +4017,7 @@ private struct NoteDetailView: View {
                 action: { showDeleteConfirmation = true },
                 actionTitleOverride: "Delete Note"
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, QuillSpacing.space60)
         case .recoveryFailed:
             QuillUserIssueView(
                 presentation: presentation,
@@ -4062,7 +4030,7 @@ private struct NoteDetailView: View {
                 actionDisabled: !appState.canRecoverRecordingAgain(item),
                 secondaryActionDisabled: isRecoveringRecording
             )
-            .padding(.horizontal, 60)
+            .padding(.horizontal, QuillSpacing.space60)
         }
     }
 
@@ -4074,58 +4042,46 @@ private struct NoteDetailView: View {
         }
     }
 
-    /// The same stage the note list shows: "Post-processing…" once the
-    /// transcript is being cleaned up, cloud chunk progress, or "Transcribing…".
-    private var processingStatusText: String {
-        if appState.postProcessingNoteIDs.contains(item.id) {
-            return localizedCatalogString("Post-processing...")
-        }
-        return isCloudTranscribing
-            ? cloudProgressText
-            : localizedCatalogString("Transcribing...")
+    /// The first transcription, shown alone while the note has no text.
+    private var processingWorkStatus: NoteWorkStatus {
+        NoteBrowserWorkStatus.firstTranscription(
+            isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
+            isCloudTranscribing: isCloudTranscribing,
+            cloudProgress: cloudProgress,
+            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
+            cleanup: appState.noteCleanupStage
+        )
     }
 
-    /// "Retranscribing…", or "Transcribing…" for an audio-only note that was
-    /// never transcribed, then "Post-processing…" once the new transcript is
-    /// being cleaned up.
-    private var retryingStatusText: String {
-        if isRecoveringRecording {
-            return localizedCatalogString("Recovering…")
-        }
-        if appState.postProcessingNoteIDs.contains(item.id) {
-            return localizedCatalogString("Post-processing...")
-        }
-        return localizedCatalogString(isAudioOnly ? "Transcribing..." : "Retranscribing...")
+    /// Transcribing again, or recovering, over the note's text.
+    private var retryingWorkStatus: NoteWorkStatus {
+        NoteBrowserWorkStatus.retry(
+            isRecovering: isRecoveringRecording,
+            isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
+            isAudioOnly: isAudioOnly,
+            cloudProgress: cloudProgress,
+            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
+            cleanup: appState.noteCleanupStage
+        )
+    }
+
+    private var summaryWorkStatus: NoteWorkStatus {
+        NoteBrowserWorkStatus.summary(hasSummary: summaryEnvelope != nil)
+    }
+
+    private func workStatusPresentation(_ status: NoteWorkStatus) -> NoteWorkStatus.Presentation {
+        status.presentation(
+            localize: { localizedCatalogString($0) },
+            locale: Locale(identifier: preferredLocalizedStringLanguage())
+        )
     }
 
     /// Covers the note body while it is transcribed again, keeping the
-    /// existing content visible underneath.
+    /// existing content visible underneath (the shared #697 look).
     private var retryingOverlay: some View {
-        progressOverlay(retryingStatusText)
-    }
-
-    /// The shared look for work that will replace what the tab shows.
-    private func progressOverlay(_ statusText: String) -> some View {
-        ZStack {
-            // A light wash, not a blur, so the text underneath stays readable.
-            Rectangle()
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.35))
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(statusText)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
-            .padding(.bottom, 60)
-        }
-        .transition(.opacity)
-        .allowsHitTesting(true)
+        NoteWorkStatusOverlay(workStatusPresentation(retryingWorkStatus))
     }
 
     // MARK: Floating Toolbar
@@ -4190,7 +4146,9 @@ private struct NoteDetailView: View {
     /// alone, a retranscription, or the first transcription (#699).
     private var canCancelToolbarWork: Bool {
         switch toolbarWork {
-        case .postProcessing:
+        // The Mac reports waiting for cleanup as `.postProcessing`; the
+        // iPhone's `.waitingToPostProcess` never comes from here.
+        case .postProcessing, .waitingToPostProcess:
             return appState.canCancelPostProcessing(noteID: item.id)
         case .transcribing, .retranscribing:
             return isRetrying
@@ -4203,19 +4161,22 @@ private struct NoteDetailView: View {
 
     private var toolbarLabels: NoteToolbarLabels {
         NoteToolbarLabels(
+            // The work labels come from the shared table (#697), so they
+            // read the same as the status they cancel.
             firstAction: { action in
                 switch action {
-                case .transcribe: localizedCatalogString("Transcribe audio")
-                case .retry, .retranscribe: localizedCatalogString("Retry transcription")
-                case .openModelSetup: localizedCatalogString("Open Models Settings")
                 case .runSummary: summaryToolbarAction.helpText
-                case .cancelTranscription: localizedCatalogString("Cancel Transcription")
-                case .cancelRetranscription: localizedCatalogString("Cancel Retranscription")
-                case .cancelPostProcessing: localizedCatalogString("Cancel Post-processing")
-                case .cancelSummary: localizedCatalogString("Cancel Summary")
+                case .openModelSetup: localizedCatalogString("Open Models Settings")
+                case .transcribe, .retry, .retranscribe, .cancelTranscription,
+                     .cancelRetranscription, .cancelPostProcessing, .cancelSummary:
+                    localizedCatalogString(action.labelKey ?? "")
                 }
             },
-            progress: localizedCatalogString(toolbarWork == .postProcessing ? "Post-processing..." : "Transcribing..."),
+            // While retrying (or recovering) the progress slot says what
+            // the overlay says.
+            progress: isRetrying
+                ? workStatusPresentation(retryingWorkStatus).title
+                : localizedCatalogString(toolbarWork.progressLabelKey),
             copy: localizedCatalogString("Copy content"),
             copyUnavailable: localizedCatalogString(
                 isShowingSummaryTab ? "No summary text to copy." : "No transcript text to copy."
@@ -5447,6 +5408,39 @@ private struct YellowSpinner: View {
                 rotation = 0
                 withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false)) {
                     rotation = 360
+                }
+            }
+    }
+}
+
+/// The neutral disc behind an empty state's glyph: `fill-empty-disc`, with
+/// a 1 pt `hairline-strong` edge (solid or dashed) or none.
+private struct EmptyStateDisc: View {
+    enum Edge {
+        case none
+        case solid
+        case dashed
+    }
+
+    var size: CGFloat = QuillControlSize.emptyDisc
+    let edge: Edge
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Circle()
+            .fill(QuillColor.fillEmptyDisc.color(for: colorScheme))
+            .frame(width: size, height: size)
+            .overlay {
+                switch edge {
+                case .none:
+                    EmptyView()
+                case .solid:
+                    Circle().stroke(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)
+                case .dashed:
+                    Circle().stroke(
+                        QuillColor.hairlineStrong.color(for: colorScheme),
+                        style: StrokeStyle(lineWidth: 1, dash: [4])
+                    )
                 }
             }
     }

@@ -13,6 +13,8 @@ public enum NoteFieldGroup: String, CaseIterable, Sendable {
     case language
     case status
     case audio
+    /// Notices dismissed on this note (`NoteDismissedNotices`).
+    case notices
     case deletion
 }
 

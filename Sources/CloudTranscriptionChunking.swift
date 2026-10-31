@@ -97,6 +97,81 @@ struct CloudTranscriptionSourceIdentity: Codable, Equatable, Sendable {
     let sha256: String
     let dataByteCount: UInt64
     let frameCount: UInt64
+    /// Set when the chunks come from a temporary canonical copy of a note's
+    /// stored audio that isn't canonical WAV (a large import, #735). The
+    /// fields above then describe the copy, which is made again on resume;
+    /// this names and fingerprints the stored file it was made from. Nil
+    /// (and absent from saved jobs) when the stored file is the source.
+    var convertedFrom: CloudTranscriptionConvertedSource? = nil
+
+    /// The note's audio file this job reads: the stored file a copy was
+    /// converted from, or the source itself.
+    var storedAudioFileName: String {
+        convertedFrom?.audioFileName ?? audioFileName
+    }
+}
+
+/// The stored audio file a converted copy was made from: its name, size,
+/// and SHA-256, so a saved job can be matched to the note's audio without
+/// converting it again.
+struct CloudTranscriptionConvertedSource: Codable, Equatable, Sendable {
+    let audioFileName: String
+    let physicalByteCount: UInt64
+    let sha256: String
+
+    static func make(
+        fileURL: URL,
+        readBufferByteCount: Int = 1_048_576
+    ) throws -> CloudTranscriptionConvertedSource {
+        let digest = try CloudTranscriptionFileDigest.make(
+            fileURL: fileURL,
+            readBufferByteCount: readBufferByteCount
+        )
+        return CloudTranscriptionConvertedSource(
+            audioFileName: fileURL.lastPathComponent,
+            physicalByteCount: digest.byteCount,
+            sha256: digest.sha256
+        )
+    }
+}
+
+private struct CloudTranscriptionFileDigest {
+    let byteCount: UInt64
+    let sha256: String
+
+    static func make(
+        fileURL: URL,
+        readBufferByteCount: Int
+    ) throws -> CloudTranscriptionFileDigest {
+        guard readBufferByteCount > 0 else {
+            throw CloudTranscriptionChunkingError.invalidReadBufferByteCount
+        }
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var byteCount: UInt64 = 0
+        while true {
+            try Task.checkCancellation()
+            guard let data = try handle.read(upToCount: readBufferByteCount),
+                  !data.isEmpty else {
+                break
+            }
+            let (nextByteCount, overflow) = byteCount.addingReportingOverflow(
+                UInt64(data.count)
+            )
+            guard !overflow else {
+                throw CloudTranscriptionChunkingError.sourceByteCountOverflow
+            }
+            byteCount = nextByteCount
+            hasher.update(data: data)
+        }
+        return CloudTranscriptionFileDigest(
+            byteCount: byteCount,
+            sha256: hasher.finalize()
+                .map { String(format: "%02x", $0) }
+                .joined()
+        )
+    }
 }
 
 enum CloudTranscriptionSourceIdentityBuilder {
@@ -105,29 +180,11 @@ enum CloudTranscriptionSourceIdentityBuilder {
         layout: CanonicalPCM16WAVLayout,
         readBufferByteCount: Int = 1_048_576
     ) throws -> CloudTranscriptionSourceIdentity {
-        guard readBufferByteCount > 0 else {
-            throw CloudTranscriptionChunkingError.invalidReadBufferByteCount
-        }
-
-        let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        var physicalByteCount: UInt64 = 0
-        while true {
-            try Task.checkCancellation()
-            guard let data = try handle.read(upToCount: readBufferByteCount),
-                  !data.isEmpty else {
-                break
-            }
-            let (nextByteCount, overflow) = physicalByteCount.addingReportingOverflow(
-                UInt64(data.count)
-            )
-            guard !overflow else {
-                throw CloudTranscriptionChunkingError.sourceByteCountOverflow
-            }
-            physicalByteCount = nextByteCount
-            hasher.update(data: data)
-        }
+        let digest = try CloudTranscriptionFileDigest.make(
+            fileURL: fileURL,
+            readBufferByteCount: readBufferByteCount
+        )
+        let physicalByteCount = digest.byteCount
 
         let expectedByteCount = layout.dataOffset + layout.dataByteCount
         guard physicalByteCount == expectedByteCount else {
@@ -135,13 +192,10 @@ enum CloudTranscriptionSourceIdentityBuilder {
                 ? CanonicalPCM16WAVError.truncatedPayload
                 : CanonicalPCM16WAVError.trailingPayload
         }
-        let digest = hasher.finalize()
-            .map { String(format: "%02x", $0) }
-            .joined()
         return CloudTranscriptionSourceIdentity(
             audioFileName: fileURL.lastPathComponent,
             physicalByteCount: physicalByteCount,
-            sha256: digest,
+            sha256: digest.sha256,
             dataByteCount: layout.dataByteCount,
             frameCount: layout.frameCount
         )

@@ -1,5 +1,6 @@
 import Foundation
 import QuillUserIssueCore
+import QuillNoteUI
 
 @main
 struct LocalizationResourceTests {
@@ -35,6 +36,7 @@ struct LocalizationResourceTests {
         }
 
         try testSharedIssueCopyKeysAreInTheCatalog(strings)
+        try testSharedWorkStatusKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -128,23 +130,13 @@ struct LocalizationResourceTests {
             assert(strings[retiredArtifactManagementKey] == nil)
         }
 
-        let cloudProgressEnglish = try localizedValue(
-            key: "Transcribing %d of %d…",
-            language: "en",
-            root: root
-        )
-        let cloudProgressKorean = try localizedValue(
-            key: "Transcribing %d of %d…",
-            language: "ko",
-            root: root
-        )
         let cloudResumeKorean = try localizedValue(
             key: "Resuming cloud transcription…",
             language: "ko",
             root: root
         )
-        assert(cloudProgressEnglish == "Transcribing %d of %d…")
-        assert(cloudProgressKorean == "%d/%d 청크 전사 중…")
+        // The work status shows a percentage only (#697): no chunk count title.
+        assert(strings["Transcribing %d of %d…"] == nil)
         assert(cloudResumeKorean == "클라우드 전사 재개 중…")
         let recoverySingularCounts: [String: String] = [
             "%lld record found.": "%lld개 기록을 찾았어요.",
@@ -390,6 +382,27 @@ struct LocalizationResourceTests {
         let missing = keys.all.filter { !$0.isEmpty && strings[$0] == nil }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared issue copy keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// Every title the shared work-status table (#697) and the toolbar's
+    /// shared labels can produce, including the iPhone-only states the Mac
+    /// never sends, is translated, so the Mac can show any of them.
+    private static func testSharedWorkStatusKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = Set(
+            NoteWorkStatus.allTitleKeys
+                + NoteToolbarFirstAction.allCases.compactMap(\.labelKey)
+                + NoteToolbarWork.allCases.map(\.progressLabelKey)
+        )
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared work-status keys missing from the catalog: \(missing)")
         }
     }
 

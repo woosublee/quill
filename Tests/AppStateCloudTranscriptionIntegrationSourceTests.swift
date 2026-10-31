@@ -27,6 +27,13 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         precondition(noteBrowser.contains("retryTranscription(afterDownload: true)"))
         precondition(noteBrowser.contains("guard !afterDownload else {"))
         precondition(!noteBrowser.contains("defer { isDownloadingToRetry = false }"))
+        // #697: a Local AI job (live recording or import) shows its bar at 0%
+        // as soon as it starts, before the engine's first report, and a
+        // cleanup that will report holds the bar at the boundary.
+        precondition(appState.contains("reportsProgressFromStart: capturedLocalAIExecution != nil,"))
+        precondition(appState.contains("reportsProgressFromStart: configuration.localAIExecution != nil,"))
+        precondition(appState.contains("if reportsProgressFromStart {\n            updateCloudTranscriptionProgress(.preparing, historyID: historyID, session: session)"))
+        precondition(noteBrowser.components(separatedBy: "cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),").count == 3)
         try verifiesImportPlaceholderPrecedesCloudExecution(appState)
         try verifiesRecordingPlaceholderPrecedesCloudExecution(appState)
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)
