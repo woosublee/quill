@@ -3,8 +3,9 @@ import QuillDesignTokens
 
 /// Keeps the shared QuillDesignTokens module and docs/design-system/tokens.json
 /// in step for the tokens the module carries: the spacing, radius, and
-/// breakpoint scales, the issue colors, the tints, the shadows, the
-/// opacities, the text styles, and the control and layout sizes. The
+/// breakpoint scales, the issue colors, the tints (label, white, and accent
+/// based), the shadows (single and per appearance), the opacities, the text
+/// styles, and the control and layout sizes. The
 /// scales fail on a token added, removed or changed on either side; the
 /// other families fail when a Swift token is missing from tokens.json or
 /// differs from it.
@@ -18,11 +19,10 @@ struct QuillDesignTokensTests {
         testNoteSurfaceMatchesTokensFile(tokens)
         testTintsMatchTokensFile(tokens)
         testShadowsMatchTokensFile(tokens)
-        testNoteToolbarSizesMatchTokensFile(tokens)
+        testControlSizesMatchTokensFile(tokens)
         testBreakpointsMatchTokensFile(tokens)
         testOpacitiesMatchTokensFile(tokens)
         testTypeStylesMatchTokensFile(tokens)
-        testStatusProgressSizeMatchesTokensFile(tokens)
         testLayoutSizesMatchTokensFile(tokens)
         print("QuillDesignTokensTests passed")
     }
@@ -128,9 +128,16 @@ struct QuillDesignTokensTests {
     /// tokens.json writes as black in light and white in dark. On the Mac the
     /// label color is itself about 85% opaque, so these draw a little lighter
     /// than the rgba() values; tokens.json's hex and rgba values are
-    /// approximations of the system colors (its meta note).
+    /// approximations of the system colors (its meta note). An `accent` tint
+    /// needs the `accent` token's color in that theme.
     private static func testTintsMatchTokensFile(_ tokens: [String: Any]) {
         let entries = (tokens["color"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        guard let accent = entries.first(where: { $0["name"] as? String == "accent" })?["value"] as? [String: String],
+              let accentLight = accent["light"].flatMap(hexRGB), let accentDark = accent["dark"].flatMap(hexRGB) else {
+            preconditionFailure("tokens.json has no light and dark hex for accent")
+        }
+        let names = QuillColor.tints.map(\.name)
+        precondition(Set(names).count == names.count, "a tint is listed twice")
         for (name, tint) in QuillColor.tints {
             guard let themes = entries.first(where: { $0["name"] as? String == name })?["value"] as? [String: String],
                   let light = themes["light"].flatMap(rgba), let dark = themes["dark"].flatMap(rgba) else {
@@ -143,9 +150,17 @@ struct QuillDesignTokensTests {
                 switch value.base {
                 case .white: precondition(isWhite, "\(name) (\(theme)) is white in Swift but \(expected.rgb) in tokens.json")
                 case .primary: precondition(theme == "light" ? isBlack : isWhite, "\(name) (\(theme)) is the label color but \(expected.rgb) in tokens.json")
+                case .accent:
+                    let accentRGB = theme == "light" ? accentLight : accentDark
+                    precondition(expected.rgb == accentRGB, "\(name) (\(theme)) is the accent color but \(expected.rgb) in tokens.json")
                 }
             }
         }
+    }
+
+    private static func hexRGB(_ value: String) -> [Int]? {
+        guard value.hasPrefix("#"), value.count == 7, let number = Int(value.dropFirst(), radix: 16) else { return nil }
+        return [(number >> 16) & 0xff, (number >> 8) & 0xff, number & 0xff]
     }
 
     private static func rgba(_ value: String) -> (rgb: [Int], alpha: Double)? {
@@ -158,30 +173,62 @@ struct QuillDesignTokensTests {
     }
 
     /// `0 4px 28px rgba(0, 0, 0, 0.085)`: SwiftUI's radius is half the CSS blur.
+    /// A single shadow is one string; a per-appearance shadow is a light and
+    /// a dark string.
     private static func testShadowsMatchTokensFile(_ tokens: [String: Any]) {
         let entries = (tokens["shadow"] as? [String: Any])?["tokens"] as? [[String: Any]] ?? []
+        func value(_ name: String) -> Any? { entries.first(where: { $0["name"] as? String == name })?["value"] }
+        let names = QuillShadow.all.map(\.name) + QuillShadow.schemeShadows.map(\.name)
+        precondition(Set(names).count == names.count, "a shadow is listed twice")
         for (name, shadow) in QuillShadow.all {
-            guard let value = entries.first(where: { $0["name"] as? String == name })?["value"] as? String,
-                  let open = value.range(of: "rgba(")?.lowerBound, let color = rgba(String(value[open...])) else {
+            guard let raw = value(name) as? String else {
                 preconditionFailure("tokens.json has no single shadow value for \(name)")
             }
-            let lengths = value[..<open].split(separator: " ").map { Double($0.replacingOccurrences(of: "px", with: "")) }
-            guard lengths.count == 3, let x = lengths[0], let y = lengths[1], let blur = lengths[2] else {
-                preconditionFailure("\(name) is \(value); expected x y blur rgba()")
+            assertShadow(shadow, raw, name)
+        }
+        for (name, shadow) in QuillShadow.schemeShadows {
+            guard let themes = value(name) as? [String: String], let light = themes["light"], let dark = themes["dark"] else {
+                preconditionFailure("tokens.json has no light and dark shadow for \(name)")
             }
-            precondition(color.rgb == [0, 0, 0], "\(name) is drawn black")
-            precondition(abs(shadow.opacity - color.alpha) < 0.0001, "\(name) opacity")
-            precondition(Double(shadow.x) == x && Double(shadow.y) == y, "\(name) offset")
-            precondition(Double(shadow.radius) * 2 == blur, "\(name) radius \(shadow.radius) vs blur \(blur)")
+            assertShadow(shadow.light, light, "\(name) (light)")
+            assertShadow(shadow.dark, dark, "\(name) (dark)")
+            precondition(shadow.shadow(for: .dark) == shadow.dark && shadow.shadow(for: .light) == shadow.light, "\(name) picks by appearance")
         }
     }
 
-    private static func testNoteToolbarSizesMatchTokensFile(_ tokens: [String: Any]) {
+    private static func assertShadow(_ shadow: QuillShadow, _ value: String, _ name: String) {
+        guard let open = value.range(of: "rgba(")?.lowerBound, let color = rgba(String(value[open...])) else {
+            preconditionFailure("\(name) is \(value); expected x y blur rgba()")
+        }
+        let lengths = value[..<open].split(separator: " ").map { Double($0.replacingOccurrences(of: "px", with: "")) }
+        guard lengths.count == 3, let x = lengths[0], let y = lengths[1], let blur = lengths[2] else {
+            preconditionFailure("\(name) is \(value); expected x y blur rgba()")
+        }
+        precondition(color.rgb == [0, 0, 0], "\(name) is drawn black")
+        precondition(abs(shadow.opacity - color.alpha) < 0.0001, "\(name) opacity")
+        precondition(Double(shadow.x) == x && Double(shadow.y) == y, "\(name) offset")
+        precondition(Double(shadow.radius) * 2 == blur, "\(name) radius \(shadow.radius) vs blur \(blur)")
+    }
+
+    /// Every control size, both platforms' values where a size has two.
+    /// This test runs on the Mac, so the platform picks show the Mac value.
+    private static func testControlSizesMatchTokensFile(_ tokens: [String: Any]) {
         let sizes = lengths(tokens, family: "size")
-        precondition(sizes["size-note-toolbar"] == Double(QuillControlSize.noteToolbar), "size-note-toolbar")
-        precondition(sizes["size-note-toolbar-button"] == Double(QuillControlSize.noteToolbarButtonMac), "size-note-toolbar-button")
-        precondition(sizes["size-note-toolbar-button-iphone"] == Double(QuillControlSize.noteToolbarButtonIPhone), "size-note-toolbar-button-iphone")
+        for (name, value) in QuillControlSize.all {
+            precondition(sizes[name] == Double(value), "\(name) is \(value) in Swift but \(sizes[name].map(String.init(describing:)) ?? "missing") in tokens.json")
+        }
+        let names = QuillControlSize.all.map(\.name)
+        precondition(Set(names).count == names.count, "a control size is listed twice")
+        // A size with an iPhone value carries both in Swift.
+        for name in sizes.keys where name.hasSuffix("-iphone") {
+            let base = String(name.dropLast("-iphone".count))
+            precondition(names.contains(name) && names.contains(base), "tokens.json size \(name) needs \(base) and \(name) in QuillControlSize")
+        }
         precondition(QuillControlSize.noteToolbarButton == QuillControlSize.noteToolbarButtonMac, "this Mac test sees the Mac value")
+        precondition(QuillControlSize.checkbox == QuillControlSize.checkboxMac, "this Mac test sees the Mac checkbox")
+        precondition(QuillControlSize.recordButton == QuillControlSize.recordButtonMac, "this Mac test sees the Mac record button")
+        // The iPhone's toolbar button is the minimum touch target.
+        precondition(QuillControlSize.noteToolbarButtonIPhone == QuillControlSize.touchMin, "the iPhone toolbar button is size-touch-min")
     }
 
     private static func testBreakpointsMatchTokensFile(_ tokens: [String: Any]) {
@@ -206,24 +253,45 @@ struct QuillDesignTokensTests {
         }
     }
 
-    /// Size, line height and weight of each style, by name, across every type group.
+    /// Size, line height, weight, letter spacing and typeface of each style,
+    /// by name, across every type group. A style in the `mono` family group
+    /// is SF Mono in Swift; a style without `letterSpacing` has no tracking.
     private static func testTypeStylesMatchTokensFile(_ tokens: [String: Any]) {
         let groups = (tokens["type"] as? [String: Any])?["groups"] as? [[String: Any]] ?? []
-        let styles = groups.flatMap { $0["styles"] as? [[String: Any]] ?? [] }
+        let styles = groups.flatMap { group in
+            (group["styles"] as? [[String: Any]] ?? []).map { (style: $0, family: group["family"] as? String) }
+        }
         func points(_ value: Any?) -> Double? {
             guard let raw = value as? String, raw.hasSuffix("px") else { return nil }
             return Double(raw.dropLast(2))
         }
+        let swiftNamesList = QuillTypeStyle.all.map(\.name)
+        precondition(Set(swiftNamesList).count == swiftNamesList.count, "a type style is listed twice")
         for (name, style) in QuillTypeStyle.all {
-            guard let entry = styles.first(where: { $0["name"] as? String == name }),
-                  let size = points(entry["fontSize"]), let lineHeight = points(entry["lineHeight"]),
-                  let weight = entry["fontWeight"] as? Int else {
+            guard let found = styles.first(where: { $0.style["name"] as? String == name }),
+                  let size = points(found.style["fontSize"]), let lineHeight = points(found.style["lineHeight"]),
+                  let weight = found.style["fontWeight"] as? Int else {
                 preconditionFailure("tokens.json has no px fontSize, lineHeight and fontWeight for \(name)")
             }
+            let entry = found.style
             precondition(Double(style.size) == size, "\(name) size \(style.size) vs tokens.json \(size)")
             precondition(Double(style.lineHeight) == lineHeight, "\(name) line height \(style.lineHeight) vs tokens.json \(lineHeight)")
             precondition(style.weight == weight, "\(name) weight \(style.weight) vs tokens.json \(weight)")
+            func spacing(_ key: String, default fallback: Double) -> Double {
+                guard entry[key] != nil else { return fallback }
+                guard let value = points(entry[key]) else { preconditionFailure("\(name) \(key) is not px") }
+                return value
+            }
+            let tracking = spacing("letterSpacing", default: 0)
+            let trackingIPhone = spacing("letterSpacingIphone", default: tracking)
+            precondition(Double(style.tracking) == tracking, "\(name) tracking \(style.tracking) vs tokens.json \(tracking)")
+            precondition(Double(style.trackingIPhone) == trackingIPhone, "\(name) iPhone tracking \(style.trackingIPhone) vs tokens.json \(trackingIPhone)")
+            let isMono = (entry["family"] as? String ?? found.family) == "mono"
+            precondition((style.design == .monospaced) == isMono, "\(name) is \(style.design) in Swift but family \(found.family ?? "-") in tokens.json")
         }
+        precondition(QuillTypeStyle.metaMono.platformTracking == QuillTypeStyle.metaMono.tracking, "this Mac test sees the Mac tracking")
+        precondition(QuillTypeStyle.noteTitle.fontWeight == .bold, "the note title is bold, as the Mac draws it")
+        precondition(QuillTypeStyle.metaMono.scalesFromMacSize && QuillTypeStyle.metaChipMono.scalesFromMacSize, "the meta line keeps its Mac size on iOS and scales it")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }
@@ -234,14 +302,9 @@ struct QuillDesignTokensTests {
         // The work-status styles are this module's: one only in tokens.json
         // fails too.
         let swiftNames = Set(QuillTypeStyle.all.map(\.name))
-        for name in styles.compactMap({ $0["name"] as? String }) where name.hasPrefix("status-") {
+        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") {
             precondition(swiftNames.contains(name), "tokens.json style \(name) is missing from QuillTypeStyle")
         }
-    }
-
-    private static func testStatusProgressSizeMatchesTokensFile(_ tokens: [String: Any]) {
-        let sizes = lengths(tokens, family: "size")
-        precondition(sizes["size-status-progress"] == Double(QuillControlSize.statusProgress), "size-status-progress")
     }
 
     /// The note layout sizes (#697). The margins are steps of the spacing
