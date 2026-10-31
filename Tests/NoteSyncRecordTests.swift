@@ -31,6 +31,8 @@ struct NoteSyncRecordTests {
         testUnreadableKnownValuesAreDetected()
         testSharedCoreKnowsEveryMacRawValue()
         testDismissedNoticesJoinOnMerge()
+        testUnchangedRetranscriptionMarker()
+        testUnchangedRetranscriptionMergesLastWriterWins()
         print("NoteSyncRecordTests passed")
     }
 
@@ -512,6 +514,55 @@ struct NoteSyncRecordTests {
         precondition(NoteSyncMerge.merge(local: plain, remote: plain).fields[key] == nil, "no dismissals, no field")
         precondition(NoteDismissedNotices.value(both) == .data(Data(#"["postProcessing.nothingToCleanUp","synthetic.otherNotice"]"#.utf8)))
         precondition(NoteDismissedNotices.decode(.string("x")).isEmpty && NoteDismissedNotices.decode(.data(Data("{}".utf8))).isEmpty)
+    }
+
+    /// The "same transcript" marker shows only while the note shows the
+    /// transcript it matched, and reads back as written (#742).
+    static func testUnchangedRetranscriptionMarker() {
+        let marker = NoteUnchangedRetranscription.matching("  Synthetic transcript.\n", at: t0)
+        precondition(marker.matches("Synthetic transcript."), "whitespace around the text doesn't matter")
+        precondition(!marker.matches("Synthetic transcript, edited."))
+        precondition(!marker.matches("   "))
+        precondition(!NoteUnchangedRetranscription.matching("", at: t0).matches(""), "an empty transcript never shows it")
+        let cleared = NoteUnchangedRetranscription.cleared(at: t0.addingTimeInterval(5))
+        precondition(cleared.isCleared && !cleared.matches("Synthetic transcript."))
+        precondition(NoteUnchangedRetranscription.decode(marker.value) == marker)
+        precondition(NoteUnchangedRetranscription.decode(cleared.value) == cleared)
+        precondition(marker.value == NoteUnchangedRetranscription.matching("Synthetic transcript.", at: t0).value,
+                     "equal markers encode alike")
+        precondition(NoteUnchangedRetranscription.decode(.string("x")) == nil)
+        precondition(NoteUnchangedRetranscription.decode(.data(Data("{}".utf8))) == nil)
+        precondition(NoteSyncField.unchangedRetranscription.group == .unchangedRetranscription)
+        precondition(NoteSyncField.unchangedRetranscription.valueKind == .data)
+        precondition(!NoteSyncField.unchangedRetranscription.isRequired)
+    }
+
+    /// The newer marker wins on both devices, and a newer clear ends a notice
+    /// another device recorded; other groups don't touch it (#742).
+    static func testUnchangedRetranscriptionMergesLastWriterWins() {
+        let key = NoteSyncField.unchangedRetranscription.rawValue
+        let base = item()
+        var shown = record(base, stamps: [.unchangedRetranscription: t0.addingTimeInterval(10)])
+        shown.fields[key] = NoteUnchangedRetranscription.matching("Synthetic transcript.", at: t0.addingTimeInterval(10)).value
+        var cleared = record(base, stamps: [.unchangedRetranscription: t0.addingTimeInterval(20)])
+        cleared.fields[key] = NoteUnchangedRetranscription.cleared(at: t0.addingTimeInterval(20)).value
+        for (local, remote) in [(shown, cleared), (cleared, shown)] {
+            let merged = NoteSyncMerge.merge(local: local, remote: remote)
+            precondition(merged.fields[key] == cleared.fields[key], "the newer clear wins on either side")
+        }
+        let unaware = record(base, stamps: [.notices: t0.addingTimeInterval(30)])
+        for (local, remote) in [(shown, unaware), (unaware, shown)] {
+            let merged = NoteSyncMerge.merge(local: local, remote: remote)
+            precondition(merged.fields[key] == shown.fields[key], "a record without the marker doesn't drop it")
+        }
+        // On equal stamps both sides settle on the same marker, by the same
+        // rule an older build uses for a key it doesn't know (the higher
+        // encoded value), so the two never trade the note back and forth.
+        var tied = record(base, stamps: [.unchangedRetranscription: t0.addingTimeInterval(20)])
+        tied.fields[key] = shown.fields[key]
+        let onA = NoteSyncMerge.merge(local: tied, remote: cleared)
+        let onB = NoteSyncMerge.merge(local: cleared, remote: tied)
+        precondition(onA.fields[key] == onB.fields[key], "both devices keep the same marker")
     }
 
     /// QuillNoteSyncCore keeps the raw values of these enums: the intent enum

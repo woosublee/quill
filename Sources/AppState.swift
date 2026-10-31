@@ -16,6 +16,7 @@ import QuillSummaryFormatCore
 import QuillSummaryGenerationCore
 import QuillProviderCore
 import QuillNoteCore
+import QuillNoteSyncCore
 import QuillNoteUI
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
@@ -2565,6 +2566,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func dismissUnchangedRetranscriptionNotice(noteID: UUID) {
+        clearUnchangedRetranscription(noteID: noteID)
+    }
+
+    /// Saves the "same transcript" notice for this note so every device
+    /// shows it (#742). Like the iPhone, a notice that couldn't be saved
+    /// isn't shown: the store is the one place it lives.
+    @MainActor
+    private func setUnchangedRetranscription(_ marker: NoteUnchangedRetranscription, noteID: UUID) {
+        guard (try? pipelineHistoryStore.setUnchangedRetranscription(marker, id: noteID)) != nil else { return }
+        unchangedRetranscriptions[noteID] = marker
+    }
+
+    /// Ends the "same transcript" notice on every device: dismissed, or a new
+    /// retry started, or the transcript edited. The store decides whether
+    /// there is one to end, so a marker that just arrived from another
+    /// device is ended too. If the store can't save it, the notice stays,
+    /// as it does on the other devices.
+    @MainActor
+    private func clearUnchangedRetranscription(noteID: UUID) {
+        guard (try? pipelineHistoryStore.clearUnchangedRetranscription(id: noteID)) != nil else { return }
         unchangedRetranscriptions.removeValue(forKey: noteID)
     }
 
@@ -2772,9 +2793,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// New transcripts from a retry, waiting to be compared (#457).
     @Published private(set) var transcriptionCandidates: [UUID: String] = [:]
     /// Notes whose retry gave the same transcript and was saved without a
-    /// comparison, with the transcript it saved. The Note Browser says so
-    /// while the note still shows that transcript, until dismissed or retried.
-    @Published private(set) var unchangedRetranscriptions: [UUID: String] = [:]
+    /// comparison, on this Mac or another device (#742), with the transcript
+    /// it matched. The Note Browser says so while the note still shows that
+    /// transcript, until dismissed or retried on any device.
+    @Published private(set) var unchangedRetranscriptions: [UUID: NoteUnchangedRetranscription] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     @Published private(set) var unchangedMeetingSummaries: [UUID: Date] = [:]
@@ -6187,7 +6209,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .succeeded(let completion), .fallback(let completion):
                 if completion.transcriptUnchanged,
                    let item = pipelineHistory.first(where: { $0.id == noteID }) {
-                    unchangedRetranscriptions[noteID] = item.displayedTranscript
+                    setUnchangedRetranscription(
+                        .matching(item.displayedTranscript, at: Date()),
+                        noteID: noteID
+                    )
                 }
                 if let transcript = completion.interactiveTranscript {
                     copyRetryTranscriptToPasteboardIfNeeded(transcript)
@@ -6451,6 +6476,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             pipelineHistory = []
             recentlyDeletedNotes = []
             dismissedNoticesByNoteID = [:]
+            unchangedRetranscriptions = [:]
             retryingItemIDs = []
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
@@ -8444,6 +8470,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             pipelineHistory = []
             recentlyDeletedNotes = []
             dismissedNoticesByNoteID = [:]
+            unchangedRetranscriptions = [:]
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(
                     removedAssets,
@@ -9302,6 +9329,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let edit = NoteTranscriptEdit(rawTranscript: item.rawTranscript, edit: text)
         let isCleared = edit.isCleared
         let text = edit.editedTranscript
+        // Editing ends the "same transcript" notice for good, so going back
+        // to that text later doesn't bring it back (#742).
+        if let marker = unchangedRetranscriptions[id],
+           !marker.matches(text.isEmpty ? item.rawTranscript : text) || isCleared {
+            clearUnchangedRetranscription(noteID: id)
+        }
         let replacementSpokenLanguage: SpokenLanguageResolution?
         switch item.spokenLanguage?.source {
         case _ where isCleared:
@@ -9868,7 +9901,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
             ) {
-                unchangedRetranscriptions.removeValue(forKey: item.id)
+                clearUnchangedRetranscription(noteID: item.id)
                 cloudTranscriptionProgressByHistoryID.removeValue(
                     forKey: item.id
                 )
@@ -14350,7 +14383,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let split = RecentlyDeletedPolicy.partition(rows)
         pipelineHistory = split.live
         recentlyDeletedNotes = split.deleted
-        dismissedNoticesByNoteID = pipelineHistoryStore.dismissedNotices()
+        let notices = pipelineHistoryStore.noticeState()
+        dismissedNoticesByNoteID = notices.dismissed
+        if notices.unchanged != unchangedRetranscriptions { unchangedRetranscriptions = notices.unchanged }
     }
 
     @MainActor

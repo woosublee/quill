@@ -31,6 +31,7 @@ struct PipelineHistorySyncStoreTests {
         try testAudioSyncSnapshotsReadEverySyncableNote()
         try testDismissedNoticeIsKeptAndSyncs()
         try testDismissedNoticeFromICloudIsKept()
+        try testUnchangedRetranscriptionIsKeptAndSyncs()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -438,6 +439,57 @@ struct PipelineHistorySyncStoreTests {
         precondition(result == .updated(needsUpload: false))
         precondition(s.dismissedNotices() == [note.id: [NoteDismissedNotices.nothingToCleanUp]])
         precondition(s.syncRecord(id: note.id) == remote, "the record reads back as it came")
+    }
+
+    /// The "same transcript" marker is saved beside the note, stamped,
+    /// reported once, kept across edits and reopening, and a newer clear from
+    /// iCloud ends it (#742).
+    private static func testUnchangedRetranscriptionIsKeptAndSyncs() throws {
+        let url = temporaryStoreURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let key = NoteSyncField.unchangedRetranscription.rawValue
+        let s = PipelineHistoryStore(storeURL: url)
+        s.now = { t0 }
+        let note = makeItem()
+        _ = try s.append(note, maxCount: Int.max)
+        var changes: [PipelineHistoryChange] = []
+        s.onChange = { changes += $0 }
+        s.now = { t0.addingTimeInterval(10) }
+        let marker = NoteUnchangedRetranscription.matching("Synthetic transcript.", at: t0.addingTimeInterval(10))
+        try s.setUnchangedRetranscription(marker, id: note.id)
+        try s.setUnchangedRetranscription(marker, id: note.id)
+        precondition(changes == [.saved(note.id)], "the marker is sent once")
+        precondition(s.unchangedRetranscriptions() == [note.id: marker])
+        let record = s.syncRecord(id: note.id)!
+        precondition(NoteUnchangedRetranscription.decode(record.fields[key]) == marker)
+        precondition(record.clock.stamp(for: .unchangedRetranscription) == t0.addingTimeInterval(10))
+        s.now = { t0.addingTimeInterval(20) }
+        try s.update(note.withCustomTitle("Edited"))
+        try s.dismissNotice(NoteDismissedNotices.nothingToCleanUp, id: note.id)
+        let reopened = PipelineHistoryStore(storeURL: url)
+        precondition(reopened.unchangedRetranscriptions() == [note.id: marker], "kept across edits, other notices, and reopening")
+        precondition(reopened.dismissedNotices() == [note.id: [NoteDismissedNotices.nothingToCleanUp]])
+
+        var remote = reopened.syncRecord(id: note.id)!
+        let cleared = NoteUnchangedRetranscription.cleared(at: t0.addingTimeInterval(60))
+        remote.fields[key] = cleared.value
+        remote.clock = remote.clock.setting(.unchangedRetranscription, to: t0.addingTimeInterval(60))
+        _ = try reopened.applySynced(remote, systemFields: nil)
+        precondition(reopened.unchangedRetranscriptions().isEmpty, "a newer clear from iCloud ends it")
+        precondition(NoteUnchangedRetranscription.decode(reopened.syncRecord(id: note.id)?.fields[key]) == cleared)
+
+        // Clearing writes only when there is a live marker.
+        var cleanChanges: [PipelineHistoryChange] = []
+        reopened.onChange = { cleanChanges += $0 }
+        try reopened.clearUnchangedRetranscription(id: note.id)
+        precondition(cleanChanges.isEmpty, "already cleared: nothing to send")
+        reopened.now = { t0.addingTimeInterval(70) }
+        try reopened.setUnchangedRetranscription(marker, id: note.id)
+        reopened.now = { t0.addingTimeInterval(80) }
+        try reopened.clearUnchangedRetranscription(id: note.id)
+        precondition(cleanChanges == [.saved(note.id), .saved(note.id)])
+        precondition(reopened.unchangedRetranscriptions().isEmpty)
+        precondition(reopened.syncRecord(id: note.id)?.clock.stamp(for: .unchangedRetranscription) == t0.addingTimeInterval(80))
     }
 
     private static func testChangeTagForMissingNoteThrows() {
