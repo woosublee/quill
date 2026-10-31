@@ -107,7 +107,12 @@ otherwise.
   (`NoteToolbarState`, the #690 rules for both apps) and its view
   (`NoteFloatingToolbar`), and the layout helper `QuillWidthClass`, which
   turns a container's width into compact, regular, or wide, so screens lay
-  out by width, never by device model. Each app passes the note's state,
+  out by width, never by device model, and the note layout rules
+  (`QuillNoteLayout`): the window's width and height decide whether the
+  list sits beside the note (wide and not compact height), and the note
+  column's own width decides its side margins, body maximum width, and
+  where the work-status capsule sits. The Mac uses only its list column
+  width; its note column keeps its own margins and centred capsule. Each app passes the note's state,
   its localized strings, and the actions; the views hold no app state and
   run no work.
   Platform differences stay in small `#if os` branches. The Mac's note
@@ -117,7 +122,9 @@ otherwise.
   and hairline tints, the glass and status shadows, the status wash
   opacity, the work-status text styles (a fixed size on the Mac, Dynamic
   Type on iOS), the note toolbar and status progress sizes (a value per
-  platform where they differ), and the width breakpoints (#697).
+  platform where they differ), the note layout sizes (`QuillLayoutSize`:
+  list column, note side margins, body maximum width), and the width
+  breakpoints (#697).
   `Tests/QuillDesignTokensTests.swift` checks them against
   `docs/design-system/tokens.json`; change both together.
   `QuillNoteUI` imports it.

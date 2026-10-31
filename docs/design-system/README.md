@@ -26,7 +26,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 - 강조: `accent`와 그 불투명도(`accent-tint-selected` 8%, `accent-tint-nav` 15%, `accent-stroke-selected` 30%, `accent-highlight` 85%). `Color.blue`를 직접 쓰지 않습니다.
 - 상태: 녹음 `status-recording`, 처리 중 `status-processing`, 완료 `status-done`. 이슈 아이콘은 `issue-warning`, `issue-error`(아이콘 전용, 글자 금지).
 - 오버레이: `overlay-surface` 위 `overlay-text`. 보조는 `overlay-text-muted`(62%), 닫기 원 `overlay-chip`.
-- 네이티브 코드에서는 공통 모듈 `Packages/QuillDesignTokens`의 `QuillSpacing`, `QuillRadius`, `QuillColor`, `QuillShadow`, `QuillControlSize`를 씁니다(토큰 이름 `space-12` = `QuillSpacing.space12`). hex를 직접 쓰지 않습니다. 표의 값은 기본 파랑 강조색 기준의 근사값이고, 코드에서는 `Color.primary`, `.secondary`, `Color(nsColor: .windowBackgroundColor)`와 불투명도를 씁니다. iPhone은 `QuillVisualSystem`의 색 역할을 쓰며, 대응은 **iPhone · iPad › 색 대응**에 있습니다.
+- 네이티브 코드에서는 공통 모듈 `Packages/QuillDesignTokens`의 `QuillSpacing`, `QuillRadius`, `QuillColor`, `QuillShadow`, `QuillControlSize`, `QuillLayoutSize`, `QuillBreakpoint`를 씁니다(토큰 이름 `space-12` = `QuillSpacing.space12`). hex를 직접 쓰지 않습니다. 표의 값은 기본 파랑 강조색 기준의 근사값이고, 코드에서는 `Color.primary`, `.secondary`, `Color(nsColor: .windowBackgroundColor)`와 불투명도를 씁니다. iPhone은 `QuillVisualSystem`의 색 역할을 쓰며, 대응은 **iPhone · iPad › 색 대응**에 있습니다.
 
 ## 글자
 

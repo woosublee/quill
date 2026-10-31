@@ -32,7 +32,7 @@ python3 docs/design-system/tools/gen_components.py docs/design-system
 
 ## Swift 토큰과 맞추기
 
-Mac과 iPhone이 함께 쓰는 Swift 모듈 `Packages/QuillDesignTokens`가 `tokens.json`의 일부를 Swift 값으로 가지고 있습니다(#623). 지금 들어 있는 것은 간격·반경, 색 `issue-warning`·`issue-error`·`stroke-glass`·`fill-toolbar-hover`·`fill-pressed`, 그림자 `shadow-glass`, 크기 `size-note-toolbar`·`size-note-toolbar-button`(`-iphone`)입니다. `Tests/QuillDesignTokensTests.swift`가 두 파일을 비교하므로, 토큰을 더하거나 바꾸면 양쪽을 함께 고칩니다(`make check`에서 실패로 드러남).
+Mac과 iPhone이 함께 쓰는 Swift 모듈 `Packages/QuillDesignTokens`가 `tokens.json`의 일부를 Swift 값으로 가지고 있습니다(#623). 지금 들어 있는 것은 간격·반경, 색 `issue-warning`·`issue-error`·`stroke-glass`·`fill-toolbar-hover`·`fill-pressed`, 그림자 `shadow-glass`, 크기 `size-note-toolbar`·`size-note-toolbar-button`(`-iphone`), 노트 배치 크기 `size-sidebar-notes`·`size-note-margin-compact`·`size-note-margin-regular`·`size-note-body-max-width`(`QuillLayoutSize`, #697), 폭 경계 `breakpoint-regular`·`breakpoint-wide` 등입니다. `Tests/QuillDesignTokensTests.swift`가 두 파일을 비교하므로, 토큰을 더하거나 바꾸면 양쪽을 함께 고칩니다(`make check`에서 실패로 드러남).
 
 - 이름은 두 앱이 같이 쓰고, 플랫폼마다 값이 다르면 `-iphone` 토큰을 따로 둡니다(예: 툴바 버튼 macOS 36, iPhone 44).
 - 공통 노트 툴바(`QuillNoteUI`)는 이 모듈의 값을 씁니다. 다른 색과 그림자는 그 값을 쓰는 화면을 옮길 때 같은 방식으로 추가합니다.

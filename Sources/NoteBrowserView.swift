@@ -1582,7 +1582,7 @@ struct NoteBrowserView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, selection.showsSelectionUI ? 16 : 72)
         }
-        .frame(width: 280)
+        .frame(width: QuillNoteLayout.listColumnWidth)
         .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
         .overlay(alignment: .trailing) {
             Rectangle()
