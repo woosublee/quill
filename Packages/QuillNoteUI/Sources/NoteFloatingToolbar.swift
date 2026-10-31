@@ -283,9 +283,21 @@ struct NoteToolbarIconButton<Label: View>: View {
         #endif
         .accessibilityLabel(Text(label))
         .modifier(NoteToolbarHint(hint: hint))
+        #if os(macOS)
+        // As before #698: the pointer can't fall through to the transcript
+        // between the buttons.
+        .contentShape(Circle())
+        .allowsHitTesting(true)
+        #endif
         .onHover { hovering in
             isHovered = hovering && isEnabled
         }
+        #if os(macOS)
+        // Each button needs an AppKit view of its own for its help tag to
+        // show over the transcript's text view, as before #698. The
+        // toolbar-wide override already answers the text view's lookup.
+        .background(CursorView(cursor: .arrow, isInLookup: false))
+        #endif
     }
 }
 

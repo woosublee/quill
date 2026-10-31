@@ -67,6 +67,124 @@ struct QuillUserIssueUIContractTests {
             source.contains("ViewThatFits(in: .horizontal)"),
             "the one-line banner hides a reason that would be cut off"
         )
+        try testBannersReadDesignTokens(source)
+    }
+
+    /// Banners, the info notice, and inline issue rows draw from
+    /// QuillDesignTokens instead of literals (#736 step 3). Each view is
+    /// checked on its own block so one view going back to literals fails.
+    private static func testBannersReadDesignTokens(_ source: String) throws {
+        let surface = block(source, from: "func quillBannerBackground() -> some View {", to: "struct QuillStatusBanner: View")
+        for marker in [
+            ".fill(QuillColor.fillBanner.color(for: colorScheme))",
+            ".strokeBorder(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)",
+            ".quillShadow(.banner)",
+            "background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))",
+        ] {
+            try expect(surface.contains(marker), "banner surface reads the token \(marker)")
+        }
+        let views: [(name: String, from: String, to: String, markers: [String])] = [
+            ("issue banner", "private var bannerView: some View {", "/// A compact box inside a settings form.", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)",
+                ".background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))",
+            ]),
+            ("inline issue row", "private var inlineView: some View {", "@ViewBuilder\n    private var dismissButton", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)",
+                ".background(QuillBannerSurface(cornerRadius: QuillRadius.radius8))",
+            ]),
+            ("row button", "private struct QuillBannerButtonSurface: View", "struct QuillInfoNotice: View", [
+                "RoundedRectangle(cornerRadius: QuillRadius.radius6)",
+                ".strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)",
+            ]),
+            ("info notice", "struct QuillInfoNotice: View", "extension View {", [
+                ".quillTextStyle(.callout)", "HStack(spacing: QuillSpacing.space6)",
+            ]),
+            ("status banner", "struct QuillStatusBanner: View", "/// Lets the first banner", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)", ".quillBannerBackground()",
+            ]),
+        ]
+        for view in views {
+            let body = block(source, from: view.from, to: view.to)
+            for marker in view.markers {
+                try expect(body.contains(marker), "\(view.name) reads the token \(marker)")
+            }
+            for literal in [
+                ".font(.system(size: 12))",
+                ".font(.system(size: 12, weight: .semibold))",
+                "Color.primary.opacity(0.045)",
+                "radius: 1.5",
+                "cornerRadius: 9",
+                "cornerRadius: 8",
+                "cornerRadius: 6",
+            ] {
+                try expect(!body.contains(literal), "\(view.name) no longer writes \(literal)")
+            }
+        }
+    }
+
+    /// Empty and issue states draw their disc, type, and spacing from
+    /// QuillDesignTokens instead of literals (#736 step 4). Each state is
+    /// checked on its own block so one going back to literals fails.
+    private static func testEmptyStatesReadDesignTokens(
+        _ issueView: String,
+        _ noteBrowser: String
+    ) throws {
+        let disc = block(noteBrowser, from: "private struct EmptyStateDisc: View {", to: "private struct RecordingElapsedTitle: View {")
+        for marker in [
+            "var size: CGFloat = QuillControlSize.emptyDisc",
+            ".fill(QuillColor.fillEmptyDisc.color(for: colorScheme))",
+            "Circle().stroke(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)",
+            "style: StrokeStyle(lineWidth: 1, dash: [4])",
+        ] {
+            try expect(disc.contains(marker), "empty-state disc reads the token \(marker)")
+        }
+        let states: [(name: String, source: String, from: String, to: String, markers: [String])] = [
+            ("issue page", issueView, "private var fullView: some View {", "private var bannerView: some View {", [
+                ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                "VStack(spacing: QuillSpacing.space8)", "HStack(spacing: QuillSpacing.space6)",
+            ]),
+            ("list empty state", noteBrowser, "private var emptyListState: some View {", "// MARK: - Detail", [
+                ".quillTextStyle(.callout)", ".padding(.horizontal, QuillSpacing.space20)",
+            ]),
+            ("no search results", noteBrowser, "private var emptyDetailNoSearchResults: some View {", "private var emptyDetailNoSelection: some View {", [
+                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                "VStack(spacing: QuillSpacing.space12)",
+            ]),
+            ("no selection", noteBrowser, "private var emptyDetailNoSelection: some View {", "private var emptyDetailNoRecordings: some View {", [
+                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                "VStack(spacing: QuillSpacing.space12)",
+            ]),
+            ("no recordings", noteBrowser, "private var emptyDetailNoRecordings: some View {", "// MARK: - Horizontally Scrollable Title Field", [
+                "EmptyStateDisc(size: 96, edge: .dashed)", "VStack(spacing: QuillSpacing.space14)",
+            ]),
+            ("note empty content", noteBrowser, "private var emptyContentState: some View {", "private var emptyTranscriptPlaceholder: some View {", [
+                ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                "width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc",
+                ".padding(.horizontal, QuillSpacing.space60)", "VStack(spacing: QuillSpacing.space14)",
+            ]),
+            ("empty transcript", noteBrowser, "private var emptyTranscriptPlaceholder: some View {", "private var noContentLabel: some View {", [
+                ".quillTextStyle(.callout)", "VStack(spacing: QuillSpacing.space14)",
+            ]),
+            ("no content label", noteBrowser, "private var noContentLabel: some View {", "private func unrecoveredRecordingState(", [
+                "EmptyStateDisc(edge: .none)", "VStack(spacing: QuillSpacing.space14)",
+            ]),
+        ]
+        for state in states {
+            let body = block(state.source, from: state.from, to: state.to)
+            for marker in state.markers {
+                try expect(body.contains(marker), "\(state.name) reads the token \(marker)")
+            }
+            for literal in [
+                ".font(.system(size: 15, weight: .semibold))",
+                ".font(.system(size: 12))",
+                "Color.primary.opacity(0.04)",
+                "Color.primary.opacity(0.08)",
+                "width: 80, height: 80",
+                ".padding(.horizontal, 60)",
+            ] {
+                try expect(!body.contains(literal), "\(state.name) no longer writes \(literal)")
+            }
+        }
     }
 
     /// Empty and issue states draw their disc, type, and spacing from

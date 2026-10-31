@@ -22324,6 +22324,22 @@
         }
       }
     },
+    "You can't withdraw while recording or transcribing. Try again when it finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't withdraw while recording or transcribing. Try again when it finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음하거나 전사하는 동안에는 철회할 수 없어요. 끝난 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
     "Nothing more goes to %@.": {
       "localizations": {
         "en": {

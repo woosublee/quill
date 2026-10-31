@@ -13,6 +13,8 @@ struct CloudConsentTests {
             try targetsFollowTheTranscriptionFallback()
             try unconsentedTargetsListEachNewProvider()
             try withdrawalClearsEveryKeyThatGoesThere()
+            try clearingAKeyWithdrawsItsAgreedProvider()
+            try clearingAKeySavedBeforeConsentOnlyDeletesIt()
             try displayNameShowsAnythingButPlainHTTPS()
             try anUnreadableTranscriptionKeyDoesNotFallBack()
             try keysNeverPrint()
@@ -136,6 +138,126 @@ struct CloudConsentTests {
         )
     }
 
+    /// #723: clearing a key that goes to an agreed provider withdraws that
+    /// provider, the same withdrawal as Withdraw, so saving it again asks.
+    static func clearingAKeyWithdrawsItsAgreedProvider() throws {
+        let mainOrigin = "https://api.example-cloud.test"
+        let otherOrigin = "https://transcribe.example-voice.test"
+        var ledger = CloudConsentLedger()
+        ledger.grant(forBaseURL: mainURL)
+        ledger.grant(forBaseURL: otherURL)
+
+        // The main key on its own.
+        var settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        let main = settings.consentedTarget(forClearing: .main, in: ledger)
+        try expect(main?.origin == mainOrigin, "clearing the main key withdraws the main provider")
+        try expect(settings.consentedTarget(forClearing: .transcription, in: ledger) == nil, "no transcription key, nothing to clear")
+        try expect(settings.withdrawal(forOrigin: mainOrigin) == .init(clearsAPIKey: true), "the main key is cleared")
+
+        // After the withdrawal, saving the key again asks again.
+        ledger.revoke(forBaseURL: mainURL)
+        settings.apiKey = ""
+        try expect(settings.targets.isEmpty, "nothing goes anywhere once it's cleared")
+        settings.apiKey = "sk-main"
+        try expect(settings.unconsented(in: ledger).map(\.origin) == [mainOrigin], "saving the key again asks again")
+        ledger.grant(forBaseURL: mainURL)
+
+        // Two keys for one provider (the owner's 2026-10-31 decision):
+        // clearing either one only deletes it, and consent stays for the
+        // other; Withdraw still clears both.
+        let shared = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
+        for field in [CloudConsentTargets.KeyField.main, .transcription] {
+            try expect(
+                shared.consentedTarget(forClearing: field, in: ledger) == nil,
+                "\(field) on the shared provider is only deleted; the other key keeps consent"
+            )
+        }
+        try expect(
+            shared.withdrawal(forOrigin: mainOrigin)
+                == .init(clearsAPIKey: true, clearsTranscriptionAPIKey: true),
+            "Withdraw is per provider, so it clears both keys"
+        )
+        let samePathless = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "https://api.example-cloud.test/other/v1", transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
+        try expect(
+            samePathless.consentedTarget(forClearing: .transcription, in: ledger) == nil,
+            "another path on the same origin is the same provider, so the main key keeps it"
+        )
+        try expect(
+            samePathless.consentedTarget(forClearing: .main, in: ledger) == nil,
+            "and the transcription key keeps it when the main key is cleared"
+        )
+        // An unreadable other key still goes there once it can be read.
+        let unreadableMain = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", apiKeyIsUnreadable: true, transcriptionAPIURL: "", transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
+        try expect(
+            unreadableMain.consentedTarget(forClearing: .transcription, in: ledger) == nil,
+            "an unreadable main key still keeps its provider's consent"
+        )
+
+        // Clearing both, one after the other: the first only deletes its
+        // key, the last one withdraws, whichever goes first.
+        for first in [CloudConsentTargets.KeyField.main, .transcription] {
+            var both = shared
+            switch first {
+            case .main: both.apiKey = ""
+            case .transcription: both.transcriptionAPIKey = ""
+            }
+            let last: CloudConsentTargets.KeyField = first == .main ? .transcription : .main
+            try expect(
+                both.consentedTarget(forClearing: last, in: ledger)?.origin == mainOrigin,
+                "clearing the last key after \(first) withdraws the provider"
+            )
+            try expect(
+                both.withdrawal(forOrigin: mainOrigin)
+                    == .init(clearsAPIKey: last == .main, clearsTranscriptionAPIKey: last == .transcription),
+                "and clears only that last key"
+            )
+        }
+
+        // A separate transcription provider: its key, and its URL so the
+        // main key doesn't start going there. The main key falling back to
+        // that URL once the transcription key is gone doesn't count as
+        // another key going there.
+        let separate = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
+        try expect(separate.consentedTarget(forClearing: .transcription, in: ledger)?.origin == otherOrigin, "the transcription key's provider")
+        try expect(separate.consentedTarget(forClearing: .main, in: ledger)?.origin == mainOrigin, "the main key's provider, not the transcription one")
+        try expect(!separate.otherKeyStillGoes(to: otherOrigin, afterClearing: .transcription), "the main key only falls back there")
+        try expect(!separate.otherKeyStillGoes(to: mainOrigin, afterClearing: .main), "the transcription key goes elsewhere")
+        try expect(shared.otherKeyStillGoes(to: mainOrigin, afterClearing: .transcription), "the main key goes there on its own")
+        try expect(shared.otherKeyStillGoes(to: mainOrigin, afterClearing: .main), "so does the transcription key")
+        try expect(
+            separate.withdrawal(forOrigin: otherOrigin) == .init(clearsTranscriptionAPIKey: true, clearsTranscriptionAPIURL: true),
+            "clearing the transcription key clears its URL too"
+        )
+        try expect(separate.withdrawal(forOrigin: mainOrigin) == .init(clearsAPIKey: true), "clearing the main key leaves transcription's own pair")
+
+        // The main key falling back to a separate transcription URL: clearing
+        // it withdraws the main provider; the main key stops going anywhere.
+        let fallback = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        try expect(fallback.consentedTarget(forClearing: .main, in: ledger)?.origin == mainOrigin, "the main key's own provider")
+        try expect(fallback.consentedTarget(forClearing: .transcription, in: ledger) == nil, "transcription has no key of its own to clear")
+    }
+
+    static func clearingAKeySavedBeforeConsentOnlyDeletesIt() throws {
+        let empty = CloudConsentLedger()
+        let separate = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "sk-voice", transcriptionAPIKeyIsUnreadable: false)
+        try expect(separate.consentedTarget(forClearing: .main, in: empty) == nil, "a main key saved before consent is only deleted")
+        try expect(separate.consentedTarget(forClearing: .transcription, in: empty) == nil, "a transcription key saved before consent is only deleted")
+
+        var onlyOther = CloudConsentLedger()
+        onlyOther.grant(forBaseURL: otherURL)
+        try expect(separate.consentedTarget(forClearing: .main, in: onlyOther) == nil, "another provider's consent doesn't count")
+        try expect(separate.consentedTarget(forClearing: .transcription, in: onlyOther)?.baseURL == otherURL, "its own provider's does")
+
+        var agreed = CloudConsentLedger()
+        agreed.grant(forBaseURL: mainURL)
+        let unreadable = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", apiKeyIsUnreadable: true, transcriptionAPIURL: "", transcriptionAPIKey: "  ", transcriptionAPIKeyIsUnreadable: true)
+        try expect(unreadable.consentedTarget(forClearing: .main, in: agreed) == nil, "an unreadable key's empty field clears nothing; Withdraw does")
+        try expect(unreadable.consentedTarget(forClearing: .transcription, in: agreed) == nil, "a blank field clears nothing")
+
+        let noOrigin = CloudConsentTargets(apiBaseURL: "not a url", apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        try expect(noOrigin.consentedTarget(forClearing: .main, in: agreed) == nil, "a key that goes nowhere is only deleted")
+    }
+
     static func displayNameShowsAnythingButPlainHTTPS() throws {
         func name(_ url: String) -> String? {
             CloudConsentTargets(apiBaseURL: url, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
@@ -215,6 +337,10 @@ struct CloudConsentTests {
 
     static func copyKeysAreStable() throws {
         try expect(CloudConsentCopy.titleFormatKey == "Send to %@?", "title key")
+        try expect(
+            CloudConsentCopy.withdrawBusyKey == "You can't withdraw while recording or transcribing. Try again when it finishes.",
+            "the busy key matches both apps' catalogs"
+        )
         try expect(
             CloudConsentCopy.bodyKey(mentionsScreenContext: true).contains("screen context"),
             "the Mac's copy mentions screen context"
