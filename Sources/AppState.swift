@@ -711,7 +711,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// What clearing a key in Settings does (#723).
     enum CloudConsentKeyClear: Equatable {
-        /// A key saved before consent: only deleted, as before.
+        /// Only that key is deleted: one saved before consent, as before, or
+        /// one whose provider the other key still goes to, which keeps
+        /// consent and its key.
         case delete
         /// The key goes to an agreed provider: the same withdrawal as
         /// Withdraw, after the same confirmation.

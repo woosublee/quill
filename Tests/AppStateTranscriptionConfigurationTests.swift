@@ -376,16 +376,28 @@ struct AppStateTranscriptionConfigurationTests {
         again.apiKey = "sk-synthetic-main"
         precondition(again.unconsented(in: appState.cloudConsent).map(\.baseURL) == [mainURL], "saving it again asks again")
 
-        // Two keys for one provider: clearing the transcription key clears both.
+        // Two keys for one provider (the owner's 2026-10-31 decision):
+        // clearing the transcription key deletes only it; the main key and
+        // consent stay. Clearing the main key after it, the last key there,
+        // withdraws.
         appState.apiKey = "sk-synthetic-main"
         appState.transcriptionAPIKey = "sk-synthetic-voice"
         appState.grantCloudConsent(forBaseURL: mainURL)
-        guard case .withdraw(let shared) = appState.cloudConsentKeyClear(.transcription) else {
-            preconditionFailure("the transcription key goes to the agreed main provider")
+        precondition(appState.cloudConsentKeyClear(.transcription) == .delete, "the main key still goes there")
+        precondition(appState.cloudConsentKeyClear(.main) == .delete, "the transcription key still goes there")
+        appState.isRecording = true
+        precondition(appState.cloudConsentKeyClear(.transcription) == .delete, "nothing is withdrawn, so recording doesn't block it")
+        appState.isRecording = false
+        appState.transcriptionAPIKey = ""
+        precondition(credentialStore.load(account: CredentialStore.transcriptionAPIKeyAccount) == nil, "the cleared key is deleted")
+        precondition(appState.apiKey == "sk-synthetic-main", "the main key stays")
+        precondition(credentialStore.load(account: CredentialStore.providerAPIKeyAccount) != nil, "and stays in the Keychain")
+        precondition(appState.cloudConsent.hasConsent(forBaseURL: mainURL), "consent stays")
+        guard case .withdraw(let last) = appState.cloudConsentKeyClear(.main) else {
+            preconditionFailure("the last key there withdraws its provider")
         }
-        precondition(appState.withdrawCloudConsent(for: shared) == .withdrawn)
-        precondition(appState.apiKey.isEmpty && appState.transcriptionAPIKey.isEmpty, "both keys are cleared")
-        precondition(credentialStore.load(account: CredentialStore.transcriptionAPIKeyAccount) == nil)
+        precondition(appState.withdrawCloudConsent(for: last) == .withdrawn)
+        precondition(appState.apiKey.isEmpty && !appState.cloudConsent.hasConsent(forBaseURL: mainURL))
 
         // A separate transcription provider: its key and URL go, the main pair stays.
         appState.apiKey = "sk-synthetic-main"

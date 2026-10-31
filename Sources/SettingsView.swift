@@ -2046,7 +2046,21 @@ struct ModelsSettingsView: View {
         let typedURL = transcriptionAPIURLInput
         let keepsTypedURL = prompt.clearedField == .transcription
             && typedURL.trimmingCharacters(in: .whitespacesAndNewlines) != appState.transcriptionAPIURL
-        let result = appState.withdrawCloudConsent(for: prompt.target)
+        // A key saved for the same provider while the confirmation was up
+        // keeps its consent: only the cleared key goes, never the new one.
+        let result: AppState.CloudConsentWithdrawResult
+        if let field = prompt.clearedField,
+           appState.cloudConsentTargets.otherKeyStillGoes(to: prompt.target.origin, afterClearing: field) {
+            switch field {
+            case .main: appState.apiKey = ""
+            case .transcription: appState.transcriptionAPIKey = ""
+            }
+            // Done as the confirmation asked, so a URL saved with the key
+            // is saved below too.
+            result = .withdrawn
+        } else {
+            result = appState.withdrawCloudConsent(for: prompt.target)
+        }
         if result == .refusedWhileBusy {
             // Recording or transcribing started while the confirmation was
             // up: the message goes where the withdrawal was asked for.
@@ -2067,19 +2081,19 @@ struct ModelsSettingsView: View {
         }
     }
 
-    /// Clearing a key that goes to an agreed provider withdraws that provider,
-    /// as Withdraw does (#723): the same confirmation, refused while recording
-    /// or transcribing, and every key that goes there is cleared. Saving the
-    /// key again asks again. Returns false for a key saved before consent,
-    /// which the caller only deletes, as before.
+    /// Clearing the last key that goes to an agreed provider withdraws that
+    /// provider, as Withdraw does (#723): the same confirmation, refused
+    /// while recording or transcribing. Saving the key again asks again.
+    /// Returns false when the caller only deletes this key: one saved before
+    /// consent, as before, or one whose provider the other key still goes
+    /// to, which keeps consent and its key.
     private func withdrawConsentIfClearing(
         _ field: CloudConsentTargets.KeyField,
         transcriptionURLToSave: String? = nil
     ) -> Bool {
         switch appState.cloudConsentKeyClear(field) {
         case .delete:
-            // A key saved before consent is deleted as before, even with a
-            // confirmation up.
+            // Only this key is deleted, even with a confirmation up.
             return false
         case _ where cloudConsentWithdrawal != nil:
             // This field's confirmation is already up and handles it (the key
