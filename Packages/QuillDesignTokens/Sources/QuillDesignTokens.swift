@@ -158,6 +158,16 @@ public enum QuillColor {
         light: Tint(base: .primary, opacity: 0.08),
         dark: Tint(base: .white, opacity: 0.07)
     )
+    /// `stroke-hover`: a note list row's edge under the pointer (0.5 pt).
+    public static let strokeHover = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .white, opacity: 0.07)
+    )
+    /// `fill-badge`: a note list row's badge ("Summary", "Audio only").
+    public static let fillBadge = SchemeTint(
+        light: Tint(base: .primary, opacity: 0.08),
+        dark: Tint(base: .primary, opacity: 0.08)
+    )
     /// `stroke-selected`: the open note row's edge (0.6 pt).
     public static let strokeSelected = SchemeTint(
         light: Tint(base: .primary, opacity: 0.12),
@@ -212,6 +222,8 @@ public enum QuillColor {
         ("fill-hover", fillHover),
         ("fill-selected", fillSelected),
         ("stroke-selected", strokeSelected),
+        ("stroke-hover", strokeHover),
+        ("fill-badge", fillBadge),
         ("fill-empty-disc", fillEmptyDisc),
         ("record-ring", recordRing),
         ("accent-tint-selected", accentTintSelected),

@@ -119,7 +119,7 @@ otherwise.
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
   (#623): spacing and radius scales, the issue colors, the tints (glass,
-  toolbar, hairline, banner, chip, row hover and selection, empty disc,
+  toolbar, hairline, banner, chip, row hover, selection and badge, empty disc,
   record ring, and the accent tints), the glass, status, banner, record,
   and selected-row shadows (the last one per appearance), the status wash
   opacity, the text styles (note title, transcript, row, banner, meta
