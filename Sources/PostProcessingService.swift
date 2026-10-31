@@ -288,7 +288,8 @@ Behavior:
         customVocabulary: String,
         customSystemPrompt: String = "",
         outputLanguage: String = "",
-        spokenLanguage: SpokenLanguageResolution? = nil
+        spokenLanguage: SpokenLanguageResolution? = nil,
+        progress: (@Sendable (_ completed: Int, _ total: Int) -> Void)? = nil
     ) async throws -> PostProcessingResult {
         let vocabularyTerms = mergedVocabularyTerms(rawVocabulary: customVocabulary)
         let expectedSourceLanguage = AIOutputLanguageValidator.expectedSourceLanguage(
@@ -303,7 +304,8 @@ Behavior:
             customVocabulary: vocabularyTerms,
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
-            expectedSourceLanguage: expectedSourceLanguage
+            expectedSourceLanguage: expectedSourceLanguage,
+            progress: progress
         )
     }
 
@@ -339,7 +341,8 @@ Behavior:
         customVocabulary: [String],
         customSystemPrompt: String = "",
         outputLanguage: String = "",
-        expectedSourceLanguage: String?
+        expectedSourceLanguage: String?,
+        progress: (@Sendable (_ completed: Int, _ total: Int) -> Void)? = nil
     ) async throws -> PostProcessingResult {
         try await runWithFallback(
             passthrough: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -353,7 +356,8 @@ Behavior:
                     customVocabulary: customVocabulary,
                     customSystemPrompt: customSystemPrompt,
                     outputLanguage: outputLanguage,
-                    expectedSourceLanguage: expectedSourceLanguage
+                    expectedSourceLanguage: expectedSourceLanguage,
+                    progress: progress
                 )
             }
         }
@@ -641,7 +645,8 @@ Behavior:
         customVocabulary: [String],
         customSystemPrompt: String = "",
         outputLanguage: String = "",
-        expectedSourceLanguage: String?
+        expectedSourceLanguage: String?,
+        progress: (@Sendable (_ completed: Int, _ total: Int) -> Void)? = nil
     ) async throws -> PostProcessingResult {
         let result = try await PostProcessingChunkRunner(
             instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
@@ -652,7 +657,8 @@ Behavior:
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
-            requester: EndpointCleanupRequester(service: self, endpoint: endpoint)
+            requester: EndpointCleanupRequester(service: self, endpoint: endpoint),
+            progress: progress
         )
         let model = endpoint.selectedModelID
         return PostProcessingResult(

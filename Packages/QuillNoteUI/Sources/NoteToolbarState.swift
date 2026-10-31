@@ -11,14 +11,17 @@ public enum NoteToolbarTab: Equatable, Sendable {
 }
 
 /// The transcription work running for the note.
-public enum NoteToolbarWork: Equatable, Sendable {
+public enum NoteToolbarWork: Equatable, CaseIterable, Sendable {
     case none
     case waitingToTranscribe
     /// A first transcription.
     case transcribing
     case retranscribing
     case cancelling
-    /// Cleaning up the transcript, or waiting to.
+    /// The transcript waits for the cleanup model (the iPhone); it can be
+    /// cancelled like post-processing.
+    case waitingToPostProcess
+    /// Cleaning up the transcript (on the Mac, also while it waits).
     case postProcessing
 
     /// Any transcription work, including cancelling and post-processing.
@@ -36,7 +39,7 @@ public enum NoteToolbarTranscriptAction: Equatable, Sendable {
 }
 
 /// What the first slot does when pressed.
-public enum NoteToolbarFirstAction: Equatable, Sendable {
+public enum NoteToolbarFirstAction: Equatable, CaseIterable, Sendable {
     case transcribe
     case retry
     case retranscribe
@@ -204,7 +207,7 @@ public struct NoteToolbarState: Equatable, Sendable {
             cancel = .cancelTranscription
         case .retranscribing:
             cancel = .cancelRetranscription
-        case .postProcessing:
+        case .waitingToPostProcess, .postProcessing:
             cancel = .cancelPostProcessing
         case .none:
             guard let action = input.transcriptAction else { return .none }

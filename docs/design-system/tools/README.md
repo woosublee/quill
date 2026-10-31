@@ -35,7 +35,7 @@ python3 docs/design-system/tools/gen_components.py docs/design-system
 Mac과 iPhone이 함께 쓰는 Swift 모듈 `Packages/QuillDesignTokens`가 `tokens.json`의 일부를 Swift 값으로 가지고 있습니다(#623). 지금 들어 있는 것은 다음과 같습니다.
 
 - 간격·반경 단계 전부(`space-32`, `radius-16`, `radius-20`은 #736에서 추가).
-- 색 `issue-warning`·`issue-error`, 틴트 `stroke-glass`·`fill-toolbar-hover`·`fill-pressed`·`hairline-strong`·`hairline`·`fill-banner`·`fill-chip`·`fill-hover`·`fill-selected`·`stroke-selected`·`fill-empty-disc`·`record-ring`·`accent-tint-selected`·`accent-stroke-selected`·`accent-tint-arrived`·`accent-tint-nav`·`accent-highlight`(`QuillColor`).
+- 색 `issue-warning`·`issue-error`·`surface-note`·`surface-page-iphone`, 틴트 `stroke-glass`·`fill-toolbar-hover`·`fill-pressed`·`hairline-strong`·`hairline`·`fill-banner`·`fill-chip`·`fill-hover`·`fill-selected`·`stroke-selected`·`fill-empty-disc`·`record-ring`·`accent-tint-selected`·`accent-stroke-selected`·`accent-tint-arrived`·`accent-tint-nav`·`accent-highlight`(`QuillColor`).
 - 그림자 `shadow-glass`·`shadow-status`·`shadow-banner`·`shadow-record`, 라이트·다크 값이 다른 `shadow-row-selected`(`QuillShadow`, `QuillSchemeShadow`).
 - 불투명도 `opacity-status-wash`.
 - 글자 `note-title`·`empty-title`·`row-title`·`transcript`·`callout`·`row-preview`·`banner-title`·`meta-label`·`badge-label`·`meta-mono`·`meta-chip-mono`·`status-title`·`status-percent`·`status-detail`(`QuillTypeStyle`: macOS는 고정 크기, iOS는 Dynamic Type. 메타 줄 두 스타일은 iOS에서도 macOS 크기에서 `.caption2` 기준으로 커짐. 자간이 플랫폼마다 다르면 `letterSpacingIphone`. 화면에서는 `quillTextStyle(_:)`로 그림).

@@ -107,6 +107,9 @@ public struct PostProcessingChunkRunner: Sendable {
         self.tokenCounter = tokenCounter
     }
 
+    /// `progress` reports chunks done out of the chunk count: 0 of N once
+    /// the transcript is split, then after each chunk (#697). A re-asked
+    /// chunk counts once.
     public func run(
         transcript: String,
         contextSummary: String,
@@ -114,7 +117,8 @@ public struct PostProcessingChunkRunner: Sendable {
         customSystemPrompt: String,
         outputLanguage: String,
         expectedSourceLanguage: String?,
-        requester: any PostProcessingChunkRequesting
+        requester: any PostProcessingChunkRequesting,
+        progress: (@Sendable (_ completed: Int, _ total: Int) -> Void)? = nil
     ) async throws -> PostProcessingChunkResult {
         let inputs = PromptInputs(
             contextSummary: contextSummary,
@@ -175,6 +179,7 @@ public struct PostProcessingChunkRunner: Sendable {
             chunks = counted
         }
 
+        progress?(0, chunks.count)
         var combinedTranscript = ""
         var hasKeptChunk = false
         // The separator since the last kept chunk; a dropped chunk's blank
@@ -221,6 +226,7 @@ public struct PostProcessingChunkRunner: Sendable {
                 pendingSeparator = ""
             }
             prompts.append(result.prompt)
+            progress?(index + 1, chunks.count)
         }
 
         let parsedVocabulary = CustomVocabularyParser.parseEntries(customVocabulary)

@@ -388,6 +388,9 @@ class TranscriptionService {
             )
         }
 
+        // Local AI always transcribes in chunks, so it reports progress.
+        cloudExecutionContext?.progress(.preparing)
+
         let prepared: NativeWhisperExecutionSnapshot.PreparedAudio
         do {
             prepared = try await execution.prepareAudio(fileURL)
@@ -841,6 +844,15 @@ class TranscriptionService {
     private func transcribeLargeConvertedImport(
         fileURL: URL
     ) async throws -> TranscriptionResult {
+        // Audio the system can't open (for example WebM) can't be cut; it
+        // goes in one request, as before, so it reports no progress.
+        guard (try? AVAudioFile(forReading: fileURL)) != nil else {
+            return try await transcribeInSingleCloudRequest(fileURL: fileURL)
+        }
+        // Chunked: progress will come once the audio is converted and
+        // planned, so the bar shows from the start like a large WAV (#697).
+        reportCloudProgress(.preparing)
+
         // The live temporary root is the folder the job store empties at
         // launch, so a copy left by a crash is removed then.
         let workDirectory = cloudDependencies.temporaryRoot
@@ -861,8 +873,8 @@ class TranscriptionService {
             prepared = try await cloudDependencies.audioPreparation
                 .prepareForNativeWhisper(fileURL, outputDirectory: workDirectory)
         } catch AudioImportConversionError.unreadableAudio {
-            // The system can't decode it (for example WebM), so it can't be
-            // cut; it goes in one request, as before.
+            // The system can't decode it after all, so it can't be cut; it
+            // goes in one request, as before.
             return try await transcribeInSingleCloudRequest(fileURL: fileURL)
         } catch {
             throw cloudAudioPreparationFailure(error)
@@ -892,6 +904,10 @@ class TranscriptionService {
         )
     }
 
+    private func reportCloudProgress(_ progress: CloudTranscriptionProgress) {
+        (cloudExecutionContext?.progress ?? cloudDependencies.progress)(progress)
+    }
+
     private func cloudAudioPreparationFailure(_ error: Error) -> Error {
         if error is CancellationError || error is QuillUserIssueError {
             return error
@@ -912,6 +928,11 @@ class TranscriptionService {
         fileURL: URL,
         convertedFrom: CloudTranscriptionConvertedSource? = nil
     ) async throws -> TranscriptionResult {
+        // Chunked: progress will come once the audio is read and planned.
+        // A converted import already said so before converting.
+        if convertedFrom == nil {
+            reportCloudProgress(.preparing)
+        }
         let sourceLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
         var sourceIdentity = try CloudTranscriptionSourceIdentityBuilder.make(
             fileURL: fileURL,
