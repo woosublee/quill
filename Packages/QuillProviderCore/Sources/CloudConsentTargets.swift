@@ -73,6 +73,66 @@ public struct CloudConsentTargets: Equatable, Sendable {
         }
     }
 
+    /// A key field a person can clear in settings.
+    public enum KeyField: Equatable, Sendable {
+        /// The main key, which goes to the API base URL.
+        case main
+        /// Transcription's own key, which goes to the transcription URL (or
+        /// the main URL when that is empty).
+        case transcription
+    }
+
+    /// The provider whose consent clearing `field`'s key withdraws (#723),
+    /// the same on both apps: where that key goes, when that provider has
+    /// consent and no other key goes there. Clearing such a key runs the
+    /// same withdrawal as Withdraw (`withdrawal(forOrigin:)`), so saving it
+    /// again asks again.
+    ///
+    /// Nil when there's nothing to withdraw, and the key is then only
+    /// deleted:
+    /// - the field has no saved key (an unreadable key can't be cleared from
+    ///   its empty field; Withdraw clears it);
+    /// - the key goes nowhere;
+    /// - its provider was never agreed to (a key saved before consent
+    ///   existed);
+    /// - the other key still goes to that provider on its own settings (the
+    ///   owner's 2026-10-31 decision): consent stays for it, and that key is
+    ///   never deleted with this one. Clearing the last key that goes there
+    ///   withdraws it, so clearing both, one after the other, withdraws once.
+    public func consentedTarget(
+        forClearing field: KeyField,
+        in ledger: CloudConsentLedger
+    ) -> Target? {
+        let baseURL: String
+        switch field {
+        case .main:
+            guard !Self.isBlank(apiKey) else { return nil }
+            baseURL = apiBaseURL
+        case .transcription:
+            guard !Self.isBlank(transcriptionAPIKey) else { return nil }
+            baseURL = resolvedTranscriptionURL
+        }
+        guard let origin = CloudProviderURL.origin(of: baseURL),
+              !otherKeyStillGoes(to: origin, afterClearing: field),
+              let target = targets.first(where: { $0.origin == origin }),
+              ledger.hasConsent(forBaseURL: target.baseURL) else { return nil }
+        return target
+    }
+
+    /// Whether the key other than `field`'s goes to `origin` on its own
+    /// settings, an unreadable one included, so clearing `field`'s key
+    /// keeps that provider's consent. Only a key that already goes there
+    /// counts, never the main key starting to go there because
+    /// transcription's own key is gone.
+    public func otherKeyStillGoes(to origin: String, afterClearing field: KeyField) -> Bool {
+        // The same match Withdraw clears by, so the two never disagree.
+        let withdrawal = self.withdrawal(forOrigin: origin)
+        switch field {
+        case .main: return withdrawal.clearsTranscriptionAPIKey
+        case .transcription: return withdrawal.clearsAPIKey
+        }
+    }
+
     public var resolvedTranscriptionURL: String {
         let trimmed = Self.trimmed(transcriptionAPIURL)
         return trimmed.isEmpty ? apiBaseURL : trimmed
