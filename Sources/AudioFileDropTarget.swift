@@ -72,16 +72,28 @@ final class AudioFileDropTargetView: NSView {
 
     /// Mouse, scroll, and gesture events go to the views below. AppKit finds
     /// a drag's destination by hit testing too, outside those events, so then
-    /// this view answers. An event older than half a second is a leftover from
-    /// before the drag, not one being handled now.
+    /// this view answers, but only during a drag
+    /// (`AudioFileDrop.dropViewTakesHitTest`). An event older than
+    /// `AudioFileDrop.recentEventWindow` is a leftover from before the drag,
+    /// not one being handled now.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let now = ProcessInfo.processInfo.systemUptime
         if let event = NSApp.currentEvent,
-           ProcessInfo.processInfo.systemUptime - event.timestamp < 0.5,
+           now - event.timestamp < AudioFileDrop.recentEventWindow,
            Self.passThroughEventTypes.contains(event.type) {
+            return nil
+        }
+        guard AudioFileDrop.dropViewTakesHitTest(
+            isMouseButtonDown: NSEvent.pressedMouseButtons != 0,
+            secondsSinceDragUpdate: lastDragUpdate.map { now - $0 }
+        ) else {
             return nil
         }
         return super.hitTest(point)
     }
+
+    /// When a drag this view would take last moved over it.
+    private var lastDragUpdate: TimeInterval?
 
     private static let passThroughEventTypes: Set<NSEvent.EventType> = [
         .leftMouseDown, .leftMouseUp, .leftMouseDragged,
@@ -97,6 +109,7 @@ final class AudioFileDropTargetView: NSView {
     }
 
     func clearTarget() {
+        lastDragUpdate = nil
         guard currentTarget != nil else { return }
         currentTarget = nil
         onTargetChange(nil)
@@ -147,7 +160,9 @@ final class AudioFileDropTargetView: NSView {
             currentTarget = target
             onTargetChange(target)
         }
-        return target == .importable ? .copy : []
+        guard target == .importable else { return [] }
+        lastDragUpdate = ProcessInfo.processInfo.systemUptime
+        return .copy
     }
 
     private func draggedItems(_ sender: NSDraggingInfo) -> [DraggedItem] {

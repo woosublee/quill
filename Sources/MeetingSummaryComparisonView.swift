@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 import QuillSummaryFormatCore
 
 /// The wording for one comparison: a summary or a transcript.
@@ -223,8 +224,8 @@ struct MeetingSummaryComparisonView: View {
 
     /// Matches the Summary tab's width, so the chosen side lands where the
     /// summary then shows.
-    private static let summaryWidth: CGFloat = 760
-    private static let summaryMargin: CGFloat = 40
+    private static let summaryWidth = QuillLayoutSize.summaryMaxWidth
+    private static let summaryMargin = QuillSpacing.space40
 
     var body: some View {
         SideBySideChoiceView(
