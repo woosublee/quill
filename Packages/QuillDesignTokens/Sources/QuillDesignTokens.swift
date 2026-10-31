@@ -696,7 +696,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// `note-title`: the note detail's editable title.
     public static let noteTitle = QuillTypeStyle(
-        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3,
+        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title,
         lineSpacingIPhone: 3
     )
     /// `empty-title`: an empty state's title, and the work status shown
@@ -704,7 +704,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public static let emptyTitle = QuillTypeStyle(size: 15, lineHeight: 20, weight: 600, dynamicStyle: .subheadline)
     /// `row-title`: a note list row's title.
     public static let rowTitle = QuillTypeStyle(
-        size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline, trackingIPhone: -0.1
+        size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline
     )
     /// `transcript`: a note's transcript text. Each app keeps its own line
     /// and paragraph spacing until #736 Q6 is answered.
@@ -734,13 +734,13 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// `meta-mono`: the date on the note detail's meta line (shown uppercase).
     public static let metaMono = QuillTypeStyle(
         size: 10, lineHeight: 13, weight: 400, dynamicStyle: .caption2,
-        design: .monospaced, tracking: 0.5, trackingIPhone: 0.2, scalesFromMacSize: true
+        design: .monospaced, tracking: 0.5, scalesFromMacSize: true
     )
     /// `meta-chip-mono`: a chip on the note detail's meta line (transcription
     /// method, language).
     public static let metaChipMono = QuillTypeStyle(
         size: 9, lineHeight: 11, weight: 500, dynamicStyle: .caption2,
-        design: .monospaced, trackingIPhone: 0.2, scalesFromMacSize: true
+        design: .monospaced, scalesFromMacSize: true
     )
     /// `status-title`: the work status over a note's text ("Retranscribing...").
     public static let statusTitle = QuillTypeStyle(size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline)
