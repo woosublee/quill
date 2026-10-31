@@ -161,30 +161,32 @@ struct QuillUserIssueUIContractTests {
         }
         let states: [(name: String, source: String, from: String, to: String, markers: [String])] = [
             ("issue page", issueView, "private var fullView: some View {", "private var bannerView: some View {", [
-                ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
                 "VStack(spacing: QuillSpacing.space8)", "HStack(spacing: QuillSpacing.space6)",
+                "width: QuillControlSize.issueDisc, height: QuillControlSize.issueDisc",
+                ".background(accentColor.opacity(QuillOpacity.issueDisc), in: Circle())",
             ]),
             ("list empty state", noteBrowser, "private var emptyListState: some View {", "// MARK: - Detail", [
-                ".quillTextStyle(.callout)", ".padding(.horizontal, QuillSpacing.space20)",
+                ".quillTextStyle(.emptyDetail)", ".padding(.horizontal, QuillSpacing.space20)",
             ]),
             ("no search results", noteBrowser, "private var emptyDetailNoSearchResults: some View {", "private var emptyDetailNoSelection: some View {", [
-                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
                 "VStack(spacing: QuillSpacing.space12)",
             ]),
             ("no selection", noteBrowser, "private var emptyDetailNoSelection: some View {", "private var emptyDetailNoRecordings: some View {", [
-                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
                 "VStack(spacing: QuillSpacing.space12)",
             ]),
             ("no recordings", noteBrowser, "private var emptyDetailNoRecordings: some View {", "// MARK: - Horizontally Scrollable Title Field", [
                 "EmptyStateDisc(size: 96, edge: .dashed)", "VStack(spacing: QuillSpacing.space14)",
             ]),
             ("note empty content", noteBrowser, "private var emptyContentState: some View {", "private var emptyTranscriptPlaceholder: some View {", [
-                ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.callout)",
+                ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
                 "width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc",
                 ".padding(.horizontal, QuillSpacing.space60)", "VStack(spacing: QuillSpacing.space14)",
             ]),
             ("empty transcript", noteBrowser, "private var emptyTranscriptPlaceholder: some View {", "private var noContentLabel: some View {", [
-                ".quillTextStyle(.callout)", "VStack(spacing: QuillSpacing.space14)",
+                ".quillTextStyle(.emptyDetail)", "VStack(spacing: QuillSpacing.space14)",
             ]),
             ("no content label", noteBrowser, "private var noContentLabel: some View {", "private func unrecoveredRecordingState(", [
                 "EmptyStateDisc(edge: .none)", "VStack(spacing: QuillSpacing.space14)",
@@ -202,6 +204,8 @@ struct QuillUserIssueUIContractTests {
                 "Color.primary.opacity(0.08)",
                 "width: 80, height: 80",
                 ".padding(.horizontal, 60)",
+                "width: 64, height: 64",
+                ".quillTextStyle(.callout)",
             ] {
                 try expect(!body.contains(literal), "\(state.name) no longer writes \(literal)")
             }

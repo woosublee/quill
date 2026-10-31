@@ -54,12 +54,11 @@ struct QuillUserIssueView: View {
     /// title, one line, and the action.
     private var fullView: some View {
         VStack(spacing: QuillSpacing.space8) {
-            // The 64 pt issue disc and its 10% tint have no token yet (#736).
             Image(systemName: iconName)
                 .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(accentColor)
-                .frame(width: 64, height: 64)
-                .background(accentColor.opacity(0.1), in: Circle())
+                .frame(width: QuillControlSize.issueDisc, height: QuillControlSize.issueDisc)
+                .background(accentColor.opacity(QuillOpacity.issueDisc), in: Circle())
                 .padding(.bottom, QuillSpacing.space4)
 
             Text(presentation.title)
@@ -68,7 +67,7 @@ struct QuillUserIssueView: View {
                 .multilineTextAlignment(.center)
 
             Text(presentation.body)
-                .quillTextStyle(.callout)
+                .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

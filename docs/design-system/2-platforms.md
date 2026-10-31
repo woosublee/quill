@@ -59,6 +59,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `badge-label` | 8 Semibold | `.caption2` Semibold(11) |
 | `chip-label`(전사 방식 캡슐) | 11 Semibold | `.subheadline` Semibold(15) |
 | `empty-title` | 15 Semibold | `.subheadline` Semibold(15) |
+| `empty-detail` | 12 | `.subheadline`(15), 빈 상태·오류 카드 설명(#736 4단계). Mac은 `callout`과 같다 |
 | `status-title`(작업 상태, #697) | 13 Semibold | `.subheadline` Semibold(15) |
 | `status-percent`(작업 백분율, #697에서 새로 추가) | 13, monospacedDigit | `.subheadline`(15), monospacedDigit |
 | `status-detail`(대기·일시정지 까닭, iPhone 상태용 새 스타일) | 12 | `.footnote`(13) |

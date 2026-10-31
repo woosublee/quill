@@ -277,6 +277,10 @@ struct QuillDesignTokensTests {
         // A banner's detail sits beside its title at the same size on both
         // platforms, so on iOS the two scale from the same text style (#744).
         precondition(QuillTypeStyle.callout.dynamicStyle == QuillTypeStyle.bannerTitle.dynamicStyle, "a banner's detail scales with its title on iOS")
+        // An empty state's detail is the Mac's callout; only its iOS text
+        // style differs (#736 step 4).
+        precondition(QuillTypeStyle.emptyDetail.size == QuillTypeStyle.callout.size && QuillTypeStyle.emptyDetail.weight == QuillTypeStyle.callout.weight, "empty-detail draws like callout on the Mac")
+        precondition(QuillTypeStyle.emptyDetail.dynamicStyle == .subheadline, "empty-detail follows .subheadline on iOS")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }

@@ -322,6 +322,10 @@ public enum QuillControlSize {
     /// `size-empty-disc`: the disc behind an empty state's glyph.
     public static let emptyDisc: CGFloat = 80
 
+    /// `size-issue-disc`: the tinted disc behind an issue's glyph (the Mac's
+    /// full issue page, the iPhone's empty transcript states).
+    public static let issueDisc: CGFloat = 64
+
     /// `size-record-button`: the round record button. On the iPhone it grows
     /// with Dynamic Type from this size.
     public static let recordButtonMac: CGFloat = 44
@@ -348,6 +352,7 @@ public enum QuillControlSize {
         ("size-checkbox-iphone", checkboxIPhone),
         ("size-status-dot", statusDot),
         ("size-empty-disc", emptyDisc),
+        ("size-issue-disc", issueDisc),
         ("size-record-button", recordButtonMac),
         ("size-record-button-iphone", recordButtonIPhone),
     ]
@@ -384,9 +389,14 @@ public enum QuillOpacity {
     /// while work will replace it, so the text stays readable underneath.
     public static let statusWash: Double = 0.35
 
+    /// `opacity-issue-disc`: an issue disc's tint, drawn in the issue's own
+    /// color (`size-issue-disc`).
+    public static let issueDisc: Double = 0.1
+
     /// Every opacity this module carries, by its token name.
     public static let all: [(name: String, value: Double)] = [
         ("opacity-status-wash", statusWash),
+        ("opacity-issue-disc", issueDisc),
     ]
 }
 
@@ -533,6 +543,11 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// scales from `.caption`, like `banner-title`, so a banner's detail
     /// stays the size of its title (#744).
     public static let callout = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .caption)
+    /// `empty-detail`: an empty state's or an issue page's explanation under
+    /// its `empty-title`. The Mac size is `callout`'s; on iOS it follows
+    /// `.subheadline`, a step under the title's weight, where a banner's
+    /// detail (`callout`) stays the size of its title.
+    public static let emptyDetail = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `row-preview`: a note list row's two-line preview.
     public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `banner-title`: a notice or status banner's title.
@@ -568,6 +583,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         ("row-title", rowTitle),
         ("transcript", transcript),
         ("callout", callout),
+        ("empty-detail", emptyDetail),
         ("row-preview", rowPreview),
         ("banner-title", bannerTitle),
         ("meta-label", metaLabel),
