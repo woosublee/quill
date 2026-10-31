@@ -27,6 +27,15 @@ public enum NoteSyncMerge {
             }
         }
 
+        // A dismissed notice stays dismissed: both sides' notices are kept,
+        // whichever side's group won.
+        let dismissedKey = NoteSyncField.dismissedNotices.rawValue
+        let dismissed = NoteDismissedNotices.decode(local.fields[dismissedKey])
+            .union(NoteDismissedNotices.decode(remote.fields[dismissedKey]))
+        if !dismissed.isEmpty {
+            merged.fields[dismissedKey] = NoteDismissedNotices.value(dismissed)
+        }
+
         // Groups from a newer build: keep the later stamp of each.
         let knownGroups = Set(NoteFieldGroup.allCases.map(\.rawValue))
         var stamps = merged.clock.stamps

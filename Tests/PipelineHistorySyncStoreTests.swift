@@ -29,6 +29,8 @@ struct PipelineHistorySyncStoreTests {
         try testClearingChangeTagsClearsAudioManifests()
         try testAudioManifestCanBeCleared()
         try testAudioSyncSnapshotsReadEverySyncableNote()
+        try testDismissedNoticeIsKeptAndSyncs()
+        try testDismissedNoticeFromICloudIsKept()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -389,6 +391,53 @@ struct PipelineHistorySyncStoreTests {
         try s.setAudioManifest(nil, id: note.id)
         precondition(s.audioManifest(id: note.id) == nil)
         precondition(s.syncRecord(id: note.id)!.clock.stamp(for: .audio) == t0.addingTimeInterval(30))
+    }
+
+    /// A dismissal is saved beside the note, stamped, reported, kept when
+    /// the note is edited or reopened, and never undone by an older record
+    /// (#730).
+    private static func testDismissedNoticeIsKeptAndSyncs() throws {
+        let url = temporaryStoreURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let key = NoteSyncField.dismissedNotices.rawValue
+        let notice = NoteDismissedNotices.nothingToCleanUp
+        let s = PipelineHistoryStore(storeURL: url)
+        s.now = { t0 }
+        let note = makeItem()
+        _ = try s.append(note, maxCount: Int.max)
+        let before = s.syncRecord(id: note.id)!
+        var changes: [PipelineHistoryChange] = []
+        s.onChange = { changes += $0 }
+        s.now = { t0.addingTimeInterval(10) }
+        try s.dismissNotice(notice, id: note.id)
+        try s.dismissNotice(notice, id: note.id)
+        precondition(changes == [.saved(note.id)], "the dismissal is sent once")
+        precondition(s.dismissedNotices() == [note.id: [notice]])
+        let record = s.syncRecord(id: note.id)!
+        precondition(NoteDismissedNotices.decode(record.fields[key]) == [notice])
+        precondition(record.clock.stamp(for: .notices) == t0.addingTimeInterval(10), "the notices group is stamped")
+        s.now = { t0.addingTimeInterval(20) }
+        try s.update(note.withCustomTitle("Edited"))
+        precondition(s.syncRecord(id: note.id)?.clock.stamp(for: .notices) == t0.addingTimeInterval(10),
+                     "editing the note doesn't touch the notices group")
+        _ = try s.applySynced(before, systemFields: nil)
+        let reopened = PipelineHistoryStore(storeURL: url)
+        precondition(reopened.dismissedNotices() == [note.id: [notice]], "kept across edits, older records, and reopening")
+        precondition(NoteDismissedNotices.decode(reopened.syncRecord(id: note.id)?.fields[key]) == [notice])
+        precondition(reopened.loadAllHistory().first?.customTitle == "Edited")
+    }
+
+    private static func testDismissedNoticeFromICloudIsKept() throws {
+        let s = store()
+        let note = makeItem()
+        _ = try s.append(note, maxCount: Int.max)
+        var remote = s.syncRecord(id: note.id)!
+        remote.fields = NoteDismissedNotices.adding(NoteDismissedNotices.nothingToCleanUp, to: remote.fields)
+        remote.clock = remote.clock.setting(.notices, to: t0.addingTimeInterval(60))
+        let result = try s.applySynced(remote, systemFields: nil)
+        precondition(result == .updated(needsUpload: false))
+        precondition(s.dismissedNotices() == [note.id: [NoteDismissedNotices.nothingToCleanUp]])
+        precondition(s.syncRecord(id: note.id) == remote, "the record reads back as it came")
     }
 
     private static func testChangeTagForMissingNoteThrows() {

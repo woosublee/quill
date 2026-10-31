@@ -2521,6 +2521,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         forKey: AppState.dismissedWarningBannerGenerationDefaultsKey
     )
 
+    /// Notices dismissed on a note on any device (#730), kept in the note
+    /// store and synced. Unlike the banner dismissals above, these never
+    /// come back, not even after a retry.
+    @Published private(set) var dismissedNoticesByNoteID: [UUID: Set<String>] = [:]
+
     private static let noteRetryGenerationDefaultsKey = "note_retry_generation_by_id"
     private static let dismissedWarningBannerGenerationDefaultsKey = "dismissed_warning_banner_generation_by_key"
 
@@ -2573,6 +2578,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return false
         }
         return dismissedGeneration == noteRetryGeneration(for: noteID)
+    }
+
+    func isNoticeDismissed(noteID: UUID, notice: String) -> Bool {
+        dismissedNoticesByNoteID[noteID]?.contains(notice) == true
+    }
+
+    /// Dismisses a notice on this note for good, on every device. If the
+    /// store can't save it, the banner dismissal for this generation still
+    /// keeps it hidden on this Mac.
+    @MainActor
+    func dismissNotice(noteID: UUID, notice: String, fallbackCode: QuillUserIssueCode? = nil) {
+        dismissedNoticesByNoteID[noteID, default: []].insert(notice)
+        do {
+            try pipelineHistoryStore.dismissNotice(notice, id: noteID)
+        } catch {
+            if let fallbackCode { dismissWarningBanner(noteID: noteID, code: fallbackCode) }
+        }
     }
 
     @MainActor
@@ -6478,6 +6500,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             cloudTranscriptionJobStore = runtime.cloudTranscriptionJobStore
             pipelineHistory = []
             recentlyDeletedNotes = []
+            dismissedNoticesByNoteID = [:]
             retryingItemIDs = []
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
@@ -8489,6 +8512,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             pipelineHistory = []
             recentlyDeletedNotes = []
+            dismissedNoticesByNoteID = [:]
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(
                     removedAssets,
@@ -14413,6 +14437,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let split = RecentlyDeletedPolicy.partition(rows)
         pipelineHistory = split.live
         recentlyDeletedNotes = split.deleted
+        dismissedNoticesByNoteID = pipelineHistoryStore.dismissedNotices()
     }
 
     @MainActor
