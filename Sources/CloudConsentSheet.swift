@@ -76,66 +76,80 @@ struct CloudConsentRequest: Identifiable {
 
 extension View {
     func cloudConsentSheet(_ request: Binding<CloudConsentRequest?>, appState: AppState) -> some View {
-        sheet(item: request) { current in
-            if let target = current.targets.first {
-                CloudConsentSheet(
-                    host: target.displayName,
-                    cancelNoteKey: current.cancelNoteKey,
-                    onAgree: {
-                        request.wrappedValue = nil
-                        if let next = current.remaining(appState: appState) {
-                            // Swapping the item of a sheet that's still up
-                            // may not show the new one on macOS, so this one
-                            // closes first.
-                            DispatchQueue.main.async { request.wrappedValue = next }
-                        } else {
-                            for agreed in current.agreed + [target] {
-                                appState.grantCloudConsent(forBaseURL: agreed.baseURL)
-                            }
-                            current.onAgree()
-                        }
-                    },
-                    onCancel: {
-                        request.wrappedValue = nil
-                        current.onCancel()
-                    }
-                )
-            }
-        }
+        modifier(CloudConsentDialog(request: request, appState: appState))
     }
 }
 
-private struct CloudConsentSheet: View {
-    let host: String
-    let cancelNoteKey: String
-    let onAgree: () -> Void
-    let onCancel: () -> Void
+/// The same system confirmation as withdrawing (#729 owner check), so
+/// asking for consent and withdrawing it look alike. Closing it without a
+/// button (Escape) cancels, as the Cancel button does.
+private struct CloudConsentDialog: ViewModifier {
+    @Binding var request: CloudConsentRequest?
+    let appState: AppState
+    /// The host the dialog was shown for, kept while it closes so the title
+    /// doesn't lose it.
+    @State private var host = ""
+    /// The request a button already answered.
+    @State private var answeredID: UUID?
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(localizedCatalogFormat(CloudConsentCopy.titleFormatKey, host))
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(localizedCatalogString(CloudConsentCopy.bodyKey(mentionsScreenContext: true)))
-                .fixedSize(horizontal: false, vertical: true)
-            Text(
-                localizedCatalogString(cancelNoteKey) + " "
-                    + localizedCatalogString("You can withdraw consent anytime in Settings › Models.")
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button(localizedCatalogString(CloudConsentCopy.cancelKey), action: onCancel)
-                    .keyboardShortcut(.cancelAction)
-                Button(localizedCatalogString(CloudConsentCopy.agreeKey), action: onAgree)
-                    .keyboardShortcut(.defaultAction)
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                Text(verbatim: localizedCatalogFormat(CloudConsentCopy.titleFormatKey, host)),
+                isPresented: Binding(
+                    get: { request != nil },
+                    set: { isPresented in
+                        guard !isPresented, let shown = request else { return }
+                        // A button's action can run after this; only a close
+                        // no button answered cancels.
+                        DispatchQueue.main.async {
+                            guard answeredID != shown.id, request?.id == shown.id else { return }
+                            request = nil
+                            shown.onCancel()
+                        }
+                    }
+                ),
+                titleVisibility: .visible,
+                presenting: request
+            ) { current in
+                if let target = current.targets.first {
+                    Button(localizedCatalogString(CloudConsentCopy.agreeKey)) {
+                        agree(current, target: target)
+                    }
+                }
+                Button(localizedCatalogString(CloudConsentCopy.cancelKey), role: .cancel) {
+                    answeredID = current.id
+                    request = nil
+                    current.onCancel()
+                }
+            } message: { current in
+                Text(
+                    localizedCatalogString(CloudConsentCopy.bodyKey(mentionsScreenContext: true)) + "\n\n"
+                        + localizedCatalogString(current.cancelNoteKey) + " "
+                        + localizedCatalogString("You can withdraw consent anytime in Settings › Models.")
+                )
             }
-            .padding(.top, 4)
+            .onChange(of: request?.id) { _ in
+                if let name = request?.targets.first?.displayName { host = name }
+            }
+            .onAppear {
+                if let name = request?.targets.first?.displayName { host = name }
+            }
+    }
+
+    private func agree(_ current: CloudConsentRequest, target: CloudConsentTargets.Target) {
+        answeredID = current.id
+        request = nil
+        if let next = current.remaining(appState: appState) {
+            // The next provider's dialog shows once this one has closed;
+            // swapping it while it's still up may not show the new one on
+            // macOS.
+            DispatchQueue.main.async { request = next }
+        } else {
+            for agreed in current.agreed + [target] {
+                appState.grantCloudConsent(forBaseURL: agreed.baseURL)
+            }
+            current.onAgree()
         }
-        .padding(20)
-        .frame(width: 420)
-        .interactiveDismissDisabled()
     }
 }
