@@ -43,6 +43,16 @@ struct NoteWorkStatusTests {
         precondition(middle.percent == 25)
         // Rounded down: 2 of 3 is 66%, not 67%.
         precondition(progress(2, of: 3).percent == 66)
+        // Exact ratios aren't lost to floating point: 0.58 * 100 is 57.999….
+        precondition(progress(29, of: 50).percent == 58, "29 of 50")
+        precondition(NoteWorkProgress(fraction: 0.29)?.percent == 29, "an iPhone fraction")
+        for total in 1...200 {
+            for completed in 0..<total {
+                let percent = progress(completed, of: total).percent
+                precondition(percent == completed * 100 / total, "\(completed) of \(total)")
+            }
+        }
+        precondition(NoteWorkProgress(fraction: 0.999)?.percent == 99, "never 100% while running")
         // The last chunk is still saving: never 100% while work runs.
         let done = progress(4, of: 4)
         precondition(done.fraction == 0.99 && done.percent == 99)

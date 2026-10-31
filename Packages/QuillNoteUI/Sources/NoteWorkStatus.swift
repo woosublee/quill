@@ -39,9 +39,11 @@ public struct NoteWorkProgress: Equatable, Sendable {
         min(0.99, measured)
     }
 
-    /// Whole percent, rounded down.
+    /// Whole percent, rounded down, at most 99 while the work runs. A tiny
+    /// tolerance keeps an exact ratio exact: 29 of 50 is 0.58, which times
+    /// 100 is 57.999… in floating point, and must read 58%, not 57%.
     public var percent: Int {
-        Int(fraction * 100)
+        min(99, Int((measured * 100 + 1e-9).rounded(.down)))
     }
 }
 
