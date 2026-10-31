@@ -7,6 +7,19 @@ final class PostProcessingStopSwitch: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
     private var cancelRunningStep: (() -> Void)?
+    private var progressSink: (@Sendable (_ completed: Int, _ total: Int) -> Void)?
+
+    /// Where this cleanup's chunk progress goes (#697): the note's one bar.
+    func onProgress(_ sink: @escaping @Sendable (_ completed: Int, _ total: Int) -> Void) {
+        lock.withLock { progressSink = sink }
+    }
+
+    /// Chunks cleaned out of the chunk count. Nothing is reported once the
+    /// person stopped the cleanup.
+    func reportProgress(completed: Int, total: Int) {
+        let sink = lock.withLock { stopped ? nil : progressSink }
+        sink?(completed, total)
+    }
 
     var isStopped: Bool {
         lock.withLock { stopped }

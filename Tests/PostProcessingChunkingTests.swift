@@ -12,6 +12,7 @@ struct PostProcessingChunkingTests {
         try testMultibyteCharactersRespectSafeBoundaries()
         try testLargeUnbrokenTokenPreservesOrderAndBudget()
         try await testRunnerSizesChunksFromItsWindowAndByteRatio()
+        try await testRunnerReportsChunkProgress()
         try await testTokenCounterResplitsChunksThatDoNotFit()
         try await testTokenCounterKeepsChunksThatFit()
         try await testResplitParagraphKeepsItsSeparators()
@@ -121,6 +122,33 @@ struct PostProcessingChunkingTests {
         try expect(Set(mac.budgets.map(\.maxCompletionTokens)) == [6_144], "Mac response room")
         try expect(Set(phone.budgets.map(\.maxCompletionTokens)) == [2_048], "reservation plus 512")
         try expect(phone.budgets.count < mac.budgets.count, "two bytes a token makes larger chunks")
+    }
+
+    /// The runner reports 0 of N once split, then each chunk in order, so
+    /// both apps can advance one bar through cleanup (#697).
+    private static func testRunnerReportsChunkProgress() async throws {
+        let transcript = (0..<200)
+            .map { "Sentence \($0) keeps the synthetic release plan on track." }
+            .joined(separator: " ")
+        let log = ChunkProgressLog()
+        let requester = EchoCleanupRequester()
+        _ = try await PostProcessingChunkRunner().run(
+            transcript: transcript, contextSummary: "", customVocabulary: [], customSystemPrompt: "",
+            outputLanguage: "", expectedSourceLanguage: "en", requester: requester,
+            progress: { log.record($0, $1) }
+        )
+        let total = requester.budgets.count
+        try expect(total > 1, "several chunks")
+        try expect(log.values.map(\.0) == Array(0...total), "0, then each chunk once, in order")
+        try expect(log.values.allSatisfy { $0.1 == total }, "the total stays the chunk count")
+
+        let single = ChunkProgressLog()
+        _ = try await PostProcessingChunkRunner().run(
+            transcript: "One short synthetic sentence.", contextSummary: "", customVocabulary: [],
+            customSystemPrompt: "", outputLanguage: "", expectedSourceLanguage: "en",
+            requester: EchoCleanupRequester(), progress: { single.record($0, $1) }
+        )
+        try expect(single.values.map(\.0) == [0, 1] && single.values.allSatisfy { $0.1 == 1 }, "one chunk: 0 then 1 of 1")
     }
 
     /// A dense model (one token a byte, as for emoji or CJK text) on a
@@ -430,5 +458,20 @@ private final class DenseTokenCounter: LocalAITokenCounting, @unchecked Sendable
         defer { lock.unlock() }
         count += 1
         return count
+    }
+}
+
+private final class ChunkProgressLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [(Int, Int)] = []
+
+    func record(_ completed: Int, _ total: Int) {
+        lock.lock(); defer { lock.unlock() }
+        recorded.append((completed, total))
+    }
+
+    var values: [(Int, Int)] {
+        lock.lock(); defer { lock.unlock() }
+        return recorded
     }
 }

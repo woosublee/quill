@@ -644,6 +644,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             token: token,
             revision: revision
         ) else { return }
+        // A resumed job's seeded counts stay until its plan reports.
+        if progress == .preparing, state.progressByNoteID[noteID] != nil { return }
         state.progressByNoteID[noteID] = Self.displayProgress(progress)
         emitState()
     }
@@ -652,6 +654,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         _ progress: CloudTranscriptionProgress
     ) -> CloudTranscriptionDisplayProgress {
         switch progress {
+        case .preparing:
+            return .preparing
         case .planned(let completed, let total):
             return CloudTranscriptionDisplayProgress(
                 completedChunkCount: completed,

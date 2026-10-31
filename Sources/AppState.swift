@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillNoteUI
 import Combine
 import AppKit
 import AVFoundation
@@ -2687,6 +2688,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// settings) or the resume failed. The stored status is left as is, so a
     /// later launch can still resume them.
     @Published private(set) var stoppedCloudTranscriptionIDs: Set<UUID> = []
+    /// Each running cleanup's chunk progress, for the note's one bar (#697).
+    @Published private(set) var postProcessingProgressByNoteID: [UUID: PostProcessingDisplayProgress] = [:]
+
+    /// What cleans up a new transcript, for how the one bar is split (#697).
+    var noteCleanupStage: NoteCleanupStage {
+        if disablePostProcessing { return .off }
+        return postProcessingBackendChoice.isLocal ? .onDevice : .cloud
+    }
     private var transcriptionRetryWorkflowItemIDs: Set<UUID> = []
     private var transcriptionRetryWorkflowProgressIDs: Set<UUID> = []
     @Published var lastTranscript: String = ""
@@ -6933,6 +6942,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let stopSwitch = PostProcessingStopSwitch()
         postProcessingStopSwitches[noteID] = stopSwitch
+        stopSwitch.onProgress { [weak self, weak stopSwitch] completed, total in
+            Task { @MainActor [weak self, weak stopSwitch] in
+                guard let self, let stopSwitch,
+                      self.postProcessingStopSwitches[noteID] === stopSwitch else { return }
+                let next = PostProcessingDisplayProgress(completedChunkCount: completed, totalChunkCount: total)
+                // The bar never moves back: a fallback model starts its
+                // chunks again, and reports can land out of order.
+                if let current = self.postProcessingProgressByNoteID[noteID],
+                   !next.isAhead(of: current) { return }
+                self.postProcessingProgressByNoteID[noteID] = next
+            }
+        }
         return stopSwitch
     }
 
@@ -6943,6 +6964,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingNoteIDs.remove(noteID)
         if let stopSwitch, postProcessingStopSwitches[noteID] === stopSwitch {
             postProcessingStopSwitches.removeValue(forKey: noteID)
+        }
+        // A newer cleanup of the same note keeps its own progress.
+        if postProcessingStopSwitches[noteID] == nil {
+            postProcessingProgressByNoteID.removeValue(forKey: noteID)
         }
     }
 
@@ -12849,7 +12874,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     customVocabulary: customVocabulary,
                     customSystemPrompt: customSystemPrompt,
                     outputLanguage: outputLanguage,
-                    spokenLanguage: spokenLanguage
+                    spokenLanguage: spokenLanguage,
+                    progress: stopSwitch.map { stopSwitch in
+                        { @Sendable completed, total in
+                            stopSwitch.reportProgress(completed: completed, total: total)
+                        }
+                    }
                 )
             }
             let stoppedResult: PostProcessingResult?
@@ -13961,6 +13991,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) {
         let displayProgress: CloudTranscriptionDisplayProgress
         switch progress {
+        case .preparing:
+            // Counts already shown (a resumed job) stay until the plan reports.
+            guard cloudTranscriptionProgressByHistoryID[historyID] == nil else { return }
+            displayProgress = .preparing
         case .planned(let completed, let total):
             displayProgress = CloudTranscriptionDisplayProgress(
                 completedChunkCount: completed,

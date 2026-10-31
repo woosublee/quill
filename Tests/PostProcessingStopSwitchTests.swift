@@ -10,10 +10,30 @@ struct PostProcessingStopSwitchTests {
         try await testUnstoppedStepFailureStillThrows()
         try await testCallerCancelStillThrows()
         try await testStopDoesNotWaitForASlowStep()
+        testProgressReachesTheSinkUntilStopped()
         print("PostProcessingStopSwitchTests passed")
     }
 
     private struct SyntheticFailure: Error {}
+
+    /// The cleanup's chunk progress feeds the note's one bar (#697) until
+    /// the person stops it.
+    private static func testProgressReachesTheSinkUntilStopped() {
+        final class Log: @unchecked Sendable {
+            let lock = NSLock()
+            var values: [[Int]] = []
+        }
+        let log = Log()
+        let stopSwitch = PostProcessingStopSwitch()
+        stopSwitch.reportProgress(completed: 0, total: 3)
+        stopSwitch.onProgress { completed, total in
+            log.lock.withLock { log.values.append([completed, total]) }
+        }
+        stopSwitch.reportProgress(completed: 1, total: 3)
+        stopSwitch.stop()
+        stopSwitch.reportProgress(completed: 2, total: 3)
+        precondition(log.lock.withLock { log.values } == [[1, 3]], "progress before a sink and after a stop is dropped")
+    }
 
     private static func testStopBeforeTheStepSkipsIt() async throws {
         let stopSwitch = PostProcessingStopSwitch()

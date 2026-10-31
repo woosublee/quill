@@ -10,7 +10,7 @@ import Foundation
 /// only (#697).
 public struct NoteWorkProgress: Equatable, Sendable {
     /// Within 0...1.
-    private let measured: Double
+    let measured: Double
 
     /// Chunks done out of the chunk count. Nil when there is no total to
     /// measure against; `completed` is kept within 0...total. A `fraction`
@@ -33,6 +33,17 @@ public struct NoteWorkProgress: Equatable, Sendable {
         self.measured = min(max(fraction, 0), 1)
     }
 
+    /// Work that will report progress but hasn't yet (it is still reading
+    /// or planning the audio). The bar shows at 0% from the start, so the
+    /// status doesn't grow when the first count arrives (#697). Work that
+    /// never reports progress (one cloud request) passes nil instead and
+    /// shows the title and spinner only.
+    public static let starting = NoteWorkProgress(measured: 0)
+
+    private init(measured: Double) {
+        self.measured = measured
+    }
+
     /// Never 1 while the work still runs: the last chunk is still being
     /// saved, so it stops at 99%.
     public var fraction: Double {
@@ -44,6 +55,45 @@ public struct NoteWorkProgress: Equatable, Sendable {
     /// 100 is 57.999… in floating point, and must read 58%, not 57%.
     public var percent: Int {
         min(99, Int((measured * 100 + 1e-9).rounded(.down)))
+    }
+}
+
+/// What cleans up the transcript after it is transcribed, which decides how
+/// much of the one progress bar each step fills (#697 owner decision): a
+/// cloud model's cleanup is quicker than an on-device one's.
+public enum NoteCleanupStage: Equatable, Sendable {
+    /// Post-processing is off: transcription fills the whole bar.
+    case off
+    /// A cloud model: transcription 0–80%, cleanup 80–100%.
+    case cloud
+    /// An on-device model: transcription 0–60%, cleanup 60–100%.
+    case onDevice
+
+    /// The part of the bar transcription fills.
+    public var transcriptionShare: Double {
+        switch self {
+        case .off: return 1
+        case .cloud: return 0.8
+        case .onDevice: return 0.6
+        }
+    }
+}
+
+extension NoteWorkProgress {
+    /// Transcription's progress as part of the one bar: nil when the
+    /// transcription reports none (one cloud request), so no bar shows yet.
+    public static func combined(transcription: NoteWorkProgress?, cleanup: NoteCleanupStage) -> NoteWorkProgress? {
+        transcription.flatMap { NoteWorkProgress(fraction: $0.measured * cleanup.transcriptionShare) }
+    }
+
+    /// Cleanup's progress as part of the one bar, picking up where
+    /// transcription stopped: 0 of N chunks is the boundary, and a single
+    /// chunk holds there until it is done. Nil when cleanup reports no
+    /// progress (Edit Mode) or is off.
+    public static func combined(cleanupProgress progress: NoteWorkProgress?, stage: NoteCleanupStage) -> NoteWorkProgress? {
+        guard stage != .off, let progress else { return nil }
+        let share = stage.transcriptionShare
+        return NoteWorkProgress(fraction: share + (1 - share) * progress.measured)
     }
 }
 
@@ -77,7 +127,9 @@ public enum NoteWorkStatus: Equatable, Sendable {
     case preparingTranscript(reason: String?)
     /// The transcript is done and waits for the cleanup model (the iPhone).
     case waitingToPostProcess(reason: String?)
-    case postProcessing
+    /// Cleaning up the transcript. The progress is the whole job's one bar
+    /// (`NoteWorkProgress.combined`), continuing from transcription.
+    case postProcessing(NoteWorkProgress?)
     /// Recovering an interrupted recording again (the Mac).
     case recovering
     case creatingSummary
@@ -141,7 +193,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
     public var progress: NoteWorkProgress? {
         switch self {
         case .transcribing(let progress), .resumingCloudTranscription(let progress), .retranscribing(let progress),
-             .restartingTranscription(_, let progress):
+             .restartingTranscription(_, let progress), .postProcessing(let progress):
             return progress
         default:
             return nil
@@ -199,7 +251,7 @@ public enum NoteWorkStatus: Equatable, Sendable {
             case .cancellingTranscription: return [.cancellingTranscription(reason: nil)]
             case .transcriptionPaused: return [.transcriptionPaused(reason: nil)]
             case .waitingToPostProcess: return [.waitingToPostProcess(reason: nil)]
-            case .postProcessing: return [.postProcessing]
+            case .postProcessing: return [.postProcessing(nil)]
             case .recovering: return [.recovering]
             case .creatingSummary: return [.creatingSummary]
             case .regeneratingSummary: return [.regeneratingSummary]
@@ -248,7 +300,7 @@ extension NoteToolbarWork {
         case .retranscribing: return .retranscribing(nil)
         case .cancelling: return .cancellingTranscription(reason: nil)
         case .waitingToPostProcess: return .waitingToPostProcess(reason: nil)
-        case .postProcessing: return .postProcessing
+        case .postProcessing: return .postProcessing(nil)
         }
     }
 

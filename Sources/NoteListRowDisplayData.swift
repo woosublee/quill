@@ -17,6 +17,25 @@ struct CloudTranscriptionDisplayProgress: Equatable, Sendable {
     let completedChunkCount: Int
     let totalChunkCount: Int
     let activeAttempt: Int?
+
+    /// A chunked job still reading and planning its audio: no chunk count
+    /// yet, but progress will come (#697).
+    static let preparing = CloudTranscriptionDisplayProgress(
+        completedChunkCount: 0, totalChunkCount: 0, activeAttempt: nil
+    )
+}
+
+/// Chunks cleaned out of the chunk count, while post-processing runs (#697).
+struct PostProcessingDisplayProgress: Equatable, Sendable {
+    let completedChunkCount: Int
+    let totalChunkCount: Int
+
+    /// Further along than `other`, as a share of each one's chunk count.
+    func isAhead(of other: PostProcessingDisplayProgress) -> Bool {
+        guard totalChunkCount > 0 else { return false }
+        guard other.totalChunkCount > 0 else { return true }
+        return completedChunkCount * other.totalChunkCount > other.completedChunkCount * totalChunkCount
+    }
 }
 
 /// `stoppedCloud` holds cloud-transcribing notes that no work is running

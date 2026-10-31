@@ -6,17 +6,22 @@ import QuillNoteUI
 /// cancelling, or paused states.
 enum NoteBrowserWorkStatus {
     /// A note's first transcription, shown alone while the note has no text:
-    /// "Post-processing…" once the transcript is being cleaned up, cloud
-    /// chunk progress, or "Transcribing…". "Resuming cloud transcription…"
-    /// only for a chunked job that already has chunks done.
+    /// "Post-processing…" once the transcript is being cleaned up, chunk
+    /// progress, or "Transcribing…". "Resuming cloud transcription…" only
+    /// for a chunked cloud job that already has chunks done. Transcription
+    /// and cleanup share one bar, split by `cleanup` (#697).
     static func firstTranscription(
         isPostProcessing: Bool,
         isCloudTranscribing: Bool,
-        cloudProgress: CloudTranscriptionDisplayProgress?
+        cloudProgress: CloudTranscriptionDisplayProgress?,
+        cleanupProgress: PostProcessingDisplayProgress? = nil,
+        cleanup: NoteCleanupStage = .off
     ) -> NoteWorkStatus {
-        if isPostProcessing { return .postProcessing }
-        guard isCloudTranscribing else { return .transcribing(nil) }
-        let progress = workProgress(cloudProgress)
+        let stage = cleanup
+        if isPostProcessing { return postProcessing(cleanupProgress, stage: stage) }
+        let progress = NoteWorkProgress.combined(transcription: workProgress(cloudProgress), cleanup: stage)
+        // Local AI reports chunks too; only cloud jobs can be resuming.
+        guard isCloudTranscribing else { return .transcribing(progress) }
         // Every chunk is in and the transcript is being saved: still
         // transcribing, not resuming.
         if let cloudProgress, cloudProgress.totalChunkCount > 0,
@@ -43,26 +48,44 @@ enum NoteBrowserWorkStatus {
     /// "Recovering…" while a recording is recovered again, then
     /// "Retranscribing…" ("Transcribing…" for an audio-only note that was
     /// never transcribed), then "Post-processing…" once the new transcript
-    /// is being cleaned up. A cloud retry shows its chunk progress.
+    /// is being cleaned up, on the same bar as first transcription.
     static func retry(
         isRecovering: Bool,
         isPostProcessing: Bool,
         isAudioOnly: Bool,
-        cloudProgress: CloudTranscriptionDisplayProgress?
+        cloudProgress: CloudTranscriptionDisplayProgress?,
+        cleanupProgress: PostProcessingDisplayProgress? = nil,
+        cleanup: NoteCleanupStage = .off
     ) -> NoteWorkStatus {
+        let stage = cleanup
         if isRecovering { return .recovering }
-        if isPostProcessing { return .postProcessing }
-        let progress = workProgress(cloudProgress)
+        if isPostProcessing { return postProcessing(cleanupProgress, stage: stage) }
+        let progress = NoteWorkProgress.combined(transcription: workProgress(cloudProgress), cleanup: stage)
         return isAudioOnly ? .transcribing(progress) : .retranscribing(progress)
+    }
+
+    /// Cleanup continues the bar from the transcription's share once it
+    /// reports its chunks; Edit Mode reports none and keeps the spinner.
+    private static func postProcessing(
+        _ progress: PostProcessingDisplayProgress?,
+        stage: NoteCleanupStage
+    ) -> NoteWorkStatus {
+        let chunks = progress.flatMap {
+            NoteWorkProgress(completed: $0.completedChunkCount, total: $0.totalChunkCount)
+        }
+        return .postProcessing(.combined(cleanupProgress: chunks, stage: stage))
     }
 
     static func summary(hasSummary: Bool) -> NoteWorkStatus {
         hasSummary ? .regeneratingSummary : .creatingSummary
     }
 
+    /// Nil when the work won't report progress (one cloud request, or a
+    /// local engine without chunks); 0% while a chunked job is still
+    /// planning, so its bar is there from the start.
     private static func workProgress(_ progress: CloudTranscriptionDisplayProgress?) -> NoteWorkProgress? {
-        progress.flatMap {
-            NoteWorkProgress(completed: $0.completedChunkCount, total: $0.totalChunkCount)
-        }
+        guard let progress else { return nil }
+        if progress == .preparing { return .starting }
+        return NoteWorkProgress(completed: progress.completedChunkCount, total: progress.totalChunkCount)
     }
 }

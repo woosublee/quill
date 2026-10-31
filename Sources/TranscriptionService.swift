@@ -377,6 +377,9 @@ class TranscriptionService {
             )
         }
 
+        // Local AI always transcribes in chunks, so it reports progress.
+        cloudExecutionContext?.progress(.preparing)
+
         let prepared: NativeWhisperExecutionSnapshot.PreparedAudio
         do {
             prepared = try await execution.prepareAudio(fileURL)
@@ -812,6 +815,8 @@ class TranscriptionService {
     }
 
     private func transcribeLargeCanonicalWAV(fileURL: URL) async throws -> TranscriptionResult {
+        // Chunked: progress will come once the audio is read and planned.
+        (cloudExecutionContext?.progress ?? cloudDependencies.progress)(.preparing)
         let sourceLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
         let sourceIdentity = try CloudTranscriptionSourceIdentityBuilder.make(
             fileURL: fileURL,

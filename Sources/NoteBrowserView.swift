@@ -4036,7 +4036,9 @@ private struct NoteDetailView: View {
         NoteBrowserWorkStatus.firstTranscription(
             isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
             isCloudTranscribing: isCloudTranscribing,
-            cloudProgress: cloudProgress
+            cloudProgress: cloudProgress,
+            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanup: appState.noteCleanupStage
         )
     }
 
@@ -4046,7 +4048,9 @@ private struct NoteDetailView: View {
             isRecovering: isRecoveringRecording,
             isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
             isAudioOnly: isAudioOnly,
-            cloudProgress: cloudProgress
+            cloudProgress: cloudProgress,
+            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
+            cleanup: appState.noteCleanupStage
         )
     }
 

@@ -2055,6 +2055,15 @@ struct TranscriptionRetryWorkflowTests {
             ),
             "older progress rejected"
         )
+        // A late "preparing" never hides counts already shown (a resumed
+        // job's seeded counts stay until its plan reports) (#697).
+        await controlled.emitProgress(call: 1, progress: .preparing)
+        await drainTasks()
+        try expectEqual(
+            workflow.state.progressByNoteID[item.id]?.completedChunkCount,
+            2,
+            "preparing keeps shown counts"
+        )
         await controlled.succeed(
             call: 0,
             result: transcriptionResult(text: "older success")

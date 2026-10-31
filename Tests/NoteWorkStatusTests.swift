@@ -8,6 +8,7 @@ import QuillNoteUI
 struct NoteWorkStatusTests {
     static func main() {
         testProgressArithmetic()
+        testOneBarForTranscriptionAndCleanup()
         testEveryStateReadsFromTheTable()
         testTitleNeverCountsChunks()
         testReasonOnlyForWaitingAndPaused()
@@ -33,6 +34,39 @@ struct NoteWorkStatusTests {
         return progress
     }
 
+    /// One bar for the whole job (#697 owner decision): cleanup with a
+    /// cloud model takes 80–100%, with an on-device one 60–100%, and with
+    /// cleanup off transcription fills it. Never 100% while running.
+    private static func testOneBarForTranscriptionAndCleanup() {
+        func percent(_ value: NoteWorkProgress?) -> Int? { value?.percent }
+        let half = progress(1, of: 2)
+        precondition(percent(.combined(transcription: half, cleanup: .off)) == 50)
+        precondition(percent(.combined(transcription: half, cleanup: .cloud)) == 40)
+        precondition(percent(.combined(transcription: half, cleanup: .onDevice)) == 30)
+        precondition(percent(.combined(transcription: .starting, cleanup: .cloud)) == 0, "0% from the start")
+        precondition(NoteWorkProgress.combined(transcription: nil, cleanup: .cloud) == nil, "one request: no bar")
+        // Transcription done: it reaches the boundary, never past it.
+        precondition(percent(.combined(transcription: progress(4, of: 4), cleanup: .cloud)) == 80)
+        precondition(percent(.combined(transcription: progress(4, of: 4), cleanup: .onDevice)) == 60)
+        // Cleanup picks up at the boundary and holds there until a chunk is done.
+        precondition(NoteWorkProgress.combined(cleanupProgress: nil, stage: .cloud) == nil, "Edit Mode: no cleanup bar")
+        precondition(percent(.combined(cleanupProgress: progress(0, of: 3), stage: .cloud)) == 80)
+        precondition(percent(.combined(cleanupProgress: progress(0, of: 1), stage: .onDevice)) == 60)
+        precondition(percent(.combined(cleanupProgress: progress(1, of: 4), stage: .cloud)) == 85)
+        precondition(percent(.combined(cleanupProgress: progress(2, of: 4), stage: .onDevice)) == 80)
+        precondition(percent(.combined(cleanupProgress: progress(4, of: 4), stage: .cloud)) == 99, "never 100% while running")
+        precondition(NoteWorkProgress.combined(cleanupProgress: progress(1, of: 2), stage: .off) == nil)
+        // The bar never goes back when cleanup starts.
+        for stage in [NoteCleanupStage.cloud, .onDevice] {
+            let end = NoteWorkProgress.combined(transcription: progress(9, of: 9), cleanup: stage)!.fraction
+            let start = NoteWorkProgress.combined(cleanupProgress: progress(0, of: 2), stage: stage)!.fraction
+            precondition(start >= end, "\(stage)")
+        }
+        let status = NoteWorkStatus.postProcessing(.combined(cleanupProgress: progress(1, of: 4), stage: .cloud))
+        let presentation = status.presentation { $0 }
+        precondition(presentation.title == "Post-processing..." && presentation.percentText == "85%")
+    }
+
     private static func testProgressArithmetic() {
         precondition(NoteWorkProgress(completed: 0, total: 0) == nil, "no total, no progress")
         precondition(NoteWorkProgress(completed: 3, total: -1) == nil)
@@ -53,6 +87,11 @@ struct NoteWorkStatusTests {
             }
         }
         precondition(NoteWorkProgress(fraction: 0.999)?.percent == 99, "never 100% while running")
+        // Progress known to come shows 0% from the start (#697).
+        precondition(NoteWorkProgress.starting.fraction == 0 && NoteWorkProgress.starting.percent == 0)
+        precondition(
+            NoteWorkStatus.Presentation(indicator: .spinner, title: "", detail: nil, progress: .starting).percentText == "0%"
+        )
         // The last chunk is still saving: never 100% while work runs.
         let done = progress(4, of: 4)
         precondition(done.fraction == 0.99 && done.percent == 99)
@@ -78,7 +117,8 @@ struct NoteWorkStatusTests {
             (.transcriptionPaused(reason: nil), "Transcription paused", .hidden, nil),
             (.waitingToPostProcess(reason: nil), "Waiting to post-process", .spinner, nil),
             // #697 decision 3: post-processing shows a spinner on both apps.
-            (.postProcessing, "Post-processing...", .spinner, nil),
+            (.postProcessing(nil), "Post-processing...", .spinner, nil),
+            (.postProcessing(half), "Post-processing...", .spinner, half),
             (.recovering, "Recovering…", .spinner, nil),
             (.creatingSummary, "Creating summary…", .spinner, nil),
             (.regeneratingSummary, "Regenerating summary…", .spinner, nil),
@@ -153,7 +193,7 @@ struct NoteWorkStatusTests {
             (.retranscribing, .retranscribing(nil), "Retranscribing..."),
             (.cancelling, .cancellingTranscription(reason: nil), "Cancelling transcription..."),
             (.waitingToPostProcess, .waitingToPostProcess(reason: nil), "Waiting to post-process"),
-            (.postProcessing, .postProcessing, "Post-processing..."),
+            (.postProcessing, .postProcessing(nil), "Post-processing..."),
         ]
         for (work, status, key) in rows {
             precondition(work.status == status, "\(work) status")

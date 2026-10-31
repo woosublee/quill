@@ -221,10 +221,12 @@ struct TranscriptionServiceCloudChunkingTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let recorder = UploadRecorder(results: [.success("short wav")])
         let store = CountingCheckpointStore()
+        let progress = ChunkingProgressLog()
         let service = try makeService(
             ceiling: 10_000,
             recorder: recorder,
-            checkpointStore: store
+            checkpointStore: store,
+            progress: progress
         )
 
         let transcript = try await service.transcribe(fileURL: url)
@@ -237,6 +239,8 @@ struct TranscriptionServiceCloudChunkingTests {
         try expectContains(uploads[0].body, "name=\"model\"\r\n\r\nwhisper-large-v3", "small WAV model")
         try expectContains(uploads[0].body, "name=\"language\"\r\n\r\nen", "small WAV language")
         try expectEqual(await store.loadCount(), 0, "small WAV checkpoint load")
+        // One request reports no progress, so the status shows no bar (#697).
+        try expectEqual(progress.values(), [], "small WAV reports no progress")
     }
 
     private static func smallMP3UsesExistingSingleRequestPath() async throws {
@@ -247,10 +251,12 @@ struct TranscriptionServiceCloudChunkingTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let recorder = UploadRecorder(results: [.success("short mp3")])
         let store = CountingCheckpointStore()
+        let progress = ChunkingProgressLog()
         let service = try makeService(
             ceiling: 10_000,
             recorder: recorder,
-            checkpointStore: store
+            checkpointStore: store,
+            progress: progress
         )
 
         let transcript = try await service.transcribe(fileURL: url)
@@ -259,6 +265,7 @@ struct TranscriptionServiceCloudChunkingTests {
         try expectEqual(uploads.count, 1, "small MP3 upload count")
         try expectContains(uploads[0].body, "Content-Type: audio/mpeg", "small MP3 content type")
         try expectEqual(await store.loadCount(), 0, "small MP3 checkpoint load")
+        try expectEqual(progress.values(), [], "an imported MP3 reports no progress")
     }
 
     private static func cloudVerboseJSONLanguageFlowsIntoResult() async throws {
@@ -484,15 +491,24 @@ struct TranscriptionServiceCloudChunkingTests {
             .success("two")
         ])
         let store = CountingCheckpointStore()
+        let progress = ChunkingProgressLog()
         let service = try makeService(
             ceiling: ceiling,
             language: nil,
             recorder: recorder,
-            checkpointStore: store
+            checkpointStore: store,
+            progress: progress
         )
 
         let transcript = try await service.transcribe(fileURL: url)
         try expectEqual(transcript.text, "zero one two", "large ordered transcript")
+        // Chunked: it says progress is coming before reading and planning
+        // the audio, so the bar shows from the start (#697).
+        try expectEqual(
+            Array(progress.values().prefix(2)),
+            [.preparing, .planned(completed: 0, total: 3)],
+            "large WAV announces progress first"
+        )
         try expectEqual(transcript.spokenLanguage.languageCode, "ko", "large detected language")
         try expectEqual(transcript.spokenLanguage.source, .engineDetected, "large detected language source")
         let uploads = await recorder.uploads()
@@ -624,7 +640,8 @@ struct TranscriptionServiceCloudChunkingTests {
         ceiling: UInt64,
         language: String? = "en",
         recorder: UploadRecorder,
-        checkpointStore: CountingCheckpointStore
+        checkpointStore: CountingCheckpointStore,
+        progress: ChunkingProgressLog? = nil
     ) throws -> TranscriptionService {
         try TranscriptionService(
             apiKey: apiKey,
@@ -639,7 +656,7 @@ struct TranscriptionServiceCloudChunkingTests {
                     try await recorder.upload(request: request, body: body)
                 },
                 checkpointStore: checkpointStore,
-                progress: { _ in },
+                progress: { progress?.record($0) },
                 temporaryRoot: FileManager.default.temporaryDirectory
                     .appendingPathComponent(UUID().uuidString, isDirectory: true),
                 sleep: { _ in }
@@ -839,5 +856,21 @@ private struct TestFailure: Error, CustomStringConvertible {
 
     init(_ description: String) {
         self.description = description
+    }
+}
+
+/// Progress events, in order, from any thread.
+final class ChunkingProgressLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [CloudTranscriptionProgress] = []
+
+    func record(_ progress: CloudTranscriptionProgress) {
+        lock.lock(); defer { lock.unlock() }
+        recorded.append(progress)
+    }
+
+    func values() -> [CloudTranscriptionProgress] {
+        lock.lock(); defer { lock.unlock() }
+        return recorded
     }
 }
