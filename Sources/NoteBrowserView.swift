@@ -2310,7 +2310,10 @@ private struct NoteListRow: View {
                 }
             }
         case .transcribing:
-            YellowSpinner(color: QuillColor.statusProcessing)
+            // White on the keyboard-highlighted row's accent fill, like the
+            // failed note's icon: the darker light-mode orange is hard to see
+            // on blue.
+            YellowSpinner(color: isKeyboardHighlighted ? Color.white : QuillColor.statusProcessing)
         case .audioOnly:
             Circle()
                 .fill(QuillColor.statusDone)
@@ -2318,7 +2321,7 @@ private struct NoteListRow: View {
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.orange.opacity(metaOpacity(0.7)))
+                .foregroundStyle(QuillColor.statusProcessing.opacity(metaOpacity(0.7)))
         case .fail:
             if differentiateWithoutColor {
                 // Differentiate Without Color: a failed note gets a shape,

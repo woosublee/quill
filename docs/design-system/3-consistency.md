@@ -27,7 +27,7 @@
 ## 4. 경고 노랑이 두 가지 (#626)
 
 - 배너·이슈: `issue-warning`(밝은 화면 #c47318, 어두운 화면 #f2b35c, #736 Q2). QuillUserIssueView.swift에 두 번 적혀 있던 리터럴은 `QuillColor.issueWarning` 하나로 합쳤습니다.
-- 설정 안 주의 문구: 시스템 `.orange`(`status-processing`)를 그대로 사용.
+- 설정 안 주의 문구: 아직 시스템 `.orange`·`.green` 리터럴입니다. `status-processing`·`status-done`은 #736 Q2부터 밝은 화면에서 더 진하므로(#B95000·#1F7A36), 설정 화면을 토큰으로 옮기면 밝은 화면 색이 바뀝니다(후속).
 → 경고 의미는 `issue-warning` 하나로, `.orange`는 처리 중 상태에만.
 
 ## 5. 단계 밖의 값 (#627)

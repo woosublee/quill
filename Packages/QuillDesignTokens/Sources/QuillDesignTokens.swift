@@ -113,7 +113,8 @@ public enum QuillColor {
         }
 
         /// One color that follows the window's appearance by itself, for a
-        /// static tint that has no color scheme at hand (the issue icons). A
+        /// static tint that has no color scheme at hand (the issue icons and
+        /// the warning label). A
         /// view that forces a scheme on part of a window should use
         /// `color(for:)` instead.
         public var dynamicColor: Color {
@@ -183,10 +184,47 @@ public enum QuillColor {
     /// red, so it follows Increase Contrast on both apps (#736 Q2).
     public static let statusRecording = Color.red
     /// `status-processing`: work in progress, the record button while
-    /// recording, a recovered note. The system orange (#736 Q2).
-    public static let statusProcessing = Color.orange
-    /// `status-done`: a finished note's dot. The system green (#736 Q2).
-    public static let statusDone = Color.green
+    /// recording, a recovered note. Light mode uses a darker orange
+    /// (#B95000) that reaches 3:1 on a light background; dark mode keeps the
+    /// system orange (#FF9F0A, with its Increase Contrast step) (#736 Q2,
+    /// both apps).
+    public static let statusProcessingRGB = SchemeRGB(
+        light: RGB(red: 0xB9 / 255.0, green: 0x50 / 255.0, blue: 0x00 / 255.0),
+        dark: RGB(red: 0xFF / 255.0, green: 0x9F / 255.0, blue: 0x0A / 255.0)
+    )
+    public static let statusProcessing = darkerInLight(statusProcessingRGB.light, dark: .orange)
+    /// `status-done`: a finished note's dot. Light mode uses a darker green
+    /// (#1F7A36) that reaches 3:1 on a light background; dark mode keeps the
+    /// system green (#32D74B, with its Increase Contrast step) (#736 Q2,
+    /// both apps).
+    public static let statusDoneRGB = SchemeRGB(
+        light: RGB(red: 0x1F / 255.0, green: 0x7A / 255.0, blue: 0x36 / 255.0),
+        dark: RGB(red: 0x32 / 255.0, green: 0xD7 / 255.0, blue: 0x4B / 255.0)
+    )
+    public static let statusDone = darkerInLight(statusDoneRGB.light, dark: .green)
+
+    /// The system hues a status color keeps in dark mode.
+    public enum SystemHue: Sendable { case orange, green }
+
+    /// A status color that draws `light` in light mode and the system hue in
+    /// dark mode. It follows the window's appearance by itself, and in dark
+    /// mode it keeps the system color's Increase Contrast step (#736 Q2).
+    /// The light value already reaches 3:1, so it has no contrast step.
+    static func darkerInLight(_ light: RGB, dark hue: SystemHue) -> Color {
+        #if os(macOS)
+        let lightColor = NSColor(srgbRed: light.red, green: light.green, blue: light.blue, alpha: 1)
+        let darkColor: NSColor = hue == .orange ? .systemOrange : .systemGreen
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? darkColor : lightColor
+        })
+        #else
+        let lightColor = UIColor(red: light.red, green: light.green, blue: light.blue, alpha: 1)
+        let darkColor: UIColor = hue == .orange ? .systemOrange : .systemGreen
+        return Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? darkColor.resolvedColor(with: traits) : lightColor
+        })
+        #endif
+    }
     public static let issueError = issueErrorRGB.color
 
     /// `stroke-glass`: the 0.6 pt edge of a glass capsule (the note toolbar).

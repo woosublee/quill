@@ -30,8 +30,8 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `label-tertiary` | 역할 없음(설정 꺾쇠만 시스템 `.tertiary`) | |
 | `accent` | `accent`(고정) | `#007AFF` / `#0A84FF` |
 | `status-recording` · 오류 | `recording` = `failure` | `#FF3B30` / `#FF453A` |
-| `status-done` | `completed` | `#1F7A36` / `#30D158` |
-| `status-processing` | `attention` | `#B95000` / `#FF9F0A` |
+| `status-done` | `completed` | `#1F7A36` / `#32D74B` (공통 토큰, #736 Q2) |
+| `status-processing` | `attention` | `#B95000` / `#FF9F0A` (공통 토큰, #736 Q2) |
 | `overlay-surface` | `recorderPanel` | `#1C1C1E` / `#2C2C2E` |
 | `overlay-text` | `recorderForeground` | `#FFFFFF` |
 | `shadow-record`(근사) | `recorderScrim` | 검정 22% / 45% |

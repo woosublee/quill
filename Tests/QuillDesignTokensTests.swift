@@ -96,6 +96,24 @@ struct QuillDesignTokensTests {
         }
         precondition(resolved(.aqua) == "#c47318", "issue-warning light is \(resolved(.aqua))")
         precondition(resolved(.darkAqua) == "#f2b35c", "issue-warning dark is \(resolved(.darkAqua))")
+        // status-processing and status-done: the darker value in light mode,
+        // the system color in dark mode (#736 Q2).
+        for (name, token, lightHex, system) in [
+            ("status-processing", QuillColor.statusProcessing, "#b95000", NSColor.systemOrange),
+            ("status-done", QuillColor.statusDone, "#1f7a36", NSColor.systemGreen),
+        ] {
+            let color = NSColor(token)
+            func hex(_ c: NSColor, in appearance: NSAppearance.Name) -> String {
+                var value = ""
+                NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
+                    let s = c.usingColorSpace(.sRGB)!
+                    value = String(format: "#%02x%02x%02x", Int((s.redComponent * 255).rounded()), Int((s.greenComponent * 255).rounded()), Int((s.blueComponent * 255).rounded()))
+                }
+                return value
+            }
+            precondition(hex(color, in: .aqua) == lightHex, "\(name) light is \(hex(color, in: .aqua))")
+            precondition(hex(color, in: .darkAqua) == hex(system, in: .darkAqua), "\(name) dark is not the system color")
+        }
     }
 
     /// Each theme declared in color.themes holds the issue color QuillColor
@@ -108,6 +126,8 @@ struct QuillDesignTokensTests {
         let perTheme: [(String, (String) -> QuillColor.RGB)] = [
             ("issue-warning", { $0 == "dark" ? QuillColor.issueWarningRGB.dark : QuillColor.issueWarningRGB.light }),
             ("issue-error", { _ in QuillColor.issueErrorRGB }),
+            ("status-processing", { $0 == "dark" ? QuillColor.statusProcessingRGB.dark : QuillColor.statusProcessingRGB.light }),
+            ("status-done", { $0 == "dark" ? QuillColor.statusDoneRGB.dark : QuillColor.statusDoneRGB.light }),
         ]
         for (name, rgbFor) in perTheme {
             let entry = entries.first { $0["name"] as? String == name }
