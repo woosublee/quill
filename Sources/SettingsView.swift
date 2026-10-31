@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 import AVFoundation
 import ServiceManagement
 import UserNotifications
@@ -19,19 +20,21 @@ struct SettingsCard<Content: View>: View {
         self.content = content()
     }
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: QuillSpacing.space12) {
             Label(title, systemImage: icon)
                 .font(.headline)
             content
         }
-        .padding(16)
+        .padding(QuillSpacing.space16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-        .cornerRadius(10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(QuillOpacity.surfaceCard))
+        .cornerRadius(QuillRadius.radius10)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: QuillRadius.radius10)
+                .stroke(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)
         )
     }
 }

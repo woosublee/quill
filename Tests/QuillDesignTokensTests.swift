@@ -209,6 +209,11 @@ struct QuillDesignTokensTests {
         precondition(QuillControlSize.noteToolbarButton == QuillControlSize.noteToolbarButtonMac, "this Mac test sees the Mac value")
         precondition(QuillControlSize.checkbox == QuillControlSize.checkboxMac, "this Mac test sees the Mac checkbox")
         precondition(QuillControlSize.recordButton == QuillControlSize.recordButtonMac, "this Mac test sees the Mac record button")
+        precondition(QuillControlSize.close == QuillControlSize.closeMac, "this Mac test sees the Mac close button")
+        precondition(QuillControlSize.searchField == QuillControlSize.searchFieldMac, "this Mac test sees the Mac search field")
+        // The iPhone's close button and search field are the touch minimum.
+        precondition(QuillControlSize.closeIPhone == QuillControlSize.touchMin, "the iPhone close button is size-touch-min")
+        precondition(QuillControlSize.searchFieldIPhone == QuillControlSize.touchMin, "the iPhone search field is size-touch-min")
         // The iPhone's toolbar button is the minimum touch target.
         precondition(QuillControlSize.noteToolbarButtonIPhone == QuillControlSize.touchMin, "the iPhone toolbar button is size-touch-min")
     }
