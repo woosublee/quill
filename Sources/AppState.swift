@@ -2554,11 +2554,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func isPostProcessingWarningDismissed(_ item: PipelineHistoryItem) -> Bool {
         guard let code = item.userIssueRecord?.code else { return false }
         if noticeDismissalsByNoteID[item.id]?.isDismissed(
-            .postProcessingWarning(code: code.rawValue, status: item.postProcessingStatus)
+            Self.syncedPostProcessingWarning(code: code, status: item.postProcessingStatus)
         ) == true {
             return true
         }
         return isWarningBannerDismissed(noteID: item.id, code: code)
+    }
+
+    /// The warning as every device dismisses it. The condition is built from
+    /// the status as it syncs, without the provider host, so the iPhone,
+    /// which only ever sees that status, computes the same condition, and a
+    /// merge that brings the synced status back here doesn't change it.
+    static func syncedPostProcessingWarning(code: QuillUserIssueCode, status: String) -> NoteNoticeDismissals.Notice {
+        .postProcessingWarning(
+            code: code.rawValue,
+            status: QuillUserIssueRecord.persistedStatusWithoutProviderHost(status)
+        )
     }
 
     /// Dismisses the post-processing warning on every device until the note's
@@ -2568,7 +2579,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func dismissPostProcessingWarning(_ item: PipelineHistoryItem) {
         guard let code = item.userIssueRecord?.code else { return }
         dismissConditionalNotice(
-            .postProcessingWarning(code: code.rawValue, status: item.postProcessingStatus),
+            Self.syncedPostProcessingWarning(code: code, status: item.postProcessingStatus),
             noteID: item.id,
             fallback: { self.dismissWarningBanner(noteID: item.id, code: code) }
         )

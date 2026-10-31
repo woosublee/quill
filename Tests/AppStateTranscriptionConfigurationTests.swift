@@ -6,6 +6,7 @@ import QuillAITextCore
 import QuillUserIssueCore
 import QuillSummaryFormatCore
 import QuillProviderCore
+import QuillNoteSyncCore
 
 private final class ControlledRetryCloudUpload: @unchecked Sendable {
     private let condition = NSCondition()
@@ -125,6 +126,7 @@ struct AppStateTranscriptionConfigurationTests {
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
+        testPostProcessingWarningDismissalUsesTheSyncedStatus()
         testQwen38ModelConfiguration()
         testTranscriptionProviderPairFallsBackToTheMainAPI()
         testQwen36ContextReasoningIsStripped()
@@ -941,6 +943,26 @@ struct AppStateTranscriptionConfigurationTests {
         for model in ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "custom-whisper-compatible-model", ""] {
             assert(CloudTranscriptionUpload.responseFormat(forModel: model) == "json")
         }
+    }
+
+    /// The Mac keeps the provider host in a note's status, but iCloud gets
+    /// the status without it, so the iPhone only ever sees that one. The
+    /// warning's synced dismissal must be built from the synced status, or
+    /// a warning dismissed on one device stays on the other (#745).
+    private static func testPostProcessingWarningDismissalUsesTheSyncedStatus() {
+        let record = QuillUserIssueError.cloudHTTP(
+            status: 500,
+            providerHost: "api.example.com",
+            modelID: "provider/model"
+        ).record
+        let local = record.persistedStatus
+        let synced = QuillUserIssueRecord.persistedStatusWithoutProviderHost(local)
+        assert(local != synced, "the fixture carries a host")
+        let onMac = AppState.syncedPostProcessingWarning(code: record.code, status: local)
+        let onIPhone = NoteNoticeDismissals.Notice.postProcessingWarning(code: record.code.rawValue, status: synced)
+        assert(onMac == onIPhone, "both devices dismiss the same warning")
+        assert(AppState.syncedPostProcessingWarning(code: record.code, status: synced) == onMac,
+               "a merge that brings back the synced status keeps it dismissed")
     }
 
     private static func testTranscriptionHTTP400UsesConfigurationIssue() {
