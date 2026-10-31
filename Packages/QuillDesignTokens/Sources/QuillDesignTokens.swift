@@ -338,13 +338,16 @@ public enum QuillControlSize {
     public static let recordButtonMac: CGFloat = 44
     public static let recordButtonIPhone: CGFloat = 56
 
-    /// `size-close`: a small round close or remove button (a summary row's
-    /// remove button). On the iPhone it is the touch minimum.
+    /// `size-close`: a small round close or remove button (a close circle,
+    /// the overlay stop button, a summary row's remove button). So far only
+    /// the summary rows read it; the others move as their screens do. On
+    /// the iPhone it is the touch minimum.
     public static let closeMac: CGFloat = 20
     public static let closeIPhone: CGFloat = touchMin
 
-    /// `size-search-field`: the note list's search field height. On the
-    /// iPhone it is the touch minimum and grows with its text.
+    /// `size-search-field`: the note list's search field height, the same
+    /// as the sidebar's other header controls (`size-toolbar-control`). On
+    /// the iPhone it is the touch minimum and grows with its text.
     public static let searchFieldMac: CGFloat = 26
     public static let searchFieldIPhone: CGFloat = touchMin
 
@@ -425,7 +428,7 @@ public enum QuillOpacity {
     /// while work will replace it, so the text stays readable underneath.
     public static let statusWash: Double = 0.35
     /// `opacity-surface-card`: a settings card's control-background fill on
-    /// the Mac (`surface-card`).
+    /// the Mac; the alpha of the `surface-card` color in tokens.json.
     public static let surfaceCard: Double = 0.5
     /// `opacity-summary-bullet`: the secondary color of a Mac summary row's
     /// dot.
