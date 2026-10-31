@@ -45,6 +45,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | --- | --- | --- |
 | `setup-hero` | 34 Rounded Bold | `.title` Bold(28), 기본 글꼴 |
 | `page-error-title` | 20 Semibold | 쓰는 곳 없음. 쓰게 되면 `.title3` Semibold(20) |
+| `summary-section-title`(요약 섹션 제목, #736 Q1) | 15 Semibold(macOS `.title3`) | `.title3` Semibold(20). `page-error-title`과 iOS 크기는 같지만 Mac에서는 한 단계 작은 섹션 제목 |
 | `callout` | 12 | `.caption`(12), 배너 상세. 제목(`banner-title`)과 같은 크기로 함께 커진다(#744) |
 | `note-title` | 28 Bold | `.title` Bold(28), 자간 -0.3, 줄 간격 3. 본문 안 입력란, 최대 3줄 |
 | `transcript` | 15 / 줄 간격 +5, 문단 간격 6 | `.subheadline`(15) / 줄 간격 6, 문단 간격 없음(#736 Q6) |
@@ -63,7 +64,6 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `status-title`(작업 상태, #697) | 13 Semibold | `.subheadline` Semibold(15) |
 | `status-percent`(작업 백분율, #697에서 새로 추가) | 13, monospacedDigit | `.subheadline`(15), monospacedDigit |
 | `status-detail`(대기·일시정지 까닭, iPhone 상태용 새 스타일) | 12 | `.footnote`(13) |
-| `summary-section-title`(요약 섹션 제목, #736 Q1) | 15 Semibold(`.title3`) | `.title3` Semibold(20) |
 | `elapsed-time`(녹음) | 13 | `.title3` Rounded Semibold, monospacedDigit |
 | `timer-mono`(오디오 재생) | 9 | `.footnote` SF Mono Semibold |
 

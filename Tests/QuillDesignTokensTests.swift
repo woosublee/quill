@@ -343,8 +343,12 @@ struct QuillDesignTokensTests {
             && detail.tracking == callout.tracking && detail.trackingIPhone == callout.trackingIPhone
             && detail.design == callout.design && detail.scalesFromMacSize == callout.scalesFromMacSize, "empty-detail draws like callout on the Mac")
         precondition(QuillTypeStyle.emptyDetail.dynamicStyle == .subheadline, "empty-detail follows .subheadline on iOS")
-        precondition(QuillTypeStyle.summarySectionTitle.size == 15 && QuillTypeStyle.summarySectionTitle.weight == 600
-            && QuillTypeStyle.summarySectionTitle.dynamicStyle == .title3, "summary-section-title is .title3 Semibold on both apps (#736 Q1)")
+        let heading = QuillTypeStyle.summarySectionTitle, emptyTitle = QuillTypeStyle.emptyTitle
+        precondition(heading.size == emptyTitle.size && heading.lineHeight == emptyTitle.lineHeight && heading.weight == emptyTitle.weight,
+                     "summary-section-title keeps empty-title's Mac metrics (the Mac's .title3 Semibold, 15)")
+        precondition(heading.dynamicStyle == .title3, "summary-section-title follows .title3 on iOS (#736 Q1)")
+        precondition(NSFont.preferredFont(forTextStyle: .title3).pointSize == heading.size,
+                     "macOS .title3 is \(NSFont.preferredFont(forTextStyle: .title3).pointSize) pt; summary-section-title draws \(heading.size)")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }
@@ -355,7 +359,7 @@ struct QuillDesignTokensTests {
         // The work-status styles are this module's: one only in tokens.json
         // fails too.
         let swiftNames = Set(QuillTypeStyle.all.map(\.name))
-        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") || name.hasPrefix("empty-") {
+        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") || name.hasPrefix("empty-") || name.hasPrefix("summary-") {
             precondition(swiftNames.contains(name), "tokens.json style \(name) is missing from QuillTypeStyle")
         }
     }
