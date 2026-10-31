@@ -18,7 +18,39 @@ struct NoteBrowserRecoveryTests {
         testPostProcessingDisabledDoesNotAffectUnrelatedIssues()
         testAudioInICloudOffersRetryAndSaving()
         testRetryWithoutAudioExplainsInsteadOfOffering()
+        testNothingToCleanUpNoticeHidesForClearedTranscript()
         print("NoteBrowserRecoveryTests passed")
+    }
+
+    /// Cleanup that returned nothing says the original transcript shows; once
+    /// that transcript is cleared there is nothing to show, so the notice
+    /// hides. The record stays, and other issues are unaffected.
+    private static func testNothingToCleanUpNoticeHidesForClearedTranscript() {
+        let nothingToCleanUp = QuillUserIssueRecord(
+            code: .postProcessingFailed,
+            context: QuillUserIssueContext(postProcessingFailureReason: .emptyOutput)
+        )
+        precondition(NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: nothingToCleanUp,
+            isDisplayedTranscriptBlank: false
+        ))
+        precondition(!NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: nothingToCleanUp,
+            isDisplayedTranscriptBlank: true
+        ))
+        // Still recognized, so the warning banner keeps staying hidden.
+        precondition(NoteBrowserRecoveryPresentation.isNothingToPostProcess(nothingToCleanUp))
+
+        let otherFailure = QuillUserIssueRecord(
+            code: .postProcessingFailed,
+            context: QuillUserIssueContext(postProcessingFailureReason: .invalidResponse)
+        )
+        precondition(!NoteBrowserRecoveryPresentation.isNothingToPostProcess(otherFailure))
+        precondition(!NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
+            for: otherFailure,
+            isDisplayedTranscriptBlank: false
+        ))
+        precondition(!NoteBrowserRecoveryPresentation.isNothingToPostProcess(nil))
     }
 
     private static func testActionStateSeparatesAssetsFromRetryReadiness() {
