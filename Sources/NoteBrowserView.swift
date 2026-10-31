@@ -1582,7 +1582,7 @@ struct NoteBrowserView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, selection.showsSelectionUI ? 16 : 72)
         }
-        .frame(width: 280)
+        .frame(width: QuillNoteLayout.listColumnWidth)
         .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
         .overlay(alignment: .trailing) {
             Rectangle()
@@ -4106,7 +4106,7 @@ private struct NoteDetailView: View {
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,
-            // The shared table hides ✨ on an audio-only or failed note.
+            // The shared table hides ✨ when the action is Transcribe.
             canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
             hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasSummaryToCopy: summaryEnvelope != nil,

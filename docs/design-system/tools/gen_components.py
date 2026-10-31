@@ -571,7 +571,7 @@ iPhone 설정입니다(지금 앱 구조의 정적 재현, 색은 macOS 토큰�
 
 # ---------- Screens iPad ----------
 pad_notes = f'''<div class="q-stage" style="padding:28px;background:var(--surface-window)"><div class="q-tablet">
-<div style="width:320px;flex:none;background:var(--surface-window);box-shadow:inset -.5px 0 0 var(--divider-sidebar);display:flex;flex-direction:column;position:relative">
+<div style="width:280px;flex:none;background:var(--surface-window);box-shadow:inset -.5px 0 0 var(--divider-sidebar);display:flex;flex-direction:column;position:relative">
 <div class="q-nav" style="margin-top:14px"><span>{ic("sidebar", 18, 1.4)}</span><span style="display:flex;gap:16px">{ic("gear", 18, 1.4)}{ic("dots", 18)}</span></div>
 <div class="q-large" style="font-size:28px">노트</div>
 <div style="display:flex;gap:8px;padding:0 12px 8px"><span class="q-input" style="height:34px;width:72px;border-radius:10px">{ic("mic", 13)}{ic("chev", 10, 1.8)}</span><div class="q-search" style="margin:0;flex:1">{ic("search", 14)}검색</div></div>
@@ -581,7 +581,7 @@ pad_notes = f'''<div class="q-stage" style="padding:28px;background:var(--surfac
 C["PadNotes"] = (680, "두 열 노트 화면 (제안)", 920, pad_notes,
 """# PadNotes
 
-iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 사이드바 320, 녹음 버튼 44, 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 세로·좁은 창에서는 사이드바가 덮개로 열립니다. iPad 앱은 아직 없습니다.
+iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 사이드바 280(`size-sidebar-notes`), 녹음 버튼 44, 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 창 폭이 800보다 좁으면 목록과 노트가 따로 된 화면입니다(`QuillNoteLayout`). iPad 앱은 아직 없습니다.
 """)
 
 pad_set = f'''<div class="q-stage" style="padding:28px;background:var(--surface-window)"><div class="q-tablet" style="background:var(--surface-window)">

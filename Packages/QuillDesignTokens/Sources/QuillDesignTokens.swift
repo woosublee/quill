@@ -210,6 +210,31 @@ public enum QuillControlSize {
     public static let statusProgress: CGFloat = 200
 }
 
+/// Note screen layout sizes (#697). `QuillNoteLayout` in QuillNoteUI picks
+/// between them by width class; the margins are steps of `QuillSpacing`.
+public enum QuillLayoutSize {
+    /// `size-sidebar-notes`: the note list's column when it sits beside the
+    /// note, on the Mac and in a wide iPad window.
+    public static let sidebarNotes: CGFloat = 280
+    /// `size-note-margin-compact`: a note's side margins in a compact
+    /// column (an iPhone in portrait). `space-16`.
+    public static let noteMarginCompact: CGFloat = 16
+    /// `size-note-margin-regular`: a note's side margins in a regular or
+    /// wide column. `space-24`.
+    public static let noteMarginRegular: CGFloat = 24
+    /// `size-note-body-max-width`: the widest a note's text runs in a
+    /// regular or wide column; the text is centred in wider columns.
+    public static let noteBodyMaxWidth: CGFloat = 680
+
+    /// Every size this enum carries, by its token name.
+    public static let all: [(name: String, value: CGFloat)] = [
+        ("size-sidebar-notes", sidebarNotes),
+        ("size-note-margin-compact", noteMarginCompact),
+        ("size-note-margin-regular", noteMarginRegular),
+        ("size-note-body-max-width", noteBodyMaxWidth),
+    ]
+}
+
 /// Named opacities, applied to a whole view or a fill.
 public enum QuillOpacity {
     /// `opacity-status-wash`: the note's own background laid over its text
