@@ -597,8 +597,19 @@ struct NoteSyncRecordTests {
         precondition(NoteNoticeDismissals.Notice.summaryFailure(attemptAt: Date(timeIntervalSince1970: 2)).condition == "2000")
         precondition(NoteNoticeDismissals.Notice.summaryStale(sourceFingerprint: "fp").condition == "fp")
         precondition(empty.dismissing(notice, at: t0)?.isDismissed(notice) == true)
+        let generated = Date(timeIntervalSince1970: 3)
+        let summaryOff = NoteNoticeDismissals.Notice.summaryFeatureDisabled(generatedAt: generated)
+        let noModel = NoteNoticeDismissals.Notice.summaryModelUnavailable(generatedAt: generated)
+        precondition(summaryOff.key == "summary.featureDisabled" && summaryOff.condition == "3000",
+                     "the setting notices dismiss per note, for the summary's time")
+        precondition(noModel.key == "summary.modelUnavailable" && noModel.condition == "3000")
+        let offDismissed = empty.dismissing(summaryOff, at: t0)!
+        precondition(offDismissed.isDismissed(summaryOff) && !offDismissed.isDismissed(noModel), "each notice on its own")
+        precondition(!offDismissed.isDismissed(.summaryFeatureDisabled(generatedAt: generated.addingTimeInterval(1))),
+                     "a new summary brings it back")
         precondition([NoteNoticeDismissals.summaryFailure, NoteNoticeDismissals.summaryStale,
-                      NoteNoticeDismissals.summaryUnverifiedEvidence].allSatisfy { $0.hasPrefix(NoteNoticeDismissals.summaryPrefix) },
+                      NoteNoticeDismissals.summaryUnverifiedEvidence, NoteNoticeDismissals.summaryFeatureDisabled,
+                      NoteNoticeDismissals.summaryModelUnavailable].allSatisfy { $0.hasPrefix(NoteNoticeDismissals.summaryPrefix) },
                      "deleting a summary ends all of its notices")
         precondition(NoteNoticeDismissals.decode(.string("x")).isEmpty)
         precondition(NoteNoticeDismissals.decode(.data(Data("[]".utf8))).isEmpty)

@@ -2817,15 +2817,6 @@ private struct NoteDetailView: View {
             || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
     }
     private var showsNothingToPostProcessNotice: Bool {
-        isNothingToPostProcess && !isNothingToPostProcessDismissed
-    }
-    /// Dismissed on any device (synced, #730), or on this Mac before the
-    /// dismissal synced.
-    private var isNothingToPostProcessDismissed: Bool {
-        isWarningBannerDismissed
-            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
-    }
-    private var showsNothingToPostProcessNotice: Bool {
         NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
             for: item.userIssueRecord,
             isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
@@ -3609,9 +3600,11 @@ private struct NoteDetailView: View {
         }
     }
 
-    /// The notice as every device dismisses it (#745), or nil for a notice
-    /// about this Mac's own settings, or the same-summary notice, which
-    /// syncs as its own marker.
+    /// The notice as every device dismisses it (#745), or nil for the
+    /// same-summary notice, which syncs as its own marker. The notices about
+    /// this Mac's own settings sync too: they show only where the setting
+    /// holds, and once dismissed they stay closed for this summary on every
+    /// device.
     private func syncedSummaryNotice(_ kind: SummaryNoticeKind) -> NoteNoticeDismissals.Notice? {
         switch kind {
         case .failure:
@@ -3620,7 +3613,11 @@ private struct NoteDetailView: View {
             return .summaryStale(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))
         case .unverifiedEvidence:
             return summaryEnvelope.map { .summaryUnverifiedEvidence(generatedAt: $0.generatedAt) }
-        case .unchanged, .featureDisabled, .modelUnavailable:
+        case .featureDisabled:
+            return summaryEnvelope.map { .summaryFeatureDisabled(generatedAt: $0.generatedAt) }
+        case .modelUnavailable:
+            return summaryEnvelope.map { .summaryModelUnavailable(generatedAt: $0.generatedAt) }
+        case .unchanged:
             return nil
         }
     }
