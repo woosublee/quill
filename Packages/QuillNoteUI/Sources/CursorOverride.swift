@@ -8,21 +8,53 @@ import SwiftUI
 // there, a button floating over the transcript's text view showed no help
 // tag. The Mac app uses the same helper for its other cursor overrides.
 
-public final class CursorNSView: NSView {
-    public var cursor: NSCursor
+/// Which override cursor covers a point, for text views underneath one
+/// (such as the transcript under the floating toolbar).
+public enum QuillCursorOverride {
+    /// The override cursor for a point in window coordinates, if one covers it.
+    @MainActor
+    public static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
+        CursorNSView.cursor(atWindowPoint: point, in: window)
+    }
+}
 
-    /// Cursor overrides currently in a window. Text views underneath one
-    /// (such as the transcript under the floating toolbar) defer to it.
+extension View {
+    public func overrideCursor(_ cursor: NSCursor) -> some View {
+        self.background(CursorView(cursor: cursor))
+    }
+}
+
+struct CursorView: NSViewRepresentable {
+    var cursor: NSCursor
+    /// Whether text views underneath look this view up. A view inside an
+    /// override that already covers it (a toolbar button) needn't be.
+    var isInLookup = true
+
+    func makeNSView(context: Context) -> CursorNSView {
+        CursorNSView(cursor: cursor, isInLookup: isInLookup)
+    }
+
+    func updateNSView(_ nsView: CursorNSView, context: Context) { nsView.cursor = cursor }
+}
+
+final class CursorNSView: NSView {
+    var cursor: NSCursor
+    private let isInLookup: Bool
+    private var trackedBounds: NSRect?
+
+    /// Cursor overrides currently in a window that text views look up.
     private static let liveViews = NSHashTable<CursorNSView>.weakObjects()
 
-    public init(cursor: NSCursor) {
+    init(cursor: NSCursor, isInLookup: Bool = true) {
         self.cursor = cursor
+        self.isInLookup = isInLookup
         super.init(frame: .zero)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    public override func viewDidMoveToWindow() {
+    override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard isInLookup else { return }
         if window == nil {
             Self.liveViews.remove(self)
         } else {
@@ -30,8 +62,7 @@ public final class CursorNSView: NSView {
         }
     }
 
-    /// The override cursor for a point in window coordinates, if one covers it.
-    public static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
+    static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
         guard let window else { return nil }
         for view in liveViews.allObjects
         where view.window === window && !view.isHiddenOrHasHiddenAncestor {
@@ -42,17 +73,21 @@ public final class CursorNSView: NSView {
         return nil
     }
 
-    public override func layout() {
+    override func layout() {
         super.layout()
+        // Only when the size changes; AppKit calls updateTrackingAreas itself
+        // when the view moves.
+        guard trackedBounds != bounds else { return }
+        trackedBounds = bounds
         updateTrackingAreas()
         window?.invalidateCursorRects(for: self)
     }
 
-    public override func resetCursorRects() {
+    override func resetCursorRects() {
         addCursorRect(bounds, cursor: cursor)
     }
 
-    public override func updateTrackingAreas() {
+    override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach { removeTrackingArea($0) }
         guard !bounds.isEmpty else { return }
@@ -64,20 +99,8 @@ public final class CursorNSView: NSView {
         ))
     }
 
-    public override func cursorUpdate(with event: NSEvent) {
+    override func cursorUpdate(with event: NSEvent) {
         cursor.set()
-    }
-}
-
-struct CursorView: NSViewRepresentable {
-    var cursor: NSCursor
-    func makeNSView(context: Context) -> CursorNSView { CursorNSView(cursor: cursor) }
-    func updateNSView(_ nsView: CursorNSView, context: Context) { nsView.cursor = cursor }
-}
-
-extension View {
-    public func overrideCursor(_ cursor: NSCursor) -> some View {
-        self.background(CursorView(cursor: cursor))
     }
 }
 #endif

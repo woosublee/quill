@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import SwiftUI
 import QuillNoteUI
+import QuillDesignTokens
 
 /// The #690 note toolbar table (QuillNoteUI), the same for both apps. Every
 /// row of the table, on both tabs, is checked here.
@@ -274,7 +275,8 @@ struct NoteToolbarStateTests {
 
     /// A Mac toolbar button floating over the transcript's text view shows
     /// its help tag only with an AppKit view of its own behind it, as each
-    /// button had before the toolbar was shared (#698).
+    /// button had before the toolbar was shared (#698). That view, and the
+    /// button's hit shape, are Mac only.
     private static func testEachMacButtonHasItsOwnCursorViewForItsHelpTag() {
         let url = URL(fileURLWithPath: "Packages/QuillNoteUI/Sources/NoteFloatingToolbar.swift")
         guard let source = try? String(contentsOf: url, encoding: .utf8) else {
@@ -284,24 +286,57 @@ struct NoteToolbarStateTests {
               let end = source.range(of: "struct NoteToolbarHint", range: start.upperBound..<source.endIndex)
         else { preconditionFailure("NoteToolbarIconButton not found") }
         let button = String(source[start.upperBound..<end.lowerBound])
-        guard let help = button.range(of: ".help(label)"),
-              let cursor = button.range(of: ".overrideCursor(.arrow)", range: help.upperBound..<button.endIndex)
-        else { preconditionFailure("each toolbar button needs .overrideCursor(.arrow) with its .help (#698)") }
-        let between = button[help.upperBound..<cursor.lowerBound]
-        precondition(!between.contains("}\n}"), "the cursor view must stay on the button")
-        precondition(button[cursor.upperBound...].contains("#endif"), "the cursor view is Mac only")
+        let macBlocks = macOnlyBlocks(in: button)
+        guard let help = button.range(of: ".help(label)") else { preconditionFailure("the button lost its .help") }
+        precondition(macBlocks.contains { $0.contains(".help(label)") }, ".help is Mac only")
+        let afterHelp = button[help.upperBound...]
+        precondition(afterHelp.contains(".background(CursorView(cursor: .arrow"),
+                     "each toolbar button needs its cursor view with its .help (#698)")
+        precondition(macBlocks.contains { $0.contains(".background(CursorView(cursor: .arrow") },
+                     "the button's cursor view must sit inside #if os(macOS)")
+        precondition(macBlocks.contains { $0.contains(".contentShape(Circle())") && $0.contains(".allowsHitTesting(true)") },
+                     "the button's Mac hit shape must sit inside #if os(macOS)")
     }
 
-    /// Every drawn button gets its own `CursorNSView`, besides any on the
-    /// whole toolbar.
+    /// The text of each `#if os(macOS)` branch, up to its `#else` or `#endif`.
+    private static func macOnlyBlocks(in source: String) -> [String] {
+        var blocks: [String] = []
+        var current: [String]?
+        for line in source.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "#if os(macOS)" {
+                current = []
+            } else if trimmed == "#else" || trimmed == "#endif" {
+                if let block = current { blocks.append(block.joined(separator: "\n")) }
+                current = nil
+            } else {
+                current?.append(String(line))
+            }
+        }
+        return blocks
+    }
+
+    /// Every drawn button gets its own cursor view, besides the one the Mac
+    /// puts on the whole toolbar.
     @MainActor
     private static func testEachMacButtonGetsAnAppKitView() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+
         var input = done(.transcript)
         input.hasSummaryTab = false
         input.canCreateSummary = true
         let state = State.make(input)
-        // ↻, Copy, Save, ✨, Delete.
-        let buttonCount = 5
+        let firstSlotButtons: Int
+        switch state.firstSlot {
+        case .none: firstSlotButtons = 0
+        case .progress, .button: firstSlotButtons = 1
+        }
+        let summaryButtons = state.createSummary == .none ? 0 : 1
+        // The first slot, Copy, Save, Create summary, and Delete.
+        let buttonCount = firstSlotButtons + 2 + summaryButtons + 1
+        precondition(buttonCount == 5, "the fixture should draw every slot")
+
         let toolbar = NoteFloatingToolbar(
             state: state,
             labels: NoteToolbarLabels(
@@ -318,23 +353,35 @@ struct NoteToolbarStateTests {
             ),
             opaqueBackground: .white
         )
+        // As the Mac's note browser draws it.
+        .overrideCursor(.arrow)
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 80),
-            styleMask: [.titled], backing: .buffered, defer: false
+            styleMask: [.borderless], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
         let host = NSHostingView(rootView: toolbar)
         window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
 
-        func cursorViews(in view: NSView) -> [CursorNSView] {
-            (view as? CursorNSView).map { [$0] } ?? view.subviews.flatMap(cursorViews(in:))
+        func cursorViews(in view: NSView) -> [NSView] {
+            let own = NSStringFromClass(type(of: view)).hasSuffix(".CursorNSView") ? [view] : []
+            return own + view.subviews.flatMap(cursorViews(in:))
         }
-        let views = cursorViews(in: host)
-        precondition(views.count == buttonCount, "expected a cursor view per button, found \(views.count)")
-        precondition(views.allSatisfy { $0.cursor == .arrow })
-        precondition(views.allSatisfy { !$0.frame.isEmpty })
+        let buttonSize = QuillControlSize.noteToolbarButtonMac
+        func buttonCursorViews() -> [NSView] {
+            cursorViews(in: host).filter { $0.frame.width == buttonSize && $0.frame.height == buttonSize }
+        }
+        // SwiftUI can add the hosted views on a later pass; wait briefly.
+        let deadline = Date().addingTimeInterval(2)
+        host.layoutSubtreeIfNeeded()
+        while buttonCursorViews().count < buttonCount, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            host.layoutSubtreeIfNeeded()
+        }
+        let found = buttonCursorViews().count
+        precondition(found == buttonCount, "expected a cursor view per button, found \(found)")
+        precondition(cursorViews(in: host).count == buttonCount + 1, "the toolbar-wide view is separate")
         window.close()
     }
 }

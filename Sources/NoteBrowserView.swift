@@ -2014,7 +2014,11 @@ private final class CursorDeferringTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+        if let cursor = QuillCursorOverride.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            // Skip the text view's I-beam, but still pass the move up the
+            // responder chain so the views above it, such as the toolbar's
+            // hosting view and its help tags, see it.
+            nextResponder?.mouseMoved(with: event)
             cursor.set()
             return
         }
@@ -2022,7 +2026,7 @@ private final class CursorDeferringTextView: NSTextView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+        if let cursor = QuillCursorOverride.cursor(atWindowPoint: event.locationInWindow, in: window) {
             cursor.set()
             return
         }
@@ -4061,6 +4065,9 @@ private struct NoteDetailView: View {
         )
         .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
+        // As before #698: the pointer stays on the toolbar at the capsule's edges.
+        .contentShape(Capsule())
+        .allowsHitTesting(true)
         .overrideCursor(.arrow)
         // A press meant for the slot's last button mustn't land as the next
         // one: transcription can turn into post-processing under the cursor.
