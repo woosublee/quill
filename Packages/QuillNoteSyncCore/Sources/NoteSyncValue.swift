@@ -40,6 +40,12 @@ public enum NoteSyncField: String, CaseIterable, Sendable {
     /// A retranscription that matched the shown transcript, on any device
     /// (`NoteUnchangedRetranscription`).
     case unchangedRetranscription
+    /// Notices dismissed while a condition holds, on any device
+    /// (`NoteNoticeDismissals`).
+    case noticeDismissals
+    /// A summary regeneration that kept the shown summary, on any device
+    /// (`NoteUnchangedSummaryRegeneration`).
+    case unchangedSummaryRegeneration
 
     /// Fields every record carries. A record missing one (a malformed or
     /// partial record) never overwrites the local value with a default.
@@ -66,8 +72,9 @@ public enum NoteSyncField: String, CaseIterable, Sendable {
         case .intent, .postProcessingStatus, .aiProcessingOutcome, .localTranscriptionModelID,
              .usedLocalTranscription, .usedPostProcessing: return .status
         case .audioFileName, .audioManifest: return .audio
-        case .dismissedNotices: return .notices
+        case .dismissedNotices, .noticeDismissals: return .notices
         case .unchangedRetranscription: return .unchangedRetranscription
+        case .unchangedSummaryRegeneration: return .unchangedSummaryRegeneration
         }
     }
 
@@ -77,7 +84,7 @@ public enum NoteSyncField: String, CaseIterable, Sendable {
     public var valueKind: ValueKind {
         switch self {
         case .meetingSummaryJSON, .meetingSummaryAttempt, .calendarMatch, .audioManifest, .dismissedNotices,
-             .unchangedRetranscription: return .data
+             .unchangedRetranscription, .noticeDismissals, .unchangedSummaryRegeneration: return .data
         case .timestamp, .recordingStartedAt, .recordingEndedAt: return .date
         case .usedLocalTranscription, .usedPostProcessing: return .bool
         default: return .string

@@ -32,6 +32,8 @@ struct PipelineHistorySyncStoreTests {
         try testDismissedNoticeIsKeptAndSyncs()
         try testDismissedNoticeFromICloudIsKept()
         try testUnchangedRetranscriptionIsKeptAndSyncs()
+        try testConditionalDismissalIsKeptAndSyncs()
+        try testUnchangedSummaryRegenerationIsKeptAndSyncs()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -392,6 +394,68 @@ struct PipelineHistorySyncStoreTests {
         try s.setAudioManifest(nil, id: note.id)
         precondition(s.audioManifest(id: note.id) == nil)
         precondition(s.syncRecord(id: note.id)!.clock.stamp(for: .audio) == t0.addingTimeInterval(30))
+    }
+
+    /// A conditional dismissal is saved beside the note, stamped once,
+    /// ended for a retry, and kept across reopening (#745).
+    private static func testConditionalDismissalIsKeptAndSyncs() throws {
+        let url = temporaryStoreURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let key = NoteSyncField.noticeDismissals.rawValue
+        let warning = NoteNoticeDismissals.postProcessingWarning(code: "postProcessingFailed")
+        let s = PipelineHistoryStore(storeURL: url)
+        s.now = { t0 }
+        let note = makeItem()
+        _ = try s.append(note, maxCount: Int.max)
+        var changes: [PipelineHistoryChange] = []
+        s.onChange = { changes += $0 }
+        s.now = { t0.addingTimeInterval(10) }
+        try s.dismissNotice(warning, condition: "c1", id: note.id)
+        try s.dismissNotice(warning, condition: "c1", id: note.id)
+        precondition(changes == [.saved(note.id)], "the dismissal is sent once")
+        precondition(s.noticeState().conditionalDismissals[note.id]?.isDismissed(warning, condition: "c1") == true)
+        let record = s.syncRecord(id: note.id)!
+        precondition(NoteNoticeDismissals.decode(record.fields[key]).isDismissed(warning, condition: "c1"))
+        precondition(record.clock.stamp(for: .notices) == t0.addingTimeInterval(10))
+        try s.dismissNotice(NoteDismissedNotices.nothingToCleanUp, id: note.id)
+        precondition(s.noticeState().conditionalDismissals[note.id]?.isDismissed(warning, condition: "c1") == true,
+                     "a permanent dismissal keeps the conditional ones")
+        s.now = { t0.addingTimeInterval(20) }
+        try s.endNoticeDismissals(withPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, id: note.id)
+        changes = []
+        try s.endNoticeDismissals(withPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, id: note.id)
+        precondition(changes.isEmpty, "nothing to end, nothing sent")
+        let reopened = PipelineHistoryStore(storeURL: url)
+        precondition(reopened.noticeState().conditionalDismissals[note.id]?.isDismissed(warning, condition: "c1") == false)
+        precondition(reopened.dismissedNotices() == [note.id: [NoteDismissedNotices.nothingToCleanUp]])
+    }
+
+    /// The "same summary" marker is saved, cleared once, and a newer clear
+    /// from iCloud ends it (#745).
+    private static func testUnchangedSummaryRegenerationIsKeptAndSyncs() throws {
+        let url = temporaryStoreURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let s = PipelineHistoryStore(storeURL: url)
+        s.now = { t0 }
+        let note = makeItem()
+        _ = try s.append(note, maxCount: Int.max)
+        let marker = NoteUnchangedSummaryRegeneration.matching(summaryGeneratedAt: t0, at: t0.addingTimeInterval(10))
+        s.now = { t0.addingTimeInterval(10) }
+        try s.setUnchangedSummaryRegeneration(marker, id: note.id)
+        precondition(s.noticeState().unchangedSummaries == [note.id: marker])
+        precondition(s.syncRecord(id: note.id)?.clock.stamp(for: .unchangedSummaryRegeneration) == t0.addingTimeInterval(10))
+        let reopened = PipelineHistoryStore(storeURL: url)
+        precondition(reopened.noticeState().unchangedSummaries == [note.id: marker], "kept across reopening")
+        var remote = reopened.syncRecord(id: note.id)!
+        remote.fields[NoteSyncField.unchangedSummaryRegeneration.rawValue] =
+            NoteUnchangedSummaryRegeneration.cleared(at: t0.addingTimeInterval(60)).value
+        remote.clock = remote.clock.setting(.unchangedSummaryRegeneration, to: t0.addingTimeInterval(60))
+        _ = try reopened.applySynced(remote, systemFields: nil)
+        precondition(reopened.noticeState().unchangedSummaries.isEmpty, "a newer clear from iCloud ends it")
+        var changes: [PipelineHistoryChange] = []
+        reopened.onChange = { changes += $0 }
+        try reopened.clearUnchangedSummaryRegeneration(id: note.id)
+        precondition(changes.isEmpty, "already cleared, nothing sent")
     }
 
     /// A dismissal is saved beside the note, stamped, reported, kept when

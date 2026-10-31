@@ -935,28 +935,31 @@ final class PipelineHistoryStore {
     /// The synced notice state kept beside each note, read in one pass:
     /// dismissed notices (#730) and live "same transcript" markers (#742),
     /// only for notes that have any. A cleared marker isn't listed.
-    func noticeState() -> (
-        dismissed: [UUID: Set<String>],
-        unchanged: [UUID: NoteUnchangedRetranscription]
-    ) {
-        guard availability == .ready, isStoreLoaded else { return ([:], [:]) }
-        var dismissed: [UUID: Set<String>] = [:]
-        var unchanged: [UUID: NoteUnchangedRetranscription] = [:]
+    func noticeState() -> NoteNoticeState {
+        guard availability == .ready, isStoreLoaded else { return NoteNoticeState() }
+        var state = NoteNoticeState()
         container.viewContext.performAndWait {
             let request = pipelineHistoryRequest()
             request.predicate = NSPredicate(format: "syncExtraFieldsJSON != nil")
             for entity in (try? historyFetcher(container.viewContext, request)) ?? [] {
                 let extras = Self.extraFields(of: entity)
                 let ids = NoteDismissedNotices.decode(extras[NoteSyncField.dismissedNotices.rawValue])
-                if !ids.isEmpty { dismissed[entity.id] = ids }
+                if !ids.isEmpty { state.dismissed[entity.id] = ids }
                 if let marker = NoteUnchangedRetranscription.decode(
                     extras[NoteSyncField.unchangedRetranscription.rawValue]
                 ), !marker.isCleared {
-                    unchanged[entity.id] = marker
+                    state.unchanged[entity.id] = marker
+                }
+                let conditional = NoteNoticeDismissals.decode(extras[NoteSyncField.noticeDismissals.rawValue])
+                if !conditional.isEmpty { state.conditionalDismissals[entity.id] = conditional }
+                if let marker = NoteUnchangedSummaryRegeneration.decode(
+                    extras[NoteSyncField.unchangedSummaryRegeneration.rawValue]
+                ), !marker.isCleared {
+                    state.unchangedSummaries[entity.id] = marker
                 }
             }
         }
-        return (dismissed, unchanged)
+        return state
     }
 
     /// Every note's dismissed notices (#730), for notes that have any.
@@ -1000,6 +1003,60 @@ final class PipelineHistoryStore {
             guard let current = NoteUnchangedRetranscription.decode(extras[key]), !current.isCleared else { return nil }
             var extras = extras
             extras[key] = NoteUnchangedRetranscription.cleared(at: now()).value
+            return extras
+        }
+    }
+
+    /// Records that a notice was dismissed on this note while `condition`
+    /// holds (#745), and stamps the notices group so the dismissal reaches
+    /// the other devices.
+    func dismissNotice(_ key: String, condition: String, id: UUID) throws {
+        try updateExtraFields(id: id, group: .notices) { extras in
+            let field = NoteSyncField.noticeDismissals.rawValue
+            guard let updated = NoteNoticeDismissals.decode(extras[field])
+                .dismissing(key, condition: condition, at: now()) else { return nil }
+            var extras = extras
+            extras[field] = updated.value
+            return extras
+        }
+    }
+
+    /// Brings back, on every device, the dismissed notices whose keys start
+    /// with `prefix` (#745). Writes nothing when none is dismissed, so a
+    /// retry on a note without one doesn't upload the note again.
+    func endNoticeDismissals(withPrefix prefix: String, id: UUID) throws {
+        try updateExtraFields(id: id, group: .notices) { extras in
+            let field = NoteSyncField.noticeDismissals.rawValue
+            guard let updated = NoteNoticeDismissals.decode(extras[field])
+                .ending(keysWithPrefix: prefix, at: now()) else { return nil }
+            var extras = extras
+            extras[field] = updated.value
+            return extras
+        }
+    }
+
+    /// Saves this note's "same summary" marker (#745) and stamps its group
+    /// so the notice reaches the other devices.
+    func setUnchangedSummaryRegeneration(_ marker: NoteUnchangedSummaryRegeneration, id: UUID) throws {
+        try updateExtraFields(id: id, group: .unchangedSummaryRegeneration) { extras in
+            let key = NoteSyncField.unchangedSummaryRegeneration.rawValue
+            guard NoteUnchangedSummaryRegeneration.decode(extras[key]) != marker else { return nil }
+            var extras = extras
+            extras[key] = marker.value
+            return extras
+        }
+    }
+
+    /// Ends this note's "same summary" notice on every device (#745).
+    /// Writes nothing when there is none to end.
+    func clearUnchangedSummaryRegeneration(id: UUID) throws {
+        try updateExtraFields(id: id, group: .unchangedSummaryRegeneration) { extras in
+            let key = NoteSyncField.unchangedSummaryRegeneration.rawValue
+            guard let current = NoteUnchangedSummaryRegeneration.decode(extras[key]), !current.isCleared else {
+                return nil
+            }
+            var extras = extras
+            extras[key] = NoteUnchangedSummaryRegeneration.cleared(at: now()).value
             return extras
         }
     }
@@ -1751,4 +1808,16 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var syncSystemFields: Data?
     @NSManaged var audioSyncManifestJSON: Data?
     @NSManaged var audioSyncUploadKey: String?
+}
+
+/// The synced notice state kept beside each note (#730, #742, #745).
+struct NoteNoticeState: Equatable {
+    /// Notices dismissed for good.
+    var dismissed: [UUID: Set<String>] = [:]
+    /// Live "same transcript" markers.
+    var unchanged: [UUID: NoteUnchangedRetranscription] = [:]
+    /// Notices dismissed while a condition holds.
+    var conditionalDismissals: [UUID: NoteNoticeDismissals] = [:]
+    /// Live "same summary" markers.
+    var unchangedSummaries: [UUID: NoteUnchangedSummaryRegeneration] = [:]
 }

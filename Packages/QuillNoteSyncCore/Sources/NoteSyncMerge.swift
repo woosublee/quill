@@ -35,6 +35,16 @@ public enum NoteSyncMerge {
         if !dismissed.isEmpty {
             merged.fields[dismissedKey] = NoteDismissedNotices.value(dismissed)
         }
+        // Conditional dismissals keep the later entry of each notice, so
+        // notices dismissed on two devices at once both stay dismissed.
+        let conditionalKey = NoteSyncField.noticeDismissals.rawValue
+        let conditional = NoteNoticeDismissals.merged(
+            NoteNoticeDismissals.decode(local.fields[conditionalKey]),
+            NoteNoticeDismissals.decode(remote.fields[conditionalKey])
+        )
+        if !conditional.isEmpty {
+            merged.fields[conditionalKey] = conditional.value
+        }
 
         // Groups from a newer build: keep the later stamp of each.
         let knownGroups = Set(NoteFieldGroup.allCases.map(\.rawValue))

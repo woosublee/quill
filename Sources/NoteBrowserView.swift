@@ -2808,8 +2808,16 @@ private struct NoteDetailView: View {
         item.userIssueRecord?.code
     }
     private var isWarningBannerDismissed: Bool {
-        guard let warningBannerCode else { return false }
-        return appState.isWarningBannerDismissed(noteID: item.id, code: warningBannerCode)
+        appState.isPostProcessingWarningDismissed(item)
+    }
+    /// Dismissed on any device (synced, #730), or on this Mac before the
+    /// dismissal synced.
+    private var isNothingToPostProcessDismissed: Bool {
+        isWarningBannerDismissed
+            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    }
+    private var showsNothingToPostProcessNotice: Bool {
+        isNothingToPostProcess && !isNothingToPostProcessDismissed
     }
     /// Dismissed on any device (synced, #730), or on this Mac before the
     /// dismissal synced.
@@ -3429,12 +3437,7 @@ private struct NoteDetailView: View {
                             )
                         },
                         onDismiss: {
-                            if let warningBannerCode {
-                                appState.dismissWarningBanner(
-                                    noteID: item.id,
-                                    code: warningBannerCode
-                                )
-                            }
+                            appState.dismissPostProcessingWarning(item)
                         }
                     )
                     .padding(.horizontal, QuillSpacing.space40)
@@ -3606,11 +3609,28 @@ private struct NoteDetailView: View {
         }
     }
 
+    /// The notice as every device dismisses it (#745), or nil for a notice
+    /// about this Mac's own settings, or the same-summary notice, which
+    /// syncs as its own marker.
+    private func syncedSummaryNotice(_ kind: SummaryNoticeKind) -> NoteNoticeDismissals.Notice? {
+        switch kind {
+        case .failure:
+            return currentSummaryAttempt.map { .summaryFailure(attemptAt: $0.occurredAt) }
+        case .stale:
+            return .summaryStale(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))
+        case .unverifiedEvidence:
+            return summaryEnvelope.map { .summaryUnverifiedEvidence(generatedAt: $0.generatedAt) }
+        case .unchanged, .featureDisabled, .modelUnavailable:
+            return nil
+        }
+    }
+
     private func isSummaryNoticeDismissed(_ kind: SummaryNoticeKind) -> Bool {
         appState.isSummaryNoticeDismissed(
             noteID: item.id,
             kind: kind,
-            condition: summaryNoticeDismissalCondition(kind)
+            condition: summaryNoticeDismissalCondition(kind),
+            synced: syncedSummaryNotice(kind)
         )
     }
 
@@ -3618,7 +3638,8 @@ private struct NoteDetailView: View {
         appState.dismissSummaryNotice(
             noteID: item.id,
             kind: kind,
-            condition: summaryNoticeDismissalCondition(kind)
+            condition: summaryNoticeDismissalCondition(kind),
+            synced: syncedSummaryNotice(kind)
         )
     }
 
@@ -3626,7 +3647,9 @@ private struct NoteDetailView: View {
         guard let summaryEnvelope else { return [] }
         var kinds: [SummaryNoticeKind] = []
         // A same-result regeneration leads, like the transcript's.
-        if appState.unchangedMeetingSummaries[item.id] == summaryEnvelope.generatedAt {
+        if appState.unchangedMeetingSummaries[item.id]?.matches(
+            summaryGeneratedAt: summaryEnvelope.generatedAt
+        ) == true {
             kinds.append(.unchanged)
         }
         if summaryFailureNoticePresentation != nil {

@@ -2527,6 +2527,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// come back, not even after a retry.
     @Published private(set) var dismissedNoticesByNoteID: [UUID: Set<String>] = [:]
 
+    /// Notices dismissed on a note on any device while a condition holds
+    /// (#745): the post-processing warning and the summary notices. Kept in
+    /// the note store and synced. The local dismissals above and below stay
+    /// for what was dismissed before, and for when the store can't save.
+    @Published private(set) var noticeDismissalsByNoteID: [UUID: NoteNoticeDismissals] = [:]
+
     private static let noteRetryGenerationDefaultsKey = "note_retry_generation_by_id"
     private static let dismissedWarningBannerGenerationDefaultsKey = "dismissed_warning_banner_generation_by_key"
 
@@ -2571,6 +2577,61 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let key = noteID.uuidString
         noteRetryGenerationByID[key] = (noteRetryGenerationByID[key] ?? 0) + 1
         Self.saveDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        // A retry brings a dismissed warning back on every device, as the
+        // generation does here (#745).
+        endNoticeDismissals(withPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, noteID: noteID)
+    }
+
+    /// The post-processing warning on this note is dismissed: on any device
+    /// for the note's current status (#745), or on this Mac for this retry
+    /// generation.
+    func isPostProcessingWarningDismissed(_ item: PipelineHistoryItem) -> Bool {
+        guard let code = item.userIssueRecord?.code else { return false }
+        if noticeDismissalsByNoteID[item.id]?.isDismissed(
+            .postProcessingWarning(code: code.rawValue, status: item.postProcessingStatus)
+        ) == true {
+            return true
+        }
+        return isWarningBannerDismissed(noteID: item.id, code: code)
+    }
+
+    /// Dismisses the post-processing warning on every device until the note's
+    /// status changes or it is retried (#745). If the store can't save it,
+    /// it stays dismissed on this Mac for this retry generation.
+    @MainActor
+    func dismissPostProcessingWarning(_ item: PipelineHistoryItem) {
+        guard let code = item.userIssueRecord?.code else { return }
+        dismissConditionalNotice(
+            .postProcessingWarning(code: code.rawValue, status: item.postProcessingStatus),
+            noteID: item.id,
+            fallback: { self.dismissWarningBanner(noteID: item.id, code: code) }
+        )
+    }
+
+    /// Saves a conditional dismissal in the note store so it reaches every
+    /// device; `fallback` keeps it on this Mac when the store can't save.
+    @MainActor
+    private func dismissConditionalNotice(
+        _ notice: NoteNoticeDismissals.Notice,
+        noteID: UUID,
+        fallback: () -> Void
+    ) {
+        do {
+            try pipelineHistoryStore.dismissNotice(notice.key, condition: notice.condition, id: noteID)
+            if let updated = (noticeDismissalsByNoteID[noteID] ?? NoteNoticeDismissals())
+                .dismissing(notice, at: Date()) {
+                noticeDismissalsByNoteID[noteID] = updated
+            }
+        } catch {
+            fallback()
+        }
+    }
+
+    @MainActor
+    private func endNoticeDismissals(withPrefix prefix: String, noteID: UUID) {
+        guard (try? pipelineHistoryStore.endNoticeDismissals(withPrefix: prefix, id: noteID)) != nil,
+              let updated = noticeDismissalsByNoteID[noteID]?.ending(keysWithPrefix: prefix, at: Date()) else { return }
+        noticeDismissalsByNoteID[noteID] = updated
     }
 
     func isWarningBannerDismissed(noteID: UUID, code: QuillUserIssueCode) -> Bool {
@@ -2633,22 +2694,49 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
-    func isSummaryNoticeDismissed(noteID: UUID, kind: SummaryNoticeKind, condition: String) -> Bool {
-        dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] == condition
+    /// `synced` is the notice as every device dismisses it (#745), or nil
+    /// for a notice that stays on this Mac.
+    func isSummaryNoticeDismissed(
+        noteID: UUID,
+        kind: SummaryNoticeKind,
+        condition: String,
+        synced: NoteNoticeDismissals.Notice? = nil
+    ) -> Bool {
+        if let synced, noticeDismissalsByNoteID[noteID]?.isDismissed(synced) == true {
+            return true
+        }
+        return dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] == condition
     }
 
+    /// Dismisses a summary notice on every device while `synced` holds
+    /// (#745). Notices that don't sync, or a store that can't save, keep
+    /// the dismissal on this Mac.
     @MainActor
-    func dismissSummaryNotice(noteID: UUID, kind: SummaryNoticeKind, condition: String) {
-        dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] = condition
-        Self.saveDictionary(
-            dismissedSummaryNoticeConditions,
-            forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
-        )
+    func dismissSummaryNotice(
+        noteID: UUID,
+        kind: SummaryNoticeKind,
+        condition: String,
+        synced: NoteNoticeDismissals.Notice? = nil
+    ) {
+        let dismissLocally = {
+            self.dismissedSummaryNoticeConditions["\(noteID.uuidString):\(kind.rawValue)"] = condition
+            Self.saveDictionary(
+                self.dismissedSummaryNoticeConditions,
+                forKey: Self.dismissedSummaryNoticeConditionsDefaultsKey
+            )
+        }
+        guard let synced else {
+            dismissLocally()
+            return
+        }
+        dismissConditionalNotice(synced, noteID: noteID, fallback: dismissLocally)
     }
 
-    /// A deleted summary takes its notices' dismissals with it.
+    /// A deleted summary takes its notices' dismissals with it, on every
+    /// device (#745).
     @MainActor
     func forgetSummaryNoticeDismissals(noteID: UUID) {
+        endNoticeDismissals(withPrefix: NoteNoticeDismissals.summaryPrefix, noteID: noteID)
         let prefix = "\(noteID.uuidString):"
         guard dismissedSummaryNoticeConditions.keys.contains(where: { $0.hasPrefix(prefix) }) else { return }
         dismissedSummaryNoticeConditions = dismissedSummaryNoticeConditions.filter { !$0.key.hasPrefix(prefix) }
@@ -2841,7 +2929,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var unchangedRetranscriptions: [UUID: NoteUnchangedRetranscription] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
-    @Published private(set) var unchangedMeetingSummaries: [UUID: Date] = [:]
+    /// Notes whose summary regeneration gave the same summary, on this Mac
+    /// or another device (#745), with the summary it kept. The Summary tab
+    /// says so while the note keeps that summary, until dismissed, edited,
+    /// or regenerated on any device.
+    @Published private(set) var unchangedMeetingSummaries: [UUID: NoteUnchangedSummaryRegeneration] = [:]
+    /// What the summary workflow last reported as unchanged, so only a new
+    /// one is saved.
+    private var workflowUnchangedMeetingSummaries: [UUID: Date] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
     /// back (#440). Only one waits at a time, and
     /// `finalizePendingSummaryDeletion()` (any deletion, clear, import, or
@@ -6220,9 +6315,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if meetingSummaryCandidates != state.candidates {
             meetingSummaryCandidates = state.candidates
         }
-        if unchangedMeetingSummaries != state.unchangedSummaries {
-            unchangedMeetingSummaries = state.unchangedSummaries
+        for (noteID, generatedAt) in state.unchangedSummaries
+        where workflowUnchangedMeetingSummaries[noteID] != generatedAt {
+            setUnchangedMeetingSummary(
+                .matching(summaryGeneratedAt: generatedAt, at: Date()),
+                noteID: noteID
+            )
         }
+        workflowUnchangedMeetingSummaries = state.unchangedSummaries
     }
 
     @MainActor
@@ -6243,7 +6343,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 incrementNoteRetryGeneration(for: item.id)
             }
             if effects.invalidatesMeetingSummary {
-                meetingSummaryWorkflow.invalidate(noteID: item.id)
+                invalidateMeetingSummaryWork(noteID: item.id)
             }
 
         case .completed(let noteID, let outcome):
@@ -6527,6 +6627,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             recentlyDeletedNotes = []
             dismissedNoticesByNoteID = [:]
             unchangedRetranscriptions = [:]
+            noticeDismissalsByNoteID = [:]
+            unchangedMeetingSummaries = [:]
+            workflowUnchangedMeetingSummaries = [:]
             retryingItemIDs = []
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
@@ -8540,6 +8643,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             recentlyDeletedNotes = []
             dismissedNoticesByNoteID = [:]
             unchangedRetranscriptions = [:]
+            noticeDismissalsByNoteID = [:]
+            unchangedMeetingSummaries = [:]
+            workflowUnchangedMeetingSummaries = [:]
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(
                     removedAssets,
@@ -8695,7 +8801,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // The model request stops too, even if the note view that started
         // it was rebuilt since.
         meetingSummaryGenerationTasks.removeValue(forKey: noteID)?.cancel()
-        meetingSummaryWorkflow.invalidate(noteID: noteID)
+        invalidateMeetingSummaryWork(noteID: noteID)
     }
 
     /// The summary run for each note, so Cancel Summary can stop it.
@@ -9180,6 +9286,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         var request = meetingSummaryWorkflowRequest(for: startItem)
         request.deliversCandidate = asCandidate
+        // A new summary ends the "same summary" notice on every device.
+        clearUnchangedMeetingSummary(noteID: id)
         let history = meetingSummaryHistoryAccess()
         let run = Task { @MainActor [meetingSummaryWorkflow] in
             await meetingSummaryWorkflow.generate(request: request, history: history)
@@ -9254,6 +9362,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory[noteIndex] = updated
         // An edited summary no longer is the one that came back unchanged.
         meetingSummaryWorkflow.dismissUnchangedSummary(noteID: noteID)
+        clearUnchangedMeetingSummary(noteID: noteID)
     }
 
     /// Saves the waiting new summary in place of the current one, keeping
@@ -9292,9 +9401,37 @@ final class AppState: ObservableObject, @unchecked Sendable {
         meetingSummaryWorkflow.discardCandidate(noteID: noteID)
     }
 
+    /// Drops the note's running or waiting summary work, and its "same
+    /// summary" notice on every device, which no longer describes it.
+    @MainActor
+    private func invalidateMeetingSummaryWork(noteID: UUID) {
+        meetingSummaryWorkflow.invalidate(noteID: noteID)
+        clearUnchangedMeetingSummary(noteID: noteID)
+    }
+
     @MainActor
     func dismissUnchangedMeetingSummaryNotice(noteID: UUID) {
         meetingSummaryWorkflow.dismissUnchangedSummary(noteID: noteID)
+        clearUnchangedMeetingSummary(noteID: noteID)
+    }
+
+    /// Saves the "same summary" notice for this note so every device shows
+    /// it (#745). Like the transcript's, a notice that couldn't be saved
+    /// isn't shown.
+    @MainActor
+    private func setUnchangedMeetingSummary(_ marker: NoteUnchangedSummaryRegeneration, noteID: UUID) {
+        guard (try? pipelineHistoryStore.setUnchangedSummaryRegeneration(marker, id: noteID)) != nil else { return }
+        unchangedMeetingSummaries[noteID] = marker
+    }
+
+    /// Ends the "same summary" notice on every device: dismissed, the
+    /// summary edited or deleted, a new summary started, or the transcript
+    /// changed. The store decides whether there is one to end, so a marker
+    /// from another device ends too.
+    @MainActor
+    private func clearUnchangedMeetingSummary(noteID: UUID) {
+        guard (try? pipelineHistoryStore.clearUnchangedSummaryRegeneration(id: noteID)) != nil else { return }
+        unchangedMeetingSummaries.removeValue(forKey: noteID)
     }
 
     /// Puts back the summary the model generated, keeping which actions
@@ -9343,7 +9480,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             throw QuillUserIssueError.historyPersistenceUnavailable()
         }
         pipelineHistory[noteIndex] = updated
-        meetingSummaryWorkflow.invalidate(noteID: noteID)
+        invalidateMeetingSummaryWork(noteID: noteID)
         // A new deletion ends any earlier Cancel window, then this summary
         // can be put back for a few seconds.
         finalizePendingSummaryDeletion()
@@ -9448,7 +9585,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 pipelineHistory[index] = updated
             }
             transcriptionRetryWorkflow.invalidate(noteID: id)
-            meetingSummaryWorkflow.invalidate(noteID: id)
+            invalidateMeetingSummaryWork(noteID: id)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to save transcript edit"), providerDetail: error.localizedDescription)
         }
@@ -14473,6 +14610,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let notices = pipelineHistoryStore.noticeState()
         dismissedNoticesByNoteID = notices.dismissed
         if notices.unchanged != unchangedRetranscriptions { unchangedRetranscriptions = notices.unchanged }
+        if notices.conditionalDismissals != noticeDismissalsByNoteID {
+            noticeDismissalsByNoteID = notices.conditionalDismissals
+        }
+        if notices.unchangedSummaries != unchangedMeetingSummaries {
+            unchangedMeetingSummaries = notices.unchangedSummaries
+        }
     }
 
     @MainActor

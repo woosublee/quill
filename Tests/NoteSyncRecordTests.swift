@@ -33,6 +33,9 @@ struct NoteSyncRecordTests {
         testDismissedNoticesJoinOnMerge()
         testUnchangedRetranscriptionMarker()
         testUnchangedRetranscriptionMergesLastWriterWins()
+        testNoticeDismissalsHoldWhileTheConditionDoes()
+        testNoticeDismissalsMergePerNotice()
+        testUnchangedSummaryRegenerationMarker()
         print("NoteSyncRecordTests passed")
     }
 
@@ -563,6 +566,108 @@ struct NoteSyncRecordTests {
         let onA = NoteSyncMerge.merge(local: tied, remote: cleared)
         let onB = NoteSyncMerge.merge(local: cleared, remote: tied)
         precondition(onA.fields[key] == onB.fields[key], "both devices keep the same marker")
+    }
+
+    /// A conditional dismissal holds only for its condition, ends for a
+    /// retry, and reads back as written (#745).
+    static func testNoticeDismissalsHoldWhileTheConditionDoes() {
+        let warning = NoteNoticeDismissals.postProcessingWarning(code: "postProcessingFailed")
+        precondition(warning == "postProcessing.warning.postProcessingFailed")
+        let status = "user-issue:v1:synthetic"
+        let condition = NoteNoticeDismissals.condition(postProcessingStatus: status)
+        precondition(condition == NoteNoticeDismissals.condition(postProcessingStatus: status), "alike on every device")
+        precondition(condition != NoteNoticeDismissals.condition(postProcessingStatus: status + "x"))
+        precondition(NoteNoticeDismissals.condition(date: Date(timeIntervalSince1970: 1.2345)) == "1235",
+                     "milliseconds, rounded")
+        let empty = NoteNoticeDismissals()
+        let dismissed = empty.dismissing(warning, condition: condition, at: t0)!
+        precondition(dismissed.isDismissed(warning, condition: condition))
+        precondition(!dismissed.isDismissed(warning, condition: "other"), "a changed status brings it back")
+        precondition(dismissed.dismissing(warning, condition: condition, at: t0) == nil, "already dismissed")
+        let withSummary = dismissed.dismissing(NoteNoticeDismissals.summaryStale, condition: "fp", at: t0)!
+        let ended = withSummary.ending(keysWithPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, at: t0.addingTimeInterval(5))!
+        precondition(!ended.isDismissed(warning, condition: condition), "a retry brings the warning back")
+        precondition(ended.isDismissed(NoteNoticeDismissals.summaryStale, condition: "fp"), "other notices stay")
+        precondition(ended.entries[warning] == .init(condition: nil, at: t0.addingTimeInterval(5)), "ended, not removed")
+        precondition(ended.ending(keysWithPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, at: t0) == nil,
+                     "nothing left to end")
+        precondition(NoteNoticeDismissals.decode(ended.value) == ended)
+        let notice = NoteNoticeDismissals.Notice.postProcessingWarning(code: "postProcessingFailed", status: status)
+        precondition(notice.key == warning && notice.condition == condition, "one table for both apps")
+        precondition(NoteNoticeDismissals.Notice.summaryFailure(attemptAt: Date(timeIntervalSince1970: 2)).condition == "2000")
+        precondition(NoteNoticeDismissals.Notice.summaryStale(sourceFingerprint: "fp").condition == "fp")
+        precondition(empty.dismissing(notice, at: t0)?.isDismissed(notice) == true)
+        precondition([NoteNoticeDismissals.summaryFailure, NoteNoticeDismissals.summaryStale,
+                      NoteNoticeDismissals.summaryUnverifiedEvidence].allSatisfy { $0.hasPrefix(NoteNoticeDismissals.summaryPrefix) },
+                     "deleting a summary ends all of its notices")
+        precondition(NoteNoticeDismissals.decode(.string("x")).isEmpty)
+        precondition(NoteNoticeDismissals.decode(.data(Data("[]".utf8))).isEmpty)
+        precondition(NoteSyncField.noticeDismissals.group == .notices)
+        precondition(NoteSyncField.noticeDismissals.valueKind == .data)
+        precondition(!NoteSyncField.noticeDismissals.isRequired)
+    }
+
+    /// Each notice keeps its later entry, whichever side's notices group
+    /// won, and both devices store the same bytes (#745).
+    static func testNoticeDismissalsMergePerNotice() {
+        let key = NoteSyncField.noticeDismissals.rawValue
+        let base = item()
+        let stale = NoteNoticeDismissals.summaryStale
+        let failure = NoteNoticeDismissals.summaryFailure
+        var onA = record(base, stamps: [.notices: t0.addingTimeInterval(10)])
+        onA.fields[key] = NoteNoticeDismissals()
+            .dismissing(stale, condition: "fp", at: t0.addingTimeInterval(10))!.value
+        var onB = record(base, stamps: [.notices: t0.addingTimeInterval(20)])
+        onB.fields[key] = NoteNoticeDismissals()
+            .dismissing(failure, condition: "1", at: t0.addingTimeInterval(20))!.value
+        let mergedA = NoteSyncMerge.merge(local: onA, remote: onB)
+        let mergedB = NoteSyncMerge.merge(local: onB, remote: onA)
+        let both = NoteNoticeDismissals.decode(mergedA.fields[key])
+        precondition(both.isDismissed(stale, condition: "fp") && both.isDismissed(failure, condition: "1"),
+                     "dismissals on two devices both survive")
+        precondition(mergedA.fields[key] == mergedB.fields[key], "both devices store the same bytes")
+        // A later end wins over an earlier dismissal of the same notice.
+        var ended = record(base, stamps: [.notices: t0.addingTimeInterval(5)])
+        ended.fields[key] = NoteNoticeDismissals(entries: [stale: .init(condition: nil, at: t0.addingTimeInterval(30))]).value
+        for (local, remote) in [(onA, ended), (ended, onA)] {
+            let merged = NoteNoticeDismissals.decode(NoteSyncMerge.merge(local: local, remote: remote).fields[key])
+            precondition(!merged.isDismissed(stale, condition: "fp"), "the later end wins on either side")
+        }
+        // Equal times settle on the same entry on both devices.
+        var tied = record(base, stamps: [.notices: t0.addingTimeInterval(10)])
+        tied.fields[key] = NoteNoticeDismissals()
+            .dismissing(stale, condition: "zz", at: t0.addingTimeInterval(10))!.value
+        precondition(NoteSyncMerge.merge(local: tied, remote: onA).fields[key]
+            == NoteSyncMerge.merge(local: onA, remote: tied).fields[key])
+        let plain = record(base, stamps: [:])
+        precondition(NoteSyncMerge.merge(local: plain, remote: plain).fields[key] == nil, "no dismissals, no field")
+    }
+
+    /// The "same summary" marker shows only for the summary it kept, and
+    /// merges like the transcript's (#745).
+    static func testUnchangedSummaryRegenerationMarker() {
+        let generatedAt = Date(timeIntervalSince1970: 1_000.0004)
+        let marker = NoteUnchangedSummaryRegeneration.matching(summaryGeneratedAt: generatedAt, at: t0)
+        precondition(marker.matches(summaryGeneratedAt: generatedAt))
+        precondition(NoteUnchangedSummaryRegeneration.decode(marker.value)!.matches(summaryGeneratedAt: generatedAt),
+                     "still matches after the field keeps milliseconds")
+        precondition(!marker.matches(summaryGeneratedAt: generatedAt.addingTimeInterval(1)), "a new summary ends it")
+        let cleared = NoteUnchangedSummaryRegeneration.cleared(at: t0.addingTimeInterval(5))
+        precondition(cleared.isCleared && !cleared.matches(summaryGeneratedAt: generatedAt))
+        precondition(NoteUnchangedSummaryRegeneration.decode(cleared.value) == cleared)
+        precondition(NoteUnchangedSummaryRegeneration.decode(.string("x")) == nil)
+        precondition(NoteSyncField.unchangedSummaryRegeneration.group == .unchangedSummaryRegeneration)
+        precondition(NoteSyncField.unchangedSummaryRegeneration.valueKind == .data)
+        let key = NoteSyncField.unchangedSummaryRegeneration.rawValue
+        let base = item()
+        var shown = record(base, stamps: [.unchangedSummaryRegeneration: t0.addingTimeInterval(10)])
+        shown.fields[key] = marker.value
+        var ended = record(base, stamps: [.unchangedSummaryRegeneration: t0.addingTimeInterval(20)])
+        ended.fields[key] = cleared.value
+        for (local, remote) in [(shown, ended), (ended, shown)] {
+            precondition(NoteSyncMerge.merge(local: local, remote: remote).fields[key] == cleared.value,
+                         "the newer clear wins on either side")
+        }
     }
 
     /// QuillNoteSyncCore keeps the raw values of these enums: the intent enum
