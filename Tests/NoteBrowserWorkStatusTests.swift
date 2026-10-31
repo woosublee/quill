@@ -37,7 +37,14 @@ struct NoteBrowserWorkStatusTests {
         precondition(status(progress: running) == .transcribing(nil))
         precondition(status(cloud: true, progress: running) == .transcribing(quarter))
         precondition(status(cloud: true, progress: betweenAttempts) == .resumingCloudTranscription(quarter))
-        precondition(status(cloud: true) == .resumingCloudTranscription(nil), "before the resumed job reports")
+        // A file sent in one request (an imported m4a, or audio under the
+        // upload ceiling) reports no chunk progress: it is transcribing, not
+        // resuming. A launch resume always seeds its saved chunk counts.
+        precondition(status(cloud: true) == .transcribing(nil), "one-request upload")
+        precondition(
+            status(cloud: true).presentation { $0 }.title == "Transcribing...",
+            "a one-request upload never reads as resuming"
+        )
         // A new job is planned with no chunk done yet: starting, not resuming.
         let planned = CloudTranscriptionDisplayProgress(completedChunkCount: 0, totalChunkCount: 4, activeAttempt: nil)
         precondition(status(cloud: true, progress: planned) == .transcribing(NoteWorkProgress(completed: 0, total: 4)))

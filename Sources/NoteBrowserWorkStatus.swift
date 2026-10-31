@@ -7,7 +7,8 @@ import QuillNoteUI
 enum NoteBrowserWorkStatus {
     /// A note's first transcription, shown alone while the note has no text:
     /// "Post-processing…" once the transcript is being cleaned up, cloud
-    /// chunk progress, or "Transcribing…".
+    /// chunk progress, or "Transcribing…". "Resuming cloud transcription…"
+    /// only for a chunked job that already has chunks done.
     static func firstTranscription(
         isPostProcessing: Bool,
         isCloudTranscribing: Bool,
@@ -26,8 +27,13 @@ enum NoteBrowserWorkStatus {
         if let cloudProgress, cloudProgress.completedChunkCount == 0, progress != nil {
             return .transcribing(progress)
         }
-        // Between attempts, or before the resumed job reports.
-        guard cloudProgress?.activeAttempt != nil else {
+        // No chunk progress at all: a file sent in one request (an imported
+        // audio file, or audio under the upload ceiling) never reports any.
+        // That is a new transcription, not a resume: a resume at launch
+        // always starts from its saved chunk counts.
+        guard let cloudProgress else { return .transcribing(nil) }
+        // A planned job with chunks already done, before its next upload.
+        guard cloudProgress.activeAttempt != nil else {
             return .resumingCloudTranscription(progress)
         }
         return .transcribing(progress)
