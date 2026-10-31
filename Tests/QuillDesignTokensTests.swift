@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import QuillDesignTokens
 
@@ -291,11 +292,24 @@ struct QuillDesignTokensTests {
             let trackingIPhone = spacing("letterSpacingIphone", default: tracking)
             precondition(Double(style.tracking) == tracking, "\(name) tracking \(style.tracking) vs tokens.json \(tracking)")
             precondition(Double(style.trackingIPhone) == trackingIPhone, "\(name) iPhone tracking \(style.trackingIPhone) vs tokens.json \(trackingIPhone)")
+            let lineSpacing = spacing("lineSpacing", default: 0)
+            let lineSpacingIPhone = spacing("lineSpacingIphone", default: lineSpacing)
+            let paragraphSpacing = spacing("paragraphSpacing", default: 0)
+            let paragraphSpacingIPhone = spacing("paragraphSpacingIphone", default: paragraphSpacing)
+            precondition(Double(style.lineSpacing) == lineSpacing, "\(name) line spacing \(style.lineSpacing) vs tokens.json \(lineSpacing)")
+            precondition(Double(style.lineSpacingIPhone) == lineSpacingIPhone, "\(name) iPhone line spacing \(style.lineSpacingIPhone) vs tokens.json \(lineSpacingIPhone)")
+            precondition(Double(style.paragraphSpacing) == paragraphSpacing, "\(name) paragraph spacing \(style.paragraphSpacing) vs tokens.json \(paragraphSpacing)")
+            precondition(Double(style.paragraphSpacingIPhone) == paragraphSpacingIPhone, "\(name) iPhone paragraph spacing \(style.paragraphSpacingIPhone) vs tokens.json \(paragraphSpacingIPhone)")
             let isMono = (entry["family"] as? String ?? found.family) == "mono"
             precondition((style.design == .monospaced) == isMono, "\(name) is \(style.design) in Swift but family \(found.family ?? "-") in tokens.json")
         }
         precondition(QuillTypeStyle.metaMono.platformTracking == QuillTypeStyle.metaMono.tracking, "this Mac test sees the Mac tracking")
         precondition(QuillTypeStyle.noteTitle.fontWeight == .bold, "the note title is bold, as the Mac draws it")
+        precondition(QuillTypeStyle.noteTitle.nsFont == NSFont.systemFont(ofSize: 28, weight: .bold), "the Mac title view's font")
+        precondition(QuillTypeStyle.transcript.nsFont == NSFont.systemFont(ofSize: 15), "the Mac transcript editor's font")
+        precondition(QuillTypeStyle.metaMono.nsFont == NSFont.monospacedSystemFont(ofSize: 10, weight: .regular), "a mono style is SF Mono in AppKit too")
+        precondition(QuillTypeStyle.statusPercent.nsFont == NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), "fixed-width digits in AppKit too")
+        precondition(QuillTypeStyle.transcript.platformLineSpacing == 5 && QuillTypeStyle.transcript.platformParagraphSpacing == 6, "the Mac transcript keeps line spacing 5 and paragraph spacing 6")
         precondition(QuillTypeStyle.metaMono.scalesFromMacSize && QuillTypeStyle.metaChipMono.scalesFromMacSize, "the meta line keeps its Mac size on iOS and scales it")
         // A banner's detail sits beside its title at the same size on both
         // platforms, so on iOS the two scale from the same text style (#744).
