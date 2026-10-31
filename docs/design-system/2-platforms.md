@@ -45,7 +45,7 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | --- | --- | --- |
 | `setup-hero` | 34 Rounded Bold | `.title` Bold(28), 기본 글꼴 |
 | `page-error-title` | 20 Semibold | 쓰는 곳 없음. 쓰게 되면 `.title3` Semibold(20) |
-| `callout` | 12 | 쓰는 곳 없음. 쓰게 되면 `.callout`(16) |
+| `callout` | 12 | `.caption`(12), 배너 상세. 제목(`banner-title`)과 같은 크기로 함께 커진다(#744) |
 | `note-title` | 28 Bold | `.title` Bold(28), 자간 -0.3. 본문 안 입력란, 최대 3줄 |
 | `transcript` | 15 / 줄 간격 +5 | `.subheadline`(15) / 줄 간격 6 |
 | 요약 본문 | 15 | `.subheadline`(15) |

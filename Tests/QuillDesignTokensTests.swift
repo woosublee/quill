@@ -274,6 +274,9 @@ struct QuillDesignTokensTests {
         precondition(QuillTypeStyle.metaMono.platformTracking == QuillTypeStyle.metaMono.tracking, "this Mac test sees the Mac tracking")
         precondition(QuillTypeStyle.noteTitle.fontWeight == .bold, "the note title is bold, as the Mac draws it")
         precondition(QuillTypeStyle.metaMono.scalesFromMacSize && QuillTypeStyle.metaChipMono.scalesFromMacSize, "the meta line keeps its Mac size on iOS and scales it")
+        // A banner's detail sits beside its title at the same size on both
+        // platforms, so on iOS the two scale from the same text style (#744).
+        precondition(QuillTypeStyle.callout.dynamicStyle == QuillTypeStyle.bannerTitle.dynamicStyle, "a banner's detail scales with its title on iOS")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }

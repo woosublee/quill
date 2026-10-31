@@ -105,7 +105,9 @@ otherwise.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
   (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view
-  (`NoteFloatingToolbar`), and the layout helper `QuillWidthClass`, which
+  (`NoteFloatingToolbar`), the one-line notice banner (`NoteBanner`, its "+N"
+  and close buttons, and its surface, #744: the Mac's `QuillStatusBanner`
+  forwards to it), and the layout helper `QuillWidthClass`, which
   turns a container's width into compact, regular, or wide, so screens lay
   out by width, never by device model, and the note layout rules
   (`QuillNoteLayout`): the window's width and height decide whether the

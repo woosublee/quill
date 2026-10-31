@@ -73,37 +73,52 @@ struct QuillUserIssueUIContractTests {
     /// QuillDesignTokens instead of literals (#736 step 3). Each view is
     /// checked on its own block so one view going back to literals fails.
     private static func testBannersReadDesignTokens(_ source: String) throws {
-        let surface = block(source, from: "func quillBannerBackground() -> some View {", to: "struct QuillStatusBanner: View")
+        // The one-line banner, its buttons, and the surface are shared with
+        // the iPhone (#744); the Mac only forwards to them.
+        let shared = try Self.source("Packages/QuillNoteUI/Sources/NoteBanner.swift")
+        let surface = block(shared, from: "public struct NoteBannerSurface: View", to: "extension View {")
         for marker in [
             ".fill(QuillColor.fillBanner.color(for: colorScheme))",
             ".strokeBorder(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)",
             ".quillShadow(.banner)",
-            "background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))",
         ] {
             try expect(surface.contains(marker), "banner surface reads the token \(marker)")
         }
-        let views: [(name: String, from: String, to: String, markers: [String])] = [
-            ("issue banner", "private var bannerView: some View {", "/// A compact box inside a settings form.", [
+        try expect(
+            shared.contains("background(NoteBannerSurface())"),
+            "the banner background is the shared surface on radius-9"
+        )
+        for (name, marker) in [
+            ("status banner", "NoteBanner("),
+            ("expansion pill", "NoteBannerExpansionButton(expansion: expansion, strings: .mac)"),
+            ("close button", "NoteBannerDismissButton(label: localizedCatalogString(\"Dismiss\"), action: action)"),
+            ("banner surface", "typealias QuillBannerSurface = NoteBannerSurface"),
+            ("row button", "typealias QuillBannerButtonSurface = NoteBannerButtonSurface"),
+        ] {
+            try expect(source.contains(marker), "the Mac \(name) is the shared one")
+        }
+        let views: [(name: String, text: String, from: String, to: String, markers: [String])] = [
+            ("issue banner", source, "private var bannerView: some View {", "/// A compact box inside a settings form.", [
                 ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)",
                 ".background(QuillBannerSurface(cornerRadius: QuillRadius.radius9))",
             ]),
-            ("inline issue row", "private var inlineView: some View {", "@ViewBuilder\n    private var dismissButton", [
+            ("inline issue row", source, "private var inlineView: some View {", "@ViewBuilder\n    private var dismissButton", [
                 ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)",
                 ".background(QuillBannerSurface(cornerRadius: QuillRadius.radius8))",
             ]),
-            ("row button", "private struct QuillBannerButtonSurface: View", "struct QuillInfoNotice: View", [
+            ("row button", shared, "public struct NoteBannerButtonSurface: View", "/// The surface behind", [
                 "RoundedRectangle(cornerRadius: QuillRadius.radius6)",
                 ".strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)",
             ]),
-            ("info notice", "struct QuillInfoNotice: View", "extension View {", [
+            ("info notice", source, "struct QuillInfoNotice: View", "/// The text the shared banner", [
                 ".quillTextStyle(.callout)", "HStack(spacing: QuillSpacing.space6)",
             ]),
-            ("status banner", "struct QuillStatusBanner: View", "/// Lets the first banner", [
-                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)", ".quillBannerBackground()",
+            ("status banner", shared, "public struct NoteBanner: View", "/// The \"+N\" / \"Show Less\" pill", [
+                ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)", ".noteBannerBackground()",
             ]),
         ]
         for view in views {
-            let body = block(source, from: view.from, to: view.to)
+            let body = block(view.text, from: view.from, to: view.to)
             for marker in view.markers {
                 try expect(body.contains(marker), "\(view.name) reads the token \(marker)")
             }
