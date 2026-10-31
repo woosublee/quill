@@ -195,11 +195,6 @@ struct QuillDesignTokensTests {
             assertShadow(shadow.dark, dark, "\(name) (dark)")
             precondition(shadow.shadow(for: .dark) == shadow.dark && shadow.shadow(for: .light) == shadow.light, "\(name) picks by appearance")
         }
-        // #736 Q11: the iPhone's record shadow is lighter than the Mac's in
-        // light mode and darker in dark mode, at the same size and offset.
-        let mac = QuillShadow.record, iPhone = QuillShadow.recordIPhone
-        precondition(iPhone.light.opacity < mac.opacity && iPhone.dark.opacity > mac.opacity, "shadow-record-iphone is lighter in light and darker in dark")
-        precondition([iPhone.light, iPhone.dark].allSatisfy { $0.radius == mac.radius && $0.x == mac.x && $0.y == mac.y }, "shadow-record-iphone has the Mac's size")
     }
 
     private static func assertShadow(_ shadow: QuillShadow, _ value: String, _ name: String) {

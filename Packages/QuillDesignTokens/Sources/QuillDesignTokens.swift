@@ -293,15 +293,8 @@ public struct QuillShadow: Sendable, Equatable {
     /// `shadow-banner`: a notice or status banner.
     public static let banner = QuillShadow(opacity: 0.12, radius: 1.5, x: 0, y: 1)
 
-    /// `shadow-record`: the record button.
+    /// `shadow-record`: the record button, the same on both apps (#736 Q11).
     public static let record = QuillShadow(opacity: 0.28, radius: 8, x: 0, y: 3)
-
-    /// `shadow-record-iphone`: the iPhone's record button, lighter in light
-    /// mode and darker in dark mode than the Mac's (#736 Q11).
-    public static let recordIPhone = QuillSchemeShadow(
-        light: QuillShadow(opacity: 0.22, radius: 8, x: 0, y: 3),
-        dark: QuillShadow(opacity: 0.45, radius: 8, x: 0, y: 3)
-    )
 
     /// `shadow-row-selected`: the open note's row, darker in dark mode.
     public static let rowSelected = QuillSchemeShadow(
@@ -320,7 +313,6 @@ public struct QuillShadow: Sendable, Equatable {
     /// Every shadow with a value per appearance, by its token name.
     public static let schemeShadows: [(name: String, value: QuillSchemeShadow)] = [
         ("shadow-row-selected", rowSelected),
-        ("shadow-record-iphone", recordIPhone),
     ]
 }
 
