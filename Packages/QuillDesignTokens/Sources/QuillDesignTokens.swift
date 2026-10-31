@@ -167,18 +167,30 @@ public enum QuillColor {
         }
     }
 
-    /// `issue-warning`: amber for warning icons, on both apps. Light mode
-    /// uses a darker amber (#C47318) so the icon reaches 3:1 on a light
-    /// background; dark mode keeps the muted amber (#F2B35C) (#736 Q2).
-    /// Icon color only; text stays secondary.
+    /// `issue-warning`: amber for warnings, on both apps. Light mode uses a
+    /// darker amber (#C47318) that reaches 3:1 on a light background; dark
+    /// mode keeps the muted amber (#F2B35C) (#736 Q2). The light value is
+    /// already stronger than the system orange, so Increase Contrast keeps
+    /// it (the system orange's high-contrast light color is lighter). For icons and
+    /// short status text (a caption next to a control); long text stays
+    /// secondary.
     public static let issueWarningRGB = SchemeRGB(
         light: RGB(red: 0xC4 / 255.0, green: 0x73 / 255.0, blue: 0x18 / 255.0),
         dark: RGB(red: 0.95, green: 0.70, blue: 0.36)
     )
-    /// `issue-error`: softened red for error icons. Icon color only.
-    public static let issueErrorRGB = RGB(red: 1.0, green: 0.48, blue: 0.44)
+    /// `issue-error`: red for error icons and error text. Light mode uses a
+    /// darker red (#D70015) that reaches 4.5:1 on a light background; dark
+    /// mode keeps the softened red (#FF7A70) (#736 Q2, both apps). Like
+    /// `issue-warning`, it keeps these values under Increase Contrast.
+    public static let issueErrorRGB = SchemeRGB(
+        light: RGB(red: 0xD7 / 255.0, green: 0x00 / 255.0, blue: 0x15 / 255.0),
+        dark: RGB(red: 1.0, green: 0.48, blue: 0.44)
+    )
 
     public static let issueWarning = issueWarningRGB.dynamicColor
+    /// `issue-warning` on a surface that is always dark (the recording
+    /// overlay), whatever the system appearance.
+    public static let issueWarningOnDark = issueWarningRGB.dark.color
 
     /// `status-recording`: recording, and a failed note's dot. The system
     /// red, so it follows Increase Contrast on both apps (#736 Q2).
@@ -204,7 +216,27 @@ public enum QuillColor {
     public static let statusDone = darkerInLight(statusDoneRGB.light, dark: .green)
 
     /// The system hues a status color keeps in dark mode.
-    public enum SystemHue: Sendable { case orange, green }
+    public enum SystemHue: Sendable {
+        case orange, green, red
+
+        #if os(macOS)
+        var nsColor: NSColor {
+            switch self {
+            case .orange: return .systemOrange
+            case .green: return .systemGreen
+            case .red: return .systemRed
+            }
+        }
+        #else
+        var uiColor: UIColor {
+            switch self {
+            case .orange: return .systemOrange
+            case .green: return .systemGreen
+            case .red: return .systemRed
+            }
+        }
+        #endif
+    }
 
     /// A status color that draws `light` in light mode and the system hue in
     /// dark mode. It follows the window's appearance by itself, and in dark
@@ -213,19 +245,27 @@ public enum QuillColor {
     static func darkerInLight(_ light: RGB, dark hue: SystemHue) -> Color {
         #if os(macOS)
         let lightColor = NSColor(srgbRed: light.red, green: light.green, blue: light.blue, alpha: 1)
-        let darkColor: NSColor = hue == .orange ? .systemOrange : .systemGreen
+        let darkColor = hue.nsColor
         return Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? darkColor : lightColor
         })
         #else
         let lightColor = UIColor(red: light.red, green: light.green, blue: light.blue, alpha: 1)
-        let darkColor: UIColor = hue == .orange ? .systemOrange : .systemGreen
+        let darkColor = hue.uiColor
         return Color(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark ? darkColor.resolvedColor(with: traits) : lightColor
         })
         #endif
     }
-    public static let issueError = issueErrorRGB.color
+    public static let issueError = issueErrorRGB.dynamicColor
+    /// `issue-error` on a surface that is always dark (the recording overlay).
+    public static let issueErrorOnDark = issueErrorRGB.dark.color
+
+    /// `fill-alert-warning` and `fill-alert-error`: a filled alert row with
+    /// white text (the menu bar's permission and update rows). The darker
+    /// values in both appearances, so white text stays readable (#736).
+    public static let fillAlertWarning = issueWarningRGB.light.color
+    public static let fillAlertError = issueErrorRGB.light.color
 
     /// `stroke-glass`: the 0.6 pt edge of a glass capsule (the note toolbar).
     public static let strokeGlass = SchemeTint(
