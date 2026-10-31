@@ -52,10 +52,12 @@ otherwise.
   states, and keeping rows on a same-text regeneration).
   The attempt's on-screen details stay in `Sources/MeetingSummaryModels.swift`.
 - `Packages/QuillSummaryGenerationCore/`: how a meeting summary is made: the
-  prompts, chunking and merging, the strict draft decoder, evidence repair
-  and output checks, and the summary errors. Model requests, fallbacks, and
-  cooldowns stay in `Sources/MeetingSummaryService.swift`, which plugs into
-  the generator as its draft requester.
+  prompts, chunking (which, like cleanup, splits again any chunk whose
+  counted prompt doesn't fit) and merging, the strict draft decoder,
+  evidence repair and output checks, and the summary errors. Model
+  requests, fallbacks, and cooldowns stay in
+  `Sources/MeetingSummaryService.swift`, which plugs into the generator as
+  its draft requester.
 - `Packages/QuillProviderCore/`: model rules shared with the iPhone app: the
   cloud and local model lists and capabilities, rate-limit cooldowns, the
   temperature capability cache, the request transport, provider URL checks,
@@ -105,19 +107,38 @@ otherwise.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
   (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view
-  (`NoteFloatingToolbar`), and the layout helper `QuillWidthClass`, which
-  turns a container's width into compact, regular, or wide, so screens lay
-  out by width, never by device model. Each app passes the note's state,
-  its localized strings, and the actions; the views hold no app state and
-  run no work.
+  (`NoteFloatingToolbar`); the work status (`NoteWorkStatus`: every
+  transcribing, post-processing, summarizing, waiting, cancelling, and
+  paused state, its copy key, indicator, reason, and progress, and the
+  toolbar's work labels, read from the same table) and its views
+  (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
+  the layout helper `QuillWidthClass`, which turns a container's width
+  into compact, regular, or wide, so screens lay out by width, never by
+  device model; and the note layout rules (`QuillNoteLayout`): the window's
+  width and height decide whether the list sits beside the note (wide and
+  not compact height), and the note column's own width decides its side
+  margins and body maximum width; the work-status capsule sits in the
+  middle of the visible note area at every width. The Mac maps its work in
+  `Sources/NoteBrowserWorkStatus.swift` and uses only the layout's list
+  column width; its note column keeps its own margins. Each app passes the note's state, its localized
+  strings, and the actions; the views hold no app state and run no work.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the glass, toolbar,
-  and hairline tints, the glass and status shadows, the status wash
-  opacity, the work-status text styles (a fixed size on the Mac, Dynamic
-  Type on iOS), the note toolbar and status progress sizes (a value per
-  platform where they differ), and the width breakpoints (#697).
+  (#623): spacing and radius scales, the issue colors, the note page
+  background (a color per platform, #697), the tints (glass,
+  toolbar, hairline, banner, chip, row hover and selection, empty disc,
+  record ring, and the accent tints), the glass, status, banner, record,
+  and selected-row shadows (the last one per appearance), the status wash
+  opacity, the text styles (note title, transcript, row, banner, meta
+  line, and work status: a fixed size on the Mac, Dynamic Type on iOS;
+  draw a style with `quillTextStyle(_:)`, which also applies its
+  per-platform tracking and scales the meta line from its Mac size on iOS),
+  the control sizes (note toolbar, status progress, touch minimum, note
+  row, checkbox, status dot, empty disc, record button; a value per
+  platform where they differ), the note layout sizes (`QuillLayoutSize`:
+  list column, note side margins, body maximum width), and the width
+  breakpoints (#697).
   `Tests/QuillDesignTokensTests.swift` checks them against
   `docs/design-system/tokens.json`; change both together.
   `QuillNoteUI` imports it.

@@ -944,11 +944,7 @@ struct NoteListRowDisplayDataTests {
             item: item,
             retryingIDs: [],
             cloudProgress: progress,
-            localization: { key, arguments in
-                key == "Transcribing %d of %d…"
-                    ? String(format: key, arguments: arguments)
-                    : key
-            }
+            localization: { key, _ in key }
         )
 
         assert(data.status == .transcribing)
@@ -989,7 +985,6 @@ struct NoteListRowDisplayDataTests {
             activeAttempt: 2
         )
         let translations = [
-            "Transcribing %d of %d…": "%d/%d 청크 전사 중…",
             "Resuming cloud transcription…": "클라우드 전사 재개 중…"
         ]
 
