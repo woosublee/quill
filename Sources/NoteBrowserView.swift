@@ -3916,8 +3916,7 @@ private struct NoteDetailView: View {
                 .padding(.horizontal, 60)
             } else if isCloudTranscribing
                         || item.machineStatus == .importing
-                        || item.postProcessingStatus
-                        == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
+                        || item.isTranscriptionPlaceholder {
                 ProgressView()
                     .controlSize(.regular)
                 Text(verbatim: processingStatusText)

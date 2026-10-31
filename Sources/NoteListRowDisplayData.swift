@@ -42,10 +42,7 @@ func transcriptStatus(
     case .failed, .unrecovered:
         return .fail
     case .completed:
-        return item.postProcessingStatus
-            == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
-            ? .transcribing
-            : .done
+        return item.isTranscriptionPlaceholder ? .transcribing : .done
     }
 }
 
@@ -155,7 +152,7 @@ struct NoteListRowDisplayData: Equatable {
         )
         let isNewRecording = isUnnamed && !isImporting && (
             status == .recording
-                || item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+                || item.isTranscriptionPlaceholder
                 || item.machineStatus == .cloudTranscribing
         )
         let displayTitle: String
