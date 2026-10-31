@@ -542,6 +542,8 @@ struct SettingsLocalizationTests {
             "Selected": "선택됨",
             "Not selected": "선택되지 않음",
             "Post-Processing Fallback Model": "후처리 대체 모델",
+            "Fallback Model": "대체 모델",
+            "Summary Fallback Model": "요약 대체 모델",
             "Tried once for transcript cleanup and Edit Mode when the model above fails or is rate-limited. A local fallback is also tried when the model above can't be reached.": "위 모델이 실패하거나 요청 한도에 걸리면 전사문 정리와 Edit Mode에서 한 번 대신 사용해요. 로컬 대체 모델은 위 모델에 연결되지 않을 때도 사용해요.",
             "Tried once when the summary model above fails or is rate-limited. A local fallback is also tried when the summary model above can't be reached.": "위 요약 모델이 실패하거나 요청 한도에 걸리면 한 번 대신 사용해요. 로컬 대체 모델은 위 요약 모델에 연결되지 않을 때도 사용해요.",
             "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용해요. 실행 방식과 추가 보조 키는 단축키에 그대로 있어요.",
