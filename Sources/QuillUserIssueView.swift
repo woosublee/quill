@@ -32,8 +32,6 @@ struct QuillUserIssueView: View {
     var actionDisabled = false
     var secondaryActionDisabled = false
 
-    @State private var showsDetails = false
-
     var body: some View {
         switch style {
         case .full:
@@ -165,62 +163,21 @@ struct QuillUserIssueView: View {
         style == .warningBanner && !presentation.body.isEmpty
     }
 
-    private var hasDetails: Bool {
-        showsBodyInDetails
-            || !presentation.suggestion.isEmpty
-            || !presentation.detailsRows.isEmpty
+    /// The suggestion and diagnostic rows, behind the shared info button
+    /// (`NoteBannerDetailsButton`, the iPhone shows the same, #234).
+    private var details: NoteBannerDetails {
+        NoteBannerDetails(
+            label: localizedCatalogString("Issue Details"),
+            lines: [showsBodyInDetails ? presentation.body : "", presentation.suggestion],
+            rows: presentation.detailsRows.map { NoteBannerDetails.Row(label: $0.label, value: $0.value) }
+        )
     }
 
-    /// The suggestion and diagnostic rows, behind an info button.
     @ViewBuilder
     private var detailsButton: some View {
-        if hasDetails {
-            Button {
-                showsDetails.toggle()
-            } label: {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Issue Details")
-            .accessibilityLabel(localizedCatalogString("Issue Details"))
-            .popover(isPresented: $showsDetails, arrowEdge: .bottom) {
-                detailsContent
-            }
+        if let details = NoteBannerDetails.shown(details) {
+            NoteBannerDetailsButton(details: details)
         }
-    }
-
-    private var detailsContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if showsBodyInDetails {
-                Text(presentation.body)
-                    .font(.system(size: 12))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !presentation.suggestion.isEmpty {
-                Text(presentation.suggestion)
-                    .font(.system(size: 12))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !presentation.detailsRows.isEmpty {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                    ForEach(Array(presentation.detailsRows.enumerated()), id: \.offset) { _, row in
-                        GridRow {
-                            Text(row.label)
-                                .foregroundStyle(.secondary)
-                            Text(row.value)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-                .font(.system(size: 11))
-            }
-        }
-        .padding(12)
-        .frame(width: 300, alignment: .leading)
     }
 
     @ViewBuilder

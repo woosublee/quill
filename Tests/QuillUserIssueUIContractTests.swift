@@ -47,8 +47,9 @@ struct QuillUserIssueUIContractTests {
             "presentation.suggestion",
             "presentation.detailsRows",
             "presentation.recoveryAction",
-            // Suggestion and diagnostics live behind an info popover.
-            ".popover(isPresented: $showsDetails",
+            // Suggestion and diagnostics live behind the shared info
+            // popover, the same one the iPhone shows (#234).
+            "NoteBannerDetailsButton(details: details)",
             "struct QuillInfoNotice: View",
             // The button keys come from the shared core (#191).
             "actionTitleOverride ?? presentation.recoveryAction.titleKey"
@@ -59,8 +60,10 @@ struct QuillUserIssueUIContractTests {
             !source.contains("DisclosureGroup(\"Details\")"),
             "the details disclosure row is replaced by the info popover"
         )
+        // Empty lines are dropped by the shared `NoteBannerDetails`, and no
+        // info button shows when nothing is left (`NoteBannerDetailsTests`).
         try expect(
-            source.contains("if !presentation.suggestion.isEmpty"),
+            source.contains("if let details = NoteBannerDetails.shown(details)"),
             "shared issue renderer omits empty recovery suggestions"
         )
         try expect(
