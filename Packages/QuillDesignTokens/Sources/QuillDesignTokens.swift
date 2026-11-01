@@ -141,6 +141,16 @@ public enum QuillColor {
         dark: RGB(red: 28.0 / 255, green: 28.0 / 255, blue: 30.0 / 255)
     )
 
+    /// `surface-sidebar-iphone`: the note list's column when it sits beside
+    /// the note in a wide iPad window (quill-universal-private#306), like the Mac's sidebar: a step
+    /// apart from the note page (`surface-page-iphone`), darker in light
+    /// mode (#E9E9EE) and lighter in dark mode (#26262A), as the Mac's
+    /// sidebar sits against its note.
+    public static let surfaceSidebarIPhone = SchemeRGB(
+        light: RGB(red: 233.0 / 255, green: 233.0 / 255, blue: 238.0 / 255),
+        dark: RGB(red: 38.0 / 255, green: 38.0 / 255, blue: 42.0 / 255)
+    )
+
     /// `surface-note`: the background of a note's page, which the
     /// work-status wash is drawn in. The Mac draws the system text
     /// background (`textBackgroundColor`, `surface-text` in tokens.json);
@@ -558,8 +568,16 @@ public enum QuillControlSize {
 /// between them by width class; the margins are steps of `QuillSpacing`.
 public enum QuillLayoutSize {
     /// `size-sidebar-notes`: the note list's column when it sits beside the
-    /// note, on the Mac and in a wide iPad window.
-    public static let sidebarNotes: CGFloat = 280
+    /// note: 280 on the Mac, 320 in a wide iPad window (quill-universal-private#306), where the
+    /// rows are read and tapped at the iPhone's larger type and touch sizes.
+    public static let sidebarNotesMac: CGFloat = 280
+    public static let sidebarNotesIPhone: CGFloat = 320
+
+    #if os(macOS)
+    public static let sidebarNotes = sidebarNotesMac
+    #else
+    public static let sidebarNotes = sidebarNotesIPhone
+    #endif
     /// `size-note-margin-compact`: a note's side margins in a compact
     /// column (an iPhone in portrait). `space-16`.
     public static let noteMarginCompact: CGFloat = 16
@@ -578,7 +596,8 @@ public enum QuillLayoutSize {
 
     /// Every size this enum carries, by its token name.
     public static let all: [(name: String, value: CGFloat)] = [
-        ("size-sidebar-notes", sidebarNotes),
+        ("size-sidebar-notes", sidebarNotesMac),
+        ("size-sidebar-notes-iphone", sidebarNotesIPhone),
         ("size-note-margin-compact", noteMarginCompact),
         ("size-note-margin-regular", noteMarginRegular),
         ("size-note-body-max-width", noteBodyMaxWidth),

@@ -138,7 +138,9 @@ otherwise.
   into compact, regular, or wide, so screens lay out by width, never by
   device model; and the note layout rules (`QuillNoteLayout`): the window's
   width and height decide whether the list sits beside the note (wide and
-  not compact height), and the note column's own width decides its side
+  not compact height), and so which recording control shows
+  (`QuillRecordingControl`: the floating Record button beside the list,
+  the recorder bar otherwise, quill-universal-private#306), and the note column's own width decides its side
   margins and body maximum width; the work-status capsule sits in the
   middle of the visible note area at every width. The Mac maps its work in
   `Sources/NoteBrowserWorkStatus.swift` and uses only the layout's list
@@ -149,7 +151,8 @@ otherwise.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
   (#623): spacing and radius scales, the issue colors (the warning one darker in
   light mode), the status colors (system red; orange and green darker in light mode for 3:1, the system colors in dark), the note page
-  background (a color per platform, #697), the tints (glass,
+  background (a color per platform, #697), the iPad list column's
+  background (`surface-sidebar-iphone`, quill-universal-private#306), the tints (glass,
   toolbar, hairline, banner, chip, row hover, selection and badge, empty disc,
   record ring, and the accent tints), the glass, status, banner, record,
   iPhone record, and selected-row shadows (the last two per appearance),
@@ -162,7 +165,8 @@ otherwise.
   the control sizes (note toolbar, status progress, touch minimum, note
   row, checkbox, status dot, empty disc, record button, close button,
   search field, summary bullet; a value per platform where they differ),
-  the note layout sizes (`QuillLayoutSize`: list column, note side margins,
+  the note layout sizes (`QuillLayoutSize`: list column, 280 on the Mac and
+  320 on iOS (quill-universal-private#306), note side margins,
   body maximum width, and the Mac Summary tab's width and bottom room), and
   the width breakpoints (#697).
   `Tests/QuillDesignTokensTests.swift` checks them against
