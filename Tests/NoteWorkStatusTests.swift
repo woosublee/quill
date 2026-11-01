@@ -1,5 +1,8 @@
+import AppKit
 import Foundation
+import QuillDesignTokens
 import QuillNoteUI
+import SwiftUI
 
 /// The shared work-status table (#697): each state's title, indicator,
 /// detail and progress, the progress arithmetic, and the toolbar labels that
@@ -20,6 +23,7 @@ struct NoteWorkStatusTests {
         testIPhoneOnlyStates()
         testWaitingToPostProcessToolbar()
         testCleanupProgressAdvances()
+        MainActor.assumeIsolated { testCapsuleWidthHoldsAcrossPercentDigits() }
         print("NoteWorkStatusTests passed")
     }
 
@@ -300,5 +304,34 @@ struct NoteWorkStatusTests {
             let blocked = NoteToolbarState.make(NoteToolbarInput(tab: .transcript, work: work, canCancelWork: false))
             precondition(blocked.firstSlot == .progress, "\(work) without a cancel path shows progress")
         }
+    }
+
+    /// 2026-11-01 owner check: the capsule grew when 9% became 10% (Mac) and
+    /// seemed to shrink and grow again when cleanup took over from
+    /// retranscription (iPhone). Its width stays the same for any percentage.
+    @MainActor
+    private static func testCapsuleWidthHoldsAcrossPercentDigits() {
+        func width(_ fraction: Double) -> CGFloat {
+            let status = NoteWorkStatus.postProcessing(NoteWorkProgress(fraction: fraction))
+            let host = NSHostingView(rootView: NoteWorkStatusView(present(status), style: .capsule))
+            return host.fittingSize.width
+        }
+        // The slot is as wide as any percentage only with monospaced digits.
+        precondition(QuillTypeStyle.statusPercent.monospacedDigits)
+        let widths = [0, 0.05, 0.1, 0.6, 0.99].map(width)
+        precondition(widths[0] > 0, "the capsule is measured")
+        // The measure can tell: the percentages alone differ in width.
+        func textWidth(_ text: String) -> CGFloat {
+            NSHostingView(rootView: Text(verbatim: text).font(QuillTypeStyle.statusPercent.font)).fittingSize.width
+        }
+        precondition(textWidth("0%") < textWidth("60%"))
+        // A changed digit count moves the width by about 7 pt; allow rounding.
+        precondition(widths.max()! - widths.min()! < 0.5, "capsule width changes with the percentage: \(widths)")
+        // Same for the centred status's bar row.
+        func centredWidth(_ fraction: Double) -> CGFloat {
+            let status = NoteWorkStatus.transcribing(NoteWorkProgress(fraction: fraction))
+            return NSHostingView(rootView: NoteWorkStatusView(present(status), style: .centered)).fittingSize.width
+        }
+        precondition(abs(centredWidth(0) - centredWidth(0.6)) < 0.5, "centred bar row changes width")
     }
 }
