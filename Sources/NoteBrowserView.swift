@@ -240,7 +240,7 @@ struct TranscriptionChoiceSheet: View {
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.system(size: 12))
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.statusProcessing)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1083,7 +1083,7 @@ struct NoteBrowserView: View {
             Spacer()
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .font(.system(size: 42, weight: .light))
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.statusProcessing)
             Text("Recording history couldn’t be opened")
                 .font(.system(size: 20, weight: .semibold))
             Text("Your notes and audio files were not deleted. Restart Quill to try again, or open the data folder for support and recovery.")
@@ -1437,7 +1437,7 @@ struct NoteBrowserView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(appState.isRecording ? Color.orange : Color.red)
+                    .fill(appState.isRecording ? QuillColor.statusProcessing : QuillColor.statusRecording)
                 if appState.isRecording {
                     RoundedRectangle(cornerRadius: QuillRadius.radius3)
                         .fill(.white)
@@ -2293,42 +2293,45 @@ private struct NoteListRow: View {
         switch displayData.status {
         case .done:
             Circle()
-                .fill(Color.green)
+                .fill(QuillColor.statusDone)
                 .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recording:
             // A red dot and the running time; the stage text is in the detail.
             HStack(spacing: QuillSpacing.space4) {
                 Circle()
-                    .fill(Color.red)
+                    .fill(QuillColor.statusRecording)
                     .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
                 if let startedAt = displayData.recordingStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.red.opacity(metaOpacity(0.8)))
+                            .foregroundStyle(QuillColor.statusRecording.opacity(metaOpacity(0.8)))
                     }
                 }
             }
         case .transcribing:
-            YellowSpinner(color: .orange)
+            // White on the keyboard-highlighted row's accent fill, like the
+            // failed note's icon: the darker light-mode orange is hard to see
+            // on blue.
+            YellowSpinner(color: isKeyboardHighlighted ? Color.white : QuillColor.statusProcessing)
         case .audioOnly:
             Circle()
-                .fill(Color.green)
+                .fill(QuillColor.statusDone)
                 .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.orange.opacity(metaOpacity(0.7)))
+                .foregroundStyle(QuillColor.statusProcessing.opacity(metaOpacity(0.7)))
         case .fail:
             if differentiateWithoutColor {
                 // Differentiate Without Color: a failed note gets a shape,
                 // not only a red dot that matches a finished note's size.
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(isKeyboardHighlighted ? Color.white : Color.red)
+                    .foregroundStyle(isKeyboardHighlighted ? Color.white : QuillColor.statusRecording)
             } else {
                 Circle()
-                    .fill(Color.red)
+                    .fill(QuillColor.statusRecording)
                     .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
             }
         }
@@ -3829,11 +3832,11 @@ private struct NoteDetailView: View {
             if isLiveRecording {
                 ZStack {
                     Circle()
-                        .fill(Color.red.opacity(0.08))
+                        .fill(QuillColor.statusRecording.opacity(0.08))
                         .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "mic.fill")
                         .font(.system(size: 28, weight: .light))
-                        .foregroundStyle(.red.opacity(0.75))
+                        .foregroundStyle(QuillColor.statusRecording.opacity(0.75))
                 }
                 Group {
                     if let startedAt = item.recordingStartedAt {
