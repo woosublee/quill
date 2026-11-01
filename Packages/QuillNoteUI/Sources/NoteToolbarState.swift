@@ -82,7 +82,8 @@ public struct NoteToolbarInput: Equatable, Sendable {
     /// would replace what the person is working on.
     public var isSummaryActionBlocked: Bool
     /// The transcript tab's ✨ when the note has no summary tab: nil when
-    /// there's nothing to summarize, else whether it can run now.
+    /// there's nothing to summarize, else whether it can run now. A note
+    /// still to be transcribed keeps ✨ dimmed instead of hiding it.
     public var canCreateSummary: Bool?
     public var hasTranscriptToCopy: Bool
     public var hasSummaryToCopy: Bool
@@ -239,11 +240,15 @@ public struct NoteToolbarState: Equatable, Sendable {
         // A note without a summary keeps ✨ in its slot, dimmed, until
         // transcription and post-processing have both finished.
         if input.work.isRunning { return .button(isEnabled: false) }
-        // A note whose action is Transcribe (audio only, or a failed
-        // transcription that kept no text) has nothing to summarize: no ✨,
-        // on both apps (2026-10-28 decision). A failed note whose action is
-        // Retry keeps ✨, dimmed while its transcript is empty, as on the Mac.
-        if input.transcriptAction == .transcribe { return .none }
+        // A note still to be transcribed (its action is Transcribe or model
+        // setup) keeps ✨ in its slot, dimmed until it has a transcript, on
+        // both apps (2026-11-02 decision, replacing the 2026-10-28 rule that
+        // hid it). A failed note whose action is Retry keeps ✨, dimmed while
+        // its transcript is empty, as on the Mac.
+        if input.transcriptAction == .transcribe || input.transcriptAction == .openModelSetup {
+            guard input.hasTranscriptToCopy else { return .button(isEnabled: false) }
+            return .button(isEnabled: input.canCreateSummary ?? false)
+        }
         return input.canCreateSummary.map { .button(isEnabled: $0) } ?? .none
     }
 }
