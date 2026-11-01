@@ -23,19 +23,6 @@ extension RecoveredRecordingMode {
         case .partial: return "Some audio recovered"
         }
     }
-
-    var descriptionLocalizationKey: String {
-        switch self {
-        case .complete:
-            return "Recovered after an unexpected shutdown. Not yet transcribed."
-        case .microphoneOnly:
-            return "System Audio could not be recovered. Microphone audio is available for playback or transcription."
-        case .systemAudioOnly:
-            return "Microphone audio could not be recovered. System Audio is available for playback or transcription."
-        case .partial:
-            return "Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
-        }
-    }
 }
 
 extension RecordingPromotion {

@@ -68,7 +68,7 @@ struct MeetingSummaryUIContractTests {
 
     private static func testNoteListRowSummaryBadgeOrder(_ noteBrowser: String) {
         guard let audioOnlyBadge = noteBrowser.range(
-            of: "displayData.status == .audioOnly"
+            of: "displayData.rowState.showsAudioOnlyBadge"
         ), let summaryBadge = noteBrowser.range(
             of: "displayData.hasMeetingSummary"
         ) else {

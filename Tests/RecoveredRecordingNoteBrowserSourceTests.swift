@@ -375,15 +375,16 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "HStack(spacing: QuillSpacing.space4) {",
             to: "Text(displayData.displayTitle)"
         )
-        precondition(header.contains("if displayData.status == .audioOnly"))
+        precondition(header.contains("if displayData.rowState.showsAudioOnlyBadge"))
         precondition(header.contains("localizedCatalogString(\"Audio only\")"))
-        let audioOnlyStatus = block(
+        // An audio-only note draws the done dot (`NoteListRowState.dotRole`).
+        let doneDot = block(
             row,
-            from: "case .audioOnly:",
-            to: "case .recovered:"
+            from: "switch displayData.rowState.dotRole {",
+            to: "case .recording:"
         )
-        precondition(audioOnlyStatus.contains(".fill(QuillColor.statusDone)"))
-        precondition(!audioOnlyStatus.contains(".fill(Color.blue)"))
+        precondition(doneDot.contains(".fill(QuillColor.statusDone)"))
+        precondition(!doneDot.contains(".fill(Color.blue)"))
     }
 
     private static func testRecoveryImportPreservesSelectedListPosition(
@@ -483,7 +484,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // default red dot stays.
         precondition(row.contains("@Environment(\\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor"))
         precondition(row.contains(
-            "case .fail:\n            if differentiateWithoutColor {\n"
+            "case .failure:\n            if differentiateWithoutColor {\n"
                 + "                // Differentiate Without Color"
         ))
         precondition(row.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))

@@ -7,17 +7,9 @@ extension RecoveredRecordingContext {
         interruptionReason?.titleLocalizationKey ?? mode.titleLocalizationKey
     }
 
+    /// The keys are shared with the iPhone app (QuillNoteCore).
     func localizedDescription() -> String {
-        guard let interruptionReason else {
-            return localizedCatalogString(mode.descriptionLocalizationKey)
-        }
-        let cause = localizedCatalogString(
-            interruptionReason.causeDescriptionLocalizationKey
-        )
-        let resultKey = mode == .complete
-            ? "Audio saved before the interruption is available for playback or transcription."
-            : mode.descriptionLocalizationKey
-        return cause + " " + localizedCatalogString(resultKey)
+        descriptionLocalizationKeys.map { localizedCatalogString($0) }.joined(separator: " ")
     }
 
     /// What interrupted the recording, when known.
@@ -29,10 +21,7 @@ extension RecoveredRecordingContext {
 
     /// What the user can do with the recovered audio.
     func localizedResult() -> String {
-        let resultKey = interruptionReason != nil && mode == .complete
-            ? "Audio saved before the interruption is available for playback or transcription."
-            : mode.descriptionLocalizationKey
-        return localizedCatalogString(resultKey)
+        localizedCatalogString(resultLocalizationKey)
     }
 }
 
