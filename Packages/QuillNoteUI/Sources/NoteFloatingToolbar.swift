@@ -60,7 +60,7 @@ public struct NoteToolbarColors {
     public var copied: Color
     public var delete: Color
 
-    public init(retry: Color = .orange, copied: Color = .accentColor, delete: Color = Color.red.opacity(0.8)) {
+    public init(retry: Color = QuillColor.issueWarning, copied: Color = .accentColor, delete: Color = Color.red.opacity(0.8)) {
         self.retry = retry
         self.copied = copied
         self.delete = delete

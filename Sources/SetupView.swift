@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import SwiftUI
+import QuillDesignTokens
 import QuillProviderCore
 import UserNotifications
 
@@ -356,7 +357,7 @@ struct SetupView: View {
                         Spacer()
                         Label("Ready", systemImage: "checkmark.circle.fill")
                             .font(.caption)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(QuillColor.statusDone)
                     }
                     .padding(12)
                     .background(
@@ -456,11 +457,11 @@ struct SetupView: View {
                 systemImage: "checkmark.circle.fill"
             )
             .font(.caption)
-            .foregroundStyle(.green)
+            .foregroundStyle(QuillColor.statusDone)
         } else if let keyValidationError {
             Label(keyValidationError, systemImage: "xmark.circle.fill")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(QuillColor.issueError)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             Text("Uses Quill's default Groq configuration. Advanced providers remain in Settings.")
@@ -499,7 +500,7 @@ struct SetupView: View {
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -633,7 +634,7 @@ struct SetupView: View {
                 if appState.holdShortcut.usesFnKey || appState.toggleShortcut.usesFnKey {
                     Text("Tip: If Fn opens Emoji picker, go to System Settings > Keyboard and change \"Press fn key to\" to \"Do Nothing\".")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -647,7 +648,7 @@ struct SetupView: View {
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(QuillColor.issueWarning)
             }
 
             Label(
@@ -824,7 +825,7 @@ struct SetupView: View {
             if granted {
                 Label("Granted", systemImage: "checkmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
             } else {
                 Button(actionTitle, action: action)
                     .controlSize(.small)
@@ -1196,7 +1197,7 @@ struct SetupView: View {
             if isReady {
                 Label("Ready", systemImage: "checkmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(QuillColor.statusDone)
             } else if state.isInstalling {
                 Text(state.progress.localizedDisplayText())
                     .font(.caption)

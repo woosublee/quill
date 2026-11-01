@@ -232,7 +232,7 @@ struct TranscriptionChoiceSheet: View {
             if options.supportedChoices.isEmpty {
                 Text("No transcription model is ready. Set one up in Settings, then try again.")
                     .font(.system(size: 12))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
                     .fixedSize(horizontal: false, vertical: true)
             } else if !options.isChoiceReady(selectedChoice) {
                 Label(
@@ -3158,7 +3158,7 @@ private struct NoteDetailView: View {
         if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))
+                .foregroundStyle(QuillColor.statusProcessing.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))
                 .help("Recording recovered after an unexpected shutdown")
                 .accessibilityLabel(Text("Recording recovered after an unexpected shutdown"))
         }
@@ -3878,7 +3878,7 @@ private struct NoteDetailView: View {
                     action: retryAvailability == .noAudio ? nil : { retryTranscription() },
                     actionTitleOverride: "Transcribe",
                     systemImageOverride: "arrow.clockwise",
-                    tintOverride: .orange
+                    tintOverride: QuillColor.statusProcessing
                 )
                 .padding(.horizontal, QuillSpacing.space60)
             } else if isAudioOnly {

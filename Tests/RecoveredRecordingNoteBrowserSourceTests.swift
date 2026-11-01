@@ -36,7 +36,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(appStateSource.contains("NotificationCenter.default.post(name: .showSettings, object: nil)"))
         precondition(source.contains("appState.moveHistoryEntryToRecentlyDeleted(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
-        precondition(source.contains(".foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
+        precondition(source.contains(".foregroundStyle(QuillColor.statusProcessing.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
         precondition(source.contains("if isRecoveredRecording {"))
         precondition(source.contains("} else if isError {"))
         precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
