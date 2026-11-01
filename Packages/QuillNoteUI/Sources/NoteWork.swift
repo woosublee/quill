@@ -8,7 +8,8 @@ import Foundation
 // so they never combine values published at different moments (the 60% → 0%
 // → 60% capsule on the iPhone, 2026-11-01).
 
-/// The work running on one note's transcript.
+/// The work running on one note's transcript: a transcription, a cleanup, or
+/// both (the iPhone can retranscribe while an earlier cleanup still runs).
 public struct NoteWork: Equatable, Sendable {
     /// Which transcription it is.
     public enum Kind: Equatable, Sendable {
@@ -23,66 +24,69 @@ public struct NoteWork: Equatable, Sendable {
         case restart(modelName: String)
     }
 
-    public enum Phase: Equatable, Sendable {
-        case idle
+    public enum Transcription: Equatable, Sendable {
         /// Queued behind other work (the iPhone).
-        case waitingToTranscribe(Kind, reason: String?)
+        case waiting(Kind, reason: String?)
         /// Transcribing. The progress is the transcription's own (0...1); nil
         /// when it never reports any (one cloud request).
-        case transcribing(Kind, NoteWorkProgress?)
+        case running(Kind, NoteWorkProgress?)
         /// Cloud transcription with chunks done, before its next upload (the
         /// Mac).
-        case resumingCloudTranscription(NoteWorkProgress?)
+        case resumingCloud(NoteWorkProgress?)
         /// Stopping a first transcription (the iPhone).
-        case cancellingTranscription(reason: String?)
+        case cancelling(reason: String?)
         /// Paused (memory, heat, background, recording); it resumes or can be
-        /// retried (the iPhone). `progress` is where it stopped, so it
-        /// resumes from there.
+        /// retried (the iPhone). `progress` is where it stopped.
         case paused(Kind, reason: String?, progress: NoteWorkProgress?)
         /// Recovering an interrupted recording again (the Mac).
         case recovering
-        /// Cleaning up the transcript. `waitReason` is set while it waits for
-        /// the cleanup model (the iPhone); `progress` is the cleanup's own,
-        /// kept so the bar never moves back.
-        case postProcessing(waitReason: String?, progress: NoteCleanupProgress?)
     }
 
-    public private(set) var phase: Phase
+    /// Cleaning up the transcript.
+    public struct Cleanup: Equatable, Sendable {
+        /// Set while it waits for the cleanup model (the iPhone).
+        public fileprivate(set) var waitReason: String?
+        /// Where the bar's cleanup share is.
+        public fileprivate(set) var progress: NoteCleanupProgress?
+        /// False when the cleanup never reports chunks (the Mac's Edit Mode):
+        /// the spinner without a bar.
+        public fileprivate(set) var reportsProgress: Bool
+        /// The attempt the progress belongs to, and where the bar was when it
+        /// started. A new attempt (a fallback model, a rerun) continues from
+        /// there; reports from a replaced attempt are dropped.
+        fileprivate var attempt: Attempt?
+        fileprivate var replacedAttempts: Set<UUID> = []
+
+        fileprivate struct Attempt: Equatable, Sendable {
+            let id: UUID
+            let start: Double
+        }
+    }
+
+    public private(set) var transcription: Transcription?
+    public private(set) var cleanup: Cleanup?
     /// How transcription and cleanup share the one bar (the cleanup setting).
     /// Both apps re-split running work when the setting changes.
-    public var cleanup: NoteCleanupStage
-    /// False while a cleanup never reports chunks (the Mac's Edit Mode): the
-    /// status keeps the spinner without a bar.
-    public private(set) var cleanupReportsProgress = true
+    public var stage: NoteCleanupStage
 
-    /// One cleanup attempt: its own kept progress, and where the bar was when
-    /// it started. A new attempt (a fallback model, a rerun) continues from
-    /// there.
-    private struct CleanupAttempt: Equatable, Sendable {
-        let id: UUID
-        let start: Double
-        var kept: NoteCleanupProgress
-    }
-    private var cleanupAttempt: CleanupAttempt?
-    /// Attempts that were replaced; their late reports are dropped.
-    private var endedCleanupAttempts: Set<UUID> = []
-
-    public init(cleanup: NoteCleanupStage = .off) {
-        self.phase = .idle
-        self.cleanup = cleanup
+    public init(stage: NoteCleanupStage = .off) {
+        self.stage = stage
     }
 
     /// Any work, including waiting, paused, and cancelling.
-    public var isActive: Bool { phase != .idle }
+    public var isActive: Bool { transcription != nil || cleanup != nil }
+    /// A cleanup runs or waits, whatever else the note shows.
+    public var isPostProcessing: Bool { cleanup != nil }
 }
 
 /// What happened to a note's work. Each app sends these from where the work
 /// runs; `NoteWork.apply` decides what the note shows next.
 ///
-/// Starting events (`queued`, `transcriptionStarted`, `cloudTranscriptionResuming`
-/// on a note without work, `cleanupStarted`, `recoveringStarted`) begin work.
-/// The others only move work that fits them on, so a late report after the
-/// work ended (or moved on) changes nothing.
+/// Starting events (`queued` without a transcription,
+/// `cloudTranscriptionResuming` on a note without work,
+/// `transcriptionStarted`, `recoveringStarted`,
+/// `cleanupStarted`) begin work. The others only move work that fits them
+/// on, so a late report after that work ended or moved on changes nothing.
 public enum NoteWorkEvent: Equatable, Sendable {
     /// Waiting for its turn (the iPhone).
     case queued(NoteWork.Kind, reason: String?)
@@ -93,18 +97,6 @@ public enum NoteWorkEvent: Equatable, Sendable {
     case transcriptionProgressed(NoteWorkProgress)
     /// A Mac cloud job with chunks done waits for its next upload.
     case cloudTranscriptionResuming(NoteWorkProgress?)
-    /// The transcript is made. With `cleanupFollows`, cleanup takes over in
-    /// the same change, at the bar's boundary: no moment shows the
-    /// transcription without progress, or no status at all.
-    case transcriptionFinished(cleanupFollows: Bool, cleanupReportsProgress: Bool = true)
-    /// Cleanup started on its own (a retried cleanup, a resumed one).
-    case cleanupStarted(reportsProgress: Bool = true)
-    /// Cleanup waits for the model, or stops waiting (nil).
-    case cleanupWaiting(reason: String?)
-    /// Cleanup's chunk report. `attempt` names the cleanup attempt (the
-    /// iPhone splits again for a fallback or a rerun); nil when the app keeps
-    /// one attempt (the Mac).
-    case cleanupProgressed(NoteCleanupProgress, attempt: UUID? = nil)
     /// A first transcription is being stopped (the iPhone).
     case cancelling(reason: String?)
     /// Transcription paused (the iPhone).
@@ -112,8 +104,27 @@ public enum NoteWorkEvent: Equatable, Sendable {
     /// A paused transcription runs again, from where it stopped.
     case resumed
     case recoveringStarted
-    /// The work ended: done, cancelled, failed, or the cleanup finished.
-    case ended
+    /// The transcript is made. With `cleanupFollows`, cleanup takes over in
+    /// the same change, at the bar's boundary: no moment shows the
+    /// transcription without progress, or no status at all. A cleanup that
+    /// already runs carries on.
+    case transcriptionFinished(cleanupFollows: Bool, cleanupReportsProgress: Bool = true)
+    /// The transcription stopped without a transcript to clean up: cancelled,
+    /// failed, or done with cleanup off.
+    case transcriptionEnded
+    /// Cleanup started on its own (a retried cleanup, a resumed one). A
+    /// cleanup that already runs carries on.
+    case cleanupStarted(reportsProgress: Bool = true)
+    /// Cleanup waits for the model, or stops waiting (nil).
+    case cleanupWaiting(reason: String?)
+    /// Cleanup's progress, already kept forward-only by the app (both apps
+    /// keep a cleanup's progress with `NoteCleanupProgress.kept` and may send
+    /// only the latest of several reports). `attempt` names the cleanup
+    /// attempt (the iPhone splits again for a fallback or a rerun); nil when
+    /// the app keeps one attempt (the Mac).
+    case cleanupProgressed(NoteCleanupProgress, attempt: UUID? = nil)
+    /// Cleanup ended: cleaned, failed, skipped, or stopped.
+    case cleanupEnded
 }
 
 extension NoteWork {
@@ -121,173 +132,166 @@ extension NoteWork {
     public mutating func apply(_ event: NoteWorkEvent) {
         switch event {
         case .queued(let kind, let reason):
-            switch phase {
-            case .idle, .waitingToTranscribe, .paused:
-                start(.waitingToTranscribe(kind, reason: Self.reason(reason)))
+            switch transcription {
+            case nil, .waiting, .paused:
+                transcription = .waiting(kind, reason: Self.reason(reason))
             default:
                 return
             }
 
         case .transcriptionStarted(let kind, let reportsProgress):
-            start(.transcribing(kind, reportsProgress ? .starting : nil))
+            transcription = .running(kind, reportsProgress ? .starting : nil)
 
         case .transcriptionProgressed(let progress):
-            switch phase {
-            case .transcribing(let kind, let current):
+            switch transcription {
+            case .running(let kind, let current):
                 // The bar never moves back.
                 if let current, progress.fraction < current.fraction { return }
-                phase = .transcribing(kind, progress)
-            case .resumingCloudTranscription(let current):
+                transcription = .running(kind, progress)
+            case .resumingCloud(let current):
                 if let current, progress.fraction < current.fraction { return }
-                phase = .transcribing(.first, progress)
+                transcription = .running(.first, progress)
             default:
                 return
             }
 
         case .cloudTranscriptionResuming(let progress):
-            switch phase {
-            case .idle:
-                start(.resumingCloudTranscription(progress))
-            case .transcribing(.first, let current), .resumingCloudTranscription(let current):
+            switch transcription {
+            case nil:
+                // Only a note without work starts resuming (the Mac at launch);
+                // a resume arriving during the note's cleanup is late.
+                guard cleanup == nil else { return }
+                transcription = .resumingCloud(progress)
+            case .running(.first, let current), .resumingCloud(let current):
                 if let current, let progress, progress.fraction < current.fraction { return }
-                phase = .resumingCloudTranscription(progress ?? current)
+                transcription = .resumingCloud(progress ?? current)
             default:
                 return
             }
-
-        case .transcriptionFinished(let cleanupFollows, let cleanupReportsProgress):
-            switch phase {
-            case .transcribing, .resumingCloudTranscription:
-                if cleanupFollows {
-                    beginCleanup(reportsProgress: cleanupReportsProgress)
-                } else {
-                    end()
-                }
-            default:
-                return
-            }
-
-        case .cleanupStarted(let reportsProgress):
-            beginCleanup(reportsProgress: reportsProgress)
-
-        case .cleanupWaiting(let reason):
-            guard case .postProcessing(_, let progress) = phase else { return }
-            phase = .postProcessing(waitReason: Self.reason(reason), progress: progress)
-
-        case .cleanupProgressed(let report, let attempt):
-            guard case .postProcessing(let waitReason, let current) = phase,
-                  let next = keptCleanupProgress(current: current, report: report, attempt: attempt) else { return }
-            phase = .postProcessing(waitReason: waitReason, progress: next)
 
         case .cancelling(let reason):
-            switch phase {
-            case .waitingToTranscribe, .transcribing, .resumingCloudTranscription, .paused, .cancellingTranscription:
-                phase = .cancellingTranscription(reason: Self.reason(reason))
-            default:
-                return
-            }
+            guard transcription != nil, transcription != .recovering else { return }
+            transcription = .cancelling(reason: Self.reason(reason))
 
         case .paused(let reason):
-            switch phase {
-            case .transcribing(let kind, let progress), .paused(let kind, _, let progress):
-                phase = .paused(kind, reason: Self.reason(reason), progress: progress)
-            case .waitingToTranscribe(let kind, _):
-                phase = .paused(kind, reason: Self.reason(reason), progress: nil)
+            switch transcription {
+            case .running(let kind, let progress), .paused(let kind, _, let progress):
+                transcription = .paused(kind, reason: Self.reason(reason), progress: progress)
+            case .waiting(let kind, _):
+                transcription = .paused(kind, reason: Self.reason(reason), progress: nil)
             default:
                 return
             }
 
         case .resumed:
-            guard case .paused(let kind, _, let progress) = phase else { return }
-            phase = .transcribing(kind, progress ?? .starting)
+            guard case .paused(let kind, _, let progress) = transcription else { return }
+            transcription = .running(kind, progress ?? .starting)
 
         case .recoveringStarted:
-            start(.recovering)
+            transcription = .recovering
 
-        case .ended:
-            end()
+        case .transcriptionFinished(let cleanupFollows, let cleanupReportsProgress):
+            switch transcription {
+            case .running, .resumingCloud:
+                transcription = nil
+                if cleanupFollows { beginCleanup(reportsProgress: cleanupReportsProgress) }
+            default:
+                return
+            }
+
+        case .transcriptionEnded:
+            transcription = nil
+
+        case .cleanupStarted(let reportsProgress):
+            beginCleanup(reportsProgress: reportsProgress)
+
+        case .cleanupWaiting(let reason):
+            guard cleanup != nil else { return }
+            cleanup?.waitReason = Self.reason(reason)
+
+        case .cleanupProgressed(let report, let attempt):
+            guard var running = cleanup, let shown = running.shown(report, attempt: attempt) else { return }
+            running.progress = shown
+            cleanup = running
+
+        case .cleanupEnded:
+            cleanup = nil
         }
     }
 
-    /// New work replaces whatever the note showed.
-    private mutating func start(_ next: Phase) {
-        phase = next
-        cleanupReportsProgress = true
-        cleanupAttempt = nil
-        endedCleanupAttempts = []
-    }
-
-    private mutating func end() {
-        start(.idle)
-    }
-
-    /// Cleanup takes over. Already cleaning (an early "cleanup will follow"
-    /// and then the request): keep its progress and wait reason.
     private mutating func beginCleanup(reportsProgress: Bool) {
-        if case .postProcessing = phase {
-            cleanupReportsProgress = reportsProgress
-            return
+        if cleanup == nil {
+            cleanup = Cleanup(reportsProgress: reportsProgress)
+        } else {
+            cleanup?.reportsProgress = reportsProgress
         }
-        start(.postProcessing(waitReason: nil, progress: nil))
-        cleanupReportsProgress = reportsProgress
     }
 
     /// An empty reason is no reason.
     private static func reason(_ reason: String?) -> String? {
         reason.flatMap { $0.isEmpty ? nil : $0 }
     }
+}
 
-    /// The cleanup progress after `report`, or nil when the bar doesn't move.
-    /// Within one attempt (or without attempts) the shared forward-only rule
-    /// (`NoteCleanupProgress.kept`), so a split again inside the attempt keeps
-    /// moving and a late report from an earlier split is dropped. A new
-    /// attempt fills what is left from where the bar is. Reports from a
-    /// replaced attempt are dropped.
-    private mutating func keptCleanupProgress(
-        current: NoteCleanupProgress?, report: NoteCleanupProgress, attempt: UUID?
-    ) -> NoteCleanupProgress? {
-        guard let attempt else { return NoteCleanupProgress.kept(after: current, report: report) }
-        guard !endedCleanupAttempts.contains(attempt) else { return nil }
-        var running: CleanupAttempt
-        if let existing = cleanupAttempt, existing.id == attempt {
-            guard let kept = NoteCleanupProgress.kept(after: existing.kept, report: report) else { return nil }
-            running = existing
-            running.kept = kept
-        } else {
-            guard let kept = NoteCleanupProgress.kept(after: nil, report: report) else { return nil }
-            if let replaced = cleanupAttempt { endedCleanupAttempts.insert(replaced.id) }
-            running = CleanupAttempt(id: attempt, start: current?.fraction ?? 0, kept: kept)
+extension NoteWork.Cleanup {
+    fileprivate init(reportsProgress: Bool) {
+        self.reportsProgress = reportsProgress
+    }
+
+    /// Where the bar is after `report`, or nil when it doesn't move. The app
+    /// already kept the report forward-only within its attempt, so this only
+    /// places it: a new attempt fills what is left from where the bar is, a
+    /// replaced attempt's late report is dropped, and the bar never moves
+    /// back.
+    fileprivate mutating func shown(_ report: NoteCleanupProgress, attempt id: UUID?) -> NoteCleanupProgress? {
+        guard report.totalChunkCount > 0 || report.base > 0 else { return nil }
+        var shown = report
+        if let id {
+            guard !replacedAttempts.contains(id) else { return nil }
+            if attempt?.id != id {
+                if let replaced = attempt { replacedAttempts.insert(replaced.id) }
+                attempt = Attempt(id: id, start: progress?.fraction ?? 0)
+            }
+            let start = attempt?.start ?? 0
+            shown = NoteCleanupProgress(
+                completedChunkCount: report.completedChunkCount,
+                totalChunkCount: report.totalChunkCount,
+                base: start + (1 - start) * report.base
+            )
         }
-        cleanupAttempt = running
-        let shown = NoteCleanupProgress(
-            completedChunkCount: running.kept.completedChunkCount,
-            totalChunkCount: running.kept.totalChunkCount,
-            base: running.start + (1 - running.start) * running.kept.base
-        )
-        if let current, shown.fraction < current.fraction { return nil }
-        return shown == current ? nil : shown
+        if let progress, shown.fraction < progress.fraction { return nil }
+        return shown == progress ? nil : shown
     }
 }
 
 extension NoteWork {
-    /// What the note shows for this work, from the shared table. Nil when no
-    /// work runs.
+    /// What the note shows for this work, from the shared table. A
+    /// transcription shows over a cleanup that still runs (a new
+    /// retranscription over an earlier cleanup, the iPhone). Nil when no work
+    /// runs.
     public var status: NoteWorkStatus? {
-        switch phase {
-        case .idle:
-            return nil
-        case .waitingToTranscribe(_, let reason):
+        if let transcription { return Self.status(transcription, stage: stage) }
+        guard let cleanup else { return nil }
+        if let waitReason = cleanup.waitReason { return .waitingToPostProcess(reason: waitReason) }
+        return .postProcessing(NoteWorkProgress.combined(
+            cleanupProgress: cleanup.progress?.workProgress, stage: stage, reportsProgress: cleanup.reportsProgress
+        ))
+    }
+
+    private static func status(_ transcription: Transcription, stage: NoteCleanupStage) -> NoteWorkStatus {
+        switch transcription {
+        case .waiting(_, let reason):
             return .waitingToTranscribe(reason: reason)
-        case .transcribing(let kind, let progress):
-            let bar = NoteWorkProgress.combined(transcription: progress, cleanup: cleanup)
+        case .running(let kind, let progress):
+            let bar = NoteWorkProgress.combined(transcription: progress, cleanup: stage)
             switch kind {
             case .first: return .transcribing(bar)
             case .retranscription: return .retranscribing(bar)
             case .restart(let modelName): return .restartingTranscription(modelName: modelName, bar)
             }
-        case .resumingCloudTranscription(let progress):
-            return .resumingCloudTranscription(NoteWorkProgress.combined(transcription: progress, cleanup: cleanup))
-        case .cancellingTranscription(let reason):
+        case .resumingCloud(let progress):
+            return .resumingCloudTranscription(NoteWorkProgress.combined(transcription: progress, cleanup: stage))
+        case .cancelling(let reason):
             return .cancellingTranscription(reason: reason)
         case .paused(let kind, let reason, _):
             return kind == .retranscription
@@ -295,24 +299,21 @@ extension NoteWork {
                 : .transcriptionPaused(reason: reason)
         case .recovering:
             return .recovering
-        case .postProcessing(let waitReason, let progress):
-            if let waitReason { return .waitingToPostProcess(reason: waitReason) }
-            return .postProcessing(NoteWorkProgress.combined(
-                cleanupProgress: progress?.workProgress, stage: cleanup, reportsProgress: cleanupReportsProgress
-            ))
         }
     }
 
-    /// The toolbar's work for this note, read from the same phase as the
+    /// The toolbar's work for this note, read from the same work as the
     /// status.
     public var toolbarWork: NoteToolbarWork {
-        switch phase {
-        case .idle, .paused, .recovering: return .none
-        case .waitingToTranscribe: return .waitingToTranscribe
-        case .transcribing(.first, _), .resumingCloudTranscription: return .transcribing
-        case .transcribing: return .retranscribing
-        case .cancellingTranscription: return .cancelling
-        case .postProcessing(let waitReason, _): return waitReason == nil ? .postProcessing : .waitingToPostProcess
+        switch transcription {
+        case .waiting: return .waitingToTranscribe
+        case .running(.first, _), .resumingCloud: return .transcribing
+        case .running: return .retranscribing
+        case .cancelling: return .cancelling
+        case .paused, .recovering: return .none
+        case nil:
+            guard let cleanup else { return .none }
+            return cleanup.waitReason == nil ? .postProcessing : .waitingToPostProcess
         }
     }
 }
@@ -322,14 +323,14 @@ extension NoteWork {
 @MainActor
 public final class NoteWorkBoard: ObservableObject {
     @Published public private(set) var works: [String: NoteWork] = [:]
-    /// The cleanup setting applies to every note's bar. A change is
-    /// published once for all notes.
-    public private(set) var cleanup: NoteCleanupStage = .off
+    /// The cleanup setting, for every note's bar. A change is published once
+    /// for all notes.
+    public private(set) var stage: NoteCleanupStage = .off
 
     public init() {}
 
     public func work(for noteID: String) -> NoteWork {
-        works[noteID] ?? NoteWork(cleanup: cleanup)
+        works[noteID] ?? NoteWork(stage: stage)
     }
 
     /// Applies `event` to the note's work and publishes it once, only when it
@@ -344,13 +345,13 @@ public final class NoteWorkBoard: ObservableObject {
         }
     }
 
-    public func setCleanup(_ stage: NoteCleanupStage) {
-        guard stage != cleanup else { return }
-        cleanup = stage
+    public func setStage(_ stage: NoteCleanupStage) {
+        guard stage != self.stage else { return }
+        self.stage = stage
         guard !works.isEmpty else { return }
         works = works.mapValues { work in
             var work = work
-            work.cleanup = stage
+            work.stage = stage
             return work
         }
     }
