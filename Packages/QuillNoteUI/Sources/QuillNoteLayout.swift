@@ -33,9 +33,23 @@ import QuillDesignTokens
 /// `Sources/NoteBrowserView.swift`.
 public struct QuillNoteLayout: Equatable, Sendable {
     /// The note list's column width when it sits beside the note: the
-    /// `size-sidebar-notes` token (`QuillLayoutSize.sidebarNotes`), the Mac
-    /// note browser's value, named here beside the rule that uses it.
+    /// `size-sidebar-notes` token (`QuillLayoutSize.sidebarNotes`), 280 on
+    /// the Mac and 320 on the iPad (quill-universal-private#306), named here beside the rule that
+    /// uses it.
     public static let listColumnWidth = QuillLayoutSize.sidebarNotes
+
+    /// How recording starts and stops in a window this wide (quill-universal-private#306). With the
+    /// list beside the note, the Mac's one floating Record button sits at the
+    /// bottom of the list column; otherwise (an iPhone, a narrow iPad
+    /// window) the full-width recorder bar does, with its timer and pause.
+    public static func recordingControl(windowWidth: CGFloat, isHeightCompact: Bool) -> QuillRecordingControl {
+        QuillRecordingControl(showsListBesideNote: showsListBesideNote(windowWidth: windowWidth, isHeightCompact: isHeightCompact))
+    }
+
+    /// How recording starts and stops in this layout's window.
+    public var recordingControl: QuillRecordingControl {
+        QuillRecordingControl(showsListBesideNote: showsListBesideNote)
+    }
 
     /// Whether the note list sits beside the note in a window this wide.
     public let showsListBesideNote: Bool
@@ -94,5 +108,22 @@ public struct QuillNoteLayout: Equatable, Sendable {
     /// screens.
     public static func showsListBesideNote(windowWidth: CGFloat, isHeightCompact: Bool) -> Bool {
         !isHeightCompact && QuillWidthClass(containerWidth: windowWidth) == .wide
+    }
+}
+
+/// The control a note screen records with (quill-universal-private#306), from `QuillNoteLayout`.
+public enum QuillRecordingControl: Equatable, Sendable {
+    /// The Mac's round Record button at the bottom of the list column: red
+    /// to start, the processing orange with a stop square to stop. No timer
+    /// or pause; the recording note's list row shows the time.
+    case floatingRecordButton
+    /// The full-width recorder bar at the bottom of the screen, with the
+    /// elapsed time, pause, and stop (the iPhone's).
+    case recorderBar
+
+    /// The one rule: the floating button exactly where the list sits
+    /// beside the note.
+    init(showsListBesideNote: Bool) {
+        self = showsListBesideNote ? .floatingRecordButton : .recorderBar
     }
 }

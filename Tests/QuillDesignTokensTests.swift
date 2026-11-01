@@ -177,6 +177,17 @@ struct QuillDesignTokensTests {
         precondition(iPhone["light"]?.lowercased() == hexString(QuillColor.surfacePageIPhone.light), "surface-page-iphone light")
         precondition(iPhone["dark"]?.lowercased() == hexString(QuillColor.surfacePageIPhone.dark), "surface-page-iphone dark")
         precondition(themes("surface-note") == themes("surface-text"), "surface-note on the Mac is the system text background")
+        let sidebar = themes("surface-sidebar-iphone")
+        precondition(sidebar["light"]?.lowercased() == hexString(QuillColor.surfaceSidebarIPhone.light), "surface-sidebar-iphone light")
+        precondition(sidebar["dark"]?.lowercased() == hexString(QuillColor.surfaceSidebarIPhone.dark), "surface-sidebar-iphone dark")
+        // The iPad's list column sits a step apart from the note page (quill-universal-private#306):
+        // darker in light mode, lighter in dark mode, like the Mac's sidebar.
+        func luminance(_ rgb: QuillColor.RGB) -> Double {
+            func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            return 0.2126 * linear(rgb.red) + 0.7152 * linear(rgb.green) + 0.0722 * linear(rgb.blue)
+        }
+        precondition(luminance(QuillColor.surfaceSidebarIPhone.light) < luminance(QuillColor.surfacePageIPhone.light), "the light list column is darker than the page")
+        precondition(luminance(QuillColor.surfaceSidebarIPhone.dark) > luminance(QuillColor.surfacePageIPhone.dark), "the dark list column is lighter than the page")
     }
 
     /// Each tint's opacity matches the token's alpha in both themes. A white
@@ -275,10 +286,13 @@ struct QuillDesignTokensTests {
         }
         let names = QuillControlSize.all.map(\.name)
         precondition(Set(names).count == names.count, "a control size is listed twice")
-        // A size with an iPhone value carries both in Swift.
+        // A size with an iPhone value carries both in Swift, in the same
+        // enum (a control size, or a note layout size such as the list column).
+        let layoutNames = QuillLayoutSize.all.map(\.name)
         for name in sizes.keys where name.hasSuffix("-iphone") {
             let base = String(name.dropLast("-iphone".count))
-            precondition(names.contains(name) && names.contains(base), "tokens.json size \(name) needs \(base) and \(name) in QuillControlSize")
+            precondition((names.contains(name) && names.contains(base)) || (layoutNames.contains(name) && layoutNames.contains(base)),
+                         "tokens.json size \(name) needs \(base) and \(name) in QuillControlSize or QuillLayoutSize")
         }
         precondition(QuillControlSize.noteToolbarButton == QuillControlSize.noteToolbarButtonMac, "this Mac test sees the Mac value")
         precondition(QuillControlSize.checkbox == QuillControlSize.checkboxMac, "this Mac test sees the Mac checkbox")
@@ -457,7 +471,11 @@ struct QuillDesignTokensTests {
         precondition(QuillLayoutSize.noteMarginRegular == QuillSpacing.space24, "regular margin is space-24")
         // Where the list first fits beside the note, it leaves the Mac's
         // narrowest note column, 520 pt.
-        precondition(QuillBreakpoint.wide - QuillLayoutSize.sidebarNotes == 520, "800 = 280 list + 520 note")
+        precondition(QuillBreakpoint.wide - QuillLayoutSize.sidebarNotesMac == 520, "800 = 280 list + 520 note")
+        precondition(QuillLayoutSize.sidebarNotes == QuillLayoutSize.sidebarNotesMac, "this Mac test sees the Mac list column")
+        // The iPad's wider list (quill-universal-private#306) still leaves a note column at the
+        // narrowest wide window: 800 − 320 = 480, about an iPhone's width.
+        precondition(QuillBreakpoint.wide - QuillLayoutSize.sidebarNotesIPhone == 480, "800 = 320 list + 480 note on the iPad")
     }
 
     /// Rounds half away from zero, as the hex values in tokens.json were
