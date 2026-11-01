@@ -206,13 +206,13 @@ extension NoteWork {
             beginCleanup(reportsProgress: reportsProgress)
 
         case .cleanupWaiting(let reason):
-            guard cleanup != nil else { return }
             cleanup?.waitReason = Self.reason(reason)
 
         case .cleanupProgressed(let report, let attempt):
-            guard var running = cleanup, let shown = running.shown(report, attempt: attempt) else { return }
-            running.progress = shown
-            cleanup = running
+            // The attempt is recorded even when the bar doesn't move, so a
+            // replaced attempt's late report is dropped from the first report
+            // of the new one.
+            cleanup?.place(report, attempt: attempt)
 
         case .cleanupEnded:
             cleanup = nil
@@ -238,29 +238,28 @@ extension NoteWork.Cleanup {
         self.reportsProgress = reportsProgress
     }
 
-    /// Where the bar is after `report`, or nil when it doesn't move. The app
-    /// already kept the report forward-only within its attempt, so this only
+    /// Places `report` on the bar. The app already kept it forward-only
+    /// within its attempt (the contract of `cleanupProgressed`), so this only
     /// places it: a new attempt fills what is left from where the bar is, a
-    /// replaced attempt's late report is dropped, and the bar never moves
-    /// back.
-    fileprivate mutating func shown(_ report: NoteCleanupProgress, attempt id: UUID?) -> NoteCleanupProgress? {
-        guard report.totalChunkCount > 0 || report.base > 0 else { return nil }
-        var shown = report
+    /// report without an attempt belongs to the current one, a replaced
+    /// attempt's late report is dropped, and the bar never moves back.
+    fileprivate mutating func place(_ report: NoteCleanupProgress, attempt id: UUID?) {
+        guard report.totalChunkCount > 0 || report.base > 0 else { return }
         if let id {
-            guard !replacedAttempts.contains(id) else { return nil }
+            guard !replacedAttempts.contains(id) else { return }
             if attempt?.id != id {
                 if let replaced = attempt { replacedAttempts.insert(replaced.id) }
                 attempt = Attempt(id: id, start: progress?.fraction ?? 0)
             }
-            let start = attempt?.start ?? 0
-            shown = NoteCleanupProgress(
-                completedChunkCount: report.completedChunkCount,
-                totalChunkCount: report.totalChunkCount,
-                base: start + (1 - start) * report.base
-            )
         }
-        if let progress, shown.fraction < progress.fraction { return nil }
-        return shown == progress ? nil : shown
+        let start = attempt?.start ?? 0
+        let shown = NoteCleanupProgress(
+            completedChunkCount: report.completedChunkCount,
+            totalChunkCount: report.totalChunkCount,
+            base: start + (1 - start) * report.base
+        )
+        if let progress, shown.fraction < progress.fraction { return }
+        progress = shown
     }
 }
 
@@ -310,8 +309,8 @@ extension NoteWork {
         case .running(.first, _), .resumingCloud: return .transcribing
         case .running: return .retranscribing
         case .cancelling: return .cancelling
-        case .paused, .recovering: return .none
-        case nil:
+        // Nothing runs for the transcription; a cleanup underneath still does.
+        case .paused, .recovering, nil:
             guard let cleanup else { return .none }
             return cleanup.waitReason == nil ? .postProcessing : .waitingToPostProcess
         }

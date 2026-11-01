@@ -22,6 +22,8 @@ struct NoteWorkTests {
         testLateEventsDontReviveEndedWork()
         testEmptyReasonsAreNoReason()
         testToolbarWork()
+        testANewAttemptIsRecordedFromItsFirstReport()
+        testReportWithoutAttemptBelongsToTheCurrentOne()
         MainActor.assumeIsolated { testBoardPublishesOneValuePerNote() }
         print("NoteWorkTests passed")
     }
@@ -233,6 +235,14 @@ struct NoteWorkTests {
         precondition(work.status == .retranscriptionPaused(reason: "Paused because this iPhone is too warm."))
         precondition(present(work)?.indicator == .hidden)
         precondition(work.toolbarWork == .none)
+        // A paused retranscription over a running cleanup: the toolbar keeps
+        // the cleanup's work (review).
+        var underneath = NoteWork(stage: .onDevice)
+        underneath.apply(.cleanupStarted())
+        underneath.apply(.transcriptionStarted(.retranscription))
+        underneath.apply(.paused(reason: nil))
+        precondition(underneath.status?.kind == .retranscriptionPaused)
+        precondition(underneath.toolbarWork == .postProcessing)
 
         var first = NoteWork()
         first.apply(.queued(.first, reason: nil))
@@ -326,6 +336,30 @@ struct NoteWorkTests {
         precondition(queued == none)
         queued.apply(.cancelling(reason: ""))
         precondition(queued.status == .cancellingTranscription(reason: nil))
+    }
+
+    /// Review: a new attempt whose first report matched the bar wasn't
+    /// recorded, so the replaced attempt's late report moved the bar.
+    private static func testANewAttemptIsRecordedFromItsFirstReport() {
+        var work = NoteWork(stage: .onDevice)
+        work.apply(.cleanupStarted())
+        work.apply(.cleanupProgressed(chunks(0, 3), attempt: Self.attemptA))
+        work.apply(.cleanupProgressed(chunks(0, 3), attempt: Self.attemptB))
+        work.apply(.cleanupProgressed(chunks(2, 3), attempt: Self.attemptA))
+        precondition(percent(work) == 60, "the replaced attempt's late report is dropped")
+        work.apply(.cleanupProgressed(chunks(1, 3), attempt: Self.attemptB))
+        precondition(percent(work) == 73)
+    }
+
+    /// Review: a report without an attempt after attempt reports is placed in
+    /// the current attempt, not read as absolute.
+    private static func testReportWithoutAttemptBelongsToTheCurrentOne() {
+        var work = NoteWork(stage: .onDevice)
+        work.apply(.cleanupStarted())
+        work.apply(.cleanupProgressed(chunks(1, 2), attempt: Self.attemptA))
+        work.apply(.cleanupProgressed(chunks(0, 4), attempt: Self.attemptB))
+        work.apply(.cleanupProgressed(chunks(2, 4)))
+        precondition(percent(work) == 90, "placed from attempt B's start (0.5)")
     }
 
     private static func testToolbarWork() {
