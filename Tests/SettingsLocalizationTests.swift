@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 @main
 struct SettingsLocalizationTests {
@@ -373,6 +374,38 @@ struct SettingsLocalizationTests {
         assert(threeMinutesKo.contains("3") && threeMinutesKo.contains("분"), threeMinutesKo)
         let threeMinutesEn = NoteSyncStatusText.relativeTime(now.addingTimeInterval(-180), now: now, language: "en", bundle: bundle)
         assert(threeMinutesEn.contains("3") && threeMinutesEn.contains("min"), threeMinutesEn)
+        // The shared rule (#283) follows the locale it's given, not the
+        // system's: the same date reads in Korean and in English.
+        let sharedKo = NoteSyncStatusPresentation.relativeTime(
+            now.addingTimeInterval(-180), now: now, locale: Locale(identifier: "ko"), justNow: "방금 전"
+        )
+        assert(sharedKo == threeMinutesKo, sharedKo)
+        let sharedEn = NoteSyncStatusPresentation.relativeTime(
+            now.addingTimeInterval(-180), now: now, locale: Locale(identifier: "en"), justNow: "Just now"
+        )
+        assert(sharedEn == threeMinutesEn, sharedEn)
+        assert(NoteSyncStatusPresentation.relativeTime(now, now: now, locale: Locale(identifier: "en"), justNow: "J") == "J")
+        // A full iCloud outranks an account to look at, which outranks
+        // being offline, on the Mac and the iPhone alike (#283).
+        assert(NoteSyncProblem.mostUrgent(storageFull: true, accountNeedsAttention: true, offline: true) == .storageFull)
+        assert(NoteSyncProblem.mostUrgent(storageFull: false, accountNeedsAttention: true, offline: true) == .accountNeedsAttention)
+        assert(NoteSyncProblem.mostUrgent(storageFull: false, accountNeedsAttention: false, offline: true) == .offline)
+        assert(NoteSyncProblem.mostUrgent(storageFull: false, accountNeedsAttention: false, offline: false) == nil)
+        assert(NoteSyncProblem.storageFull.outranks(.accountNeedsAttention))
+        assert(NoteSyncProblem.accountNeedsAttention.outranks(.offline))
+        assert(!NoteSyncProblem.offline.outranks(.storageFull) && !NoteSyncProblem.offline.outranks(.offline))
+        // Each shared copy key is in this app's catalog and is what the
+        // status line shows.
+        let problemKo: [NoteSyncProblem: String] = [
+            .storageFull: "iCloud 저장 공간이 부족해서 올리기를 멈췄어요",
+            .accountNeedsAttention: "iCloud 계정 확인 필요",
+            .offline: "잠시 멈춤 · 인터넷에 연결되면 이어서 맞춰요",
+        ]
+        for problem in NoteSyncProblem.allCases {
+            assert(localizedCatalogString(problem.copyKey, language: "ko", bundle: bundle) == problemKo[problem], problem.copyKey)
+            assert(view.contains("Text(\"\(problem.copyKey)\")"), problem.copyKey)
+        }
+        assert(NoteSyncStatusPresentation.justNowKey == "Just now")
         // The line refreshes while Settings stays open.
         assert(view.contains("NoteSyncStatusText.relativeTime(date, now: context.date)"))
         assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
