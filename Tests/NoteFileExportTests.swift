@@ -26,6 +26,7 @@ struct NoteFileExportTests {
         try testUnselectedSummaryIsNotExported()
         try testSummaryConflictRequiresConsent()
         try testMissingSummaryKeepsSuccessfulTranscript()
+        testDestinationNamesComeFromTheSharedPlan()
         print("NoteFileExportTests passed")
     }
 
@@ -580,6 +581,37 @@ struct NoteFileExportTests {
         ])
         let files = try FileManager.default.contentsOfDirectory(atPath: root.path)
         precondition(files == ["Meeting.txt"])
+    }
+
+    /// The Mac's names, read from the shared plan (quill-universal-private#281):
+    /// `<name>.<ext>`, `<name>-summary.<ext>`, the recording's own extension,
+    /// a sanitized name, and no name for an item that isn't there.
+    private static func testDestinationNamesComeFromTheSharedPlan() {
+        let root = URL(fileURLWithPath: "/tmp/synthetic-export", isDirectory: true)
+        let audio = URL(fileURLWithPath: "/tmp/synthetic.m4a")
+        let all = NoteFileExportSource(transcript: "a", audioURL: audio, summary: "b")
+        for (format, ext) in [(NoteFileExportTextFormat.plainText, "txt"), (.markdown, "md")] {
+            let urls = NoteFileExporter.destinationURLs(for: NoteFileExportRequest(
+                source: all,
+                selectedItems: [.transcript, .summary, .audio],
+                textFormat: format,
+                baseName: " Weekly/Sync. ",
+                destinationDirectory: root
+            ))
+            precondition(urls[.transcript] == root.appendingPathComponent("Weekly-Sync.\(ext)"))
+            precondition(urls[.summary] == root.appendingPathComponent("Weekly-Sync-summary.\(ext)"))
+            precondition(urls[.audio] == root.appendingPathComponent("Weekly-Sync.m4a"))
+        }
+        let unnamed = NoteFileExporter.destinationURLs(for: NoteFileExportRequest(
+            source: NoteFileExportSource(transcript: "a", audioURL: nil),
+            selectedItems: [.transcript, .summary, .audio],
+            textFormat: .plainText,
+            baseName: "///",
+            destinationDirectory: root
+        ))
+        precondition(unnamed == [.transcript: root.appendingPathComponent("Quill Recording.txt")])
+        let source = NoteFileExportSource(transcript: " ", audioURL: nil, summary: "b", isSummaryStale: true)
+        precondition(source.transcript == nil && source.summary == "b" && source.isSummaryStale)
     }
 
     private static func temporaryDirectory() -> URL {

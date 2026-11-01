@@ -1,5 +1,6 @@
 import SwiftUI
 import QuillDesignTokens
+import QuillNoteCore
 
 /// Settings › Recovery: deleted notes waiting out their 30 days.
 struct RecentlyDeletedNotesSection: View {
