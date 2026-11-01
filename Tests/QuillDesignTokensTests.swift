@@ -382,6 +382,31 @@ struct QuillDesignTokensTests {
         precondition(QuillTypeStyle.statusPercent.nsFont == NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), "fixed-width digits in AppKit too")
         precondition(QuillTypeStyle.transcript.platformLineSpacing == 5 && QuillTypeStyle.transcript.platformParagraphSpacing == 6, "the Mac transcript keeps line spacing 5 and paragraph spacing 6")
         precondition(QuillTypeStyle.metaMono.scalesFromMacSize && QuillTypeStyle.metaChipMono.scalesFromMacSize, "the meta line keeps its Mac size on iOS and scales it")
+        // Typing Korean into an empty transcript line must not change the
+        // line's height (a fallback font draws Korean with a shorter line).
+        let transcriptFont = QuillTypeStyle.transcript.nsFont
+        let transcriptStyle = QuillTypeStyle.transcript.textViewParagraphStyle(
+            lineHeight: NSLayoutManager().defaultLineHeight(for: transcriptFont)
+        )
+        func lineHeights(_ text: String) -> [CGFloat] {
+            let storage = NSTextStorage(string: text, attributes: [.font: transcriptFont, .paragraphStyle: transcriptStyle])
+            let layout = NSLayoutManager()
+            let container = NSTextContainer(size: NSSize(width: 400, height: 1_000))
+            layout.addTextContainer(container)
+            storage.addLayoutManager(layout)
+            storage.fixAttributes(in: NSRange(location: 0, length: storage.length))
+            layout.ensureLayout(for: container)
+            var heights: [CGFloat] = []
+            layout.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: layout.numberOfGlyphs)) { rect, _, _, _, _ in
+                heights.append(rect.height)
+            }
+            // The last line has no line spacing after it, so its height
+            // still follows its own font.
+            return Array(heights.dropLast())
+        }
+        precondition(lineHeights("가나다\n\n라마바") == lineHeights("가나다\nㅛ\n라마바"), "typing Korean into an empty line keeps its height")
+        precondition(lineHeights("abc\ndef\nghi") == lineHeights("가나\n다라\n마바"), "Korean and Latin lines are the same height")
+        precondition(transcriptStyle.lineSpacing == 5 && transcriptStyle.paragraphSpacing == 6, "the paragraph style keeps the Mac spacing")
         // A banner's detail sits beside its title at the same size on both
         // platforms, so on iOS the two scale from the same text style (#744).
         precondition(QuillTypeStyle.callout.dynamicStyle == QuillTypeStyle.bannerTitle.dynamicStyle, "a banner's detail scales with its title on iOS")

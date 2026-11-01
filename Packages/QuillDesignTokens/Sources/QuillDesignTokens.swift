@@ -799,6 +799,22 @@ public struct QuillTypeStyle: Sendable, Equatable {
     }
     #endif
 
+    /// The paragraph style for a text view that draws this style (the
+    /// transcript editors), with this platform's line and paragraph spacing.
+    /// Every line is `lineHeight` tall: pass the drawing font's own line
+    /// height. Without it a line takes the height of the font that draws
+    /// it, so a line of Korean, drawn in a fallback font with a shorter
+    /// line, sits closer than an empty or Latin line, and typing into an
+    /// empty line pulls the text below it up.
+    public func textViewParagraphStyle(lineHeight: CGFloat) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = lineHeight
+        style.maximumLineHeight = lineHeight
+        style.lineSpacing = platformLineSpacing
+        style.paragraphSpacing = platformParagraphSpacing
+        return style
+    }
+
     /// This style at a given size, for a view that scales the size itself.
     public func font(size: CGFloat) -> Font {
         let font = Font.system(size: size, weight: fontWeight ?? .regular, design: design.fontDesign)
