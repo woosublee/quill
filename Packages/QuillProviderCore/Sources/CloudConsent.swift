@@ -93,8 +93,8 @@ public enum CloudConsentCopy {
     /// catalog gives the iPhone string an iPad form).
     public static func withdrawEffectKey(onMac: Bool) -> String {
         onMac
-            ? "Features that used a cloud model switch to a model on this Mac, or turn off."
-            : "Features that used a cloud model switch to a model on this iPhone, or turn off."
+            ? "Features that used it switch to a model on this Mac, or turn off."
+            : "Features that used it switch to a model on this iPhone, or turn off."
     }
 
     /// One line about the data, not a list of features. The Mac mentions
