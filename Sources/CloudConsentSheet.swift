@@ -21,6 +21,13 @@ struct CloudConsentRequest: Identifiable {
     let onAgree: () -> Void
     let onCancel: () -> Void
 
+    /// The provider the dialog's title names: the shown request's own, even
+    /// on the frame before the view stores it, or the one `held` while the
+    /// dialog closes.
+    static func titleName(for request: CloudConsentRequest?, held: String) -> String {
+        request?.targets.first?.displayName ?? held
+    }
+
     /// Applies `change` to the current settings and runs `apply` once every
     /// provider it would send to has consent. Returns nil when none needs
     /// asking, after running `apply`.
@@ -95,7 +102,10 @@ private struct CloudConsentDialog: ViewModifier {
     func body(content: Content) -> some View {
         content
             .confirmationDialog(
-                Text(verbatim: localizedCatalogFormat(CloudConsentCopy.titleFormatKey, host)),
+                Text(verbatim: localizedCatalogFormat(
+                    CloudConsentCopy.titleFormatKey,
+                    CloudConsentRequest.titleName(for: request, held: host)
+                )),
                 isPresented: Binding(
                     get: { request != nil },
                     set: { isPresented in
@@ -130,10 +140,10 @@ private struct CloudConsentDialog: ViewModifier {
                 )
             }
             .onChange(of: request?.id) { _ in
-                if let name = request?.targets.first?.displayName { host = name }
+                host = CloudConsentRequest.titleName(for: request, held: host)
             }
             .onAppear {
-                if let name = request?.targets.first?.displayName { host = name }
+                host = CloudConsentRequest.titleName(for: request, held: host)
             }
     }
 
