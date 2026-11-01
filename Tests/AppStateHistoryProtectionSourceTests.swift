@@ -86,6 +86,12 @@ struct AppStateHistoryProtectionSourceTests {
                 && source.contains("pendingAudioImportJobIDs.remove(jobID)"),
             "audio import is tracked before its detached audio copy can touch history storage"
         )
+        // #753: an import still saving its file has copied its keys and URLs,
+        // so it locks withdrawal like a running transcription.
+        try expect(
+            source.contains("|| !pendingAudioImportJobIDs.isEmpty"),
+            "a pending audio import locks consent withdrawal"
+        )
 
         // Recording start and microphone-permission resumption recheck history
         // availability after every asynchronous suspension point as defense in

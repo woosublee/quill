@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import SwiftUI
+import QuillDesignTokens
 
 @main
 struct RecordingOverlayGeometryTests {

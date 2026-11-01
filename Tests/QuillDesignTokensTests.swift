@@ -17,6 +17,7 @@ struct QuillDesignTokensTests {
         testSpacingMatchesTokensFile(tokens)
         testRadiusMatchesTokensFile(tokens)
         testIssueColorsMatchTokensFile(tokens)
+        testIssueWarningFollowsAppearance()
         testNoteSurfaceMatchesTokensFile(tokens)
         testTintsMatchTokensFile(tokens)
         testShadowsMatchTokensFile(tokens)
@@ -81,14 +82,54 @@ struct QuillDesignTokensTests {
         assertSame(swift, file, "QuillRadius")
     }
 
-    /// QuillColor draws one color in both appearances, so every theme declared
-    /// in color.themes must hold that same value.
+    /// `issue-warning` draws the dark amber in light mode and the muted amber
+    /// in dark mode, from one color (#736 Q2).
+    private static func testIssueWarningFollowsAppearance() {
+        let color = NSColor(QuillColor.issueWarning)
+        func resolved(_ name: NSAppearance.Name) -> String {
+            var hex = ""
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                let c = color.usingColorSpace(.sRGB)!
+                hex = String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+            }
+            return hex
+        }
+        precondition(resolved(.aqua) == "#c47318", "issue-warning light is \(resolved(.aqua))")
+        precondition(resolved(.darkAqua) == "#f2b35c", "issue-warning dark is \(resolved(.darkAqua))")
+        // status-processing and status-done: the darker value in light mode,
+        // the system color in dark mode (#736 Q2).
+        for (name, token, lightHex, system) in [
+            ("status-processing", QuillColor.statusProcessing, "#b95000", NSColor.systemOrange),
+            ("status-done", QuillColor.statusDone, "#1f7a36", NSColor.systemGreen),
+        ] {
+            let color = NSColor(token)
+            func hex(_ c: NSColor, in appearance: NSAppearance.Name) -> String {
+                var value = ""
+                NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
+                    let s = c.usingColorSpace(.sRGB)!
+                    value = String(format: "#%02x%02x%02x", Int((s.redComponent * 255).rounded()), Int((s.greenComponent * 255).rounded()), Int((s.blueComponent * 255).rounded()))
+                }
+                return value
+            }
+            precondition(hex(color, in: .aqua) == lightHex, "\(name) light is \(hex(color, in: .aqua))")
+            precondition(hex(color, in: .darkAqua) == hex(system, in: .darkAqua), "\(name) dark is not the system color")
+        }
+    }
+
+    /// Each theme declared in color.themes holds the issue color QuillColor
+    /// draws in that appearance (issue-warning differs per theme, #736 Q2).
     private static func testIssueColorsMatchTokensFile(_ tokens: [String: Any]) {
         let color = tokens["color"] as? [String: Any]
         let entries = color?["tokens"] as? [[String: Any]] ?? []
         let themeIDs = Set((color?["themes"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
         precondition(!themeIDs.isEmpty, "tokens.json has no color themes")
-        for (name, rgb) in [("issue-warning", QuillColor.issueWarningRGB), ("issue-error", QuillColor.issueErrorRGB)] {
+        let perTheme: [(String, (String) -> QuillColor.RGB)] = [
+            ("issue-warning", { $0 == "dark" ? QuillColor.issueWarningRGB.dark : QuillColor.issueWarningRGB.light }),
+            ("issue-error", { _ in QuillColor.issueErrorRGB }),
+            ("status-processing", { $0 == "dark" ? QuillColor.statusProcessingRGB.dark : QuillColor.statusProcessingRGB.light }),
+            ("status-done", { $0 == "dark" ? QuillColor.statusDoneRGB.dark : QuillColor.statusDoneRGB.light }),
+        ]
+        for (name, rgbFor) in perTheme {
             let entry = entries.first { $0["name"] as? String == name }
             guard let themes = entry?["value"] as? [String: String], !themes.isEmpty else {
                 preconditionFailure("tokens.json has no per-theme value for \(name)")
@@ -97,8 +138,8 @@ struct QuillDesignTokensTests {
                 Set(themes.keys) == themeIDs,
                 "\(name) has themes \(themes.keys.sorted()) but color.themes is \(themeIDs.sorted())"
             )
-            let expected = hexString(rgb)
             for (theme, value) in themes.sorted(by: { $0.key < $1.key }) {
+                let expected = hexString(rgbFor(theme))
                 precondition(
                     value.lowercased() == expected,
                     "\(name) (\(theme)) is \(value) in tokens.json but \(expected) in QuillColor"
@@ -195,11 +236,6 @@ struct QuillDesignTokensTests {
             assertShadow(shadow.dark, dark, "\(name) (dark)")
             precondition(shadow.shadow(for: .dark) == shadow.dark && shadow.shadow(for: .light) == shadow.light, "\(name) picks by appearance")
         }
-        // #736 Q11: the iPhone's record shadow is lighter than the Mac's in
-        // light mode and darker in dark mode, at the same size and offset.
-        let mac = QuillShadow.record, iPhone = QuillShadow.recordIPhone
-        precondition(iPhone.light.opacity < mac.opacity && iPhone.dark.opacity > mac.opacity, "shadow-record-iphone is lighter in light and darker in dark")
-        precondition([iPhone.light, iPhone.dark].allSatisfy { $0.radius == mac.radius && $0.x == mac.x && $0.y == mac.y }, "shadow-record-iphone has the Mac's size")
     }
 
     private static func assertShadow(_ shadow: QuillShadow, _ value: String, _ name: String) {
@@ -317,11 +353,10 @@ struct QuillDesignTokensTests {
             let lineSpacing = spacing("lineSpacing", default: 0)
             let lineSpacingIPhone = spacing("lineSpacingIphone", default: lineSpacing)
             let paragraphSpacing = spacing("paragraphSpacing", default: 0)
-            let paragraphSpacingIPhone = spacing("paragraphSpacingIphone", default: paragraphSpacing)
+            precondition(entry["paragraphSpacingIphone"] == nil, "\(name): paragraph spacing is the same on both apps (#736 Q6)")
             precondition(Double(style.lineSpacing) == lineSpacing, "\(name) line spacing \(style.lineSpacing) vs tokens.json \(lineSpacing)")
             precondition(Double(style.lineSpacingIPhone) == lineSpacingIPhone, "\(name) iPhone line spacing \(style.lineSpacingIPhone) vs tokens.json \(lineSpacingIPhone)")
             precondition(Double(style.paragraphSpacing) == paragraphSpacing, "\(name) paragraph spacing \(style.paragraphSpacing) vs tokens.json \(paragraphSpacing)")
-            precondition(Double(style.paragraphSpacingIPhone) == paragraphSpacingIPhone, "\(name) iPhone paragraph spacing \(style.paragraphSpacingIPhone) vs tokens.json \(paragraphSpacingIPhone)")
             let isMono = (entry["family"] as? String ?? found.family) == "mono"
             precondition((style.design == .monospaced) == isMono, "\(name) is \(style.design) in Swift but family \(found.family ?? "-") in tokens.json")
         }
@@ -343,6 +378,12 @@ struct QuillDesignTokensTests {
             && detail.tracking == callout.tracking && detail.trackingIPhone == callout.trackingIPhone
             && detail.design == callout.design && detail.scalesFromMacSize == callout.scalesFromMacSize, "empty-detail draws like callout on the Mac")
         precondition(QuillTypeStyle.emptyDetail.dynamicStyle == .subheadline, "empty-detail follows .subheadline on iOS")
+        let heading = QuillTypeStyle.summarySectionTitle, emptyTitle = QuillTypeStyle.emptyTitle
+        precondition(heading.size == emptyTitle.size && heading.lineHeight == emptyTitle.lineHeight && heading.weight == emptyTitle.weight,
+                     "summary-section-title keeps empty-title's Mac metrics (the Mac's .title3 Semibold, 15)")
+        precondition(heading.dynamicStyle == .title3, "summary-section-title follows .title3 on iOS (#736 Q1)")
+        precondition(NSFont.preferredFont(forTextStyle: .title3).pointSize == heading.size,
+                     "macOS .title3 is \(NSFont.preferredFont(forTextStyle: .title3).pointSize) pt; summary-section-title draws \(heading.size)")
         for (name, style) in QuillTypeStyle.all {
             precondition(style.fontWeight != nil, "\(name) weight \(style.weight) is not a CSS weight")
         }
@@ -353,7 +394,7 @@ struct QuillDesignTokensTests {
         // The work-status styles are this module's: one only in tokens.json
         // fails too.
         let swiftNames = Set(QuillTypeStyle.all.map(\.name))
-        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") || name.hasPrefix("empty-") {
+        for name in styles.compactMap({ $0.style["name"] as? String }) where name.hasPrefix("status-") || name.hasPrefix("empty-") || name.hasPrefix("summary-") {
             precondition(swiftNames.contains(name), "tokens.json style \(name) is missing from QuillTypeStyle")
         }
     }
