@@ -30,12 +30,12 @@ macOS 규칙을 iPhone·iPad로 옮긴 결과입니다. **토큰 이름과 역�
 | `label-tertiary` | 역할 없음(설정 꺾쇠만 시스템 `.tertiary`) | |
 | `accent` | `accent`(고정) | `#007AFF` / `#0A84FF` |
 | `status-recording` · 오류 | `recording` = `failure` | `#FF3B30` / `#FF453A` |
-| `status-done` | `completed` | `#1F7A36` / `#30D158` |
-| `status-processing` | `attention` | `#B95000` / `#FF9F0A` |
+| `status-done` | `completed` | `#1F7A36` / `#32D74B` (공통 토큰, #736 Q2) |
+| `status-processing` | `attention` | `#B95000` / `#FF9F0A` (공통 토큰, #736 Q2) |
 | `overlay-surface` | `recorderPanel` | `#1C1C1E` / `#2C2C2E` |
 | `overlay-text` | `recorderForeground` | `#FFFFFF` |
 | `shadow-record`(근사) | `recorderScrim` | 검정 22% / 45% |
-| `issue-warning` | `QuillStatusBanner.warningTint`(리터럴) | `#C47318` / `#F2B35C` |
+| `issue-warning` | `QuillColor.issueWarning`(공통 토큰, Mac과 같음, #736 Q2) | `#C47318` / `#F2B35C` |
 
 배너 표면은 macOS와 같습니다. 중립 면(primary 4.5%) + 테두리 8% + `radius-9`이고, 경고는 아이콘만 칠합니다.
 
