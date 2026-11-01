@@ -26,10 +26,9 @@ typealias NoteFileExportItem = NoteExportItem
 typealias NoteFileExportTextFormat = NoteExportTextFormat
 
 struct NoteFileExportSource: Sendable {
-    let transcript: String?
-    let summary: String?
+    /// The shared rules for what is offered and how files are named.
+    let plan: NoteExportPlan
     let audioURL: URL?
-    let isSummaryStale: Bool
     /// The audio is in iCloud: `audioURL` is where it lands once downloaded.
     let audioNeedsDownload: Bool
     /// Why there is no audio to save, when it isn't simply missing.
@@ -43,24 +42,22 @@ struct NoteFileExportSource: Sendable {
         audioNeedsDownload: Bool = false,
         audioUnavailableMessage: String? = nil
     ) {
-        let plan = NoteExportPlan(
+        plan = NoteExportPlan(
             transcript: transcript,
             summary: summary,
             audioPathExtension: audioURL?.pathExtension,
             isSummaryStale: isSummaryStale
         )
-        self.plan = plan
-        self.transcript = plan.transcript
-        self.summary = plan.summary
         self.audioURL = audioURL
-        self.isSummaryStale = plan.isSummaryStale
         self.audioNeedsDownload = audioURL != nil && audioNeedsDownload
         self.audioUnavailableMessage = audioUnavailableMessage
     }
 
-    /// The shared rules for what is offered and how files are named.
-    let plan: NoteExportPlan
-
+    /// Nil when there is no text to save.
+    var transcript: String? { plan.transcript }
+    var summary: String? { plan.summary }
+    /// The summary was made from an older transcript. Only with a summary.
+    var isSummaryStale: Bool { plan.isSummaryStale }
     var availableItems: Set<NoteFileExportItem> { plan.availableItems }
 }
 
@@ -99,20 +96,15 @@ enum NoteFileExporter {
     static func destinationURLs(
         for request: NoteFileExportRequest
     ) -> [NoteFileExportItem: URL] {
+        // Only items that are there get a name; a selected item without
+        // one is reported as missing when saving.
         var urls: [NoteFileExportItem: URL] = [:]
-        let baseName = sanitizedBaseName(request.baseName, fallback: NoteExportPlan.fallbackBaseName)
-        for item in request.selectedItems {
-            // A missing transcript or summary still gets a name, so the save
-            // reports it; a missing recording has no extension to name it by.
-            if item == .audio, request.source.audioURL == nil { continue }
-            urls[item] = request.destinationDirectory.appendingPathComponent(
-                NoteExportPlan.fileName(
-                    for: item,
-                    sanitizedBaseName: baseName,
-                    textFormat: request.textFormat,
-                    audioPathExtension: request.source.audioURL?.pathExtension
-                )
-            )
+        for entry in request.source.plan.fileNames(
+            for: request.selectedItems,
+            textFormat: request.textFormat,
+            baseName: request.baseName
+        ) {
+            urls[entry.item] = request.destinationDirectory.appendingPathComponent(entry.name)
         }
         return urls
     }
