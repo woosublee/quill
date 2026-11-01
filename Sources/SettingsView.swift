@@ -1956,14 +1956,14 @@ struct ModelsSettingsView: View {
     /// was asked can be agreed to here.
     @ViewBuilder
     private var cloudConsentStatus: some View {
-        let targets = appState.cloudConsentTargets.targets
-        if !targets.isEmpty {
+        let targets = appState.cloudConsentTargets
+        if !targets.targets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(localizedCatalogString(CloudConsentCopy.sectionTitleKey))
                     .font(.caption.weight(.semibold))
                 // Two lines a provider, like the iPhone (the consent mockup's
                 // option A): the provider, then when it was agreed to.
-                ForEach(CloudConsentRow.rows(for: appState.cloudConsentTargets, ledger: appState.cloudConsent)) { row in
+                ForEach(CloudConsentRow.rows(for: targets, ledger: appState.cloudConsent)) { row in
                     cloudConsentRow(row)
                 }
                 Text(localizedCatalogString(CloudConsentCopy.withdrawFooterKey))
@@ -2005,16 +2005,15 @@ struct ModelsSettingsView: View {
     }
 
     private func cloudConsentRow(_ row: CloudConsentRow) -> some View {
-        let detail = row.detail(locale: Locale(identifier: preferredLocalizedStringLanguage()))
-        return QuillTwoLineActionRow(
+        QuillTwoLineActionRow(
             title: row.target.displayName,
-            detail: detail.argument.map { localizedCatalogFormat(detail.key, $0) } ?? localizedCatalogString(detail.key),
-            tone: row.status == .notAgreed ? .attention : .secondary,
+            detail: row.detail(locale: Locale(identifier: preferredLocalizedStringLanguage()), localize: { localizedCatalogString($0) }),
+            tone: row.isAgreed ? .secondary : .attention,
             actionTitle: localizedCatalogString(row.actionKey),
-            actionKind: row.status == .notAgreed ? .prominent : .destructive,
+            actionKind: row.isAgreed ? .destructive : .prominent,
             // A recording's realtime stream keeps sending until it ends, so
             // Withdraw waits for it, as the transcription settings do.
-            isActionDisabled: row.status != .notAgreed && appState.isTranscriptionConfigurationLocked
+            isActionDisabled: row.actionWaitsForWork && appState.isTranscriptionConfigurationLocked
         ) {
             switch row.status {
             case .agreed: cloudConsentWithdrawal = CloudConsentWithdrawalPrompt(target: row.target)

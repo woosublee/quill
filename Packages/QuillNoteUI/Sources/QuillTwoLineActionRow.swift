@@ -57,7 +57,7 @@ public struct QuillTwoLineActionRow: View {
                     .foregroundStyle(.primary)
                 Text(detail)
                     .quillTextStyle(.caption)
-                    .foregroundStyle(tone == .attention ? QuillColor.statusProcessing : Color.secondary)
+                    .foregroundStyle(tone == .attention ? QuillColor.issueWarning : Color.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             button
@@ -77,7 +77,9 @@ public struct QuillTwoLineActionRow: View {
             Button(actionTitle, role: role, action: action)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .foregroundStyle(QuillColor.statusRecording)
+                // Red only while it can be pressed, so a disabled Withdraw
+                // dims like any other button.
+                .foregroundStyle(isActionDisabled ? Color.secondary : QuillColor.statusRecording)
         case .prominent:
             Button(actionTitle, role: role, action: action)
                 .buttonStyle(.borderedProminent)

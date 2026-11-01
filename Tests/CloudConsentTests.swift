@@ -384,26 +384,22 @@ struct CloudConsentTests {
     static func rowDetailIsTheAgreedDateOnBothApps() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
-        let date = try XCTUnwrapDate(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 12)))
+        let date = try unwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 12)))
         var ledger = CloudConsentLedger()
         ledger.grant(forBaseURL: mainURL, at: date)
         let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
-        let row = try XCTUnwrapRow(CloudConsentRow.rows(for: settings, ledger: ledger).first)
-        let korean = row.detail(locale: Locale(identifier: "ko"))
-        try expect(korean.key == "Agreed on %@" && korean.argument == "2026년 11월 1일", "Korean date: \(korean)")
-        let english = row.detail(locale: Locale(identifier: "en"))
-        try expect(english.argument == "November 1, 2026", "English date: \(english)")
-        let notAgreed = CloudConsentRow(target: row.target, status: .notAgreed).detail(locale: Locale(identifier: "ko"))
-        try expect(notAgreed.key == "Not agreed yet" && notAgreed.argument == nil, "a key saved before consent was asked")
+        let row = try unwrap(CloudConsentRow.rows(for: settings, ledger: ledger).first)
+        let localize: (String) -> String = { $0 == "Agreed on %@" ? "%@ 동의" : $0 }
+        try expect(row.detail(locale: Locale(identifier: "ko"), localize: localize) == "2026년 11월 1일 동의", "Korean date")
+        try expect(row.detail(locale: Locale(identifier: "en"), localize: { $0 }) == "Agreed on November 1, 2026", "English date")
+        let notAgreed = CloudConsentRow(target: row.target, status: .notAgreed)
+        try expect(notAgreed.detail(locale: Locale(identifier: "en"), localize: { $0 }) == "Not agreed yet", "a key saved before consent was asked")
+        try expect(row.isAgreed && row.actionWaitsForWork, "Withdraw waits for a recording or transcription")
+        try expect(!notAgreed.isAgreed && !notAgreed.actionWaitsForWork, "Agree… doesn't")
     }
 
-    static func XCTUnwrapRow(_ row: CloudConsentRow?) throws -> CloudConsentRow {
-        guard let row else { throw Failure(description: "no row") }
-        return row
-    }
-
-    static func XCTUnwrapDate(_ date: Date?) throws -> Date {
-        guard let date else { throw Failure(description: "no date") }
-        return date
+    static func unwrap<T>(_ value: T?) throws -> T {
+        guard let value else { throw Failure(description: "expected a value") }
+        return value
     }
 }

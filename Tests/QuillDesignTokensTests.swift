@@ -392,6 +392,10 @@ struct QuillDesignTokensTests {
             && detail.tracking == callout.tracking && detail.trackingIPhone == callout.trackingIPhone
             && detail.design == callout.design && detail.scalesFromMacSize == callout.scalesFromMacSize, "empty-detail draws like callout on the Mac")
         precondition(QuillTypeStyle.emptyDetail.dynamicStyle == .subheadline, "empty-detail follows .subheadline on iOS")
+        // A settings row's second line on iOS is a list footer's size
+        // (.footnote), not the smaller system caption (consent option A).
+        precondition(QuillTypeStyle.caption.dynamicStyle == .footnote && QuillTypeStyle.body.dynamicStyle == .body,
+                     "settings body follows .body and caption follows .footnote on iOS")
         let heading = QuillTypeStyle.summarySectionTitle, emptyTitle = QuillTypeStyle.emptyTitle
         precondition(heading.size == emptyTitle.size && heading.lineHeight == emptyTitle.lineHeight && heading.weight == emptyTitle.weight,
                      "summary-section-title keeps empty-title's Mac metrics (the Mac's .title3 Semibold, 15)")

@@ -146,13 +146,26 @@ public struct CloudConsentRow: Equatable, Identifiable, Sendable {
         }
     }
 
-    /// The second line's copy key and its argument, if any.
-    public func detail(locale: Locale) -> (key: String, argument: String?) {
+    /// Agreed to: the button withdraws. Otherwise it agrees to a key saved
+    /// before consent was asked, and the second line needs attention.
+    public var isAgreed: Bool {
+        if case .agreed = status { return true }
+        return false
+    }
+
+    /// Withdraw waits while a recording's realtime stream or a
+    /// transcription may still send (the Mac's transcription settings lock,
+    /// the iPhone's busy check); Agree… doesn't.
+    public var actionWaitsForWork: Bool { isAgreed }
+
+    /// The second line, finished: "Agreed on November 1, 2026" or "Not
+    /// agreed yet". `localize` looks a key up in the app's String Catalog.
+    public func detail(locale: Locale, localize: (String) -> String) -> String {
         switch status {
         case .agreed(let date):
-            return (CloudConsentCopy.agreedOnFormatKey, CloudConsentCopy.agreedDate(date, locale: locale))
+            return String(format: localize(CloudConsentCopy.agreedOnFormatKey), CloudConsentCopy.agreedDate(date, locale: locale))
         case .notAgreed:
-            return (CloudConsentCopy.notAgreedKey, nil)
+            return localize(CloudConsentCopy.notAgreedKey)
         }
     }
 
