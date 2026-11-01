@@ -515,6 +515,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// The system text style an iOS style scales with.
     public enum DynamicStyle: Sendable, Equatable {
         case title
+        case title3
         case callout
         case subheadline
         case footnote
@@ -524,6 +525,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         public var textStyle: Font.TextStyle {
             switch self {
             case .title: return .title
+            case .title3: return .title3
             case .callout: return .callout
             case .subheadline: return .subheadline
             case .footnote: return .footnote
@@ -751,6 +753,13 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// `status-detail`: why work is waiting or paused, under its title.
     public static let statusDetail = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .footnote)
 
+    /// `summary-section-title`: a summary section's heading ("Overview",
+    /// "Key Points"). The Mac's `.title3` Semibold (15); iOS follows
+    /// `.title3` (#736 Q1).
+    public static let summarySectionTitle = QuillTypeStyle(
+        size: 15, lineHeight: 20, weight: 600, dynamicStyle: .title3
+    )
+
     /// Every style this module carries, by its token name.
     public static let all: [(name: String, value: QuillTypeStyle)] = [
         ("note-title", noteTitle),
@@ -768,6 +777,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         ("status-title", statusTitle),
         ("status-percent", statusPercent),
         ("status-detail", statusDetail),
+        ("summary-section-title", summarySectionTitle),
     ]
 }
 
