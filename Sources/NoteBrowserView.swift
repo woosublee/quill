@@ -5202,15 +5202,21 @@ private struct NoteTextView: NSViewRepresentable {
         )
     }
 
-    private func applyText(_ text: String, to textView: NSTextView, bottomPadding: CGFloat) {
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = QuillTypeStyle.transcript.platformLineSpacing
-        style.paragraphSpacing = QuillTypeStyle.transcript.platformParagraphSpacing
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: QuillTypeStyle.transcript.nsFont,
-            .paragraphStyle: style,
+    /// The transcript's text attributes. Every line is the system font's
+    /// line tall, so Korean lines and empty lines match Latin ones.
+    static var transcriptAttributes: [NSAttributedString.Key: Any] {
+        let font = QuillTypeStyle.transcript.nsFont
+        return [
+            .font: font,
+            .paragraphStyle: QuillTypeStyle.transcript.textViewParagraphStyle(
+                lineHeight: NSLayoutManager().defaultLineHeight(for: font)
+            ),
             .foregroundColor: NSColor.labelColor
         ]
+    }
+
+    private func applyText(_ text: String, to textView: NSTextView, bottomPadding: CGFloat) {
+        let attrs = Self.transcriptAttributes
         let lineCount = bottomPadding > 0 ? max(1, Int(bottomPadding / 18)) : 0
         let padding = String(repeating: "\n", count: lineCount)
         let newText = text + padding
