@@ -19,6 +19,8 @@ struct CloudConsentTests {
             try anUnreadableTranscriptionKeyDoesNotFallBack()
             try keysNeverPrint()
             try copyKeysAreStable()
+            try rowsShowEachProviderWithItsConsent()
+            try rowDetailIsTheAgreedDateOnBothApps()
             print("CloudConsentTests passed")
         } catch {
             fputs("CloudConsentTests failed: \(error)\n", stderr)
@@ -359,5 +361,49 @@ struct CloudConsentTests {
                 == "Features that used it switch to a model on this iPhone, or turn off.",
             "the iPhone's withdrawal says the same thing about its own models"
         )
+    }
+
+    /// Both apps draw one two-line row a provider (the consent mockup's
+    /// option A): the provider, then when it was agreed to, with Withdraw,
+    /// or Agree… for a key saved before consent was asked (i203-1).
+    static func rowsShowEachProviderWithItsConsent() throws {
+        var ledger = CloudConsentLedger()
+        let agreedAt = Date(timeIntervalSince1970: 1_793_500_000)
+        ledger.grant(forBaseURL: mainURL, at: agreedAt)
+        let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        let rows = CloudConsentRow.rows(for: settings, ledger: ledger)
+        try expect(rows.map(\.target.host) == ["api.example-cloud.test", "transcribe.example-voice.test"], "a row for each provider a saved key goes to")
+        try expect(rows[0].status == .agreed(on: agreedAt), "the agreed provider keeps its date")
+        try expect(rows[1].status == .notAgreed, "a key saved before consent was asked")
+        try expect(rows[0].actionKey == CloudConsentCopy.withdrawKey, "an agreed row withdraws")
+        try expect(rows[1].actionKey == CloudConsentCopy.agreeToSavedKeyKey, "the other agrees")
+        let none = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        try expect(CloudConsentRow.rows(for: none, ledger: ledger).isEmpty, "no saved key, no row, even with an old grant")
+    }
+
+    static func rowDetailIsTheAgreedDateOnBothApps() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let date = try XCTUnwrapDate(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 12)))
+        var ledger = CloudConsentLedger()
+        ledger.grant(forBaseURL: mainURL, at: date)
+        let settings = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: "", transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        let row = try XCTUnwrapRow(CloudConsentRow.rows(for: settings, ledger: ledger).first)
+        let korean = row.detail(locale: Locale(identifier: "ko"))
+        try expect(korean.key == "Agreed on %@" && korean.argument == "2026년 11월 1일", "Korean date: \(korean)")
+        let english = row.detail(locale: Locale(identifier: "en"))
+        try expect(english.argument == "November 1, 2026", "English date: \(english)")
+        let notAgreed = CloudConsentRow(target: row.target, status: .notAgreed).detail(locale: Locale(identifier: "ko"))
+        try expect(notAgreed.key == "Not agreed yet" && notAgreed.argument == nil, "a key saved before consent was asked")
+    }
+
+    static func XCTUnwrapRow(_ row: CloudConsentRow?) throws -> CloudConsentRow {
+        guard let row else { throw Failure(description: "no row") }
+        return row
+    }
+
+    static func XCTUnwrapDate(_ date: Date?) throws -> Date {
+        guard let date else { throw Failure(description: "no date") }
+        return date
     }
 }

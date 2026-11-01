@@ -632,6 +632,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public enum DynamicStyle: Sendable, Equatable {
         case title
         case title3
+        case body
         case callout
         case subheadline
         case footnote
@@ -642,6 +643,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
             switch self {
             case .title: return .title
             case .title3: return .title3
+            case .body: return .body
             case .callout: return .callout
             case .subheadline: return .subheadline
             case .footnote: return .footnote
@@ -864,6 +866,14 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// `status-detail`: why work is waiting or paused, under its title.
     public static let statusDetail = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .footnote)
 
+    /// `body`: a settings row's label (the Mac's `.body`, 13). iOS follows
+    /// `.body`, the list rows' own size.
+    public static let body = QuillTypeStyle(size: 13, lineHeight: 16, weight: 400, dynamicStyle: .body)
+    /// `caption`: a settings row's second line and a settings help line (the
+    /// Mac's `.caption`, 10). iOS follows `.footnote`, the size of a list
+    /// section's footer.
+    public static let caption = QuillTypeStyle(size: 10, lineHeight: 13, weight: 400, dynamicStyle: .footnote)
+
     /// `summary-section-title`: a summary section's heading ("Overview",
     /// "Key Points"). The Mac's `.title3` Semibold (15); iOS follows
     /// `.title3` (#736 Q1).
@@ -889,6 +899,8 @@ public struct QuillTypeStyle: Sendable, Equatable {
         ("status-percent", statusPercent),
         ("status-detail", statusDetail),
         ("summary-section-title", summarySectionTitle),
+        ("body", body),
+        ("caption", caption),
     ]
 }
 

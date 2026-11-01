@@ -70,7 +70,7 @@ otherwise.
   session rules (WebSocket URL, connection request, `session.update`), the
   chat completion request, and cloud consent (#693): the per-origin grants
   (`CloudConsentLedger`), which providers a set of saved keys goes to and
-  what withdrawing one clears (`CloudConsentTargets`), which provider clearing
+  what withdrawing one clears (`CloudConsentTargets`), the settings' consent rows (`CloudConsentRow`: a provider, and the date it was agreed to or not yet), which provider clearing
   a key withdraws (#723), and the copy keys for the prompt, the consent
   rows, and withdrawing (`CloudConsentCopy`). Each app still sends the
   request with its own transport and logging, reads the reply, and runs the
@@ -116,7 +116,7 @@ otherwise.
   paused state, its copy key, indicator, reason, and progress, and the
   toolbar's work labels, read from the same table) and its views
   (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
-  the layout helper `QuillWidthClass`, which turns a container's width
+  the two-line settings row with one button (`QuillTwoLineActionRow`, the consent rows on both apps); the layout helper `QuillWidthClass`, which turns a container's width
   into compact, regular, or wide, so screens lay out by width, never by
   device model; and the note layout rules (`QuillNoteLayout`): the window's
   width and height decide whether the list sits beside the note (wide and
@@ -136,8 +136,8 @@ otherwise.
   record ring, and the accent tints), the glass, status, banner, record,
   iPhone record, and selected-row shadows (the last two per appearance),
   the status wash, settings card, and summary bullet opacities, the text
-  styles (note title, transcript, row, banner, meta line, work status, and
-  summary section title:
+  styles (note title, transcript, row, banner, meta line, work status,
+  summary section title, and a settings row's body and caption:
   a fixed size on the Mac, Dynamic Type on iOS;
   draw a style with `quillTextStyle(_:)`, which also applies its
   per-platform tracking and scales the meta line from its Mac size on iOS),

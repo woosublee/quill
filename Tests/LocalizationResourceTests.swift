@@ -413,15 +413,15 @@ struct LocalizationResourceTests {
     private static func testSharedCloudConsentKeysAreInTheCatalog(_ strings: [String: Any]) throws {
         let keys = [
             CloudConsentCopy.titleFormatKey,
-            CloudConsentCopy.agreeKey,
+            CloudConsentCopy.sendKey,
             CloudConsentCopy.cancelKey,
             CloudConsentCopy.cancelClearsKeyKey,
             CloudConsentCopy.cancelChangesNothingKey,
             CloudConsentCopy.withdrawBusyKey,
             CloudConsentCopy.bodyKey(mentionsScreenContext: true),
             CloudConsentCopy.sectionTitleKey,
-            CloudConsentCopy.agreedFormatKey,
-            CloudConsentCopy.notAgreedFormatKey,
+            CloudConsentCopy.agreedOnFormatKey,
+            CloudConsentCopy.notAgreedKey,
             CloudConsentCopy.withdrawKey,
             CloudConsentCopy.agreeToSavedKeyKey,
             CloudConsentCopy.withdrawFooterKey,
