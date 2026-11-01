@@ -83,7 +83,7 @@ public struct NoteToolbarInput: Equatable, Sendable {
     public var isSummaryActionBlocked: Bool
     /// The transcript tab's ✨ when the note has no summary tab: nil when
     /// there's nothing to summarize, else whether it can run now. A note
-    /// still to be transcribed keeps ✨ dimmed instead of hiding it.
+    /// without a transcript keeps ✨ dimmed whatever this says.
     public var canCreateSummary: Bool?
     public var hasTranscriptToCopy: Bool
     public var hasSummaryToCopy: Bool
@@ -240,15 +240,17 @@ public struct NoteToolbarState: Equatable, Sendable {
         // A note without a summary keeps ✨ in its slot, dimmed, until
         // transcription and post-processing have both finished.
         if input.work.isRunning { return .button(isEnabled: false) }
-        // A note still to be transcribed (its action is Transcribe or model
-        // setup) keeps ✨ in its slot, dimmed until it has a transcript, on
-        // both apps (2026-11-02 decision, replacing the 2026-10-28 rule that
-        // hid it). A failed note whose action is Retry keeps ✨, dimmed while
-        // its transcript is empty, as on the Mac.
+        // A note with no transcript yet (audio only, still to be transcribed,
+        // or a Mac note on the iPhone whose action is ↻) keeps ✨ in its
+        // slot, dimmed, on both apps: there's nothing to summarize yet
+        // (2026-11-02 decision, replacing the 2026-10-28 rule that hid it).
+        // A failed note whose action is Retry keeps ✨ the same way, as on
+        // the Mac.
         if input.transcriptAction == .transcribe || input.transcriptAction == .openModelSetup {
             guard input.hasTranscriptToCopy else { return .button(isEnabled: false) }
             return .button(isEnabled: input.canCreateSummary ?? false)
         }
-        return input.canCreateSummary.map { .button(isEnabled: $0) } ?? .none
+        if let canCreate = input.canCreateSummary { return .button(isEnabled: canCreate) }
+        return input.hasTranscriptToCopy ? .none : .button(isEnabled: false)
     }
 }

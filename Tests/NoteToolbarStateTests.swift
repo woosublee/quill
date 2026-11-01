@@ -189,6 +189,16 @@ struct NoteToolbarStateTests {
         precondition(State.make(partial).createSummary == .button(isEnabled: false))
         offered.work = .transcribing
         precondition(State.make(offered).createSummary == .button(isEnabled: false))
+        // A Mac note on the iPhone with no transcript offers ↻, not
+        // Transcribe, and its app has no summary to offer: ✨ still sits
+        // dimmed (2026-11-02 device check).
+        let macAudioOnly = NoteToolbarInput(
+            tab: .transcript,
+            canCancelWork: true,
+            transcriptAction: .retranscribe,
+            hasFilesToSave: true
+        )
+        precondition(State.make(macAudioOnly).createSummary == .button(isEnabled: false))
         var withSummary = done(.summary)
         withSummary.transcriptAction = .transcribe
         precondition(State.make(withSummary) == State.make(done(.summary)))
@@ -329,8 +339,12 @@ struct NoteToolbarStateTests {
         precondition(State.make(finished).createSummary == .button(isEnabled: true))
         let unavailable = NoteToolbarInput(tab: .transcript, canCreateSummary: false)
         precondition(State.make(unavailable).createSummary == .button(isEnabled: false))
-        let nothingToSummarize = NoteToolbarInput(tab: .transcript, canCreateSummary: nil)
-        precondition(State.make(nothingToSummarize).createSummary == .none)
+        // No transcript yet: ✨ stays dimmed (2026-11-02). A transcript the
+        // app offers no summary for has no ✨.
+        let noTranscript = NoteToolbarInput(tab: .transcript, canCreateSummary: nil)
+        precondition(State.make(noTranscript).createSummary == .button(isEnabled: false))
+        let notOffered = NoteToolbarInput(tab: .transcript, canCreateSummary: nil, hasTranscriptToCopy: true)
+        precondition(State.make(notOffered).createSummary == .none)
     }
 
     private static func testSummaryActionBlockedWhileComparingOrEditing() {
