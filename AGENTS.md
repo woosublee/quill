@@ -74,9 +74,9 @@ otherwise.
   a key withdraws (#723), and the copy keys for the prompt, the consent
   rows, and withdrawing (`CloudConsentCopy`). Each app still sends the
   request with its own transport and logging, reads the reply, and runs the
-  realtime socket itself, and draws its own consent prompt. Cooldowns, the temperature
-  cache, the Groq model migration, and the consent grants read and write
-  `UserDefaults`. API keys and the rest of the settings stay in the app.
+  realtime socket itself, and draws its own consent prompt. Cooldowns, the
+  temperature cache, the Groq model migration, and the consent grants read
+  and write `UserDefaults`. API keys and the rest of the settings stay in the app.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
   heights, shared with the iPhone app. Reading RMS from the capture, the
   locking around it, and the SwiftUI drawing stay in `Sources/`.

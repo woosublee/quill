@@ -2021,7 +2021,7 @@ struct ModelsSettingsView: View {
                 Button(localizedCatalogString(CloudConsentCopy.withdrawKey), role: .destructive) {
                     withdrawCloudConsent(prompt)
                 }
-                Button("Cancel", role: .cancel) {}
+                Button(localizedCatalogString(CloudConsentCopy.cancelKey), role: .cancel) {}
             } message: { prompt in
                 Text(
                     localizedCatalogFormat(CloudConsentCopy.withdrawNothingMoreFormatKey, prompt.target.displayName) + " "
