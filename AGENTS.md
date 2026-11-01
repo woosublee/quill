@@ -109,7 +109,8 @@ otherwise.
   (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps) and its view
   (`NoteFloatingToolbar`); the one-line notice banner (`NoteBanner`, its
-  "+N" and close buttons, and its surface, #744: the Mac's
+  "+N" and close buttons, its info button (`NoteBannerDetails`), a
+  prominent action, and its surface, #744: the Mac's
   `QuillStatusBanner` forwards to it); the work status (`NoteWorkStatus`:
   every transcribing, post-processing, summarizing, waiting, cancelling, and
   paused state, its copy key, indicator, reason, and progress, and the
@@ -128,13 +129,15 @@ otherwise.
   Platform differences stay in small `#if os` branches. The Mac's note
   window, shortcuts, and the work itself stay in `Sources/`.
 - `Packages/QuillDesignTokens/`: design tokens shared with the iPhone app
-  (#623): spacing and radius scales, the issue colors, the note page
+  (#623): spacing and radius scales, the issue colors (the warning one darker in
+  light mode), the status colors (system red; orange and green darker in light mode for 3:1, the system colors in dark), the note page
   background (a color per platform, #697), the tints (glass,
   toolbar, hairline, banner, chip, row hover, selection and badge, empty disc,
   record ring, and the accent tints), the glass, status, banner, record,
   iPhone record, and selected-row shadows (the last two per appearance),
   the status wash, settings card, and summary bullet opacities, the text
-  styles (note title, transcript, row, banner, meta line, and work status:
+  styles (note title, transcript, row, banner, meta line, work status, and
+  summary section title:
   a fixed size on the Mac, Dynamic Type on iOS;
   draw a style with `quillTextStyle(_:)`, which also applies its
   per-platform tracking and scales the meta line from its Mac size on iOS),

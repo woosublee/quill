@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuillDesignTokens
 
 /// Settings › AI Tools: whether AI tools such as Claude Code may connect to
 /// Quill's local MCP server, and how to register it. The server is off until
@@ -78,8 +79,8 @@ struct AIToolsSettingsView: View {
 
     private var statusColor: Color {
         switch appState.mcpServerStatus {
-        case .listening: return .green
-        case .failed: return .orange
+        case .listening: return QuillColor.statusDone
+        case .failed: return QuillColor.issueWarning
         case .off, .starting: return .secondary
         }
     }

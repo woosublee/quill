@@ -857,6 +857,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/QuillDesignTokensTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/QuillWidthClassTests.swift -o $(TEST_BUILD_DIR)/QuillWidthClassTests
 	@$(TEST_BUILD_DIR)/QuillWidthClassTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteBannerDetailsTests.swift -o $(TEST_BUILD_DIR)/NoteBannerDetailsTests
+	@$(TEST_BUILD_DIR)/NoteBannerDetailsTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/QuillNoteLayoutTests.swift -o $(TEST_BUILD_DIR)/QuillNoteLayoutTests
 	@$(TEST_BUILD_DIR)/QuillNoteLayoutTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/NoteTitleResolver.swift Sources/NotePayload.swift Tests/NotePayloadTests.swift -o $(TEST_BUILD_DIR)/NotePayloadTests
@@ -911,6 +913,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/BuildMetadataTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/AppNameDisplaySourceTests.swift -o $(TEST_BUILD_DIR)/AppNameDisplaySourceTests
 	@$(TEST_BUILD_DIR)/AppNameDisplaySourceTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/StatusColorTokenSourceTests.swift -o $(TEST_BUILD_DIR)/StatusColorTokenSourceTests
+	@$(TEST_BUILD_DIR)/StatusColorTokenSourceTests
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Sources/CalendarIntegrationModels.swift Sources/CalendarRefreshIntervalText.swift Sources/NoteSyncStatusText.swift Tests/SettingsLocalizationTests.swift -o $(TEST_BUILD_DIR)/SettingsLocalizationTests
 	@$(TEST_BUILD_DIR)/SettingsLocalizationTests

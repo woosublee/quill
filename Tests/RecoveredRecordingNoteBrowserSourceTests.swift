@@ -36,7 +36,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(appStateSource.contains("NotificationCenter.default.post(name: .showSettings, object: nil)"))
         precondition(source.contains("appState.moveHistoryEntryToRecentlyDeleted(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
-        precondition(source.contains(".foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
+        precondition(source.contains(".foregroundStyle(QuillColor.statusProcessing.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
         precondition(source.contains("if isRecoveredRecording {"))
         precondition(source.contains("} else if isError {"))
         precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
@@ -362,8 +362,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // The toolbar's Transcribe label comes from the shared table (#697).
         let sharedWorkStatus = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatus.swift", encoding: .utf8)) ?? ""
         precondition(sharedWorkStatus.contains("case .transcribe: return \"Transcribe audio\""))
-        precondition(source.contains(".fill(Color.blue.opacity(0.08))"))
-        precondition(source.contains(".foregroundStyle(.blue.opacity(0.75))"))
+        precondition(source.contains(".fill(Color.blue.opacity(QuillOpacity.statusDisc))"))
+        precondition(source.contains(".foregroundStyle(.blue.opacity(QuillOpacity.statusGlyph))"))
 
         let row = block(
             source,
@@ -382,7 +382,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "case .audioOnly:",
             to: "case .recovered:"
         )
-        precondition(audioOnlyStatus.contains(".fill(Color.green)"))
+        precondition(audioOnlyStatus.contains(".fill(QuillColor.statusDone)"))
         precondition(!audioOnlyStatus.contains(".fill(Color.blue)"))
     }
 
@@ -488,7 +488,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         ))
         precondition(row.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))
         precondition(row.contains(
-            "            } else {\n                Circle()\n                    .fill(Color.red)\n"
+            "            } else {\n                Circle()\n                    .fill(QuillColor.statusRecording)\n"
                 + "                    .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)"
         ))
 

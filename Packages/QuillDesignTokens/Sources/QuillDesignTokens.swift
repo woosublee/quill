@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// Design tokens shared by the Mac and the iPhone (#623, #697). Names and
 /// values match docs/design-system/tokens.json (`space-12` is
@@ -106,6 +111,27 @@ public enum QuillColor {
         public func color(for colorScheme: ColorScheme) -> Color {
             colorScheme == .dark ? dark.color : light.color
         }
+
+        /// One color that follows the window's appearance by itself, for a
+        /// static tint that has no color scheme at hand (the issue icons and
+        /// the warning label). A
+        /// view that forces a scheme on part of a window should use
+        /// `color(for:)` instead.
+        public var dynamicColor: Color {
+            #if os(macOS)
+            let lightColor = NSColor(srgbRed: light.red, green: light.green, blue: light.blue, alpha: 1)
+            let darkColor = NSColor(srgbRed: dark.red, green: dark.green, blue: dark.blue, alpha: 1)
+            return Color(nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? darkColor : lightColor
+            })
+            #else
+            let lightColor = UIColor(red: light.red, green: light.green, blue: light.blue, alpha: 1)
+            let darkColor = UIColor(red: dark.red, green: dark.green, blue: dark.blue, alpha: 1)
+            return Color(uiColor: UIColor { traits in
+                traits.userInterfaceStyle == .dark ? darkColor : lightColor
+            })
+            #endif
+        }
     }
 
     /// `surface-page-iphone`: the iPhone app's page background, every
@@ -141,14 +167,105 @@ public enum QuillColor {
         }
     }
 
-    /// `issue-warning`: muted amber for warning icons. Icon color only; it is
-    /// below 3:1 on light backgrounds, so text stays secondary.
-    public static let issueWarningRGB = RGB(red: 0.95, green: 0.70, blue: 0.36)
-    /// `issue-error`: softened red for error icons. Icon color only.
-    public static let issueErrorRGB = RGB(red: 1.0, green: 0.48, blue: 0.44)
+    /// `issue-warning`: amber for warnings, on both apps. Light mode uses a
+    /// darker amber (#C47318) that reaches 3:1 on a light background; dark
+    /// mode keeps the muted amber (#F2B35C) (#736 Q2). The light value is
+    /// already stronger than the system orange, so Increase Contrast keeps
+    /// it (the system orange's high-contrast light color is lighter). For icons and
+    /// short status text (a caption next to a control); long text stays
+    /// secondary.
+    public static let issueWarningRGB = SchemeRGB(
+        light: RGB(red: 0xC4 / 255.0, green: 0x73 / 255.0, blue: 0x18 / 255.0),
+        dark: RGB(red: 0.95, green: 0.70, blue: 0.36)
+    )
+    /// `issue-error`: red for error icons and error text. Light mode uses a
+    /// darker red (#D70015) that reaches 4.5:1 on a light background; dark
+    /// mode keeps the softened red (#FF7A70) (#736 Q2, both apps). Like
+    /// `issue-warning`, it keeps these values under Increase Contrast.
+    public static let issueErrorRGB = SchemeRGB(
+        light: RGB(red: 0xD7 / 255.0, green: 0x00 / 255.0, blue: 0x15 / 255.0),
+        dark: RGB(red: 1.0, green: 0.48, blue: 0.44)
+    )
 
-    public static let issueWarning = issueWarningRGB.color
-    public static let issueError = issueErrorRGB.color
+    public static let issueWarning = issueWarningRGB.dynamicColor
+    /// `issue-warning` on a surface that is always dark (the recording
+    /// overlay), whatever the system appearance.
+    public static let issueWarningOnDark = issueWarningRGB.dark.color
+
+    /// `status-recording`: recording, and a failed note's dot. The system
+    /// red, so it follows Increase Contrast on both apps (#736 Q2).
+    public static let statusRecording = Color.red
+    /// `status-processing`: work in progress, the record button while
+    /// recording, a recovered note. Light mode uses a darker orange
+    /// (#B95000) that reaches 3:1 on a light background; dark mode keeps the
+    /// system orange (#FF9F0A, with its Increase Contrast step) (#736 Q2,
+    /// both apps).
+    public static let statusProcessingRGB = SchemeRGB(
+        light: RGB(red: 0xB9 / 255.0, green: 0x50 / 255.0, blue: 0x00 / 255.0),
+        dark: RGB(red: 0xFF / 255.0, green: 0x9F / 255.0, blue: 0x0A / 255.0)
+    )
+    public static let statusProcessing = darkerInLight(statusProcessingRGB.light, dark: .orange)
+    /// `status-done`: a finished note's dot. Light mode uses a darker green
+    /// (#1F7A36) that reaches 3:1 on a light background; dark mode keeps the
+    /// system green (#32D74B, with its Increase Contrast step) (#736 Q2,
+    /// both apps).
+    public static let statusDoneRGB = SchemeRGB(
+        light: RGB(red: 0x1F / 255.0, green: 0x7A / 255.0, blue: 0x36 / 255.0),
+        dark: RGB(red: 0x32 / 255.0, green: 0xD7 / 255.0, blue: 0x4B / 255.0)
+    )
+    public static let statusDone = darkerInLight(statusDoneRGB.light, dark: .green)
+
+    /// The system hues a status color keeps in dark mode.
+    public enum SystemHue: Sendable {
+        case orange, green, red
+
+        #if os(macOS)
+        var nsColor: NSColor {
+            switch self {
+            case .orange: return .systemOrange
+            case .green: return .systemGreen
+            case .red: return .systemRed
+            }
+        }
+        #else
+        var uiColor: UIColor {
+            switch self {
+            case .orange: return .systemOrange
+            case .green: return .systemGreen
+            case .red: return .systemRed
+            }
+        }
+        #endif
+    }
+
+    /// A status color that draws `light` in light mode and the system hue in
+    /// dark mode. It follows the window's appearance by itself, and in dark
+    /// mode it keeps the system color's Increase Contrast step (#736 Q2).
+    /// The light value already reaches 3:1, so it has no contrast step.
+    static func darkerInLight(_ light: RGB, dark hue: SystemHue) -> Color {
+        #if os(macOS)
+        let lightColor = NSColor(srgbRed: light.red, green: light.green, blue: light.blue, alpha: 1)
+        let darkColor = hue.nsColor
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? darkColor : lightColor
+        })
+        #else
+        let lightColor = UIColor(red: light.red, green: light.green, blue: light.blue, alpha: 1)
+        let darkColor = hue.uiColor
+        return Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? darkColor.resolvedColor(with: traits) : lightColor
+        })
+        #endif
+    }
+    public static let issueError = issueErrorRGB.dynamicColor
+    /// `issue-error` on a surface that is always dark (the recording overlay).
+    public static let issueErrorOnDark = issueErrorRGB.dark.color
+
+    /// `fill-alert-warning` and `fill-alert-error`: a filled alert row with
+    /// white text (the menu bar's permission and update rows). The darker
+    /// values in both appearances, so white text stays readable (#736).
+    public static let fillAlertWarning = issueWarningRGB.light.color
+    public static let fillAlertError = issueErrorRGB.light.color
 
     /// `stroke-glass`: the 0.6 pt edge of a glass capsule (the note toolbar).
     public static let strokeGlass = SchemeTint(
@@ -293,15 +410,8 @@ public struct QuillShadow: Sendable, Equatable {
     /// `shadow-banner`: a notice or status banner.
     public static let banner = QuillShadow(opacity: 0.12, radius: 1.5, x: 0, y: 1)
 
-    /// `shadow-record`: the record button.
+    /// `shadow-record`: the record button, the same on both apps (#736 Q11).
     public static let record = QuillShadow(opacity: 0.28, radius: 8, x: 0, y: 3)
-
-    /// `shadow-record-iphone`: the iPhone's record button, lighter in light
-    /// mode and darker in dark mode than the Mac's (#736 Q11).
-    public static let recordIPhone = QuillSchemeShadow(
-        light: QuillShadow(opacity: 0.22, radius: 8, x: 0, y: 3),
-        dark: QuillShadow(opacity: 0.45, radius: 8, x: 0, y: 3)
-    )
 
     /// `shadow-row-selected`: the open note's row, darker in dark mode.
     public static let rowSelected = QuillSchemeShadow(
@@ -320,7 +430,6 @@ public struct QuillShadow: Sendable, Equatable {
     /// Every shadow with a value per appearance, by its token name.
     public static let schemeShadows: [(name: String, value: QuillSchemeShadow)] = [
         ("shadow-row-selected", rowSelected),
-        ("shadow-record-iphone", recordIPhone),
     ]
 }
 
@@ -493,6 +602,11 @@ public enum QuillOpacity {
     /// `opacity-issue-disc`: an issue disc's tint, drawn in the issue's own
     /// color (`size-issue-disc`).
     public static let issueDisc: Double = 0.1
+    /// `opacity-status-disc`: a note's state disc (recording, audio only),
+    /// drawn in the state's color at `size-empty-disc` (#736 Q8).
+    public static let statusDisc: Double = 0.08
+    /// `opacity-status-glyph`: the symbol inside a state disc.
+    public static let statusGlyph: Double = 0.75
 
     /// Every opacity this module carries, by its token name.
     public static let all: [(name: String, value: Double)] = [
@@ -500,6 +614,8 @@ public enum QuillOpacity {
         ("opacity-surface-card", surfaceCard),
         ("opacity-summary-bullet", summaryBullet),
         ("opacity-issue-disc", issueDisc),
+        ("opacity-status-disc", statusDisc),
+        ("opacity-status-glyph", statusGlyph),
     ]
 }
 
@@ -515,6 +631,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// The system text style an iOS style scales with.
     public enum DynamicStyle: Sendable, Equatable {
         case title
+        case title3
         case callout
         case subheadline
         case footnote
@@ -524,6 +641,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         public var textStyle: Font.TextStyle {
             switch self {
             case .title: return .title
+            case .title3: return .title3
             case .callout: return .callout
             case .subheadline: return .subheadline
             case .footnote: return .footnote
@@ -572,10 +690,9 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public let lineSpacing: CGFloat
     /// The iPhone's extra space between lines in points.
     public let lineSpacingIPhone: CGFloat
-    /// The Mac's space after a paragraph in points; 0 for none.
+    /// The space after a paragraph in points, the same on both apps (#736
+    /// Q6); 0 for none.
     public let paragraphSpacing: CGFloat
-    /// The iPhone's space after a paragraph in points.
-    public let paragraphSpacingIPhone: CGFloat
 
     public init(
         size: CGFloat,
@@ -589,8 +706,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         scalesFromMacSize: Bool = false,
         lineSpacing: CGFloat = 0,
         lineSpacingIPhone: CGFloat? = nil,
-        paragraphSpacing: CGFloat = 0,
-        paragraphSpacingIPhone: CGFloat? = nil
+        paragraphSpacing: CGFloat = 0
     ) {
         self.size = size
         self.lineHeight = lineHeight
@@ -604,7 +720,6 @@ public struct QuillTypeStyle: Sendable, Equatable {
         self.lineSpacing = lineSpacing
         self.lineSpacingIPhone = lineSpacingIPhone ?? lineSpacing
         self.paragraphSpacing = paragraphSpacing
-        self.paragraphSpacingIPhone = paragraphSpacingIPhone ?? paragraphSpacing
     }
 
     /// The SwiftUI weight for `weight`, or nil for a value that isn't one of
@@ -652,14 +767,10 @@ public struct QuillTypeStyle: Sendable, Equatable {
         #endif
     }
 
-    /// This platform's space after a paragraph.
-    public var platformParagraphSpacing: CGFloat {
-        #if os(macOS)
-        return paragraphSpacing
-        #else
-        return paragraphSpacingIPhone
-        #endif
-    }
+    /// The space after a paragraph, which only a text view draws (an
+    /// NSParagraphStyle); `quillTextStyle(_:)` can't apply it. The same on
+    /// both apps.
+    public var platformParagraphSpacing: CGFloat { paragraphSpacing }
 
     #if os(macOS)
     /// This style as an AppKit font, for a text view (the note title and
@@ -696,7 +807,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
 
     /// `note-title`: the note detail's editable title.
     public static let noteTitle = QuillTypeStyle(
-        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title, trackingIPhone: -0.3,
+        size: 28, lineHeight: 34, weight: 700, dynamicStyle: .title,
         lineSpacingIPhone: 3
     )
     /// `empty-title`: an empty state's title, and the work status shown
@@ -704,13 +815,15 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public static let emptyTitle = QuillTypeStyle(size: 15, lineHeight: 20, weight: 600, dynamicStyle: .subheadline)
     /// `row-title`: a note list row's title.
     public static let rowTitle = QuillTypeStyle(
-        size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline, trackingIPhone: -0.1
+        size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline
     )
-    /// `transcript`: a note's transcript text. Each app keeps its own line
-    /// and paragraph spacing until #736 Q6 is answered.
+    /// `transcript`: a note's transcript text. Both apps use the Mac's line
+    /// spacing 5 and paragraph spacing 6 (#736 Q6). The paragraph spacing
+    /// reaches the screen only through each app's text view, which reads
+    /// `platformParagraphSpacing`.
     public static let transcript = QuillTypeStyle(
         size: 15, lineHeight: 23, weight: 400, dynamicStyle: .subheadline,
-        lineSpacing: 5, lineSpacingIPhone: 6, paragraphSpacing: 6, paragraphSpacingIPhone: 0
+        lineSpacing: 5, paragraphSpacing: 6
     )
     /// `callout`: a notice's or banner's detail line. On iOS it scales from
     /// `.caption`, like `banner-title`, so a banner's detail stays the size
@@ -734,13 +847,13 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// `meta-mono`: the date on the note detail's meta line (shown uppercase).
     public static let metaMono = QuillTypeStyle(
         size: 10, lineHeight: 13, weight: 400, dynamicStyle: .caption2,
-        design: .monospaced, tracking: 0.5, trackingIPhone: 0.2, scalesFromMacSize: true
+        design: .monospaced, tracking: 0.5, scalesFromMacSize: true
     )
     /// `meta-chip-mono`: a chip on the note detail's meta line (transcription
     /// method, language).
     public static let metaChipMono = QuillTypeStyle(
         size: 9, lineHeight: 11, weight: 500, dynamicStyle: .caption2,
-        design: .monospaced, trackingIPhone: 0.2, scalesFromMacSize: true
+        design: .monospaced, scalesFromMacSize: true
     )
     /// `status-title`: the work status over a note's text ("Retranscribing...").
     public static let statusTitle = QuillTypeStyle(size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline)
@@ -750,6 +863,13 @@ public struct QuillTypeStyle: Sendable, Equatable {
     )
     /// `status-detail`: why work is waiting or paused, under its title.
     public static let statusDetail = QuillTypeStyle(size: 12, lineHeight: 15, weight: 400, dynamicStyle: .footnote)
+
+    /// `summary-section-title`: a summary section's heading ("Overview",
+    /// "Key Points"). The Mac's `.title3` Semibold (15); iOS follows
+    /// `.title3` (#736 Q1).
+    public static let summarySectionTitle = QuillTypeStyle(
+        size: 15, lineHeight: 20, weight: 600, dynamicStyle: .title3
+    )
 
     /// Every style this module carries, by its token name.
     public static let all: [(name: String, value: QuillTypeStyle)] = [
@@ -768,6 +888,7 @@ public struct QuillTypeStyle: Sendable, Equatable {
         ("status-title", statusTitle),
         ("status-percent", statusPercent),
         ("status-detail", statusDetail),
+        ("summary-section-title", summarySectionTitle),
     ]
 }
 

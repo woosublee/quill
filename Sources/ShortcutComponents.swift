@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 import AppKit
 
 private enum DictationShortcutCaptureTarget {
@@ -36,7 +37,7 @@ struct DictationShortcutEditor: View {
             if appState.holdShortcut.isDisabled && appState.toggleShortcut.isDisabled {
                 Label("Both dictation shortcuts are disabled.", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(QuillColor.issueWarning)
             }
 
             ShortcutRoleSection(
@@ -184,7 +185,7 @@ struct ShortcutRoleSection: View {
             if let validationMessage, !validationMessage.isEmpty {
                 Label(validationMessage, systemImage: "xmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
             }
         }
     }
@@ -231,7 +232,7 @@ struct RecordingCancelShortcutSection: View {
             if let validationMessage, !validationMessage.isEmpty {
                 Label(validationMessage, systemImage: "xmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(QuillColor.issueError)
             }
         }
     }

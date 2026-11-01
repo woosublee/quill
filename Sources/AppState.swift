@@ -2853,8 +2853,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// Also while an audio import saves its file (#753): the import has
+    /// already copied the keys and URLs it will send with, so withdrawing
+    /// then would still send its audio to that provider.
     var isTranscriptionConfigurationLocked: Bool {
         isRecording || isTranscribing || !retryingItemIDs.isEmpty
+            || !pendingAudioImportJobIDs.isEmpty
     }
     @Published private(set) var cloudTranscriptionProgressByHistoryID:
         [UUID: CloudTranscriptionDisplayProgress] = [:]
@@ -3242,7 +3246,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// What stops each running cleanup, for Cancel Post-processing (#699).
     private var postProcessingStopSwitches: [UUID: PostProcessingStopSwitch] = [:]
     private var postProcessingStopSwitchByJobID: [UUID: PostProcessingStopSwitch] = [:]
-    private var pendingAudioImportJobIDs: Set<UUID> = []
+    @Published private(set) var pendingAudioImportJobIDs: Set<UUID> = []
     let localAIServerManager: LocalAIServerManager
     private let localAIWorkflow: LocalAIModelWorkflow
     @Published private(set) var localAIInstallStates: [String: LocalAIModelInstallViewState] = [:]

@@ -1,4 +1,5 @@
 import SwiftUI
+import QuillDesignTokens
 import AppKit
 
 func imageFromDataURL(_ dataURL: String) -> NSImage? {
@@ -36,10 +37,10 @@ struct PipelineDebugContentView: View {
                 if ContextInferenceFailure.isFailureSummary(contextSummary) {
                     Label("Context summary failed", systemImage: "exclamationmark.triangle.fill")
                         .font(.body.bold())
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                     Text(contextSummary)
                         .font(.callout)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(QuillColor.issueWarning)
                         .textSelection(.enabled)
                     Text("No usable activity summary. Dictation can continue.")
                         .font(.caption)
@@ -104,7 +105,7 @@ struct PipelineDebugContentView: View {
                 .font(.body.bold())
             Text("Status: \(status)")
                 .font(.caption)
-                .foregroundStyle(isScreenshotUnavailable(status) ? .red : .secondary)
+                .foregroundStyle(isScreenshotUnavailable(status) ? QuillColor.issueError : Color.secondary)
 
             if let dataURL,
                let image = imageFromDataURL(dataURL) {

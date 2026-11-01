@@ -33,7 +33,7 @@ Quill은 말로 쓰는 노트 앱입니다. 화면은 조용하고, 녹음 중�
 - 글꼴은 시스템 하나: SF Pro(`sans`), 온보딩 큰 제목만 SF Rounded(`rounded`), 코드·로그·타이머는 SF Mono(`mono`). 한글은 시스템 대체(Apple SD Gothic Neo).
 - 크기는 역할 이름으로 고릅니다. 화면 제목 `note-title`, 본문 `transcript`, 설정 라벨 `body`, 설정 도움말 `caption`, 행 제목 `row-title`, 행 미리보기 `row-preview`, 행 날짜 `meta-label`.
 - 굵기는 regular / medium / semibold / bold 넷. 강조는 semibold가 기본, bold는 오버레이·회의 알림·온보딩 제목에만.
-- 본문(`transcript`)은 Mac 줄 간격 +5pt, 문단 간격 6pt, 좌우 `space-40`. iPhone은 줄 간격 +6pt, 문단 간격 없음(#736 Q6에서 정함).
+- 본문(`transcript`)은 Mac 줄 간격 +5pt, 문단 간격 6pt, 좌우 `space-40`. iPhone도 같은 줄·문단 간격이다(#736 Q6).
 - 플랫폼별 크기는 다르고 역할은 같습니다. iPhone은 15pt 본문 기준으로 한두 단계 크고 Dynamic Type을 따릅니다. 대응표는 **iPhone · iPad** 섹션.
 
 ## 간격과 배치
