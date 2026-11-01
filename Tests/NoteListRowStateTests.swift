@@ -155,6 +155,21 @@ struct NoteListRowStateTests {
         )
         let row = state(context.recoveredStatus)
         precondition(row.preview == .recoveredRecording(context))
+
+        // Both apps write the description from the same keys, joined with a space.
+        precondition(RecoveredRecordingContext(mode: .complete, interruptionReason: nil).descriptionLocalizationKeys
+            == ["Recovered after an unexpected shutdown. Not yet transcribed."])
+        precondition(RecoveredRecordingContext(mode: .complete, interruptionReason: .storageFull).descriptionLocalizationKeys
+            == [
+                "Quill stopped recording because storage was full.",
+                "Audio saved before the interruption is available for playback or transcription.",
+            ])
+        precondition(context.descriptionLocalizationKeys == [
+            "Quill stopped recording because storage was full.",
+            "System Audio could not be recovered. Microphone audio is available for playback or transcription.",
+        ])
+        precondition(RecoveredRecordingContext(mode: .partial, interruptionReason: nil).descriptionLocalizationKeys
+            == ["Some parts of this recording may be missing. The recovered audio is available for playback or transcription."])
     }
 
     private static func testBadgesAndAccessibility() {

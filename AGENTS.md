@@ -104,7 +104,9 @@ otherwise.
   (`NoteMachineStatus.isTranscriptionPlaceholder`, #720), and how a note
   list row reads from that status and the work running for it
   (`NoteListRowState`: its status, which dot it draws, its preview line,
-  its Audio only and Summary badges, and the state VoiceOver reads; #697).
+  its Audio only and Summary badges, and the state VoiceOver reads; #697),
+  with a recovered recording's description keys
+  (`RecoveredRecordingContext.descriptionLocalizationKeys`).
   It imports `QuillUserIssueCore`; the status text and recovery file work
   stay in `Sources/`. Reading a
   note's recording times, its title, and the preview's localized text stay in
