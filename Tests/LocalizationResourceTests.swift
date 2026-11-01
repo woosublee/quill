@@ -1,6 +1,7 @@
 import Foundation
 import QuillUserIssueCore
 import QuillNoteUI
+import QuillProviderCore
 
 @main
 struct LocalizationResourceTests {
@@ -37,6 +38,7 @@ struct LocalizationResourceTests {
 
         try testSharedIssueCopyKeysAreInTheCatalog(strings)
         try testSharedWorkStatusKeysAreInTheCatalog(strings)
+        try testSharedCloudConsentKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -403,6 +405,39 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared work-status keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The consent prompt, rows, and withdrawal read their copy from the
+    /// shared keys both apps translate, so the two apps say the same thing.
+    private static func testSharedCloudConsentKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = [
+            CloudConsentCopy.titleFormatKey,
+            CloudConsentCopy.sendKey,
+            CloudConsentCopy.cancelKey,
+            CloudConsentCopy.cancelClearsKeyKey,
+            CloudConsentCopy.cancelChangesNothingKey,
+            CloudConsentCopy.withdrawBusyKey,
+            CloudConsentCopy.bodyKey(mentionsScreenContext: true),
+            CloudConsentCopy.sectionTitleKey,
+            CloudConsentCopy.agreedOnFormatKey,
+            CloudConsentCopy.notAgreedKey,
+            CloudConsentCopy.withdrawKey,
+            CloudConsentCopy.agreeToSavedKeyKey,
+            CloudConsentCopy.withdrawFooterKey,
+            CloudConsentCopy.withdrawTitleKey,
+            CloudConsentCopy.withdrawNothingMoreFormatKey,
+            CloudConsentCopy.withdrawEffectKey(onMac: true),
+        ]
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }
+        guard missing.isEmpty else {
+            throw TestFailure("Shared cloud consent keys missing from the catalog: \(missing)")
         }
     }
 

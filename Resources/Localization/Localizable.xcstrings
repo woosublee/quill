@@ -22132,18 +22132,18 @@
         }
       }
     },
-    "Agree and Save": {
+    "Send": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agree and Save"
+            "value": "Send"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "동의하고 저장"
+            "value": "보내기"
           }
         }
       }
@@ -22228,34 +22228,34 @@
         }
       }
     },
-    "%@ · Agreed on %@": {
+    "Agreed on %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ · Agreed on %@"
+            "value": "Agreed on %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ · %@ 동의"
+            "value": "%@ 동의"
           }
         }
       }
     },
-    "%@ · Not agreed": {
+    "Not agreed yet": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ · Not agreed"
+            "value": "Not agreed yet"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ · 동의 전"
+            "value": "동의 전"
           }
         }
       }
@@ -22356,18 +22356,18 @@
         }
       }
     },
-    "Features that used a cloud model switch to a model on this Mac, or turn off.": {
+    "Features that used it switch to a model on this Mac, or turn off.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Features that used a cloud model switch to a model on this Mac, or turn off."
+            "value": "Features that used it switch to a model on this Mac, or turn off."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 모델을 쓰던 기능은 이 Mac의 모델로 바뀌거나 꺼져요."
+            "value": "이 업체를 쓰던 기능은 이 Mac의 모델로 바뀌거나 꺼져요."
           }
         }
       }

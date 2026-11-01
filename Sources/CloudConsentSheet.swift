@@ -87,8 +87,8 @@ extension View {
     }
 }
 
-/// The same system confirmation as withdrawing (#729 owner check), so
-/// asking for consent and withdrawing it look alike. Closing it without a
+/// The same system alert as withdrawing (#729 owner check), so asking for
+/// consent and withdrawing it look alike. Closing it without a
 /// button (Escape) cancels, as the Cancel button does.
 private struct CloudConsentDialog: ViewModifier {
     @Binding var request: CloudConsentRequest?
@@ -101,7 +101,10 @@ private struct CloudConsentDialog: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog(
+            // An alert, not a confirmation dialog: its two buttons sit side
+            // by side, Cancel on the left, as on the iPhone (owner check,
+            // 2026-11-01).
+            .alert(
                 Text(verbatim: localizedCatalogFormat(
                     CloudConsentCopy.titleFormatKey,
                     CloudConsentRequest.titleName(for: request, held: host)
@@ -119,11 +122,10 @@ private struct CloudConsentDialog: ViewModifier {
                         }
                     }
                 ),
-                titleVisibility: .visible,
                 presenting: request
             ) { current in
                 if let target = current.targets.first {
-                    Button(localizedCatalogString(CloudConsentCopy.agreeKey)) {
+                    Button(localizedCatalogString(CloudConsentCopy.sendKey)) {
                         agree(current, target: target)
                     }
                 }

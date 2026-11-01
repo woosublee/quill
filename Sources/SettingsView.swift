@@ -5,6 +5,7 @@ import ServiceManagement
 import UserNotifications
 import QuillUserIssueCore
 import QuillProviderCore
+import QuillNoteUI
 import QuillNoteCore
 
 // MARK: - Shared Helpers
@@ -1955,46 +1956,17 @@ struct ModelsSettingsView: View {
     /// was asked can be agreed to here.
     @ViewBuilder
     private var cloudConsentStatus: some View {
-        let targets = appState.cloudConsentTargets.targets
-        if !targets.isEmpty {
+        let targets = appState.cloudConsentTargets
+        if !targets.targets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Consent to Send")
+                Text(localizedCatalogString(CloudConsentCopy.sectionTitleKey))
                     .font(.caption.weight(.semibold))
-                ForEach(targets) { target in
-                    HStack(spacing: 8) {
-                        if let grantedAt = appState.cloudConsent.grantedAt(forBaseURL: target.baseURL) {
-                            Text(localizedCatalogFormat(
-                                "%@ · Agreed on %@",
-                                target.displayName,
-                                grantedAt.formatted(
-                                    .dateTime.year().month(.wide).day()
-                                        .locale(Locale(identifier: preferredLocalizedStringLanguage()))
-                                )
-                            ))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Withdraw") {
-                                cloudConsentWithdrawal = CloudConsentWithdrawalPrompt(target: target)
-                            }
-                            .font(.caption)
-                            // A recording's realtime stream keeps sending
-                            // until it ends, so wait for it, as the
-                            // transcription settings do.
-                            .disabled(appState.isTranscriptionConfigurationLocked)
-                        } else {
-                            Text(localizedCatalogFormat("%@ · Not agreed", target.displayName))
-                                .font(.caption)
-                                .foregroundStyle(QuillColor.issueWarning)
-                            Spacer()
-                            Button("Agree…") {
-                                askConsentForSavedKey(target)
-                            }
-                            .font(.caption)
-                        }
-                    }
+                // Two lines a provider, like the iPhone (the consent mockup's
+                // option A): the provider, then when it was agreed to.
+                ForEach(CloudConsentRow.rows(for: targets, ledger: appState.cloudConsent)) { row in
+                    cloudConsentRow(row)
                 }
-                Text("Withdrawing clears the key for that provider, so nothing goes to it. To use it again, save the key again.")
+                Text(localizedCatalogString(CloudConsentCopy.withdrawFooterKey))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2002,8 +1974,10 @@ struct ModelsSettingsView: View {
                     clearKeyBusyMessage
                 }
             }
-            .confirmationDialog(
-                "Withdraw consent and clear the key?",
+            // An alert, so Cancel and Withdraw sit side by side, as on the
+            // iPhone and the consent prompt.
+            .alert(
+                localizedCatalogString(CloudConsentCopy.withdrawTitleKey),
                 isPresented: Binding(
                     get: { cloudConsentWithdrawal != nil },
                     set: { isPresented in
@@ -2015,18 +1989,35 @@ struct ModelsSettingsView: View {
                         if let field = shown.clearedField { restoreSavedKeyInput(field) }
                     }
                 ),
-                titleVisibility: .visible,
                 presenting: cloudConsentWithdrawal
             ) { prompt in
-                Button("Withdraw", role: .destructive) {
+                Button(localizedCatalogString(CloudConsentCopy.withdrawKey), role: .destructive) {
                     withdrawCloudConsent(prompt)
                 }
-                Button("Cancel", role: .cancel) {}
+                Button(localizedCatalogString(CloudConsentCopy.cancelKey), role: .cancel) {}
             } message: { prompt in
                 Text(
-                    localizedCatalogFormat("Nothing more goes to %@.", prompt.target.displayName) + " "
-                        + localizedCatalogString("Features that used a cloud model switch to a model on this Mac, or turn off.")
+                    localizedCatalogFormat(CloudConsentCopy.withdrawNothingMoreFormatKey, prompt.target.displayName) + " "
+                        + localizedCatalogString(CloudConsentCopy.withdrawEffectKey(onMac: true))
                 )
+            }
+        }
+    }
+
+    private func cloudConsentRow(_ row: CloudConsentRow) -> some View {
+        QuillTwoLineActionRow(
+            title: row.target.displayName,
+            detail: row.detail(locale: Locale(identifier: preferredLocalizedStringLanguage()), localize: { localizedCatalogString($0) }),
+            tone: row.isAgreed ? .secondary : .attention,
+            actionTitle: localizedCatalogString(row.actionKey),
+            actionKind: row.isAgreed ? .destructive : .prominent,
+            // A recording's realtime stream keeps sending until it ends, so
+            // Withdraw waits for it, as the transcription settings do.
+            isActionDisabled: row.actionWaitsForWork && appState.isTranscriptionConfigurationLocked
+        ) {
+            switch row.status {
+            case .agreed: cloudConsentWithdrawal = CloudConsentWithdrawalPrompt(target: row.target)
+            case .notAgreed: askConsentForSavedKey(row.target)
             }
         }
     }
