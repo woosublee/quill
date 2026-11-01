@@ -4083,7 +4083,7 @@ private struct NoteDetailView: View {
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,
-            // The shared table hides ✨ when the action is Transcribe.
+            // The shared table keeps ✨ dimmed when the action is Transcribe.
             canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
             hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             hasSummaryToCopy: summaryEnvelope != nil,

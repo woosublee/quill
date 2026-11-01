@@ -157,7 +157,7 @@ struct NoteToolbarStateTests {
     }
 
     /// Transcription failed, or audio only: Transcribe, Copy off, Save
-    /// (audio) and Delete on, no ✨. A summary tab, if any, is as in Done.
+    /// (audio) and Delete on, ✨ dimmed. A summary tab, if any, is as in Done.
     private static func testFailedOrAudioOnly() {
         let failed = NoteToolbarInput(
             tab: .transcript,
@@ -167,15 +167,23 @@ struct NoteToolbarStateTests {
         )
         precondition(State.make(failed) == State(
             firstSlot: .button(.transcribe, isEnabled: true),
-            isCopyEnabled: false, isSaveEnabled: true, createSummary: .none, isDeleteEnabled: true
+            isCopyEnabled: false, isSaveEnabled: true, createSummary: .button(isEnabled: false), isDeleteEnabled: true
         ))
-        // No ✨ there, even when the app would offer one (2026-10-28 decision):
-        // it shows dimmed only while a transcription runs, and turns on after.
+        // ✨ stays dimmed there whatever the app would offer (2026-11-02
+        // decision): there's nothing to summarize until it's transcribed.
         var offered = failed
         offered.canCreateSummary = false
-        precondition(State.make(offered).createSummary == .none)
+        precondition(State.make(offered).createSummary == .button(isEnabled: false))
         offered.canCreateSummary = true
-        precondition(State.make(offered).createSummary == .none)
+        precondition(State.make(offered).createSummary == .button(isEnabled: false))
+        // A failed transcription that kept text follows the app, dimmed
+        // when it says nothing.
+        var partial = failed
+        partial.hasTranscriptToCopy = true
+        partial.canCreateSummary = true
+        precondition(State.make(partial).createSummary == .button(isEnabled: true))
+        partial.canCreateSummary = nil
+        precondition(State.make(partial).createSummary == .button(isEnabled: false))
         offered.work = .transcribing
         precondition(State.make(offered).createSummary == .button(isEnabled: false))
         var withSummary = done(.summary)
@@ -184,14 +192,14 @@ struct NoteToolbarStateTests {
     }
 
     /// No transcription model yet (the iPhone's ⚙︎): the first slot opens
-    /// model setup. ✨ follows what the app says about the transcript, and
-    /// running work or a summary tab still wins.
+    /// model setup. ✨ is dimmed until there's a transcript, then follows
+    /// what the app says, and running work or a summary tab still wins.
     private static func testModelSetupOpensSettings() {
         var untranscribed = NoteToolbarInput(tab: .transcript, transcriptAction: .openModelSetup, hasFilesToSave: true)
         precondition(State.make(untranscribed) == State(
             firstSlot: .button(.openModelSetup, isEnabled: true),
-            isCopyEnabled: false, isSaveEnabled: true, createSummary: .none, isDeleteEnabled: true
-        ), "nothing to summarize: no ✨")
+            isCopyEnabled: false, isSaveEnabled: true, createSummary: .button(isEnabled: false), isDeleteEnabled: true
+        ), "nothing to summarize yet: ✨ dimmed")
         precondition(!NoteToolbarFirstAction.openModelSetup.isCancel)
 
         var transcribed = untranscribed
@@ -199,6 +207,11 @@ struct NoteToolbarStateTests {
         transcribed.canCreateSummary = true
         precondition(State.make(transcribed).createSummary == .button(isEnabled: true), "a transcript keeps ✨")
         precondition(State.make(transcribed).isCopyEnabled)
+        for canCreate in [Bool?.none, false] {
+            var offered = transcribed
+            offered.canCreateSummary = canCreate
+            precondition(State.make(offered).createSummary == .button(isEnabled: false), "a transcript keeps ✨ dimmed: \(String(describing: canCreate))")
+        }
 
         untranscribed.isMakingSummary = true
         precondition(
