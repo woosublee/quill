@@ -349,5 +349,15 @@ struct CloudConsentTests {
             !CloudConsentCopy.bodyKey(mentionsScreenContext: false).contains("screen context"),
             "the iPhone's copy doesn't"
         )
+        try expect(
+            CloudConsentCopy.withdrawEffectKey(onMac: true)
+                == "Features that used a cloud model switch to a model on this Mac, or turn off.",
+            "the Mac's withdrawal keeps its catalog key"
+        )
+        try expect(
+            CloudConsentCopy.withdrawEffectKey(onMac: false)
+                == "Features that used a cloud model switch to a model on this iPhone, or turn off.",
+            "the iPhone's withdrawal says the same thing about its own models"
+        )
     }
 }

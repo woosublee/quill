@@ -1958,13 +1958,13 @@ struct ModelsSettingsView: View {
         let targets = appState.cloudConsentTargets.targets
         if !targets.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Consent to Send")
+                Text(localizedCatalogString(CloudConsentCopy.sectionTitleKey))
                     .font(.caption.weight(.semibold))
                 ForEach(targets) { target in
                     HStack(spacing: 8) {
                         if let grantedAt = appState.cloudConsent.grantedAt(forBaseURL: target.baseURL) {
                             Text(localizedCatalogFormat(
-                                "%@ · Agreed on %@",
+                                CloudConsentCopy.agreedFormatKey,
                                 target.displayName,
                                 grantedAt.formatted(
                                     .dateTime.year().month(.wide).day()
@@ -1974,7 +1974,7 @@ struct ModelsSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             Spacer()
-                            Button("Withdraw") {
+                            Button(localizedCatalogString(CloudConsentCopy.withdrawKey)) {
                                 cloudConsentWithdrawal = CloudConsentWithdrawalPrompt(target: target)
                             }
                             .font(.caption)
@@ -1983,18 +1983,18 @@ struct ModelsSettingsView: View {
                             // transcription settings do.
                             .disabled(appState.isTranscriptionConfigurationLocked)
                         } else {
-                            Text(localizedCatalogFormat("%@ · Not agreed", target.displayName))
+                            Text(localizedCatalogFormat(CloudConsentCopy.notAgreedFormatKey, target.displayName))
                                 .font(.caption)
                                 .foregroundStyle(.orange)
                             Spacer()
-                            Button("Agree…") {
+                            Button(localizedCatalogString(CloudConsentCopy.agreeToSavedKeyKey)) {
                                 askConsentForSavedKey(target)
                             }
                             .font(.caption)
                         }
                     }
                 }
-                Text("Withdrawing clears the key for that provider, so nothing goes to it. To use it again, save the key again.")
+                Text(localizedCatalogString(CloudConsentCopy.withdrawFooterKey))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2003,7 +2003,7 @@ struct ModelsSettingsView: View {
                 }
             }
             .confirmationDialog(
-                "Withdraw consent and clear the key?",
+                localizedCatalogString(CloudConsentCopy.withdrawTitleKey),
                 isPresented: Binding(
                     get: { cloudConsentWithdrawal != nil },
                     set: { isPresented in
@@ -2018,14 +2018,14 @@ struct ModelsSettingsView: View {
                 titleVisibility: .visible,
                 presenting: cloudConsentWithdrawal
             ) { prompt in
-                Button("Withdraw", role: .destructive) {
+                Button(localizedCatalogString(CloudConsentCopy.withdrawKey), role: .destructive) {
                     withdrawCloudConsent(prompt)
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { prompt in
                 Text(
-                    localizedCatalogFormat("Nothing more goes to %@.", prompt.target.displayName) + " "
-                        + localizedCatalogString("Features that used a cloud model switch to a model on this Mac, or turn off.")
+                    localizedCatalogFormat(CloudConsentCopy.withdrawNothingMoreFormatKey, prompt.target.displayName) + " "
+                        + localizedCatalogString(CloudConsentCopy.withdrawEffectKey(onMac: true))
                 )
             }
         }

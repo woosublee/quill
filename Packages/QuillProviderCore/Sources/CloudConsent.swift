@@ -57,8 +57,8 @@ public struct CloudConsentLedger: Equatable, Sendable {
     }
 }
 
-/// The consent prompt's copy keys. Each app translates them with its own
-/// String Catalog and draws its own prompt.
+/// The consent prompt's, consent rows', and withdrawal's copy keys. Each app
+/// translates them with its own String Catalog and draws its own prompt.
 public enum CloudConsentCopy {
     /// Takes the provider's host.
     public static let titleFormatKey = "Send to %@?"
@@ -72,6 +72,30 @@ public enum CloudConsentCopy {
     /// Withdrawing, or clearing an agreed key, while recording or
     /// transcribing (#723).
     public static let withdrawBusyKey = "You can't withdraw while recording or transcribing. Try again when it finishes."
+
+    /// The settings rows listing each provider a saved key goes to.
+    public static let sectionTitleKey = "Consent to Send"
+    /// Takes the provider's name and the date it was agreed to.
+    public static let agreedFormatKey = "%@ · Agreed on %@"
+    /// Takes the provider's name.
+    public static let notAgreedFormatKey = "%@ · Not agreed"
+    public static let withdrawKey = "Withdraw"
+    /// Agreeing to a key saved before consent was asked.
+    public static let agreeToSavedKeyKey = "Agree…"
+    public static let withdrawFooterKey = "Withdrawing clears the key for that provider, so nothing goes to it. To use it again, save the key again."
+    /// The withdrawal confirmation's title.
+    public static let withdrawTitleKey = "Withdraw consent and clear the key?"
+    /// The confirmation's first sentence. Takes the provider's name.
+    public static let withdrawNothingMoreFormatKey = "Nothing more goes to %@."
+
+    /// The confirmation's second sentence: what the features that used the
+    /// provider do next. It names the device the local model runs on (each
+    /// catalog gives the iPhone string an iPad form).
+    public static func withdrawEffectKey(onMac: Bool) -> String {
+        onMac
+            ? "Features that used a cloud model switch to a model on this Mac, or turn off."
+            : "Features that used a cloud model switch to a model on this iPhone, or turn off."
+    }
 
     /// One line about the data, not a list of features. The Mac mentions
     /// screen context because its Context feature sends app names, window
