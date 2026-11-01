@@ -869,6 +869,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteBrowserWorkStatusTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteWorkStatusTests.swift -o $(TEST_BUILD_DIR)/NoteWorkStatusTests
 	@$(TEST_BUILD_DIR)/NoteWorkStatusTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteWorkTests.swift -o $(TEST_BUILD_DIR)/NoteWorkTests
+	@$(TEST_BUILD_DIR)/NoteWorkTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/NoteSelection.swift Tests/NoteSelectionTests.swift -o $(TEST_BUILD_DIR)/NoteSelectionTests
 	@$(TEST_BUILD_DIR)/NoteSelectionTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/CloudConsentTests.swift -o $(TEST_BUILD_DIR)/CloudConsentTests
