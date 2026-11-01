@@ -18,7 +18,7 @@ struct NoteToolbarStateTests {
         testFailedOrAudioOnly()
         testModelSetupOpensSettings()
         testActionWaitingForAudioStaysDimmed()
-        testAudioOnlyNoteWaitingForAudioHasNoCreateSummary()
+        testAudioOnlyNoteWaitingForAudioDimsCreateSummary()
         testDisabledFirstActionSaysWhy()
         testCreateSummaryWaitsForAllWork()
         testSummaryActionBlockedWhileComparingOrEditing()
@@ -273,10 +273,10 @@ struct NoteToolbarStateTests {
     }
 
     /// An audio-only note whose audio is still uploading (#771) now gets a
-    /// dimmed Transcribe, so it follows the audio-only rule: no ✨, even
-    /// when the app offers one. Before #771 it had no first slot, and ✨
-    /// followed what the app offered.
-    private static func testAudioOnlyNoteWaitingForAudioHasNoCreateSummary() {
+    /// dimmed Transcribe, so it follows the audio-only rule: ✨ dimmed, even
+    /// when the app offers one (2026-11-02). Before #771 it had no first
+    /// slot, and ✨ followed what the app offered.
+    private static func testAudioOnlyNoteWaitingForAudioDimsCreateSummary() {
         for canCreate in [Bool?.none, true, false] {
             let waiting = NoteToolbarInput(
                 tab: .transcript,
@@ -287,7 +287,7 @@ struct NoteToolbarStateTests {
             )
             precondition(State.make(waiting) == State(
                 firstSlot: .button(.transcribe, isEnabled: false),
-                isCopyEnabled: false, isSaveEnabled: true, createSummary: .none, isDeleteEnabled: true
+                isCopyEnabled: false, isSaveEnabled: true, createSummary: .button(isEnabled: false), isDeleteEnabled: true
             ), "\(String(describing: canCreate))")
         }
     }
