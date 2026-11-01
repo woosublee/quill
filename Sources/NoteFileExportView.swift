@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuillNoteCore
 import QuillDesignTokens
 
 struct NoteFileExportView: View {

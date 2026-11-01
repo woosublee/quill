@@ -132,7 +132,9 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(single.contains("appState.deleteHistoryEntry(id: id)"))
         // Deleting one unchecked note from the context menu keeps selection mode.
         precondition(single.contains("} else if wasFocused, !selection.isSelectionModeRequested {"))
-        precondition(source.contains("Text(\"Delete this note?\")"))
+        // The list's confirmation reads the shared copy table, like the iPhone.
+        precondition(source.contains("NoteDeletionConfirmation(\n            count: pendingDeletionIDs.count,"))
+        precondition(source.contains("Text(localizedCatalogString(deletionConfirmation.messageKey))"))
         precondition(source.contains("Text(\"You can restore it from Recently Deleted for 30 days.\")"))
         precondition(source.contains("@State private var showDeleteConfirmation = false"))
         precondition(source.contains("localizedCatalogFormat(\"%lld notes deleted\", count)"))

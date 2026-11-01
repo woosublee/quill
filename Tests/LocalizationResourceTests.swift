@@ -2,6 +2,7 @@ import Foundation
 import QuillUserIssueCore
 import QuillNoteUI
 import QuillProviderCore
+import QuillNoteCore
 
 @main
 struct LocalizationResourceTests {
@@ -38,6 +39,7 @@ struct LocalizationResourceTests {
 
         try testSharedIssueCopyKeysAreInTheCatalog(strings)
         try testSharedWorkStatusKeysAreInTheCatalog(strings)
+        try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
@@ -405,6 +407,30 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared work-status keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The delete confirmation and Save Files' stale-summary note read their
+    /// copy from shared keys both apps translate (quill-universal-private#281, #282).
+    private static func testSharedDeletionAndExportKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = Set(
+            NoteDeletionConfirmation.Message.allCases.map(\.key)
+                + [
+                    NoteDeletionConfirmation.Title.deleteNote.key,
+                    NoteDeletionConfirmation.Title.deleteNoteAndRecordingPieces.key,
+                    NoteDeletionConfirmation.Title.deleteNotes(count: 2).key,
+                    NoteExportPlan.summaryStaleNoteKey
+                ]
+        )
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared deletion and export keys missing from the catalog: \(missing)")
         }
     }
 

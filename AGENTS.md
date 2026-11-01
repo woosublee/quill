@@ -101,7 +101,13 @@ otherwise.
   recording, transcribing, recovered, failed, or finished, and whether an
   empty transcript is still to come or was cleared and stays editable), with
   its status parsers and the one interrupted-transcription placeholder check
-  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720). It imports
+  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720), what Save Files
+  offers and names (`NoteExportPlan`: blank text isn't offered, a stale
+  summary is flagged, `<name>-summary` and the 255-character limit), the
+  delete confirmation's copy (`NoteDeletionConfirmation`), and how long
+  Recently Deleted keeps a note and the days a row shows
+  (`RecentlyDeletedPolicy`; the Mac's list split stays in `Sources/`). Each
+  app writes the export files and runs the delete itself. It imports
   `QuillUserIssueCore`; the status text and recovery file work stay in
   `Sources/`. Reading a
   note's recording times stays in
