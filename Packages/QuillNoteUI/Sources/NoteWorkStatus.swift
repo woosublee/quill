@@ -54,7 +54,16 @@ public struct NoteWorkProgress: Equatable, Sendable {
     /// tolerance keeps an exact ratio exact: 29 of 50 is 0.58, which times
     /// 100 is 57.999… in floating point, and must read 58%, not 57%.
     public var percent: Int {
-        min(99, Int((measured * 100 + 1e-9).rounded(.down)))
+        min(Self.maximumPercent, Int((measured * 100 + 1e-9).rounded(.down)))
+    }
+
+    /// The highest percentage running work shows.
+    public static let maximumPercent = 99
+
+    /// How a percentage reads: "40%". Digits and sign are the same in every
+    /// language Quill ships.
+    public static func percentText(_ percent: Int) -> String {
+        "\(percent)%"
     }
 }
 
@@ -232,9 +241,9 @@ public enum NoteWorkStatus: Equatable, Sendable {
             self.progress = progress
         }
 
-        /// "40%". Digits and sign are the same in every language Quill ships.
+        /// "40%".
         public var percentText: String? {
-            progress.map { "\($0.percent)%" }
+            progress.map { NoteWorkProgress.percentText($0.percent) }
         }
     }
 

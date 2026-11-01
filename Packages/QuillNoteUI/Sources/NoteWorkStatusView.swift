@@ -70,6 +70,10 @@ public struct NoteWorkStatusView: View {
     /// `radius-capsule` in tokens.json.
     private static let capsuleRadius: CGFloat = 999
 
+    /// The widest percentage running work shows. Its digits are monospaced
+    /// (`statusPercent`), so the highest one is as wide as any.
+    private static let widestPercentText = NoteWorkProgress.percentText(NoteWorkProgress.maximumPercent)
+
     private var capsuleContent: some View {
         VStack(spacing: QuillSpacing.space6) {
             HStack(spacing: QuillSpacing.space8) {
@@ -97,9 +101,16 @@ public struct NoteWorkStatusView: View {
                 ProgressView(value: progress.fraction)
                     .progressViewStyle(.linear)
                     .frame(width: QuillControlSize.statusProgress)
-                Text(verbatim: percentText)
-                    .font(QuillTypeStyle.statusPercent.font)
-                    .foregroundStyle(.secondary)
+                // The percentage keeps the width of the widest one it shows,
+                // so the capsule doesn't grow when 9% becomes 10% or shrink
+                // when a new step starts again at 0%. It sits next to the bar;
+                // the spare room is after it.
+                ZStack(alignment: .leading) {
+                    Text(verbatim: Self.widestPercentText).hidden()
+                    Text(verbatim: percentText)
+                }
+                .font(QuillTypeStyle.statusPercent.font)
+                .foregroundStyle(.secondary)
             }
         }
     }
