@@ -269,7 +269,7 @@ struct LocalizationResourceTests {
         )
         // The toolbar is the shared QuillNoteUI view (#697): the Note
         // Browser passes it strings already localized from this catalog.
-        assert(noteBrowserSource.contains("private var toolbarLabels: NoteToolbarLabels"))
+        assert(noteBrowserSource.contains("private func toolbarLabels(_ actionState: NoteBrowserActionState) -> NoteToolbarLabels"))
         assert(noteBrowserSource.contains("delete: localizedCatalogString(\"Delete note\")"))
 
         let noteBrowserKeys = [

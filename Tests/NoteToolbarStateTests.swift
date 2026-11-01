@@ -17,6 +17,9 @@ struct NoteToolbarStateTests {
         testMakingSummary()
         testFailedOrAudioOnly()
         testModelSetupOpensSettings()
+        testActionWaitingForAudioStaysDimmed()
+        testAudioOnlyNoteWaitingForAudioHasNoCreateSummary()
+        testDisabledFirstActionSaysWhy()
         testCreateSummaryWaitsForAllWork()
         testSummaryActionBlockedWhileComparingOrEditing()
         testHiddenOnlyForRecordingComparingAndKeyboard()
@@ -229,6 +232,87 @@ struct NoteToolbarStateTests {
         precondition(State.make(working).firstSlot == .button(.cancelTranscription, isEnabled: true), "Cancel wins")
     }
 
+    /// The note's audio is still uploading from the device that recorded it
+    /// (#771): the transcript action keeps its slot, dimmed, on both apps,
+    /// and turns on once the audio can be had. Model setup stays on, and
+    /// running work still wins.
+    private static func testActionWaitingForAudioStaysDimmed() {
+        for action in [NoteToolbarTranscriptAction.retranscribe, .retry, .transcribe] {
+            var waiting = NoteToolbarInput(
+                tab: .transcript,
+                transcriptAction: action,
+                canRunTranscriptAction: false,
+                hasTranscriptToCopy: true,
+                hasFilesToSave: true
+            )
+            let expected: NoteToolbarFirstAction = switch action {
+            case .retranscribe: .retranscribe
+            case .retry: .retry
+            case .transcribe: .transcribe
+            case .openModelSetup: .openModelSetup
+            }
+            precondition(State.make(waiting).firstSlot == .button(expected, isEnabled: false), "\(action)")
+            // The rest of the toolbar doesn't change.
+            precondition(State.make(waiting).isCopyEnabled && State.make(waiting).isSaveEnabled)
+            waiting.canRunTranscriptAction = true
+            precondition(State.make(waiting).firstSlot == .button(expected, isEnabled: true), "\(action)")
+        }
+
+        let setup = NoteToolbarInput(tab: .transcript, transcriptAction: .openModelSetup, canRunTranscriptAction: false)
+        precondition(State.make(setup).firstSlot == .button(.openModelSetup, isEnabled: true))
+
+        var working = done(.transcript)
+        working.canRunTranscriptAction = false
+        working.work = .retranscribing
+        precondition(State.make(working).firstSlot == .button(.cancelRetranscription, isEnabled: true))
+
+        // The summary tab's ↻ doesn't depend on the audio.
+        var summary = done(.summary)
+        summary.canRunTranscriptAction = false
+        precondition(State.make(summary) == State.make(done(.summary)))
+    }
+
+    /// An audio-only note whose audio is still uploading (#771) now gets a
+    /// dimmed Transcribe, so it follows the audio-only rule: no ✨, even
+    /// when the app offers one. Before #771 it had no first slot, and ✨
+    /// followed what the app offered.
+    private static func testAudioOnlyNoteWaitingForAudioHasNoCreateSummary() {
+        for canCreate in [Bool?.none, true, false] {
+            let waiting = NoteToolbarInput(
+                tab: .transcript,
+                transcriptAction: .transcribe,
+                canRunTranscriptAction: false,
+                canCreateSummary: canCreate,
+                hasFilesToSave: true
+            )
+            precondition(State.make(waiting) == State(
+                firstSlot: .button(.transcribe, isEnabled: false),
+                isCopyEnabled: false, isSaveEnabled: true, createSummary: .none, isDeleteEnabled: true
+            ), "\(String(describing: canCreate))")
+        }
+    }
+
+    /// While the first slot is off for a reason the app gives (#771: the
+    /// audio is still uploading), its help tag and VoiceOver hint say why;
+    /// its label stays the action. On, or without a reason, nothing changes.
+    private static func testDisabledFirstActionSaysWhy() {
+        let reason = "Synthetic: waiting for the recording device to upload."
+        let labels = NoteToolbarLabels(
+            firstAction: { _ in "Retry transcription" },
+            progress: "Working", copy: "Copy", copyUnavailable: "Nothing to copy",
+            save: "Save", createSummary: "Create summary", delete: "Delete",
+            firstActionHint: { _ in "Transcribes the recording again." },
+            firstActionUnavailableReason: { $0 == .retry ? reason : nil }
+        )
+        precondition(labels.firstActionHelp(.retry, isEnabled: false) == reason)
+        precondition(labels.firstActionHint(.retry, isEnabled: false) == reason)
+        precondition(labels.firstAction(.retry) == "Retry transcription")
+        precondition(labels.firstActionHelp(.retry, isEnabled: true) == "Retry transcription")
+        precondition(labels.firstActionHint(.retry, isEnabled: true) == "Transcribes the recording again.")
+        precondition(labels.firstActionHelp(.runSummary, isEnabled: false) == "Retry transcription")
+        precondition(labels.firstActionHint(.runSummary, isEnabled: false) == "Transcribes the recording again.")
+    }
+
     /// A note without a summary keeps ✨ dimmed in its slot until
     /// transcription and post-processing have both finished, even when
     /// there's nothing to summarize yet.
@@ -314,8 +398,8 @@ struct NoteToolbarStateTests {
         else { preconditionFailure("NoteToolbarIconButton not found") }
         let button = String(source[start.upperBound..<end.lowerBound])
         let macBlocks = macOnlyBlocks(in: button)
-        guard let help = button.range(of: ".help(label)") else { preconditionFailure("the button lost its .help") }
-        precondition(macBlocks.contains { $0.contains(".help(label)") }, ".help is Mac only")
+        guard let help = button.range(of: ".help(help ?? label)") else { preconditionFailure("the button lost its .help") }
+        precondition(macBlocks.contains { $0.contains(".help(help ?? label)") }, ".help is Mac only")
         let afterHelp = button[help.upperBound...]
         precondition(afterHelp.contains(".background(CursorView(cursor: .arrow"),
                      "each toolbar button needs its cursor view with its .help (#698)")

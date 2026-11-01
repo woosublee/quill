@@ -68,6 +68,10 @@ public struct NoteToolbarInput: Equatable, Sendable {
     public var canCancelWork: Bool
     /// The transcript tab's action while no work runs, or nil for none.
     public var transcriptAction: NoteToolbarTranscriptAction?
+    /// The transcript action can run now. False while the note's audio is
+    /// on its way (still uploading from the device that recorded it): the
+    /// action keeps its slot, dimmed, instead of disappearing (#771).
+    public var canRunTranscriptAction: Bool
     /// The note has a summary tab (a summary, or a failed attempt).
     public var hasSummaryTab: Bool
     public var isMakingSummary: Bool
@@ -91,6 +95,7 @@ public struct NoteToolbarInput: Equatable, Sendable {
         work: NoteToolbarWork = .none,
         canCancelWork: Bool = false,
         transcriptAction: NoteToolbarTranscriptAction? = nil,
+        canRunTranscriptAction: Bool = true,
         hasSummaryTab: Bool = false,
         isMakingSummary: Bool = false,
         canRunSummary: Bool = false,
@@ -105,6 +110,7 @@ public struct NoteToolbarInput: Equatable, Sendable {
         self.work = work
         self.canCancelWork = canCancelWork
         self.transcriptAction = transcriptAction
+        self.canRunTranscriptAction = canRunTranscriptAction
         self.hasSummaryTab = hasSummaryTab
         self.isMakingSummary = isMakingSummary
         self.canRunSummary = canRunSummary
@@ -218,9 +224,11 @@ public struct NoteToolbarState: Equatable, Sendable {
             case .retranscribe: .retranscribe
             case .openModelSetup: .openModelSetup
             }
-            // While a summary is being made, nothing but its Cancel runs.
+            // While a summary is being made, nothing but its Cancel runs, and
+            // a note whose audio hasn't arrived can't transcribe yet (#771).
             // Model setup only opens Settings, so it stays on.
-            return .button(firstAction, isEnabled: firstAction == .openModelSetup || !input.isMakingSummary)
+            if firstAction == .openModelSetup { return .button(firstAction, isEnabled: true) }
+            return .button(firstAction, isEnabled: input.canRunTranscriptAction && !input.isMakingSummary)
         }
         return input.canCancelWork ? .button(cancel, isEnabled: true) : .progress
     }
