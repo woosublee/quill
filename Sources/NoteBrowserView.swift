@@ -2130,7 +2130,7 @@ private struct NoteListRow: View {
                         .quillTextStyle(.metaLabel)
                         .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
-                    if displayData.status == .audioOnly {
+                    if displayData.rowState.showsAudioOnlyBadge {
                         Text(localizedCatalogString("Audio only"))
                             .quillTextStyle(.badgeLabel)
                             .foregroundStyle(selectedMetaColor)
@@ -2279,8 +2279,8 @@ private struct NoteListRow: View {
             // same color as the accent visible.
             .overlay {
                 if isKeyboardHighlighted,
-                   [.done, .audioOnly, .fail].contains(displayData.status),
-                   !(differentiateWithoutColor && displayData.status == .fail) {
+                   [.done, .failure].contains(displayData.rowState.dotRole),
+                   !(differentiateWithoutColor && displayData.rowState.dotRole == .failure) {
                     Circle()
                         .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
                         .frame(width: 8, height: 8)
@@ -2290,7 +2290,10 @@ private struct NoteListRow: View {
 
     @ViewBuilder
     private var statusIndicatorContent: some View {
-        switch displayData.status {
+        // Which dot each state draws is shared with the iPhone app
+        // (`NoteListRowState.dotRole`); a finished and an audio-only note
+        // both get the green dot.
+        switch displayData.rowState.dotRole {
         case .done:
             Circle()
                 .fill(QuillColor.statusDone)
@@ -2309,20 +2312,16 @@ private struct NoteListRow: View {
                     }
                 }
             }
-        case .transcribing:
+        case .processing:
             // White on the keyboard-highlighted row's accent fill, like the
             // failed note's icon: the darker light-mode orange is hard to see
             // on blue.
             YellowSpinner(color: isKeyboardHighlighted ? Color.white : QuillColor.statusProcessing)
-        case .audioOnly:
-            Circle()
-                .fill(QuillColor.statusDone)
-                .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(QuillColor.statusProcessing.opacity(metaOpacity(0.7)))
-        case .fail:
+        case .failure:
             if differentiateWithoutColor {
                 // Differentiate Without Color: a failed note gets a shape,
                 // not only a red dot that matches a finished note's size.

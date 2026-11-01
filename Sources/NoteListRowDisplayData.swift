@@ -1,17 +1,8 @@
 import Foundation
 import QuillNoteCore
 
-enum TranscriptStatus: Equatable {
-    case done, recording, transcribing, audioOnly, recovered, fail
-
-    /// Notes still recording or processing are left out of multi-selection and bulk deletion.
-    var isBulkSelectable: Bool {
-        switch self {
-        case .recording, .transcribing: return false
-        case .done, .audioOnly, .recovered, .fail: return true
-        }
-    }
-}
+/// The row status rules are in QuillNoteCore, shared with the iPhone app.
+typealias TranscriptStatus = NoteListRowStatus
 
 struct CloudTranscriptionDisplayProgress: Equatable, Sendable {
     let completedChunkCount: Int
@@ -32,24 +23,12 @@ func transcriptStatus(
     retrying: Set<UUID>,
     stoppedCloud: Set<UUID> = []
 ) -> TranscriptStatus {
-    if retrying.contains(item.id) { return .transcribing }
-    if stoppedCloud.contains(item.id), item.machineStatus == .cloudTranscribing {
-        return .fail
-    }
-    switch item.machineStatus {
-    case .liveRecording:
-        return .recording
-    case .importing, .cloudTranscribing:
-        return .transcribing
-    case .audioOnly:
-        return .audioOnly
-    case .recovered:
-        return .recovered
-    case .failed, .unrecovered:
-        return .fail
-    case .completed:
-        return item.isTranscriptionPlaceholder ? .transcribing : .done
-    }
+    NoteListRowStatus(
+        machineStatus: item.machineStatus,
+        isTranscriptionPlaceholder: item.isTranscriptionPlaceholder,
+        isRetrying: retrying.contains(item.id),
+        isCloudTranscriptionStopped: stoppedCloud.contains(item.id)
+    )
 }
 
 // The date rules are in QuillNoteCore, shared with the iPhone app.
@@ -102,24 +81,28 @@ enum RecordingElapsedFormatter {
 
 struct NoteListRowDisplayData: Equatable {
     let id: UUID
-    let status: TranscriptStatus
+    /// The row's status, dot, preview, badges, and VoiceOver state, shared
+    /// with the iPhone app (QuillNoteCore).
+    let rowState: NoteListRowState
     let rowDate: String
     /// The title is the recording date, so the row's date isn't read again.
     let isNamedByDate: Bool
     let displayTitle: String
     let preview: String
+    /// Set while recording, so the row's status corner can show a running
+    /// elapsed time next to the red dot.
+    let recordingStartedAt: Date?
+
+    var status: TranscriptStatus { rowState.status }
     /// The catalog key of the stage the preview line shows while work runs
     /// ("Recording...", "Transcribing...", "Retranscribing...",
     /// "Post-processing..."); nil once the note is settled. VoiceOver reads
     /// it as the row's state.
-    let workStageKey: String?
-    let hasMeetingSummary: Bool
+    var workStageKey: String? { rowState.workStageKey }
+    var hasMeetingSummary: Bool { rowState.hasSummary }
     /// The recording could not be recovered, so the red dot means
     /// "Couldn't recover" rather than a failed transcription.
-    let isUnrecoveredRecording: Bool
-    /// Set while recording, so the row's status corner can show a running
-    /// elapsed time next to the red dot.
-    let recordingStartedAt: Date?
+    var isUnrecoveredRecording: Bool { rowState.isUnrecoveredRecording }
 
     init(
         item: PipelineHistoryItem,
@@ -141,12 +124,17 @@ struct NoteListRowDisplayData: Equatable {
             )
         }
     ) {
-        let status = transcriptStatus(
-            for: item,
-            retrying: retryingIDs,
-            stoppedCloud: stoppedCloudIDs
-        )
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rowState = NoteListRowState(
+            machineStatus: item.machineStatus,
+            isTranscriptionPlaceholder: item.isTranscriptionPlaceholder,
+            hasContent: !content.isEmpty,
+            hasSummary: item.meetingSummaryJSON != nil,
+            isRetrying: retryingIDs.contains(item.id),
+            isCloudTranscriptionStopped: stoppedCloudIDs.contains(item.id),
+            isPostProcessing: postProcessingIDs.contains(item.id)
+        )
+        self.rowState = rowState
         // The row names the note the same way from the start, as the iPhone
         // does: its own title, or when it was recorded (#697). The preview
         // line shows the stage while work runs.
@@ -157,100 +145,23 @@ struct NoteListRowDisplayData: Equatable {
             locale: locale
         )
         self.isNamedByDate = NoteTitleResolver.isListRowNamedByDate(item)
-        let workStageKey = Self.workStageKey(
-            for: item,
-            status: status,
-            content: content,
-            isRetrying: retryingIDs.contains(item.id),
-            isPostProcessing: postProcessingIDs.contains(item.id)
-        )
-        self.workStageKey = workStageKey
-
         self.id = item.id
-        self.status = status
         self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
-        self.hasMeetingSummary = item.meetingSummaryJSON != nil
-        self.isUnrecoveredRecording = item.unrecoveredRecordingContext != nil
-        self.recordingStartedAt = status == .recording ? item.recordingStartedAt : nil
-        self.preview = Self.preview(
-            for: item,
-            status: status,
-            content: content,
-            workStageKey: workStageKey,
-            cloudProgress: cloudProgress,
-            localizationLanguage: localizationLanguage,
-            localizationBundle: localizationBundle,
-            localization: localization
-        )
-    }
-
-    /// The stage a working note's preview line shows, as the iPhone row
-    /// does (#697), named like the note detail's progress: recording with
-    /// no live text yet, transcribing (again, for a note that had been
-    /// transcribed or failed), then post-processing. A recording with live
-    /// text shows that text instead.
-    static func workStageKey(
-        for item: PipelineHistoryItem,
-        status: TranscriptStatus,
-        content: String,
-        isRetrying: Bool,
-        isPostProcessing: Bool
-    ) -> String? {
-        switch status {
-        case .recording:
-            return content.isEmpty ? "Recording..." : nil
-        case .transcribing:
-            if isPostProcessing { return "Post-processing..." }
-            if isRetrying, item.machineStatus != .audioOnly { return "Retranscribing..." }
-            return "Transcribing..."
-        case .done, .audioOnly, .recovered, .fail:
-            return nil
-        }
-    }
-
-    private static func preview(
-        for item: PipelineHistoryItem,
-        status: TranscriptStatus,
-        content: String,
-        workStageKey: String?,
-        cloudProgress: CloudTranscriptionDisplayProgress?,
-        localizationLanguage: String,
-        localizationBundle: Bundle,
-        localization: (
-            _ key: String,
-            _ arguments: [CVarArg]
-        ) -> String
-    ) -> String {
-        if status == .audioOnly {
-            return localizedCatalogString(
-                "Not transcribed",
+        self.recordingStartedAt = rowState.status == .recording ? item.recordingStartedAt : nil
+        switch rowState.preview {
+        case .key(let key):
+            self.preview = localizedCatalogString(
+                key,
                 language: localizationLanguage,
                 bundle: localizationBundle
             )
+        case .recoveredRecording(let context):
+            self.preview = context.localizedDescription()
+        case .content:
+            // The title is the note's own or its date, never the transcript,
+            // so the preview starts at the transcript's first line.
+            self.preview = String(content.prefix(100))
         }
-        if status == .fail {
-            return localizedCatalogString(
-                item.unrecoveredRecordingContext != nil
-                    ? "Couldn't recover"
-                    : "Couldn't transcribe",
-                language: localizationLanguage,
-                bundle: localizationBundle
-            )
-        }
-        if status == .recovered {
-            return item.recoveredRecordingContext?.localizedDescription() ?? ""
-        }
-        if let workStageKey {
-            // Chunk progress stays in the note detail.
-            return localizedCatalogString(
-                workStageKey,
-                language: localizationLanguage,
-                bundle: localizationBundle
-            )
-        }
-        // The title is the note's own or its date, never the transcript, so
-        // the preview starts at the transcript's first line.
-        return String(content.prefix(100))
     }
 }
 
@@ -267,17 +178,7 @@ enum NoteListRowAccessibility {
         for status: TranscriptStatus,
         isUnrecoveredRecording: Bool = false
     ) -> String {
-        if status == .fail, isUnrecoveredRecording {
-            return "Couldn't recover"
-        }
-        switch status {
-        case .done: return "Transcription complete"
-        case .recording: return "Recording..."
-        case .transcribing: return "Transcribing..."
-        case .audioOnly: return "Audio only"
-        case .recovered: return "Recovered recording"
-        case .fail: return "Transcription failed"
-        }
+        NoteListRowState.statusKey(for: status, isUnrecoveredRecording: isUnrecoveredRecording)
     }
 
     /// `date` is nil when the title already is the date.
@@ -293,13 +194,12 @@ enum NoteListRowAccessibility {
     ) -> String {
         var parts = [title]
         if let date { parts.append(date) }
-        parts.append(localize(workStageKey ?? statusKey(
-            for: status,
-            isUnrecoveredRecording: isUnrecoveredRecording
-        )))
-        if hasSummary {
-            parts.append(localize("Summary"))
-        }
+        parts += NoteListRowState.accessibilityKeys(
+            status: status,
+            isUnrecoveredRecording: isUnrecoveredRecording,
+            workStageKey: workStageKey,
+            hasSummary: hasSummary
+        ).map(localize)
         switch selection {
         case .checked: parts.append(localize("Selected"))
         case .unchecked: parts.append(localize("Not selected"))
