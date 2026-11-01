@@ -9994,8 +9994,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func noteBrowserRetryAvailability(
         for item: PipelineHistoryItem
     ) -> NoteBrowserRetryAvailability {
+        noteBrowserRetryAvailability(for: item, audioState: noteAudioState(for: item))
+    }
+
+    /// The same, from an audio state the caller already read, so one
+    /// render reads it once (#771).
+    @MainActor
+    func noteBrowserRetryAvailability(
+        for item: PipelineHistoryItem,
+        audioState: @autoclosure () -> NoteAudioState
+    ) -> NoteBrowserRetryAvailability {
         guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
-            return noteAudioState(for: item).isInICloud ? .needsDownload : .noAudio
+            return audioState().isInICloud ? .needsDownload : .noAudio
         }
         let options = retryOptions(for: audioURL)
         // Transcription Off means record-only: a transcription the user starts
