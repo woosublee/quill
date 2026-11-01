@@ -3832,11 +3832,11 @@ private struct NoteDetailView: View {
             if isLiveRecording {
                 ZStack {
                     Circle()
-                        .fill(QuillColor.statusRecording.opacity(0.08))
+                        .fill(QuillColor.statusRecording.opacity(QuillOpacity.statusDisc))
                         .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "mic.fill")
                         .font(.system(size: 28, weight: .light))
-                        .foregroundStyle(QuillColor.statusRecording.opacity(0.75))
+                        .foregroundStyle(QuillColor.statusRecording.opacity(QuillOpacity.statusGlyph))
                 }
                 Group {
                     if let startedAt = item.recordingStartedAt {
@@ -3884,11 +3884,11 @@ private struct NoteDetailView: View {
             } else if isAudioOnly {
                 ZStack {
                     Circle()
-                        .fill(Color.blue.opacity(0.08))
+                        .fill(Color.blue.opacity(QuillOpacity.statusDisc))
                         .frame(width: QuillControlSize.emptyDisc, height: QuillControlSize.emptyDisc)
                     Image(systemName: "waveform")
                         .font(.system(size: 30, weight: .ultraLight))
-                        .foregroundStyle(.blue.opacity(0.75))
+                        .foregroundStyle(.blue.opacity(QuillOpacity.statusGlyph))
                 }
                 Text("Audio recording")
                     .quillTextStyle(.emptyTitle)

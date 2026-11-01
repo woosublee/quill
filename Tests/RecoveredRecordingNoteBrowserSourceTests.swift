@@ -362,8 +362,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // The toolbar's Transcribe label comes from the shared table (#697).
         let sharedWorkStatus = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatus.swift", encoding: .utf8)) ?? ""
         precondition(sharedWorkStatus.contains("case .transcribe: return \"Transcribe audio\""))
-        precondition(source.contains(".fill(Color.blue.opacity(0.08))"))
-        precondition(source.contains(".foregroundStyle(.blue.opacity(0.75))"))
+        precondition(source.contains(".fill(Color.blue.opacity(QuillOpacity.statusDisc))"))
+        precondition(source.contains(".foregroundStyle(.blue.opacity(QuillOpacity.statusGlyph))"))
 
         let row = block(
             source,
