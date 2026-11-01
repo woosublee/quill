@@ -54,6 +54,15 @@ enum NoteAudioState: Equatable {
         }
     }
 
+    /// The note has audio that can't be had yet: the device that recorded
+    /// it hasn't uploaded it, or sync is off. Retranscribe shows dimmed (#771).
+    var isAwaited: Bool {
+        switch self {
+        case .unavailable(.notUploadedYet), .unavailable(.syncOff): return true
+        default: return false
+        }
+    }
+
     var isDownloading: Bool {
         if case .downloading = self { return true }
         return false

@@ -2777,15 +2777,16 @@ private struct NoteDetailView: View {
         appState.noteBrowserRetryAvailability(for: item)
     }
     private var actionState: NoteBrowserActionState {
-        NoteBrowserActionState(
+        let retryAvailability = retryAvailability
+        let audioState = retryAvailability == .noAudio ? appState.noteAudioState(for: item) : nil
+        return NoteBrowserActionState(
             hasStoredAudio: storedAudioURL != nil,
             transcript: displayContent,
             retryAvailability: retryAvailability,
             postProcessingEnabled: !appState.disablePostProcessing,
             hasSummary: summaryEnvelope != nil,
-            audioUnavailableMessage: retryAvailability == .noAudio
-                ? appState.noteAudioState(for: item).unavailableMessage
-                : nil
+            audioUnavailableMessage: audioState?.unavailableMessage,
+            isAudioAwaited: audioState?.isAwaited ?? false
         )
     }
     private var issuePresentation: QuillUserIssuePresentation? {
@@ -4075,11 +4076,15 @@ private struct NoteDetailView: View {
 
     /// What this note's toolbar shows, for the shared #690 table.
     private var toolbarInput: NoteToolbarInput {
-        NoteToolbarInput(
+        let actionState = actionState
+        return NoteToolbarInput(
             tab: isShowingSummaryTab ? .summary : .transcript,
             work: toolbarWork,
             canCancelWork: canCancelToolbarWork,
             transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,
+            // Audio still uploading from the device that recorded it: the
+            // button stays, dimmed, until it can be had (#771).
+            canRunTranscriptAction: actionState.canRunRetry,
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,

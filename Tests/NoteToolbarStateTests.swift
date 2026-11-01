@@ -17,6 +17,7 @@ struct NoteToolbarStateTests {
         testMakingSummary()
         testFailedOrAudioOnly()
         testModelSetupOpensSettings()
+        testActionWaitingForAudioStaysDimmed()
         testCreateSummaryWaitsForAllWork()
         testSummaryActionBlockedWhileComparingOrEditing()
         testHiddenOnlyForRecordingComparingAndKeyboard()
@@ -214,6 +215,46 @@ struct NoteToolbarStateTests {
         working.work = .transcribing
         working.canCancelWork = true
         precondition(State.make(working).firstSlot == .button(.cancelTranscription, isEnabled: true), "Cancel wins")
+    }
+
+    /// The note's audio is still uploading from the device that recorded it
+    /// (#771): the transcript action keeps its slot, dimmed, on both apps,
+    /// and turns on once the audio can be had. Model setup stays on, and
+    /// running work still wins.
+    private static func testActionWaitingForAudioStaysDimmed() {
+        for action in [NoteToolbarTranscriptAction.retranscribe, .retry, .transcribe] {
+            var waiting = NoteToolbarInput(
+                tab: .transcript,
+                transcriptAction: action,
+                canRunTranscriptAction: false,
+                hasTranscriptToCopy: true,
+                hasFilesToSave: true
+            )
+            let expected: NoteToolbarFirstAction = switch action {
+            case .retranscribe: .retranscribe
+            case .retry: .retry
+            case .transcribe: .transcribe
+            case .openModelSetup: .openModelSetup
+            }
+            precondition(State.make(waiting).firstSlot == .button(expected, isEnabled: false), "\(action)")
+            // The rest of the toolbar doesn't change.
+            precondition(State.make(waiting).isCopyEnabled && State.make(waiting).isSaveEnabled)
+            waiting.canRunTranscriptAction = true
+            precondition(State.make(waiting).firstSlot == .button(expected, isEnabled: true), "\(action)")
+        }
+
+        let setup = NoteToolbarInput(tab: .transcript, transcriptAction: .openModelSetup, canRunTranscriptAction: false)
+        precondition(State.make(setup).firstSlot == .button(.openModelSetup, isEnabled: true))
+
+        var working = done(.transcript)
+        working.canRunTranscriptAction = false
+        working.work = .retranscribing
+        precondition(State.make(working).firstSlot == .button(.cancelRetranscription, isEnabled: true))
+
+        // The summary tab's ↻ doesn't depend on the audio.
+        var summary = done(.summary)
+        summary.canRunTranscriptAction = false
+        precondition(State.make(summary) == State.make(done(.summary)))
     }
 
     /// A note without a summary keeps ✨ dimmed in its slot until

@@ -17,6 +17,7 @@ struct NoteBrowserRecoveryTests {
         testPostProcessingEnabledKeepsRetryGuidance()
         testPostProcessingDisabledDoesNotAffectUnrelatedIssues()
         testAudioInICloudOffersRetryAndSaving()
+        testAudioAwaitingUploadShowsRetryDimmed()
         testRetryWithoutAudioExplainsInsteadOfOffering()
         testNothingToCleanUpNoticeHidesForClearedTranscript()
         print("NoteBrowserRecoveryTests passed")
@@ -82,6 +83,27 @@ struct NoteBrowserRecoveryTests {
             retryAvailability: .needsDownload
         )
         precondition(state.showsRetryButton && state.canSaveFiles && !state.canCopy)
+    }
+
+    /// Audio still uploading from the device that recorded it (#771):
+    /// Retranscribe shows, but can't run until the audio can be had. A note
+    /// with no audio at all still has no button.
+    private static func testAudioAwaitingUploadShowsRetryDimmed() {
+        let awaited = NoteBrowserActionState(
+            hasStoredAudio: false,
+            transcript: "Synthetic transcript",
+            retryAvailability: .noAudio,
+            isAudioAwaited: true
+        )
+        precondition(awaited.showsRetryButton && !awaited.canRunRetry)
+
+        let noAudio = NoteBrowserActionState(hasStoredAudio: false, transcript: "Synthetic transcript", retryAvailability: .noAudio)
+        precondition(!noAudio.showsRetryButton && !noAudio.canRunRetry)
+
+        let inICloud = NoteBrowserActionState(hasStoredAudio: false, transcript: "", retryAvailability: .needsDownload)
+        precondition(inICloud.showsRetryButton && inICloud.canRunRetry)
+        let local = NoteBrowserActionState(hasStoredAudio: true, transcript: "", retryAvailability: .ready)
+        precondition(local.showsRetryButton && local.canRunRetry)
     }
 
     private static func testSummaryOnlyEnablesFileSaving() {
