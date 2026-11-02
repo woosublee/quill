@@ -387,7 +387,7 @@ struct AudioImportOptions {
         } else if !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
             "Native Whisper supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
         } else if !hasNativeLocalWhisperModel {
-            "Install the native Local Whisper model to import locally"
+            "Download this model in Settings to use it"
         } else {
             nil
         }
@@ -411,7 +411,7 @@ struct AudioImportOptions {
             } else if !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
                 "Local AI supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
             } else if !model.isReady {
-                "Download this model in Settings to import locally"
+                "Download this model in Settings to use it"
             } else {
                 nil
             }
