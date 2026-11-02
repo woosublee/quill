@@ -188,6 +188,10 @@ struct AudioImportOptions {
     let fileExtension: String
     let currentChoice: TranscriptionBackendChoice
     let apiStandardModelID: String
+    /// Every Cloud model the sheet lists, in the order the Settings picker
+    /// lists them (`AppState.standardAPIModelIDs`), with the saved model
+    /// always among them.
+    let apiStandardModelIDs: [String]
     let fileSizeBytes: Int64?
     let hasAPIKey: Bool
     let hasNativeLocalWhisperModel: Bool
@@ -201,6 +205,7 @@ struct AudioImportOptions {
         fileExtension: String,
         currentChoice: TranscriptionBackendChoice,
         apiStandardModelID: String,
+        apiStandardModelIDs: [String] = [],
         fileSizeBytes: Int64? = nil,
         hasAPIKey: Bool = true,
         hasNativeLocalWhisperModel: Bool = true,
@@ -212,7 +217,14 @@ struct AudioImportOptions {
     ) {
         self.fileExtension = fileExtension
         self.currentChoice = currentChoice
-        self.apiStandardModelID = Self.nonEmpty(apiStandardModelID) ?? Self.fallbackAPIModelID
+        let savedModelID = Self.nonEmpty(apiStandardModelID) ?? Self.fallbackAPIModelID
+        self.apiStandardModelID = savedModelID
+        var modelIDs: [String] = []
+        for modelID in apiStandardModelIDs.compactMap(Self.nonEmpty) + [savedModelID]
+            where !modelIDs.contains(modelID) {
+            modelIDs.append(modelID)
+        }
+        self.apiStandardModelIDs = modelIDs
         self.fileSizeBytes = fileSizeBytes
         self.hasAPIKey = hasAPIKey
         self.hasNativeLocalWhisperModel = hasNativeLocalWhisperModel
@@ -254,7 +266,7 @@ struct AudioImportOptions {
     }
 
     var displayRows: [TranscriptionChoiceDisplay] {
-        [apiStandardDisplay, nativeWhisperDisplay] + localAIDisplays + legacyWhisperDisplays
+        apiStandardDisplays + [nativeWhisperDisplay] + localAIDisplays + legacyWhisperDisplays
     }
 
     var supportedChoices: [TranscriptionBackendChoice] {
@@ -311,7 +323,7 @@ struct AudioImportOptions {
     }
 
     var apiUnavailableReason: String {
-        apiStandardDisplay.unavailableReason ?? "API transcription is unavailable"
+        cloudUnavailableReason ?? "API transcription is unavailable"
     }
 
     var localWhisperUnavailableReason: String {
@@ -334,22 +346,35 @@ struct AudioImportOptions {
         } ?? true
     }
 
-    private var apiStandardDisplay: TranscriptionChoiceDisplay {
-        let choice = TranscriptionBackendChoice.apiStandard(modelID: apiStandardModelID)
-        let unavailableReason: String? = if !isBroadlySupported {
+    /// The file type and the 25MB upload limit, the same for every Cloud model.
+    private var cloudUnavailableReason: String? {
+        if !isBroadlySupported {
             "This file type is not supported for import"
         } else if !isWithinAPIUploadLimit {
             "API transcription is unavailable for files over 25MB"
         } else {
             nil
         }
-        return TranscriptionChoiceDisplay(
-            choice: choice,
+    }
+
+    private var apiStandardDisplays: [TranscriptionChoiceDisplay] {
+        let unavailableReason = cloudUnavailableReason
+        return apiStandardModelIDs.map { modelID in
+            apiStandardDisplay(modelID: modelID, unavailableReason: unavailableReason)
+        }
+    }
+
+    private func apiStandardDisplay(
+        modelID: String,
+        unavailableReason: String?
+    ) -> TranscriptionChoiceDisplay {
+        TranscriptionChoiceDisplay(
+            choice: .apiStandard(modelID: modelID),
             section: "Cloud",
             title: "API Standard",
-            subtitle: apiStandardModelID,
-            compactLabel: "Standard · \(apiStandardModelID)",
-            currentLabel: "Cloud · Standard · \(apiStandardModelID)",
+            subtitle: modelID,
+            compactLabel: "Standard · \(modelID)",
+            currentLabel: "Cloud · Standard · \(modelID)",
             isAvailable: unavailableReason == nil,
             unavailableReason: unavailableReason
         )
@@ -362,7 +387,7 @@ struct AudioImportOptions {
         } else if !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
             "Native Whisper supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
         } else if !hasNativeLocalWhisperModel {
-            "Install the native Local Whisper model to import locally"
+            "Download this model in Settings to use it"
         } else {
             nil
         }
@@ -386,7 +411,7 @@ struct AudioImportOptions {
             } else if !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
                 "Local AI supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
             } else if !model.isReady {
-                "Download this model in Settings to import locally"
+                "Download this model in Settings to use it"
             } else {
                 nil
             }

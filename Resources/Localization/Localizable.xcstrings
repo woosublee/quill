@@ -1,6 +1,70 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Download this model in Settings to use it": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download this model in Settings to use it"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 이 모델을 받으면 쓸 수 있어요."
+          }
+        }
+      }
+    },
+    "This file type is not supported for import": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file type is not supported for import"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져올 수 없는 파일 형식이에요."
+          }
+        }
+      }
+    },
+    "API transcription is unavailable for files over 25MB": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API transcription is unavailable for files over 25MB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "25MB가 넘는 파일은 클라우드로 전사할 수 없어요."
+          }
+        }
+      }
+    },
+    "Native Whisper supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Whisper supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 모델은 MP3, MP4, M4A, MPEG, MPGA, WAV 파일만 가져올 수 있어요."
+          }
+        }
+      }
+    },
     "Cancel Post-processing": {
       "localizations": {
         "en": {

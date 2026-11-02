@@ -21,6 +21,7 @@ struct AudioImportOptionsTests {
         testRetryUsesExplicitLocalChoiceWithoutCloudFallback()
         testLocalAIChoiceBehavesLikeNativeWhisperForImports()
         testLocalAIChoiceLabels()
+        testEveryCloudModelIsListedWithTheSameFileLimits()
         print("AudioImportOptionsTests passed")
     }
 
@@ -63,6 +64,73 @@ struct AudioImportOptionsTests {
         )
         assert(!notReady.supportedChoices.contains(choice))
         assert(notReady.explicitRetryChoice == nil)
+    }
+
+    /// The one-time sheet lists every Cloud model the Settings picker lists,
+    /// not just the saved one, and the file type and 25MB limits apply to
+    /// each of them.
+    private static func testEveryCloudModelIsListedWithTheSameFileLimits() {
+        let saved = TranscriptionBackendChoice.apiStandard(modelID: "whisper-large-v3")
+        let other = TranscriptionBackendChoice.apiStandard(modelID: "whisper-large-v3-turbo")
+        let custom = TranscriptionBackendChoice.apiStandard(modelID: "synthetic-custom-model")
+        let options = AudioImportOptions(
+            fileExtension: "m4a",
+            currentChoice: saved,
+            apiStandardModelID: "whisper-large-v3",
+            apiStandardModelIDs: ["whisper-large-v3", "whisper-large-v3-turbo", " ", "whisper-large-v3"]
+        )
+        let cloudChoices = options.displayRows.filter(\.choice.usesCloudAPI).map(\.choice)
+        precondition(cloudChoices == [saved, other], "each Settings Cloud model once, in order")
+        precondition(options.supportedChoices.contains(other))
+        precondition(options.defaultChoice == saved, "the saved model stays the default")
+        precondition(options.isChoiceReady(other))
+
+        // With Native Whisper selected but not installed, the default falls
+        // back to the saved Cloud model, not the first one listed.
+        let fromNative = AudioImportOptions(
+            fileExtension: "m4a",
+            currentChoice: nativeChoice,
+            apiStandardModelID: "whisper-large-v3-turbo",
+            apiStandardModelIDs: ["whisper-large-v3", "whisper-large-v3-turbo"],
+            hasNativeLocalWhisperModel: false
+        )
+        precondition(fromNative.defaultChoice == other)
+
+        // A saved model the list doesn't have is still offered.
+        let customSaved = AudioImportOptions(
+            fileExtension: "m4a",
+            currentChoice: custom,
+            apiStandardModelID: "synthetic-custom-model",
+            apiStandardModelIDs: ["whisper-large-v3"]
+        )
+        precondition(
+            customSaved.displayRows.filter(\.choice.usesCloudAPI).map(\.choice) == [saved, custom]
+        )
+        precondition(customSaved.defaultChoice == custom)
+
+        let oversized = AudioImportOptions(
+            fileExtension: "mp3",
+            currentChoice: saved,
+            apiStandardModelID: "whisper-large-v3",
+            apiStandardModelIDs: ["whisper-large-v3", "whisper-large-v3-turbo"],
+            fileSizeBytes: AudioImportOptions.apiUploadLimitBytes + 1
+        )
+        let oversizedCloud = oversized.displayRows.filter(\.choice.usesCloudAPI)
+        precondition(oversizedCloud.count == 2)
+        precondition(oversizedCloud.allSatisfy {
+            !$0.isAvailable
+                && $0.unavailableReason == "API transcription is unavailable for files over 25MB"
+        })
+
+        let unsupported = AudioImportOptions(
+            fileExtension: "aiff",
+            currentChoice: saved,
+            apiStandardModelID: "whisper-large-v3",
+            apiStandardModelIDs: ["whisper-large-v3", "whisper-large-v3-turbo"]
+        )
+        precondition(unsupported.displayRows.filter(\.choice.usesCloudAPI).allSatisfy {
+            !$0.isAvailable && $0.unavailableReason == "This file type is not supported for import"
+        })
     }
 
     private static func testLocalAIChoiceLabels() {

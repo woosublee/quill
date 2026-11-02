@@ -67,6 +67,7 @@ private struct PendingAudioImport: Identifiable {
     let fileURL: URL
     let currentChoice: TranscriptionBackendChoice
     let apiStandardModelID: String
+    let apiStandardModelIDs: [String]
     let hasAPIKey: Bool
     let hasNativeLocalWhisperModel: Bool
     let legacyLocalWhisperModels: [TranscriptionModel]
@@ -81,6 +82,7 @@ private struct PendingAudioImport: Identifiable {
         fileURL: URL,
         currentChoice: TranscriptionBackendChoice,
         apiStandardModelID: String,
+        apiStandardModelIDs: [String],
         hasAPIKey: Bool,
         hasNativeLocalWhisperModel: Bool,
         legacyLocalWhisperModels: [TranscriptionModel],
@@ -93,6 +95,7 @@ private struct PendingAudioImport: Identifiable {
         self.fileURL = fileURL
         self.currentChoice = currentChoice
         self.apiStandardModelID = apiStandardModelID
+        self.apiStandardModelIDs = apiStandardModelIDs
         self.hasAPIKey = hasAPIKey
         self.hasNativeLocalWhisperModel = hasNativeLocalWhisperModel
         self.legacyLocalWhisperModels = legacyLocalWhisperModels
@@ -109,6 +112,7 @@ private struct PendingAudioImport: Identifiable {
             fileExtension: fileURL.pathExtension,
             currentChoice: currentChoice,
             apiStandardModelID: apiStandardModelID,
+            apiStandardModelIDs: apiStandardModelIDs,
             fileSizeBytes: fileSizeBytes,
             hasAPIKey: hasAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
@@ -300,12 +304,15 @@ struct TranscriptionChoiceSheet: View {
                 } label: {
                     HStack(alignment: .firstTextBaseline) {
                         Image(systemName: selectedChoice == display.choice ? "largecircle.fill.circle" : "circle")
+                            .opacity(display.isAvailable ? 1 : 0.45)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: display.localizedCompactLabel())
+                                .opacity(display.isAvailable ? 1 : 0.45)
+                            // Only the radio and name dim; the reason stays readable.
                             if let unavailableReason = display.unavailableReason {
                                 Text(display.localizedUnavailableReason() ?? unavailableReason)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
@@ -313,7 +320,6 @@ struct TranscriptionChoiceSheet: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!display.isAvailable)
-                .opacity(display.isAvailable ? 1 : 0.45)
             }
         }
     }
@@ -1729,6 +1735,7 @@ struct NoteBrowserView: View {
             fileURL: url,
             currentChoice: appState.currentNoteBrowserTranscriptionChoice,
             apiStandardModelID: appState.transcriptionModel,
+            apiStandardModelIDs: appState.standardAPIModelIDs,
             hasAPIKey: appState.hasTranscriptionAPIKey,
             hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
             legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,

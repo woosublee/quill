@@ -279,6 +279,9 @@ struct AppStateTranscriptionConfigurationTests {
         testResolvedRetryChoiceFollowsTranscriptionOffPolicy()
         try await testPickedRetryModelLeavesTranscriptionSettingsUnchanged()
         try testPickedRetrySavesItsModelWithTheJob()
+        try await testOneTimeSheetRunsAndSavesAnyCloudModel()
+        try await testImportSavesAPickedCloudModelWithTheJob()
+        testImportPickedModelIDFollowsTheRetryRule()
         try await testStartupResumesAPickedCloudJobWithItsModel()
         try await testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing()
         try await testRetryPostProcessingDropsAResultAfterTheTranscriptChanged()
@@ -4482,6 +4485,269 @@ struct AppStateTranscriptionConfigurationTests {
         ) == nil)
     }
 
+    /// The one-time sheet lists every Cloud model the Settings picker lists,
+    /// and a Cloud model other than the saved one transcribes with that
+    /// model and is saved with its job, so a resume runs it too.
+    private static func testOneTimeSheetRunsAndSavesAnyCloudModel() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try FileManager.default.createDirectory(
+                at: environment.storageLayout.audioDirectory,
+                withIntermediateDirectories: true
+            )
+            resetDefaults()
+            defer { resetDefaults() }
+            let rawTranscript = "synthetic other cloud model transcript"
+            let otherModel = "whisper-large-v3-turbo"
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            let jobStore = CloudTranscriptionJobStore(
+                jobsDirectory: environment.storageLayout.cloudTranscriptionJobsDirectory,
+                temporaryRoot: environment.rootDirectory
+                    .appendingPathComponent("cloud-transcription/tmp", isDirectory: true)
+            )
+            let fileName = "retry-other-cloud-\(UUID().uuidString).wav"
+            // Over the upload ceiling, so it runs as a saved, chunked job.
+            try writeChunkedTestWAV(
+                at: environment.storageLayout.audioDirectory.appendingPathComponent(fileName)
+            )
+            let originalItem = retryHistoryItem(audioFileName: fileName)
+            _ = try store.append(originalItem, maxCount: 10)
+            let uploads = UploadedModelRecorder()
+            let savedPicks = UploadedModelRecorder()
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            dependencies.makeRetryCloudTranscriptionDependencies = {
+                recordingCloudDependencies(
+                    transcript: rawTranscript,
+                    modelIDs: ["whisper-large-v3", otherModel],
+                    uploads: uploads,
+                    onUpload: {
+                        let record = try? jobStore.load(historyID: originalItem.id)
+                        savedPicks.record(record?.resumeModel.pickedModelID ?? "none")
+                    }
+                )
+            }
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            await MainActor.run {
+                appState.transcriptionAPIKey = "transcription-key"
+                appState.transcriptionAPIURL = "https://api.example.com/openai/v1"
+                appState.disablePostProcessing = true
+                appState.setNoteBrowserTranscriptionChoice(
+                    .apiStandard(modelID: "whisper-large-v3")
+                )
+                appState.transcriptionEnabled = false
+                guard let options = appState.noteBrowserRetryOptions(for: originalItem) else {
+                    preconditionFailure("the note's audio is on this Mac")
+                }
+                let cloudChoices = options.displayRows
+                    .filter(\.choice.usesCloudAPI)
+                    .map(\.choice)
+                precondition(
+                    cloudChoices == appState.standardAPIModelIDs.map {
+                        .apiStandard(modelID: $0)
+                    },
+                    "the sheet lists the Settings picker's Cloud models"
+                )
+                precondition(cloudChoices.count > 1)
+                precondition(
+                    options.defaultChoice == .apiStandard(modelID: "whisper-large-v3"),
+                    "the saved model stays the default"
+                )
+                let picked = TranscriptionBackendChoice.apiStandard(modelID: otherModel)
+                precondition(options.isChoiceReady(picked))
+                appState.retryTranscription(item: originalItem, choice: picked)
+                precondition(appState.retryingItemIDs.contains(originalItem.id))
+            }
+
+            // A chunked job takes longer than the default wait.
+            await waitUntil(timeoutNanoseconds: 30_000_000_000) {
+                !appState.retryingItemIDs.contains(originalItem.id)
+            }
+            let item = try requireHistoryItem(
+                withID: originalItem.id,
+                in: store.loadAllHistory()
+            )
+            precondition(item.rawTranscript.contains(rawTranscript), "the picked Cloud model ran")
+            precondition(
+                !uploads.bodies.isEmpty
+                    && uploads.bodies.allSatisfy { $0 == otherModel },
+                "the audio went to the picked model, not the saved one"
+            )
+            precondition(
+                !savedPicks.bodies.isEmpty
+                    && savedPicks.bodies.allSatisfy { $0 == otherModel },
+                "the job saved the picked model for a resume"
+            )
+            await MainActor.run {
+                precondition(appState.transcriptionModel == "whisper-large-v3")
+                precondition(appState.transcriptionEnabled == false)
+            }
+
+            // A saved job on that model offers it to the next retry; before,
+            // only the saved model's row existed, so it was dropped.
+            let laterID = UUID()
+            let laterFileName = "\(laterID.uuidString).wav"
+            let laterAudioURL = environment.storageLayout.audioDirectory
+                .appendingPathComponent(laterFileName)
+            try writeTestWAV(at: laterAudioURL)
+            let laterRecord = try makeResumableCloudRecord(
+                historyID: laterID,
+                audioURL: laterAudioURL,
+                model: otherModel,
+                pickedModelID: otherModel
+            )
+            let laterSession = jobStore.beginSession(historyID: laterID)
+            try jobStore.create(laterRecord, session: laterSession)
+            jobStore.invalidateSession(historyID: laterID)
+            let laterItem = PipelineHistoryItem(
+                id: laterID,
+                timestamp: Date(timeIntervalSince1970: 3),
+                rawTranscript: "",
+                postProcessedTranscript: "",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+                aiProcessingOutcome: "succeeded",
+                debugStatus: "Cloud transcription in progress",
+                customVocabulary: "",
+                audioFileName: laterFileName,
+                usedLocalTranscription: false,
+                usedContextCapture: false,
+                usedPostProcessing: false,
+                transcriptionLanguageCode: "ko"
+            )
+            await MainActor.run {
+                precondition(
+                    appState.savedJobPickedChoice(for: laterItem)
+                        == .apiStandard(modelID: otherModel),
+                    "a saved job's picked Cloud model is offered again"
+                )
+            }
+        }
+    }
+
+    /// An import sheet pick of a Cloud model other than the saved one runs
+    /// that model and saves it with the job, like a one-time retry (#784).
+    private static func testImportSavesAPickedCloudModelWithTheJob() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try FileManager.default.createDirectory(
+                at: environment.storageLayout.audioDirectory,
+                withIntermediateDirectories: true
+            )
+            resetDefaults()
+            defer { resetDefaults() }
+            let rawTranscript = "synthetic imported transcript"
+            let otherModel = "whisper-large-v3-turbo"
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            let jobStore = CloudTranscriptionJobStore(
+                jobsDirectory: environment.storageLayout.cloudTranscriptionJobsDirectory,
+                temporaryRoot: environment.rootDirectory
+                    .appendingPathComponent("cloud-transcription/tmp", isDirectory: true)
+            )
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            let sourceURL = environment.rootDirectory.appendingPathComponent(
+                "import-other-cloud-\(UUID().uuidString).wav"
+            )
+            try writeChunkedTestWAV(at: sourceURL)
+            let uploads = UploadedModelRecorder()
+            let savedPicks = UploadedModelRecorder()
+            let originalImportDependencies =
+                AppState.audioImportCloudTranscriptionDependenciesFactory
+            defer {
+                AppState.audioImportCloudTranscriptionDependenciesFactory =
+                    originalImportDependencies
+            }
+            AppState.audioImportCloudTranscriptionDependenciesFactory = {
+                recordingCloudDependencies(
+                    transcript: rawTranscript,
+                    modelIDs: ["whisper-large-v3", otherModel],
+                    uploads: uploads,
+                    onUpload: {
+                        for item in store.loadAllHistory() {
+                            if let record = try? jobStore.load(historyID: item.id) {
+                                savedPicks.record(record.resumeModel.pickedModelID ?? "none")
+                            }
+                        }
+                    }
+                )
+            }
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            await MainActor.run {
+                appState.transcriptionAPIKey = "transcription-key"
+                appState.transcriptionAPIURL = "https://api.example.com/openai/v1"
+                appState.disablePostProcessing = true
+                appState.setNoteBrowserTranscriptionChoice(
+                    .apiStandard(modelID: "whisper-large-v3")
+                )
+                appState.importAudioFile(
+                    sourceURL,
+                    choice: .apiStandard(modelID: otherModel)
+                )
+            }
+
+            await waitUntil(timeoutNanoseconds: 30_000_000_000) {
+                store.loadAllHistory().contains { !$0.rawTranscript.isEmpty }
+            }
+            precondition(
+                store.loadAllHistory().contains { !$0.rawTranscript.isEmpty },
+                "the import finished"
+            )
+            precondition(
+                !uploads.bodies.isEmpty
+                    && uploads.bodies.allSatisfy { $0 == otherModel },
+                "the import went to the picked model"
+            )
+            precondition(
+                !savedPicks.bodies.isEmpty
+                    && savedPicks.bodies.allSatisfy { $0 == otherModel },
+                "the import job saved the picked model for a resume"
+            )
+            await MainActor.run {
+                precondition(appState.transcriptionModel == "whisper-large-v3")
+            }
+        }
+    }
+
+    private static func testImportPickedModelIDFollowsTheRetryRule() {
+        let saved = "whisper-large-v3"
+        let selected = TranscriptionBackendChoice.apiStandard(modelID: saved)
+        precondition(AppState.importPickedModelID(
+            choice: .apiStandard(modelID: "whisper-large-v3-turbo"),
+            selected: selected,
+            savedCloudModelID: saved
+        ) == "whisper-large-v3-turbo")
+        precondition(AppState.importPickedModelID(
+            choice: selected,
+            selected: selected,
+            savedCloudModelID: saved
+        ) == nil, "the selected model follows settings")
+        precondition(AppState.importPickedModelID(
+            choice: .apiStandard(modelID: saved),
+            selected: .apiRealtime(modelID: "synthetic-realtime-model"),
+            savedCloudModelID: saved
+        ) == nil, "the saved Cloud model follows settings while Realtime is selected")
+        precondition(AppState.importPickedModelID(
+            choice: .localAI(modelID: "synthetic-local-model"),
+            selected: selected,
+            savedCloudModelID: saved
+        ) == "synthetic-local-model")
+        precondition(AppState.importPickedModelID(
+            choice: .nativeWhisper(modelID: "base"),
+            selected: selected,
+            savedCloudModelID: saved
+        ) == nil, "Native Whisper keeps no job")
+    }
+
     /// #784: a cloud job interrupted while running a model picked for its
     /// note resumes at startup on that model, while settings select another
     /// model and stay unchanged. A job saved without a picked model (before
@@ -6148,6 +6414,15 @@ struct AppStateTranscriptionConfigurationTests {
         )
     }
 
+    /// Silent canonical WAV just over the 20MB upload ceiling, so a cloud
+    /// transcription chunks it and keeps a job.
+    private static func writeChunkedTestWAV(at url: URL) throws {
+        let dataByteCount = 20_480_000
+        var data = try CanonicalPCM16WAV.header(dataByteCount: UInt32(dataByteCount))
+        data.append(Data(count: dataByteCount))
+        try data.write(to: url)
+    }
+
     private static func writeTestWAV(at url: URL) throws {
         var data = try CanonicalPCM16WAV.header(dataByteCount: 8)
         for sample: Int16 in [1, 1, 2, 2] {
@@ -6189,6 +6464,33 @@ struct AppStateTranscriptionConfigurationTests {
             progress: { _ in },
             temporaryRoot: temporaryRoot,
             sleep: { _ in }
+        )
+    }
+
+    /// A synthetic upload that records which of `modelIDs` each request's
+    /// model field names, and calls `onUpload` before it answers.
+    private static func recordingCloudDependencies(
+        transcript: String,
+        modelIDs: [String],
+        uploads: UploadedModelRecorder,
+        onUpload: @escaping @Sendable () -> Void
+    ) -> CloudTranscriptionDependencies {
+        let cloud = successfulCloudDependencies(transcript: transcript)
+        let upload = cloud.upload
+        return CloudTranscriptionDependencies(
+            encodedUploadCeilingBytes: cloud.encodedUploadCeilingBytes,
+            upload: { request, body in
+                let named = modelIDs.first {
+                    body.range(of: Data("\r\n\r\n\($0)\r\n".utf8)) != nil
+                }
+                uploads.record(named ?? "unknown")
+                onUpload()
+                return try await upload(request, body)
+            },
+            checkpointStore: cloud.checkpointStore,
+            progress: cloud.progress,
+            temporaryRoot: cloud.temporaryRoot,
+            sleep: cloud.sleep
         )
     }
 
