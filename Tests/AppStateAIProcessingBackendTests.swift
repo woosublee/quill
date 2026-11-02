@@ -3755,16 +3755,35 @@ private enum TestLocalAILifecycleError: LocalizedError {
     }
 }
 
+/// Puts back this executable's own settings when the tests finish. Only its
+/// persistent domain: `dictionaryRepresentation()` also holds the global,
+/// argument, and registration domains (AppKit's text, spelling, and keyboard
+/// settings), and writing those back key by key copied system-owned keys,
+/// with whatever type they had at that moment, into this executable's
+/// settings while AppKit could be reading them (#783). One
+/// `setPersistentDomain` replaces the domain at once.
 private struct UserDefaultsSnapshot {
-    private let values = UserDefaults.standard.dictionaryRepresentation()
+    private static let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+    private let values: [String: Any]?
+
+    init() {
+        let defaults = UserDefaults.standard
+        // The name must be the domain `standard` writes to, or the restore would put back nothing.
+        let probeKey = "app_state_ai_processing_snapshot_probe"
+        defaults.set(true, forKey: probeKey)
+        precondition(
+            defaults.persistentDomain(forName: Self.domainName)?[probeKey] != nil,
+            "UserDefaultsSnapshot must name the domain UserDefaults.standard writes to"
+        )
+        defaults.removeObject(forKey: probeKey)
+        values = defaults.persistentDomain(forName: Self.domainName)
+    }
 
     func restore() {
-        let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where values[key] == nil {
-            defaults.removeObject(forKey: key)
-        }
-        for (key, value) in values {
-            defaults.set(value, forKey: key)
+        if let values {
+            UserDefaults.standard.setPersistentDomain(values, forName: Self.domainName)
+        } else {
+            UserDefaults.standard.removePersistentDomain(forName: Self.domainName)
         }
     }
 }
