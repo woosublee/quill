@@ -2,7 +2,7 @@ import SwiftUI
 import QuillDesignTokens
 import QuillNoteCore
 
-/// Settings › Recovery: deleted notes waiting out their 30 days.
+/// Settings › Recently Deleted: deleted notes waiting out their 30 days.
 struct RecentlyDeletedNotesSection: View {
     @EnvironmentObject private var appState: AppState
     /// Notes restored from this section, in the order they were restored.

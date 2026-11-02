@@ -35,7 +35,7 @@ struct HistoryUnavailableRecoveryActions: View {
             }
         }
         .confirmationDialog(
-            "Archive old history and open Recovery?",
+            "Archive old history and open Recently Deleted?",
             isPresented: $showsRecoveryArchiveConfirmation,
             titleVisibility: .visible
         ) {

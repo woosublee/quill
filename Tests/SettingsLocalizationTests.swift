@@ -436,6 +436,9 @@ struct SettingsLocalizationTests {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
             "Recently Deleted Notes": "최근 삭제된 노트",
+            "Recently Deleted": "최근 삭제",
+            "Archive and Open Recently Deleted": "보관하고 최근 삭제 열기",
+            "Archive old history and open Recently Deleted?": "이전 기록을 보관하고 최근 삭제를 열까요?",
             "Deleted notes stay here for 30 days, then they're removed for good.": "지운 노트는 30일 동안 여기 남아요. 그 뒤에는 완전히 지워져요.",
             "No recently deleted notes": "최근 삭제된 노트가 없어요",
             "Restore": "복구",
@@ -638,10 +641,10 @@ struct SettingsLocalizationTests {
             "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.":
                 "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지고 되돌릴 수 없어요.",
             "Deleting the entire note moves its recording, transcript, and summary to Recently Deleted. You can restore it for 30 days.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 최근 삭제된 노트로 옮겨져요. 30일 동안 복구할 수 있어요.",
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 최근 삭제로 옮겨져요. 30일 동안 복구할 수 있어요.",
             "Note deleted": "노트를 삭제했어요",
             "%lld notes deleted": "노트 %lld개를 삭제했어요",
-            "You can restore it from Recently Deleted for 30 days.": "30일 동안 최근 삭제된 노트에서 복구할 수 있어요.",
+            "You can restore it from Recently Deleted for 30 days.": "30일 동안 최근 삭제에서 복구할 수 있어요.",
             "Show Less": "접기",
             "Could not delete summary.": "요약을 삭제하지 못했어요.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":
