@@ -17,6 +17,10 @@ public struct NoteToolbarLabels {
     public var delete: String
     /// Optional accessibility hints, for VoiceOver.
     public var firstActionHint: (NoteToolbarFirstAction) -> String?
+    /// Why the first slot's action is off, when the app knows (#771: the
+    /// note's audio is still uploading). While the button is off it is the
+    /// Mac help tag and the VoiceOver hint; the label stays the action.
+    public var firstActionUnavailableReason: (NoteToolbarFirstAction) -> String?
     public var copyHint: String?
     public var saveHint: String?
     public var createSummaryHint: String?
@@ -31,6 +35,7 @@ public struct NoteToolbarLabels {
         createSummary: String,
         delete: String,
         firstActionHint: @escaping (NoteToolbarFirstAction) -> String? = { _ in nil },
+        firstActionUnavailableReason: @escaping (NoteToolbarFirstAction) -> String? = { _ in nil },
         copyHint: String? = nil,
         saveHint: String? = nil,
         createSummaryHint: String? = nil,
@@ -44,10 +49,23 @@ public struct NoteToolbarLabels {
         self.createSummary = createSummary
         self.delete = delete
         self.firstActionHint = firstActionHint
+        self.firstActionUnavailableReason = firstActionUnavailableReason
         self.copyHint = copyHint
         self.saveHint = saveHint
         self.createSummaryHint = createSummaryHint
         self.deleteHint = deleteHint
+    }
+
+    /// The first slot's Mac help tag: why it's off when the app says
+    /// (#771), else its label.
+    public func firstActionHelp(_ action: NoteToolbarFirstAction, isEnabled: Bool) -> String {
+        isEnabled ? firstAction(action) : firstActionUnavailableReason(action) ?? firstAction(action)
+    }
+
+    /// The first slot's VoiceOver hint: why it's off when the app says
+    /// (#771), else the app's hint.
+    public func firstActionHint(_ action: NoteToolbarFirstAction, isEnabled: Bool) -> String? {
+        isEnabled ? firstActionHint(action) : firstActionUnavailableReason(action) ?? firstActionHint(action)
     }
 }
 
@@ -147,7 +165,8 @@ public struct NoteFloatingToolbar: View {
                     action: { actions.firstAction(action) },
                     isEnabled: isEnabled,
                     label: labels.firstAction(action),
-                    hint: labels.firstActionHint(action)
+                    hint: labels.firstActionHint(action, isEnabled: isEnabled),
+                    help: labels.firstActionHelp(action, isEnabled: isEnabled)
                 ) {
                     icon(firstSlotSymbol(action), color: firstSlotColor(action, isEnabled: isEnabled))
                 }
@@ -260,6 +279,8 @@ struct NoteToolbarIconButton<Label: View>: View {
     let isEnabled: Bool
     let label: String
     var hint: String?
+    /// The Mac help tag, when it isn't the label.
+    var help: String?
     @ViewBuilder let content: () -> Label
 
     @State private var isHovered = false
@@ -279,7 +300,7 @@ struct NoteToolbarIconButton<Label: View>: View {
         .buttonStyle(NoteToolbarButtonStyle(isHovered: isHovered && isEnabled))
         .disabled(!isEnabled)
         #if os(macOS)
-        .help(label)
+        .help(help ?? label)
         #endif
         .accessibilityLabel(Text(label))
         .modifier(NoteToolbarHint(hint: hint))

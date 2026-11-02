@@ -136,6 +136,14 @@ struct NoteAudioDownloaderTests {
         precondition(NoteAudioState.unavailable(.syncOff).barStatus == "Sync off")
         precondition(NoteAudioState.unavailable(.offline).barStatus == nil && NoteAudioState.unavailable(.failed).barStatus == nil)
         precondition(NoteAudioState.downloadable.barStatus == nil)
+        // Audio on its way keeps Retranscribe, dimmed (#771); a reachable or
+        // missing one doesn't count.
+        precondition(NoteAudioState.unavailable(.notUploadedYet).isAwaited)
+        precondition(NoteAudioState.unavailable(.syncOff).isAwaited)
+        for state in [NoteAudioState.none, .local, .downloadable, .downloading(0.5),
+                      .unavailable(.offline), .unavailable(.failed)] {
+            precondition(!state.isAwaited, "\(state)")
+        }
         precondition(NoteAudioState.unavailable(.offline).failureToast != nil && NoteAudioState.unavailable(.failed).failureToast != nil)
         precondition(NoteAudioState.unavailable(.syncOff).failureToast == nil && NoteAudioState.downloadable.failureToast == nil)
     }
