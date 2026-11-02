@@ -79,12 +79,12 @@ iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4
 | 상세 본문 위 여백 | 32 | 24 | 32 |
 | `size-note-row` | 80 고정 | 고정 높이. 견본 글자로 메타 1줄 + 제목 1줄 + 미리보기 2줄 높이를 잡고 글자 크기를 따라 커짐. 위아래 9 | 80 |
 | 노트 행 폭 | 사이드바 안 `radius-8` 행 | 화면 폭 가득, 0.5pt 구분선도 끝까지 | 사이드바 안 `radius-8` 행 |
-| `size-sidebar-notes` | 280 | — | 280(macOS와 같음, 2026-10-31 결정) |
+| `size-sidebar-notes` / `size-sidebar-notes-iphone` | 280 | — | 320(`size-sidebar-notes-iphone`, quill-universal-private#306 2026-11-02 결정). 바탕 `surface-sidebar-iphone`, 노트 열과 1pt 구분선 |
 | `size-sidebar-settings` | 180 | — | 320 |
-| `size-record-button` / `size-record-button-iphone` | 44 | 56(`size-record-button-iphone`)에서 시작해 글자 크기를 따라 커짐, 최대 88 | 44(사이드바 아래) |
+| `size-record-button` / `size-record-button-iphone` | 44 | 56(`size-record-button-iphone`)에서 시작해 글자 크기를 따라 커짐, 최대 88 | 44(macOS 값 `size-record-button`. 목록이 노트 옆일 때 목록 열 아래, macOS와 같은 버튼. `QuillNoteLayout.recordingControl`, quill-universal-private#306) |
 | `AudioPlayer` 높이 | 72 | 최소 72(접근성 크기 88), 반경 16 | 72 |
 | `NoteToolbar` 높이 | 48 | 48 | 48 |
-| 녹음 막대 | 오버레이 높이 `size-overlay-height` | 한 줄 캡슐, 반경 30, 안쪽 8 | 사이드바 아래 |
+| 녹음 막대 | 오버레이 높이 `size-overlay-height` | 한 줄 캡슐, 반경 30, 안쪽 8 | 목록이 노트 옆(wide 창)이면 없음: 녹음 버튼 하나(녹음 중 주황 + 흰 정지 사각형), 시간은 목록 행 REC 표시(quill-universal-private#306). 좁은 창(목록 따로)은 iPhone과 같은 막대 |
 
 iOS 반경: 입력란·행 눌림 면 `Radius.field` 10, 오디오 카드 `Radius.object` 16, 안내 패널 `Radius.shelf` 20, 녹음 막대 30, 배너 9. 설정 목록은 `insetGrouped` 기본 모양을 씁니다.
 
@@ -222,7 +222,7 @@ iPhone Duo 값은 추정입니다. 안쪽 7.58"와 바깥 5.36" 화면의 비율
 
 `QuillNoteUI`의 `QuillNoteLayout(windowWidth:isHeightCompact:noteColumnWidth:)`가 아래 규칙을 답합니다. 노트 열을 따로 재지 않으면 `QuillNoteLayout(windowWidth:isHeightCompact:)`가 창 폭에서 목록 열을 빼서 씁니다. 목록을 노트 옆에 둘지는 **창 폭**으로, 노트 안의 배치는 **노트 열의 폭**으로 정합니다.
 
-- **목록을 노트 옆에**(`showsListBesideNote`): 창이 wide(≥ 800)이고 높이가 compact가 아닐 때만. 목록 열 폭은 `size-sidebar-notes` 280(`QuillNoteLayout.listColumnWidth`)으로 macOS와 iPad가 같습니다. iPhone 가로처럼 높이가 compact이면(Apple의 vertical size class) 폭이 800을 넘어도 한 열입니다. 그 밖에는 목록과 노트가 따로 된 화면입니다.
+- **목록을 노트 옆에**(`showsListBesideNote`): 창이 wide(≥ 800)이고 높이가 compact가 아닐 때만. 목록 열 폭은 `QuillNoteLayout.listColumnWidth`로 macOS는 `size-sidebar-notes` 280, iPad는 `size-sidebar-notes-iphone` 320입니다(quill-universal-private#306). 800pt 창의 iPad는 노트 열이 480(compact), iPad Air 11" 세로(820)는 500(compact), iPad mini 가로(1133)는 813(wide)입니다. iPhone 가로처럼 높이가 compact이면(Apple의 vertical size class) 폭이 800을 넘어도 한 열입니다. 그 밖에는 목록과 노트가 따로 된 화면입니다.
 
 | 노트 열 | 좌우 여백(`noteSideMargin`) | 본문 폭(`bodyMaxWidth`) |
 | --- | --- | --- |

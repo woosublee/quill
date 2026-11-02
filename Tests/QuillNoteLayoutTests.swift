@@ -14,6 +14,7 @@ struct QuillNoteLayoutTests {
         testColumnWidthFromTheWindow()
         testWidthsBeforeLayout()
         testListColumnWidthIsTheMacSidebar()
+        testRecordingControlFollowsTheListPlacement()
         print("QuillNoteLayoutTests passed")
     }
 
@@ -112,5 +113,27 @@ struct QuillNoteLayoutTests {
     private static func testListColumnWidthIsTheMacSidebar() {
         precondition(QuillNoteLayout.listColumnWidth == 280)
         precondition(QuillNoteLayout.listColumnWidth == QuillLayoutSize.sidebarNotes)
+    }
+
+    /// quill-universal-private#306: the list beside the note records with the Mac's floating
+    /// button; one column keeps the recorder bar. iPad Air 11" portrait
+    /// (820) and iPad mini landscape (1133) show the list; iPad mini
+    /// portrait (744) and a phone in landscape don't.
+    private static func testRecordingControlFollowsTheListPlacement() {
+        let expected: [(String, CGFloat, Bool, QuillRecordingControl)] = [
+            ("iPhone portrait", 402, false, .recorderBar),
+            ("iPhone landscape", 874, true, .recorderBar),
+            ("iPad mini portrait", 744, false, .recorderBar),
+            ("just below wide", QuillBreakpoint.wide - 0.5, false, .recorderBar),
+            ("narrowest wide window", QuillBreakpoint.wide, false, .floatingRecordButton),
+            ("iPad Air 11-inch portrait", 820, false, .floatingRecordButton),
+            ("iPad mini landscape", 1133, false, .floatingRecordButton),
+            ("iPad Pro 13-inch landscape", 1376, false, .floatingRecordButton),
+            ("before layout", 0, false, .recorderBar),
+        ]
+        for (name, width, compactHeight, control) in expected {
+            precondition(QuillNoteLayout.recordingControl(windowWidth: width, isHeightCompact: compactHeight) == control, "\(name) (\(width) pt)")
+            precondition(QuillNoteLayout(windowWidth: width, isHeightCompact: compactHeight).recordingControl == control, "\(name) (\(width) pt), init")
+        }
     }
 }

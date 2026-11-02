@@ -1,3 +1,3 @@
 # PadNotes
 
-iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 사이드바 280(`size-sidebar-notes`), 녹음 버튼 44, 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 창 폭이 800보다 좁으면 목록과 노트가 따로 된 화면입니다(`QuillNoteLayout`). iPad 앱은 아직 없습니다.
+iPad 노트 화면 제안입니다(정적 재현). `NavigationSplitView` 두 열 — macOS 노트 브라우저와 같은 구조(상세 머리에 오디오 카드, 아래 가운데 `NoteToolbar`), 목록 열 320(`size-sidebar-notes-iphone`, quill-universal-private#306)에 바탕 `surface-sidebar-iphone`과 1pt 구분선, 목록 열 아래 녹음 버튼 44(macOS `size-record-button`, 녹음 막대 없음), 본문 최대 폭 680. 선택 행은 macOS와 같은 `fill-selected` 카드(결정할 것 2번). 창 폭이 800보다 좁으면 목록과 노트가 따로 된 화면입니다(`QuillNoteLayout`). iPad 앱은 아직 없습니다.
