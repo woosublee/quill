@@ -8,6 +8,7 @@ struct CloudTranscriptionHistoryCoordinatorTests {
         do {
             try replacementCancelsOldTaskAndRejectsOldSession()
             try localRecordsResumeOnlyWithMatchingLocalIdentity()
+            try pickedJobsResumeWithThePickedModelAtStartup()
             try duplicateInstallForSameSessionKeepsOriginalTask()
             try staleProgressAndFinishCannotReplaceCurrentState()
             try activeSessionCheckRejectsReplacedAndCancelledSessions()
@@ -517,6 +518,159 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             Set(planFields.waitingForRetry.map(\.historyID)),
             [unsized.historyID, unsearched.historyID],
             "local plan-field mismatches wait"
+        )
+    }
+
+    /// #784: a job that saved the model picked for its note is compared
+    /// with that model at startup, not the selected one. A job saved without
+    /// a picked model (every job before #784) still compares with the
+    /// selected model.
+    private static func pickedJobsResumeWithThePickedModelAtStartup() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let base = makeRecord()
+        func cloudRuntime(model: String, apiKey: String = "test-key") throws -> CloudTranscriptionExecutionSnapshot {
+            try CloudTranscriptionExecutionSnapshot(
+                baseURL: "https://api.example.invalid/openai/v1",
+                apiKey: apiKey,
+                model: model,
+                language: base.identity.language,
+                responseFormat: base.identity.responseFormat,
+                encodedUploadCeilingBytes: base.plan.encodedUploadCeilingBytes
+            )
+        }
+        let selected = try cloudRuntime(model: "selected-model")
+        let pickedRuntime = try cloudRuntime(model: "picked-model")
+        func cloudJob(pickedModelID: String?) -> CloudTranscriptionJobRecord {
+            CloudTranscriptionJobRecord(
+                schemaVersion: base.schemaVersion,
+                historyID: UUID(),
+                createdAt: base.createdAt,
+                updatedAt: base.updatedAt,
+                phase: base.phase,
+                identity: CloudTranscriptionJobIdentity(
+                    providerID: selected.providerID,
+                    model: "picked-model",
+                    language: base.identity.language,
+                    responseFormat: base.identity.responseFormat,
+                    source: base.identity.source,
+                    planID: base.plan.planID
+                ),
+                plan: base.plan,
+                completedChunks: [],
+                firstIncompleteChunkIndex: 0,
+                lastFailure: nil,
+                completionPolicy: base.completionPolicy,
+                pickedModelID: pickedModelID
+            )
+        }
+        let picked = cloudJob(pickedModelID: "picked-model")
+        let older = cloudJob(pickedModelID: nil)
+        let reconciler = CloudTranscriptionStartupReconciler(
+            store: fixture.store,
+            audioRoot: fixture.root
+        )
+        let jobs = CloudTranscriptionReconciliation(
+            resumable: [picked, older],
+            waitingForRetry: [],
+            invalid: []
+        )
+
+        let resumed = reconciler.reconcile(jobs, runtime: selected) { record in
+            .cloud(record.pickedModelID == nil ? nil : pickedRuntime)
+        }
+        try expectEqual(
+            resumed.resumable.map(\.historyID),
+            [picked.historyID],
+            "the picked cloud job resumes on its own model"
+        )
+        try expectEqual(
+            resumed.waitingForRetry.map(\.historyID),
+            [older.historyID],
+            "a job without a picked model still compares with the selected one"
+        )
+
+        let noSetup = reconciler.reconcile(jobs, runtime: selected)
+        try expect(
+            noSetup.resumable.isEmpty,
+            "a picked job waits when nothing can run its model"
+        )
+        let noKey = try cloudRuntime(model: "picked-model", apiKey: " ")
+        let selectedNoKey = try cloudRuntime(model: "selected-model", apiKey: " ")
+        let withoutKey = reconciler.reconcile(jobs, runtime: selectedNoKey) { _ in .cloud(noKey) }
+        try expect(
+            withoutKey.resumable.isEmpty,
+            "a picked cloud job waits without an API key"
+        )
+
+        // Local AI: the job picked one model while settings select another.
+        var localPlan = base.plan
+        localPlan.sizing = .rawWAV
+        localPlan.silenceSearchFrameCount = 320_000
+        let localPicked = CloudTranscriptionJobRecord(
+            schemaVersion: base.schemaVersion,
+            historyID: UUID(),
+            createdAt: base.createdAt,
+            updatedAt: base.updatedAt,
+            phase: base.phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: CloudTranscriptionJobIdentity.localAIProviderID(
+                    packageDigest: "picked-digest"
+                ),
+                model: "picked-local-model",
+                language: nil,
+                responseFormat: "chat-completions-input-audio",
+                source: base.identity.source,
+                planID: localPlan.planID
+            ),
+            plan: localPlan,
+            completedChunks: [],
+            firstIncompleteChunkIndex: 0,
+            lastFailure: nil,
+            completionPolicy: base.completionPolicy,
+            pickedModelID: "picked-local-model"
+        )
+        let pickedLocal = LocalAITranscriptionResumeIdentity(
+            providerID: localPicked.identity.providerID,
+            model: localPicked.identity.model,
+            language: nil,
+            responseFormat: localPicked.identity.responseFormat,
+            ceilingBytes: localPlan.encodedUploadCeilingBytes,
+            silenceSearchFrameCount: 320_000
+        )
+        let selectedLocal = LocalAITranscriptionResumeIdentity(
+            providerID: CloudTranscriptionJobIdentity.localAIProviderID(
+                packageDigest: "selected-digest"
+            ),
+            model: "selected-local-model",
+            language: nil,
+            responseFormat: pickedLocal.responseFormat,
+            ceilingBytes: pickedLocal.ceilingBytes,
+            silenceSearchFrameCount: pickedLocal.silenceSearchFrameCount
+        )
+        let localJobs = CloudTranscriptionReconciliation(
+            resumable: [localPicked],
+            waitingForRetry: [],
+            invalid: []
+        )
+        let localResumed = reconciler.reconcile(
+            localJobs,
+            runtime: selected,
+            localAI: selectedLocal
+        ) { _ in .localAI(pickedLocal) }
+        try expectEqual(
+            localResumed.resumable.map(\.historyID),
+            [localPicked.historyID],
+            "the picked Local AI job resumes on its own model"
+        )
+        let localUnavailable = reconciler.reconcile(
+            localJobs,
+            runtime: selected,
+            localAI: selectedLocal
+        ) { _ in .localAI(nil) }
+        try expect(
+            localUnavailable.resumable.isEmpty,
+            "a picked Local AI job waits when its model can't run, never switching to the selected one"
         )
     }
 

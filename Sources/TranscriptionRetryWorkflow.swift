@@ -74,6 +74,10 @@ struct TranscriptionRetryWorkflowRequest {
     /// Keeps a successful result as a candidate instead of saving it, so the
     /// person can compare it with the current transcript first (#457).
     var deliversCandidate = false
+    /// The model picked for this note only (settings unchanged), saved with
+    /// the job so a resume after a relaunch uses it (#784). Nil when the
+    /// retry runs the selected model.
+    var pickedModelID: String? = nil
 }
 
 /// A new transcript waiting for the person to keep it or not.
@@ -100,6 +104,23 @@ struct TranscriptionRetryStartupInput {
     /// jobs resume only when it matches the stored job.
     var localAIExecution: LocalTranscriptionExecutionSnapshot? = nil
     var localAIResumeIdentity: LocalAITranscriptionResumeIdentity? = nil
+    /// The cloud setup for a job that saved a model picked for its note
+    /// (#784): the current provider with that model and the note's stored
+    /// language (what the retry that saved it used), or nil when it can't
+    /// run now. Takes the model ID and the note's language code.
+    var pickedCloudRuntime:
+        @MainActor (String, String) -> CloudTranscriptionExecutionSnapshot? = { _, _ in nil }
+    /// The Local AI setup for a job that saved a Local AI model picked for
+    /// its note (#784), with the note's stored language, or nil when that
+    /// model can't run now.
+    var pickedLocalAI:
+        @MainActor (String, String) -> TranscriptionRetryStartupLocalAI? = { _, _ in nil }
+}
+
+/// A Local AI setup a saved job can resume on at startup.
+struct TranscriptionRetryStartupLocalAI {
+    let execution: LocalTranscriptionExecutionSnapshot
+    let resumeIdentity: LocalAITranscriptionResumeIdentity
 }
 
 struct TranscriptionRetryHistoryAccess {
@@ -352,13 +373,39 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         input: TranscriptionRetryStartupInput,
         runtime: TranscriptionRetryWorkflowRuntime
     ) {
+        // A job that saved a model picked for its note resumes on that
+        // model, not the selected one (#784).
+        let languageCodeByID = Dictionary(
+            input.history.map { ($0.id, $0.transcriptionLanguageCode) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var pickedCloud: [UUID: CloudTranscriptionExecutionSnapshot] = [:]
+        var pickedLocalAI: [UUID: TranscriptionRetryStartupLocalAI] = [:]
+        for record in input.reconciliation.resumable {
+            guard let modelID = record.resumeModel.pickedModelID,
+                  let languageCode = languageCodeByID[record.historyID] else { continue }
+            switch record.identity.backend {
+            case .cloud:
+                pickedCloud[record.historyID] = input.pickedCloudRuntime(modelID, languageCode)
+            case .localAI:
+                pickedLocalAI[record.historyID] = input.pickedLocalAI(modelID, languageCode)
+            }
+        }
         let reconciliation = CloudTranscriptionStartupReconciler(
             store: runtime.cloud.jobStore,
             audioRoot: input.audioDirectory
         ).reconcile(
             input.reconciliation,
             runtime: input.runtime,
-            localAI: input.localAIResumeIdentity
+            localAI: input.localAIResumeIdentity,
+            picked: { record in
+                switch record.identity.backend {
+                case .cloud:
+                    return .cloud(pickedCloud[record.historyID])
+                case .localAI:
+                    return .localAI(pickedLocalAI[record.historyID]?.resumeIdentity)
+                }
+            }
         )
         let historyByID = Dictionary(
             input.history.map { ($0.id, $0) },
@@ -383,19 +430,30 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             let failureContext: TranscriptionRetryFailureContext
             let usedLocalTranscription: Bool
             let localTranscriptionModelID: String
+            let isPicked = record.resumeModel.pickedModelID != nil
             switch record.identity.backend {
             case .cloud:
-                execution = .cloud(input.runtime, completion)
+                let cloud: CloudTranscriptionExecutionSnapshot
+                if isPicked {
+                    guard let picked = pickedCloud[record.historyID] else { continue }
+                    cloud = picked
+                } else {
+                    cloud = input.runtime
+                }
+                execution = .cloud(cloud, completion)
                 failureContext = TranscriptionRetryFailureContext(
                     fallbackCode: .providerConfigurationInvalid,
-                    providerHost: input.runtime.baseURL.host,
-                    modelID: input.runtime.model,
+                    providerHost: cloud.baseURL.host,
+                    modelID: cloud.model,
                     localBackend: nil
                 )
                 usedLocalTranscription = false
                 localTranscriptionModelID = item.localTranscriptionModelID
             case .localAI(let modelID):
-                guard let local = input.localAIExecution,
+                let resumeLocal = isPicked
+                    ? pickedLocalAI[record.historyID]?.execution
+                    : input.localAIExecution
+                guard let local = resumeLocal,
                       local.localAIExecution != nil else {
                     continue
                 }
@@ -445,6 +503,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             // the resumed result waits to be compared, never replacing that
             // transcript unasked (#457). A first transcript is just saved.
             request.deliversCandidate = Self.hasTranscriptText(item)
+            request.pickedModelID = record.resumeModel.pickedModelID
             _ = start(
                 request: request,
                 runtime: runtime,
@@ -617,7 +676,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             session: session,
             checkpointStore: store.checkpointStore(
                 session: session,
-                completionPolicy: completion.cloudJobPolicy
+                completionPolicy: completion.cloudJobPolicy,
+                pickedModelID: request.pickedModelID
             ),
             progress: { [weak self] progress in
                 Task { @MainActor [weak self] in

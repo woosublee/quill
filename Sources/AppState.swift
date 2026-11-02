@@ -10118,6 +10118,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !retryingItemIDs.contains(item.id) else { return }
+        // A retry without a pick continues a saved one-time job on the model
+        // picked for this note, like a resume after a relaunch (#784).
+        let choice = choice ?? savedJobPickedChoice(for: item)
         if let choice {
             guard noteBrowserRetryOptions(for: item)?.isChoiceReady(choice) == true else { return }
         } else {
@@ -10312,6 +10315,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The model a saved job was picked to run for this note (#784), when it
+    /// can run now; nil for a job on the selected model, an older job, or
+    /// a picked model that isn't ready.
+    @MainActor
+    func savedJobPickedChoice(for item: PipelineHistoryItem) -> TranscriptionBackendChoice? {
+        guard let record = try? cloudTranscriptionJobStore.load(historyID: item.id),
+              let modelID = record.resumeModel.pickedModelID else { return nil }
+        let choice: TranscriptionBackendChoice
+        switch record.identity.backend {
+        case .cloud:
+            choice = .apiStandard(modelID: modelID)
+        case .localAI:
+            choice = .localAI(modelID: modelID)
+        }
+        guard noteBrowserRetryOptions(for: item)?.isChoiceReady(choice) == true else {
+            return nil
+        }
+        return choice
+    }
+
     @MainActor
     private func transcriptionRetryWorkflowRequest(
         for item: PipelineHistoryItem,
@@ -10460,8 +10483,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     ?? configuration.localTranscriptionModel.id,
                 successDebugStatus: "Retried"
             ),
-            failureContext: failureContext
+            failureContext: failureContext,
+            pickedModelID: Self.retryPickedModelID(
+                choice: choice,
+                selected: currentNoteBrowserTranscriptionChoice,
+                execution: execution
+            )
         )
+    }
+
+    /// The model a one-time retry saves with its job (#784): the model
+    /// picked for this note, so a resume after a relaunch uses it instead of
+    /// the selected one. Nil for a retry with the selected model (picked or
+    /// not) and for models that keep no job (Native Whisper, legacy MLX).
+    static func retryPickedModelID(
+        choice: TranscriptionBackendChoice?,
+        selected: TranscriptionBackendChoice,
+        execution: TranscriptionExecutionSnapshot
+    ) -> String? {
+        guard let choice, choice != selected else { return nil }
+        switch execution {
+        case .cloud(let cloud, _):
+            return cloud.model
+        case .local(let local, _):
+            return local.localAIExecution?.modelID
+        }
     }
 
     @MainActor
@@ -14111,18 +14157,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         // The reconciler leaves cloud jobs waiting when no API key is set, so
         // Local AI jobs can still resume without one.
-        let resumeLocalAI = localAITranscriptionExecutionSnapshot(
-            for: currentNoteBrowserTranscriptionChoice
+        let resumeLocal = startupLocalAI(
+            for: currentNoteBrowserTranscriptionChoice,
+            language: transcriptionLanguage
         )
-        let resumeLocalExecution = resumeLocalAI.map {
-            LocalTranscriptionExecutionSnapshot(
-                model: localTranscriptionModel,
-                localWhisperPath: nil,
-                useLegacyMlxWhisper: false,
-                language: transcriptionLanguage,
-                localAIExecution: $0
-            )
-        }
         var input = TranscriptionRetryStartupInput(
             reconciliation: reconciliation,
             runtime: runtime,
@@ -14165,13 +14203,51 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
         )
-        input.localAIExecution = resumeLocalExecution
-        input.localAIResumeIdentity = resumeLocalAI?.resumeIdentity(
-            language: transcriptionLanguage.whisperArgument
-        )
+        input.localAIExecution = resumeLocal?.execution
+        input.localAIResumeIdentity = resumeLocal?.resumeIdentity
+        // A job that saved a model picked for its note resumes on it with the
+        // current provider and the note's stored language, as the retry that
+        // saved it ran, never on the selected model (#784).
+        input.pickedCloudRuntime = { modelID, languageCode in
+            try? CloudTranscriptionExecutionSnapshot(
+                baseURL: runtime.baseURL.absoluteString,
+                apiKey: runtime.apiKey,
+                model: modelID,
+                language: TranscriptionLanguage.find(code: languageCode).whisperArgument,
+                encodedUploadCeilingBytes: runtime.encodedUploadCeilingBytes
+            )
+        }
+        input.pickedLocalAI = { [weak self] modelID, languageCode in
+            self?.startupLocalAI(
+                for: .localAI(modelID: modelID),
+                language: TranscriptionLanguage.find(code: languageCode)
+            )
+        }
         transcriptionRetryWorkflow.resumeAtStartup(
             input: input,
             runtime: transcriptionRetryWorkflowRuntime()
+        )
+    }
+
+    /// The Local AI setup a saved job resumes on at startup, or nil when
+    /// `choice` isn't a Local AI model.
+    @MainActor
+    private func startupLocalAI(
+        for choice: TranscriptionBackendChoice,
+        language: TranscriptionLanguage
+    ) -> TranscriptionRetryStartupLocalAI? {
+        guard let local = localAITranscriptionExecutionSnapshot(for: choice) else {
+            return nil
+        }
+        return TranscriptionRetryStartupLocalAI(
+            execution: LocalTranscriptionExecutionSnapshot(
+                model: localTranscriptionModel,
+                localWhisperPath: nil,
+                useLegacyMlxWhisper: false,
+                language: language,
+                localAIExecution: local
+            ),
+            resumeIdentity: local.resumeIdentity(language: language.whisperArgument)
         )
     }
 

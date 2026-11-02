@@ -16,6 +16,8 @@ struct TranscriptionRetryWorkflowTests {
         try await testManualRejectsInMemoryHistoryBeforeStateMutation()
         try await testLocalAIManualRetryGetsJobStoreContext()
         try await testLocalAIStartupResumeUsesLocalExecution()
+        try await testPickedCloudJobResumesOnItsModelAtStartup()
+        try await testPickedLocalAIJobResumesOnItsModelAtStartup()
         try await testLocalAIRecordWaitsWhenLocalModelChanged()
         try await testManualSuccessPersistsBeforeEffectsAndDelivery()
         try await testManualFallbackUsesFallbackOutcome()
@@ -3208,6 +3210,142 @@ struct TranscriptionRetryWorkflowTests {
         )
     }
 
+    /// #784: a cloud job that saved the model picked for its note resumes on
+    /// that model at startup, though settings select another; the same job
+    /// saved without a picked model (before #784) waits.
+    @MainActor
+    private static func testPickedCloudJobResumesOnItsModelAtStartup() async throws {
+        for picked in [true, false] {
+            let fixture = try makeFixture()
+            defer { fixture.cleanup() }
+            let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
+            var pickedConfiguration = defaultCloudConfiguration(fixture: fixture)
+            pickedConfiguration.model = "picked-model"
+            let pickedState = try makeCloudState(
+                historyID: item.id,
+                fixture: fixture,
+                configuration: pickedConfiguration
+            )
+            var record = pickedState.record
+            record.pickedModelID = picked ? "picked-model" : nil
+            try createStoredRecord(record, in: fixture.jobStore)
+            let selectedState = try makeCloudState(
+                historyID: UUID(),
+                fixture: fixture,
+                configuration: defaultCloudConfiguration(fixture: fixture)
+            )
+            let captured = TranscriptionRetryExecutionRecorder()
+            let events = TranscriptionRetryEventRecorder()
+            let workflow = TranscriptionRetryWorkflow(
+                dependencies: TranscriptionRetryWorkflowDependencies(
+                    transcribe: { execution, _, _, context in
+                        await captured.record(execution: execution, hasContext: context != nil)
+                        return transcriptionResult(text: "resumed picked")
+                    },
+                    makeAttemptToken: { UUID() }
+                )
+            )
+            workflow.onEvent = events.record
+            let processing = TranscriptionRetryStartupProcessingRecorder(
+                result: processingResult(raw: "resumed picked", final: "resumed picked")
+            )
+            var input = try makeStartupInput(
+                cloud: TranscriptionRetryCloudTestState(
+                    record: record,
+                    execution: selectedState.execution
+                ),
+                item: item,
+                fixture: fixture,
+                processing: processing
+            )
+            let pickedRuntime = try requireCloudRuntime(pickedState.execution)
+            var askedFor: [String] = []
+            input.pickedCloudRuntime = { modelID, _ in
+                askedFor.append(modelID)
+                return modelID == "picked-model" ? pickedRuntime : nil
+            }
+
+            let history = TranscriptionRetryHistoryRecorder(item: item)
+            let assets = TranscriptionRetryAssetRecorder()
+            workflow.resumeAtStartup(
+                input: input,
+                runtime: fixture.runtime(
+                    history: history.access(),
+                    assets: assets.access()
+                )
+            )
+
+            if picked {
+                try await waitUntil { events.outcomes.count == 1 }
+                try expectEqual(await captured.models(), ["picked-model"], "picked cloud job runs its own model")
+                try expectEqual(askedFor, ["picked-model"], "startup asks for the picked model's setup")
+            } else {
+                try await Task.sleep(nanoseconds: 200_000_000)
+                try expectEqual(await captured.models(), [], "an older job on another model waits")
+                try expectEqual(askedFor, [], "an older job never asks for a picked setup")
+            }
+        }
+    }
+
+    /// #784: a Local AI job that saved the model picked for its note resumes
+    /// on it while settings select another Local AI model.
+    @MainActor
+    private static func testPickedLocalAIJobResumesOnItsModelAtStartup() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
+        var record = try makeLocalAIRecord(historyID: item.id, fixture: fixture)
+        record.pickedModelID = record.identity.model
+        try createStoredRecord(record, in: fixture.jobStore)
+        let captured = TranscriptionRetryExecutionRecorder()
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: TranscriptionRetryWorkflowDependencies(
+                transcribe: { execution, _, _, context in
+                    await captured.record(execution: execution, hasContext: context != nil)
+                    return transcriptionResult(text: "resumed local")
+                },
+                makeAttemptToken: { UUID() }
+            )
+        )
+        workflow.onEvent = events.record
+        let selected = fakeLocalAISnapshot(digest: "selected")
+        var input = try makeLocalAIStartupInput(
+            record: record,
+            item: item,
+            fixture: fixture,
+            processing: TranscriptionRetryStartupProcessingRecorder(
+                result: processingResult(raw: "resumed local", final: "resumed local")
+            ),
+            localIdentity: selected.resumeIdentity(language: "en"),
+            localDigest: "selected"
+        )
+        input.pickedLocalAI = { modelID, _ in
+            guard modelID == record.identity.model else { return nil }
+            return TranscriptionRetryStartupLocalAI(
+                execution: makeLocalAIExecution(),
+                resumeIdentity: fakeLocalAISnapshot().resumeIdentity(language: "en")
+            )
+        }
+
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let assets = TranscriptionRetryAssetRecorder()
+        workflow.resumeAtStartup(
+            input: input,
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: assets.access()
+            )
+        )
+
+        try await waitUntil { events.outcomes.count == 1 }
+        try expectEqual(
+            await captured.summary(),
+            ["local-ai:digest context:true"],
+            "picked Local AI job runs its own package, not the selected one"
+        )
+    }
+
     @MainActor
     private static func testLocalAIRecordWaitsWhenLocalModelChanged() async throws {
         let fixture = try makeFixture()
@@ -4158,19 +4296,26 @@ private actor TranscriptionRetryCloudContextRecorder {
 
 private actor TranscriptionRetryExecutionRecorder {
     private var recorded: [String] = []
+    private var recordedModels: [String] = []
 
     func record(execution: TranscriptionExecutionSnapshot, hasContext: Bool) {
         switch execution {
-        case .cloud:
+        case .cloud(let cloud, _):
             recorded.append("cloud context:\(hasContext)")
+            recordedModels.append(cloud.model)
         case .local(let local, _):
             let provider = local.localAIExecution?.providerID ?? "local"
             recorded.append("\(provider) context:\(hasContext)")
+            recordedModels.append(local.localAIExecution?.modelID ?? local.model.id)
         }
     }
 
     func summary() -> [String] {
         recorded
+    }
+
+    func models() -> [String] {
+        recordedModels
     }
 }
 

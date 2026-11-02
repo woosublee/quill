@@ -70,6 +70,8 @@ otherwise.
   cloud or local AI transcription job resumes, starts over, or waits for a
   retry under the current settings (`CloudTranscriptionResumeDecision`; the
   Mac fills its identities in `Sources/CloudTranscriptionResumeIdentity.swift`),
+  and which model it resumes on: the model picked for that note only when the
+  job saved one, else the selected model (`CloudTranscriptionResumeModel`, #784),
   the realtime
   session rules (WebSocket URL, connection request, `session.update`), the
   chat completion request, and cloud consent (#693): the per-origin grants

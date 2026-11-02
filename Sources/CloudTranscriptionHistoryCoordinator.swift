@@ -11,22 +11,34 @@ struct CloudTranscriptionStartupReconciler {
     let store: CloudTranscriptionJobStore
     let audioRoot: URL
 
+    /// What a job that saved a model picked for its note (#784) can resume
+    /// on now; nil when nothing can run that model.
+    enum PickedSetup {
+        case cloud(CloudTranscriptionExecutionSnapshot?)
+        case localAI(LocalAITranscriptionResumeIdentity?)
+    }
+
     func reconcile(
         history: [PipelineHistoryItem],
         runtime: CloudTranscriptionExecutionSnapshot,
-        localAI: LocalAITranscriptionResumeIdentity? = nil
+        localAI: LocalAITranscriptionResumeIdentity? = nil,
+        picked: (CloudTranscriptionJobRecord) -> PickedSetup? = { _ in nil }
     ) -> CloudTranscriptionStartupReconciliation {
         reconcile(
             store.reconcile(history: history, audioRoot: audioRoot),
             runtime: runtime,
-            localAI: localAI
+            localAI: localAI,
+            picked: picked
         )
     }
 
+    /// `picked` gives the setup for a job that saved a model picked for its
+    /// note; such a job is compared with that model, not the selected one.
     func reconcile(
         _ base: CloudTranscriptionReconciliation,
         runtime: CloudTranscriptionExecutionSnapshot,
-        localAI: LocalAITranscriptionResumeIdentity? = nil
+        localAI: LocalAITranscriptionResumeIdentity? = nil,
+        picked: (CloudTranscriptionJobRecord) -> PickedSetup? = { _ in nil }
     ) -> CloudTranscriptionStartupReconciliation {
         let hasAPIKey = !runtime.apiKey.trimmingCharacters(
             in: .whitespacesAndNewlines
@@ -38,11 +50,23 @@ struct CloudTranscriptionStartupReconciler {
         var waitingForRetry = base.waitingForRetry
         for record in base.resumable {
             let current: CloudTranscriptionResumeIdentity?
-            switch record.identity.backend {
-            case .cloud:
-                current = currentCloud
-            case .localAI:
-                current = currentLocalAI
+            if record.resumeModel.pickedModelID != nil {
+                switch picked(record) {
+                case .cloud(let snapshot):
+                    // The picked setup uses the same provider key.
+                    current = hasAPIKey ? snapshot?.startupResumeIdentity : nil
+                case .localAI(let identity):
+                    current = identity?.startupResumeIdentity
+                case nil:
+                    current = nil
+                }
+            } else {
+                switch record.identity.backend {
+                case .cloud:
+                    current = currentCloud
+                case .localAI:
+                    current = currentLocalAI
+                }
             }
             let compatible = current.map {
                 record.resumeDecision(current: $0, origin: .startup) == .resume
