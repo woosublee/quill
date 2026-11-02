@@ -304,12 +304,15 @@ struct TranscriptionChoiceSheet: View {
                 } label: {
                     HStack(alignment: .firstTextBaseline) {
                         Image(systemName: selectedChoice == display.choice ? "largecircle.fill.circle" : "circle")
+                            .opacity(display.isAvailable ? 1 : 0.45)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: display.localizedCompactLabel())
+                                .opacity(display.isAvailable ? 1 : 0.45)
+                            // Only the radio and name dim; the reason stays readable.
                             if let unavailableReason = display.unavailableReason {
                                 Text(display.localizedUnavailableReason() ?? unavailableReason)
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
@@ -317,7 +320,6 @@ struct TranscriptionChoiceSheet: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!display.isAvailable)
-                .opacity(display.isAvailable ? 1 : 0.45)
             }
         }
     }
