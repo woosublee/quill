@@ -56,6 +56,16 @@ struct CloudTranscriptionJobRecord: Codable, Equatable, Sendable {
     var firstIncompleteChunkIndex: Int
     var lastFailure: CloudTranscriptionStoredFailure?
     let completionPolicy: CloudTranscriptionCompletionPolicy
+    /// The model picked for this note only (settings unchanged), so the job
+    /// resumes with it rather than the selected model (#784). Nil for a job
+    /// that runs the selected model and for every job saved before #784;
+    /// an app without the field ignores it and treats the job as before.
+    var pickedModelID: String? = nil
+
+    /// The model this job is compared with and resumes on.
+    var resumeModel: CloudTranscriptionResumeModel {
+        .forSavedJob(pickedModelID: pickedModelID, savedModelID: identity.model)
+    }
 
     func validate(fileNameID: UUID) throws {
         guard schemaVersion == Self.currentSchemaVersion else {
@@ -340,12 +350,14 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
 
     func checkpointStore(
         session: CloudTranscriptionJobSession,
-        completionPolicy: CloudTranscriptionCompletionPolicy
+        completionPolicy: CloudTranscriptionCompletionPolicy,
+        pickedModelID: String? = nil
     ) -> any CloudTranscriptionCheckpointStore {
         CloudTranscriptionPreparingCheckpointAdapter(
             store: self,
             session: session,
-            completionPolicy: completionPolicy
+            completionPolicy: completionPolicy,
+            pickedModelID: pickedModelID
         )
     }
 
@@ -466,6 +478,7 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
         identity: CloudTranscriptionJobIdentity,
         plan: CloudTranscriptionChunkPlan,
         completionPolicy: CloudTranscriptionCompletionPolicy,
+        pickedModelID: String? = nil,
         session: CloudTranscriptionJobSession
     ) throws {
         try lock.withCloudTranscriptionJobLock {
@@ -475,6 +488,14 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
                 if record.identity == identity,
                    record.plan == plan,
                    record.completionPolicy == completionPolicy {
+                    // The same job run again: keep whether this run picked
+                    // its model for the note, so a later resume follows it.
+                    if record.pickedModelID != pickedModelID {
+                        var updated = record
+                        updated.pickedModelID = pickedModelID
+                        updated.updatedAt = now()
+                        try write(updated)
+                    }
                     return
                 }
                 // Converting the same stored import again gave a different
@@ -506,7 +527,8 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
                 completedChunks: [],
                 firstIncompleteChunkIndex: 0,
                 lastFailure: nil,
-                completionPolicy: completionPolicy
+                completionPolicy: completionPolicy,
+                pickedModelID: pickedModelID
             )
             try record.validate(fileNameID: record.historyID)
             try write(record)
@@ -670,6 +692,7 @@ private struct CloudTranscriptionPreparingCheckpointAdapter:
     let store: CloudTranscriptionJobStore
     let session: CloudTranscriptionJobSession
     let completionPolicy: CloudTranscriptionCompletionPolicy
+    let pickedModelID: String?
 
     func prepare(
         identity: CloudTranscriptionJobIdentity,
@@ -679,6 +702,7 @@ private struct CloudTranscriptionPreparingCheckpointAdapter:
             identity: identity,
             plan: plan,
             completionPolicy: completionPolicy,
+            pickedModelID: pickedModelID,
             session: session
         )
     }

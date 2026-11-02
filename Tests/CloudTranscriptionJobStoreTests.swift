@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillProviderCore
 
 @main
 struct CloudTranscriptionJobStoreTests {
@@ -23,6 +24,7 @@ struct CloudTranscriptionJobStoreTests {
             try await checkpointAdapterPersistsContiguousProgress()
             try await staleCheckpointAdapterCannotResurrectDeletedJob()
             try convertedSourceIsOptionalInSavedJobs()
+            try await pickedModelIsOptionalAndSavedWithItsJob()
             try await reconvertedImportCopyRestartsItsJob()
             try reconciliationClassifiesCompatibleAndInvalidRecords()
             try removesStaleTemporaryArtifacts()
@@ -770,6 +772,74 @@ struct CloudTranscriptionJobStoreTests {
                 try live.syncDirectory(directoryURL)
             }
         )
+    }
+
+    /// #784: a one-time transcription saves the model picked for its note.
+    /// A job without one keeps its saved shape and decodes as before, and
+    /// the field survives progress saves.
+    private static func pickedModelIsOptionalAndSavedWithItsJob() async throws {
+        let plain = makeRecord(phase: .transcribing)
+        let plainData = try JSONEncoder().encode(plain)
+        guard !String(decoding: plainData, as: UTF8.self).contains("pickedModelID") else {
+            throw TestFailure("a job without a picked model keeps its saved shape")
+        }
+        let decodedPlain = try JSONDecoder().decode(CloudTranscriptionJobRecord.self, from: plainData)
+        try expectEqual(decodedPlain.pickedModelID, nil, "an older job has no picked model")
+        try expectEqual(decodedPlain.resumeModel, .selected, "an older job resumes on the selected model")
+
+        var picked = plain
+        picked.pickedModelID = plain.identity.model
+        let pickedData = try JSONEncoder().encode(picked)
+        let decodedPicked = try JSONDecoder().decode(CloudTranscriptionJobRecord.self, from: pickedData)
+        try expectEqual(decodedPicked, picked, "picked model roundtrip")
+        try expectEqual(
+            decodedPicked.resumeModel,
+            .picked(modelID: plain.identity.model),
+            "a picked job resumes on its own model"
+        )
+        var mismatched = plain
+        mismatched.pickedModelID = "another-model"
+        try expectEqual(mismatched.resumeModel, .selected, "a picked model that isn't the job's own is ignored")
+
+        let fixture = try makeStoreFixture()
+        defer { fixture.cleanup() }
+        let store = CloudTranscriptionJobStore(
+            jobsDirectory: fixture.jobsDirectory,
+            temporaryRoot: fixture.temporaryRoot
+        )
+        let session = store.beginSession(historyID: plain.historyID)
+        guard let preparing = store.checkpointStore(
+            session: session,
+            completionPolicy: plain.completionPolicy,
+            pickedModelID: plain.identity.model
+        ) as? any CloudTranscriptionCheckpointPreparing else {
+            throw TestFailure("the preparing adapter prepares jobs")
+        }
+        try await preparing.prepare(identity: plain.identity, plan: plain.plan)
+        try expectEqual(
+            try store.load(historyID: plain.historyID)?.pickedModelID,
+            plain.identity.model,
+            "a one-time job saves its picked model"
+        )
+        try await store.checkpointStore(session: session).save(CloudTranscriptionCheckpoint(
+            identity: plain.identity,
+            completedRawTranscripts: ["first"]
+        ))
+        try expectEqual(
+            try store.load(historyID: plain.historyID)?.pickedModelID,
+            plain.identity.model,
+            "progress keeps the picked model"
+        )
+        guard let selected = store.checkpointStore(
+            session: session,
+            completionPolicy: plain.completionPolicy
+        ) as? any CloudTranscriptionCheckpointPreparing else {
+            throw TestFailure("the preparing adapter prepares jobs")
+        }
+        try await selected.prepare(identity: plain.identity, plan: plain.plan)
+        let rerun = try store.load(historyID: plain.historyID)
+        try expectEqual(rerun?.pickedModelID, nil, "the same job run on the selected model drops the pick")
+        try expectEqual(rerun?.completedChunks.count, 1, "running the same job again keeps its progress")
     }
 
     // #735: jobs saved before converted imports have no `convertedFrom`.

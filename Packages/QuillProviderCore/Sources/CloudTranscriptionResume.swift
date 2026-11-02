@@ -131,3 +131,40 @@ public enum CloudTranscriptionResumeDecision: Equatable, Sendable {
         }
     }
 }
+
+/// Which model a saved job is compared with and runs on when it resumes
+/// (#784), the same on the Mac and the iPhone.
+///
+/// A transcription can use a model picked for that note only, leaving the
+/// settings unchanged. Its saved job records that model, and resuming it
+/// uses the picked model instead of the one selected now, so an interrupted
+/// one-time transcription never restarts on, or waits for, another model.
+/// A job that saved no picked model (every job saved before #784) uses the
+/// selected model, as before.
+public enum CloudTranscriptionResumeModel: Equatable, Sendable {
+    /// The model selected in settings now.
+    case selected
+    /// The model picked for this note only.
+    case picked(modelID: String)
+
+    /// The model for a saved job. The picked model counts only when it is
+    /// the model the job was made with; anything else falls back to the
+    /// selected model.
+    public static func forSavedJob(
+        pickedModelID: String?,
+        savedModelID: String
+    ) -> Self {
+        guard let pickedModelID,
+              !pickedModelID.isEmpty,
+              pickedModelID == savedModelID else {
+            return .selected
+        }
+        return .picked(modelID: pickedModelID)
+    }
+
+    /// The picked model's ID, or nil for the selected model.
+    public var pickedModelID: String? {
+        guard case .picked(let modelID) = self else { return nil }
+        return modelID
+    }
+}

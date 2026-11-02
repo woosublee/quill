@@ -278,6 +278,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testRetryAvailabilityAsksForModelWhenTranscriptionIsOff()
         testResolvedRetryChoiceFollowsTranscriptionOffPolicy()
         try await testPickedRetryModelLeavesTranscriptionSettingsUnchanged()
+        try testPickedRetrySavesItsModelWithTheJob()
+        try await testStartupResumesAPickedCloudJobWithItsModel()
         try await testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing()
         try await testRetryPostProcessingDropsAResultAfterTheTranscriptChanged()
         testTitleBarDoubleClickFollowsSystemSetting()
@@ -4435,6 +4437,219 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
+    /// #784: only a model picked for the note is saved with the job, so a
+    /// resume after a relaunch runs it; a retry on the selected model saves
+    /// none, and models that keep no job save none.
+    private static func testPickedRetrySavesItsModelWithTheJob() throws {
+        let completion = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: true,
+            outputLanguage: "",
+            pressEnterCommandEnabled: false
+        )
+        let cloud = TranscriptionExecutionSnapshot.cloud(
+            try CloudTranscriptionExecutionSnapshot(
+                baseURL: "https://api.example.invalid/openai/v1",
+                apiKey: "synthetic-key",
+                model: "picked-cloud-model",
+                language: nil,
+                encodedUploadCeilingBytes: 20_000_000
+            ),
+            completion
+        )
+        let nativeWhisper = TranscriptionExecutionSnapshot.local(
+            LocalTranscriptionExecutionSnapshot(
+                model: .default,
+                localWhisperPath: nil,
+                useLegacyMlxWhisper: false,
+                language: .find(code: "en")
+            ),
+            completion
+        )
+        let picked = TranscriptionBackendChoice.apiStandard(modelID: "picked-cloud-model")
+        let selected = TranscriptionBackendChoice.apiStandard(modelID: "selected-cloud-model")
+        precondition(AppState.retryPickedModelID(
+            choice: picked, selected: selected, execution: cloud
+        ) == "picked-cloud-model")
+        precondition(AppState.retryPickedModelID(choice: nil, selected: selected, execution: cloud) == nil)
+        precondition(
+            AppState.retryPickedModelID(choice: picked, selected: picked, execution: cloud) == nil,
+            "picking the selected model follows settings like any selected-model job"
+        )
+        precondition(AppState.retryPickedModelID(
+            choice: .nativeWhisper(modelID: "base"),
+            selected: selected,
+            execution: nativeWhisper
+        ) == nil)
+    }
+
+    /// #784: a cloud job interrupted while running a model picked for its
+    /// note resumes at startup on that model, while settings select another
+    /// model and stay unchanged. A job saved without a picked model (before
+    /// #784) still waits when its model isn't the selected one.
+    private static func testStartupResumesAPickedCloudJobWithItsModel() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try FileManager.default.createDirectory(
+                at: environment.storageLayout.audioDirectory,
+                withIntermediateDirectories: true
+            )
+            resetDefaults()
+            defer { resetDefaults() }
+            let pickedModel = "picked-transcribe-model"
+            let rawTranscript = "synthetic picked model transcript"
+            let pickedID = UUID()
+            let olderID = UUID()
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            let uploadedModels = UploadedModelRecorder()
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            dependencies.makeRetryCloudTranscriptionDependencies = {
+                var cloud = successfulCloudDependencies(transcript: rawTranscript)
+                let upload = cloud.upload
+                cloud = CloudTranscriptionDependencies(
+                    encodedUploadCeilingBytes: cloud.encodedUploadCeilingBytes,
+                    upload: { request, body in
+                        uploadedModels.record(String(decoding: body, as: UTF8.self))
+                        return try await upload(request, body)
+                    },
+                    checkpointStore: cloud.checkpointStore,
+                    progress: cloud.progress,
+                    temporaryRoot: cloud.temporaryRoot,
+                    sleep: cloud.sleep
+                )
+                return cloud
+            }
+            let jobStore = CloudTranscriptionJobStore(
+                jobsDirectory: environment.storageLayout.cloudTranscriptionJobsDirectory,
+                temporaryRoot: environment.rootDirectory
+                    .appendingPathComponent("cloud-transcription/tmp", isDirectory: true)
+            )
+            for (historyID, picked) in [(pickedID, true), (olderID, false)] {
+                let fileName = "\(historyID.uuidString).wav"
+                let audioURL = environment.storageLayout.audioDirectory
+                    .appendingPathComponent(fileName)
+                try writeTestWAV(at: audioURL)
+                _ = try store.append(PipelineHistoryItem(
+                    id: historyID,
+                    timestamp: Date(timeIntervalSince1970: picked ? 1 : 2),
+                    rawTranscript: "",
+                    postProcessedTranscript: "",
+                    postProcessingPrompt: nil,
+                    contextSummary: "",
+                    contextScreenshotDataURL: nil,
+                    contextScreenshotStatus: "No screenshot",
+                    postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+                    aiProcessingOutcome: "succeeded",
+                    debugStatus: "Cloud transcription in progress",
+                    customVocabulary: "",
+                    audioFileName: fileName,
+                    usedLocalTranscription: false,
+                    usedContextCapture: false,
+                    usedPostProcessing: false,
+                    transcriptionLanguageCode: "ko"
+                ), maxCount: 10)
+                let record = try makeResumableCloudRecord(
+                    historyID: historyID,
+                    audioURL: audioURL,
+                    model: pickedModel,
+                    pickedModelID: picked ? pickedModel : nil
+                )
+                let session = jobStore.beginSession(historyID: historyID)
+                try jobStore.create(record, session: session)
+                jobStore.invalidateSession(historyID: historyID)
+            }
+
+            let defaults = UserDefaults.standard
+            defaults.set(true, forKey: "hasCompletedSetup")
+            defaults.set(true, forKey: "transcription_enabled")
+            defaults.set(false, forKey: "use_local_transcription")
+            defaults.set(true, forKey: "disable_post_processing")
+            defaults.set("whisper-large-v3", forKey: "transcription_model")
+            defaults.set("ko", forKey: "transcription_language")
+            let credentialStore = CredentialStore(
+                layout: environment.dependencies.credentialStorageLayout
+            )
+            try credentialStore.save("transcription-key", account: "transcription_api_key")
+            try credentialStore.save("http://127.0.0.1:1", account: "transcription_api_url")
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            await waitUntil(timeoutNanoseconds: 3_000_000_000) {
+                store.loadAllHistory().contains {
+                    $0.id == pickedID && $0.debugStatus == "Resumed after relaunch"
+                }
+            }
+            let resumed = try requireHistoryItem(withID: pickedID, in: store.loadAllHistory())
+            precondition(resumed.rawTranscript == rawTranscript, "the picked job resumed")
+            precondition(
+                !uploadedModels.bodies.isEmpty
+                    && uploadedModels.bodies.allSatisfy { $0.contains(pickedModel) }
+                    && !uploadedModels.bodies.contains { $0.contains("whisper-large-v3") },
+                "the picked job ran its own model, not the selected one"
+            )
+            let older = try requireHistoryItem(withID: olderID, in: store.loadAllHistory())
+            precondition(
+                older.debugStatus != "Resumed after relaunch",
+                "a job saved without a picked model waits as before"
+            )
+            precondition(
+                (try? jobStore.load(historyID: olderID)) != nil,
+                "the older job stays saved for a retry"
+            )
+            // A retry without a pick continues a saved one-time job on its
+            // picked model; an older job without one uses the selected model.
+            let laterID = UUID()
+            let laterFileName = "\(laterID.uuidString).wav"
+            let laterAudioURL = environment.storageLayout.audioDirectory
+                .appendingPathComponent(laterFileName)
+            try writeTestWAV(at: laterAudioURL)
+            let laterRecord = try makeResumableCloudRecord(
+                historyID: laterID,
+                audioURL: laterAudioURL,
+                pickedModelID: "whisper-large-v3"
+            )
+            let laterSession = jobStore.beginSession(historyID: laterID)
+            try jobStore.create(laterRecord, session: laterSession)
+            jobStore.invalidateSession(historyID: laterID)
+            let laterItem = PipelineHistoryItem(
+                id: laterID,
+                timestamp: Date(timeIntervalSince1970: 3),
+                rawTranscript: "",
+                postProcessedTranscript: "",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+                aiProcessingOutcome: "succeeded",
+                debugStatus: "Cloud transcription in progress",
+                customVocabulary: "",
+                audioFileName: laterFileName,
+                usedLocalTranscription: false,
+                usedContextCapture: false,
+                usedPostProcessing: false,
+                transcriptionLanguageCode: "ko"
+            )
+            await MainActor.run {
+                precondition(
+                    appState.savedJobPickedChoice(for: laterItem)
+                        == .apiStandard(modelID: "whisper-large-v3"),
+                    "a saved one-time job offers its picked model to a retry"
+                )
+                precondition(
+                    appState.savedJobPickedChoice(for: older) == nil,
+                    "an older job without a pick retries on the selected model"
+                )
+                precondition(
+                    appState.transcriptionModel == "whisper-large-v3",
+                    "resuming never changes the selected model"
+                )
+            }
+            precondition(defaults.string(forKey: "transcription_model") == "whisper-large-v3")
+        }
+    }
+
     private static func testRetryAvailabilityAcceptsConfiguredAPIStandard() async {
         resetDefaults()
         await MainActor.run {
@@ -5878,7 +6093,9 @@ struct AppStateTranscriptionConfigurationTests {
 
     private static func makeResumableCloudRecord(
         historyID: UUID,
-        audioURL: URL
+        audioURL: URL,
+        model: String = "whisper-large-v3",
+        pickedModelID: String? = nil
     ) throws -> CloudTranscriptionJobRecord {
         let layout = try CanonicalPCM16WAV.validateFile(at: audioURL)
         let source = try CloudTranscriptionSourceIdentityBuilder.make(
@@ -5886,8 +6103,8 @@ struct AppStateTranscriptionConfigurationTests {
             layout: layout
         )
         let multipart = CloudTranscriptionMultipartLayout(
-            model: "whisper-large-v3",
-            responseFormat: "verbose_json",
+            model: model,
+            responseFormat: CloudTranscriptionUpload.responseFormat(forModel: model),
             language: "ko"
         )
         let plan = try CloudTranscriptionChunkPlanner().plan(
@@ -5900,7 +6117,7 @@ struct AppStateTranscriptionConfigurationTests {
         let runtime = try CloudTranscriptionExecutionSnapshot(
             baseURL: "http://127.0.0.1:1",
             apiKey: "transcription-key",
-            model: "whisper-large-v3",
+            model: model,
             language: "ko",
             encodedUploadCeilingBytes: 20_000_000
         )
@@ -5926,7 +6143,8 @@ struct AppStateTranscriptionConfigurationTests {
                 postProcessingEnabled: true,
                 outputLanguage: "",
                 pressEnterCommandEnabled: false
-            )
+            ),
+            pickedModelID: pickedModelID
         )
     }
 
@@ -6205,4 +6423,22 @@ private actor CleanupRetryGate {
     private(set) var isOpen = false
     func markEntered() { hasEntered = true }
     func open() { isOpen = true }
+}
+
+/// Request bodies a synthetic cloud upload saw (#784).
+private final class UploadedModelRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    func record(_ body: String) {
+        lock.lock()
+        recorded.append(body)
+        lock.unlock()
+    }
+
+    var bodies: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
 }

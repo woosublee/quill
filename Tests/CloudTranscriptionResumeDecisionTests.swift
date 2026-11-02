@@ -12,6 +12,7 @@ struct CloudTranscriptionResumeDecisionTests {
             try onlyARetryComparesTheFollowUp()
             try fieldsNeitherSideFillsAlwaysMatch()
             try aFieldOnlyOneSideFillsIsAMismatch()
+            try aSavedPickedModelIsTheResumeModel()
             print("CloudTranscriptionResumeDecisionTests passed")
         } catch {
             fputs("CloudTranscriptionResumeDecisionTests failed: \(error)\n", stderr)
@@ -144,5 +145,39 @@ struct CloudTranscriptionResumeDecisionTests {
         try expectEqual(decide(unsized, job(), .startup), .wait, "saved without sizing waits")
         try expectEqual(decide(job(), unsized, .userRetry), .startOver, "current without sizing starts over")
         try expectEqual(decide(job(), job(followUp: nil), .userRetry), .startOver, "retry missing a follow-up")
+    }
+
+    /// #784: a job that saved the model picked for its note resumes with
+    /// that model; an older job without one uses the selected model.
+    static func aSavedPickedModelIsTheResumeModel() throws {
+        func check(_ actual: CloudTranscriptionResumeModel, _ expected: CloudTranscriptionResumeModel, _ message: String) throws {
+            guard actual == expected else {
+                throw Failure(description: "\(message): \(actual) != \(expected)")
+            }
+        }
+        try check(
+            .forSavedJob(pickedModelID: "model-b", savedModelID: "model-b"),
+            .picked(modelID: "model-b"),
+            "picked model the job was made with"
+        )
+        try check(
+            .forSavedJob(pickedModelID: nil, savedModelID: "model-b"),
+            .selected,
+            "an older job without a picked model"
+        )
+        try check(
+            .forSavedJob(pickedModelID: "", savedModelID: ""),
+            .selected,
+            "an empty picked model"
+        )
+        try check(
+            .forSavedJob(pickedModelID: "model-a", savedModelID: "model-b"),
+            .selected,
+            "a picked model that isn't the job's own"
+        )
+        guard CloudTranscriptionResumeModel.picked(modelID: "model-b").pickedModelID == "model-b",
+              CloudTranscriptionResumeModel.selected.pickedModelID == nil else {
+            throw Failure(description: "pickedModelID")
+        }
     }
 }
