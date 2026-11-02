@@ -1,4 +1,5 @@
 import Foundation
+import QuillAudioFormatCore
 import QuillNoteCore
 
 @main
