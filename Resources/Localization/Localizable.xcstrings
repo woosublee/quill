@@ -1,6 +1,70 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Recently Deleted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recently Deleted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 삭제"
+          }
+        }
+      }
+    },
+    "Archive and Open Recently Deleted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive and Open Recently Deleted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관하고 최근 삭제 열기"
+          }
+        }
+      }
+    },
+    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 새 기록을 시작하고 설정의 최근 삭제를 열어요. 이전 기록은 자동으로 가져오지 않아요."
+          }
+        }
+      }
+    },
+    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 별도의 새 기록을 시작해요. 이전 기록은 나중에 설정의 최근 삭제에서 가져올 수 있어요."
+          }
+        }
+      }
+    },
     "Cancel Post-processing": {
       "localizations": {
         "en": {
