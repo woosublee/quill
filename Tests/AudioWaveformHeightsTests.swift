@@ -3,11 +3,18 @@ import QuillAudioLevelCore
 
 @main
 struct AudioWaveformHeightsTests {
+    static let referenceHeight = AudioWaveformHeights.referenceHeight
+    static let tall = referenceHeight - 0.01
+
     static func main() {
         do {
             try quietAndLoudRecordingsOfTheSameShapeDrawTheSameBars()
+            try speechSitsMidHeightWithPausesLow()
             try silenceAndFaintNoiseStayFlat()
             try oneLoudClickDoesNotFlattenTheRest()
+            try twoClicksDoNotFlattenTheRest()
+            try aOneBarRemarkOverHissKeepsTheHissLow()
+            try aOneBarRemarkOverCloserHissKeepsTheHissLower()
             try aMostlySilentRecordingKeepsItsDynamics()
             try measuresEverySampleAndDrawsShortClipsWithoutPadding()
             try backgroundNoiseBetweenSoundsStaysFlat()
@@ -46,10 +53,68 @@ struct AudioWaveformHeightsTests {
 
         try expect(quiet.count == 80 && loud.count == 80, "both recordings draw 80 bars")
         try expectEqual(quiet, loud, "quiet and loud recordings of the same shape")
-        try expect((quiet.max() ?? 0) == 1, "the loud part of a quiet recording reaches full height")
+        try expect(abs((quiet.max() ?? 0) - referenceHeight) < 0.001, "the loud part of a quiet recording draws at the reference height")
         try expect(quiet.min() == AudioWaveformHeights.floorHeight, "the silent gaps stay at the floor")
         let half = quiet[8], quarter = quiet[16]
-        try expect(half > quarter && half < 1 && quarter > 0.5, "quieter steps draw shorter bars: \(half), \(quarter)")
+        try expect(abs(half - referenceHeight * 0.5) < 0.01 && abs(quarter - referenceHeight * 0.25) < 0.01, "quieter steps draw shorter bars: \(half), \(quarter)")
+    }
+
+    /// Synthetic speech: syllable bursts (120-280 ms, loudness varying about
+    /// +-6 dB, 40-120 ms apart) in phrases of 3-9 syllables, with 0.8-2.5 s
+    /// pauses between phrases, over a little room noise. Returns the samples
+    /// and, per bar, whether the bar holds speech.
+    private static func syntheticSpeech(peak: Float, noise: Float) -> (samples: [Float], speechBars: [Bool]) {
+        var state: UInt64 = 42
+        func random() -> Float {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Float(state >> 40) / Float(1 << 24)
+        }
+        let rate = 16_000, total = 60 * rate
+        var samples = [Float](repeating: 0, count: total)
+        var speechEnergy = [Float](repeating: 0, count: 80)
+        var time = rate / 2
+        while time < total {
+            for _ in 0..<(3 + Int(random() * 7)) where time < total {
+                let length = Int((0.12 + random() * 0.16) * Float(rate))
+                let gain = peak * pow(10, (random() * 12 - 6) / 20)
+                let frequency = 120 + random() * 120
+                for offset in 0..<length where time + offset < total {
+                    let index = time + offset
+                    let phase = 2 * Float.pi * frequency * Float(index) / Float(rate)
+                    samples[index] = gain * sin(.pi * Float(offset) / Float(length))
+                        * (0.7 * sin(phase) + 0.3 * sin(3 * phase))
+                    speechEnergy[index * 80 / total] += 1
+                }
+                time += length + Int((0.04 + random() * 0.08) * Float(rate))
+            }
+            time += Int((0.8 + random() * 1.7) * Float(rate))
+        }
+        for index in 0..<total { samples[index] += (random() - 0.5) * 2 * noise }
+        // A bar is speech when syllables fill at least a fifth of it.
+        return (samples, speechEnergy.map { $0 >= Float(total / 80) / 5 })
+    }
+
+    // Normal speech draws mid-height bars like the Mac's old waveform of a
+    // normally loud recording: only the loudest moments reach near the top,
+    // and pauses stay low (2026-11-02 device feedback: "too big everywhere").
+    private static func speechSitsMidHeightWithPausesLow() throws {
+        let loud = syntheticSpeech(peak: 0.25, noise: 0.002)        // a Mac mic with automatic gain
+        let quiet = syntheticSpeech(peak: 0.008, noise: 0.000_06)   // about 30 dB quieter, an iPhone mic
+        let loudHeights = AudioWaveformHeights.heights(from: loud.samples)
+        let quietHeights = AudioWaveformHeights.heights(from: quiet.samples)
+
+        for (index, pair) in zip(quietHeights, loudHeights).enumerated() {
+            try expect(abs(pair.0 - pair.1) < 0.02, "bar \(index) matches: quiet \(pair.0), loud \(pair.1)")
+        }
+        let speech = zip(loudHeights, loud.speechBars).filter { $0.1 }.map { $0.0 }.sorted()
+        let pauses = zip(loudHeights, loud.speechBars).filter { !$0.1 }.map { $0.0 }.sorted()
+        try expect(speech.count >= 30 && pauses.count >= 5, "the fixture has speech and pauses")
+        let median = speech[speech.count / 2]
+        try expect(median >= 0.35 && median <= 0.7, "speech sits mid-height: median \(median)")
+        try expect(speech.filter { $0 >= 0.85 }.count <= speech.count / 5, "only the loudest moments reach the top")
+        let top = loudHeights.max() ?? 0
+        try expect(top >= 0.85 && top <= 1, "the loudest bar reaches near the top: \(top)")
+        try expect(pauses[pauses.count / 2] <= 0.08, "pauses stay low: median \(pauses[pauses.count / 2])")
     }
 
     private static func silenceAndFaintNoiseStayFlat() throws {
@@ -74,6 +139,34 @@ struct AudioWaveformHeightsTests {
         try expect(heights.filter { $0 > 0.6 }.count >= 20, "the loud steps stay tall next to a click")
     }
 
+    private static func twoClicksDoNotFlattenTheRest() throws {
+        var samples = syntheticRecording(peak: 0.05)
+        for start in [6_400, 48_000] {
+            for index in 0..<200 { samples[start + index] = 0.99 }
+        }
+        let heights = AudioWaveformHeights.heights(from: samples)
+        try expect(heights.filter { $0 > 0.6 }.count >= 20, "the loud steps stay tall next to two clicks")
+    }
+
+    // A cough or short remark that fits in one bar of a long hissy note.
+    private static func aOneBarRemarkOverHissKeepsTheHissLow() throws {
+        var samples = noise(count: 80 * 1_000, peak: 0.003)
+        for index in 0..<800 { samples[40_100 + index] += 0.3 * sin(Float(index) / 3) }
+        let heights = AudioWaveformHeights.heights(from: samples)
+        try expect(heights[40] > 0.5, "the remark stands up: \(heights[40])")
+        try expect(heights[10] == 0.04 && heights[70] == 0.04, "the hiss stays flat")
+    }
+
+    // Room noise about 25 dB under a remark that fills one bar stays well
+    // under the remark rather than becoming the loud level.
+    private static func aOneBarRemarkOverCloserHissKeepsTheHissLower() throws {
+        var samples = noise(count: 80 * 1_000, peak: 0.01)
+        for index in 0..<1_000 { samples[40_000 + index] += 0.15 * sin(Float(index) / 3) }
+        let heights = AudioWaveformHeights.heights(from: samples)
+        try expect(heights[40] >= tall, "the remark is tall: \(heights[40])")
+        try expect(heights[10] < 0.45 && heights[70] < 0.45, "the hiss stays lower: \(heights[10])")
+    }
+
     // A long silent note with one short remark keeps the remark's own
     // loud and soft parts instead of clipping everything to full.
     private static func aMostlySilentRecordingKeepsItsDynamics() throws {
@@ -82,7 +175,7 @@ struct AudioWaveformHeightsTests {
         for index in 0..<1_000 { samples[50_000 + index] = 0.05 * sin(Float(index) / 3) }
         let heights = AudioWaveformHeights.heights(from: samples)
 
-        try expect(heights[10] > 0.98 && heights[12] > 0.98, "the loud remark is full")
+        try expect(heights[10] >= tall && heights[12] >= tall, "the loud remark is tall")
         try expect(heights[50] > 0.04 && heights[50] < 0.5, "the soft remark stays short: \(heights[50])")
         try expect(heights[30] == 0.04, "silence stays flat")
     }
@@ -93,10 +186,10 @@ struct AudioWaveformHeightsTests {
         var samples = [Float](repeating: 0, count: 159)
         samples[158] = 0.5
         let heights = AudioWaveformHeights.heights(from: samples)
-        try expect(heights.count == 80 && heights[79] > 0.98, "the last sample is in the last bar")
+        try expect(heights.count == 80 && heights[79] >= tall, "the last sample is in the last bar")
 
         let short = AudioWaveformHeights.heights(from: [0.5, -0.5, 0.5], barCount: 80)
-        try expect(short.count == 80 && short.allSatisfy { $0 > 0.98 }, "a three-sample clip fills every bar")
+        try expect(short.count == 80 && short.allSatisfy { $0 >= tall }, "a three-sample clip fills every bar")
     }
 
     private static func noise(count: Int, peak: Float) -> [Float] {
@@ -114,7 +207,7 @@ struct AudioWaveformHeightsTests {
         for index in 0..<3_000 { samples[40_000 + index] += 0.3 * sin(Float(index) / 3) }
         let heights = AudioWaveformHeights.heights(from: samples)
 
-        try expect(heights[40] > 0.98 && heights[42] > 0.98, "the remark is full")
+        try expect(heights[40] >= tall && heights[42] >= tall, "the remark is tall")
         try expect(heights[10] == 0.04 && heights[70] == 0.04, "the hiss stays flat")
     }
 
@@ -132,7 +225,7 @@ struct AudioWaveformHeightsTests {
         samples[100] = .nan
         let heights = AudioWaveformHeights.heights(from: samples)
         try expect(heights[0] == 0.04, "the corrupt slice draws as silence")
-        try expect((heights.max() ?? 0) > 0.98, "the rest keeps its full height")
+        try expect((heights.max() ?? 0) >= tall, "the rest keeps its height")
     }
 
     // Exact zeros at the start (mic warm-up) don't count as the noise floor.
@@ -141,7 +234,7 @@ struct AudioWaveformHeightsTests {
         for index in 0..<20_000 { samples[index] = 0 }
         for index in 0..<3_000 { samples[40_000 + index] += 0.3 * sin(Float(index) / 3) }
         let heights = AudioWaveformHeights.heights(from: samples)
-        try expect(heights[40] > 0.98, "the remark is full")
+        try expect(heights[40] >= tall, "the remark is tall")
         try expect(heights[70] == 0.04, "the hiss after the zeros stays flat")
     }
 
