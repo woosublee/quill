@@ -35,17 +35,17 @@ struct HistoryUnavailableRecoveryActions: View {
             }
         }
         .confirmationDialog(
-            "Archive old history and open Recovery?",
+            "Archive old history and open Recently Deleted?",
             isPresented: $showsRecoveryArchiveConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Archive and Open Recovery", role: .destructive) {
+            Button("Archive and Open Recently Deleted", role: .destructive) {
                 _ = appState.archiveOldHistoryAndStartFresh(postAction: .openRecovery)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recovery settings. Your earlier notes are not imported automatically."
+                "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically."
             )
         }
         .confirmationDialog(
@@ -59,7 +59,7 @@ struct HistoryUnavailableRecoveryActions: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recovery settings."
+                "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings."
             )
         }
     }
@@ -78,7 +78,7 @@ struct HistoryRecoverySettingsView: View {
     var body: some View {
         SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Recovery")
+                Text("Recently Deleted")
                     .font(.title2.weight(.semibold))
 
                 RecentlyDeletedNotesSection()

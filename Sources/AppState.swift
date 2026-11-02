@@ -6760,7 +6760,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func invalidateHistoryRecoveryInspectionResults() {
-        // Recovery is always listed now; skip the work (and the copy of every
+        // Recently Deleted is always listed now; skip the work (and the copy of every
         // note) when there is nothing to inspect.
         guard !historyRecoverySnapshots.isEmpty else { return }
         historyWorkflow.invalidateInspection(

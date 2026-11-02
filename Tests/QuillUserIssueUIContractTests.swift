@@ -573,7 +573,7 @@ struct QuillUserIssueUIContractTests {
         for marker in [
             "Recover Earlier History…",
             "Start Fresh…",
-            "Archive and Open Recovery",
+            "Archive and Open Recently Deleted",
             "Archive and Start Fresh",
             "Open Data Folder",
             ".confirmationDialog(",

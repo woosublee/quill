@@ -73,7 +73,7 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SettingsTab.orderedCases.filter { tab in
-                    // Recovery is always listed: it holds Recently Deleted Notes.
+                    // Recently Deleted is always listed: it holds Recently Deleted Notes.
                     (tab != .debug && tab != .runLog) || AppBuild.isDevBundle
                 }) { tab in
                     Button {

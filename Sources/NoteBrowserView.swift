@@ -1003,7 +1003,7 @@ struct NoteBrowserView: View {
         .onChange(of: appState.recoveringRecordingIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
         }
-        // Open Note in Settings › Recovery asks for a restored note.
+        // Open Note in Settings › Recently Deleted asks for a restored note.
         .onChange(of: appState.noteBrowserOpenRequest) { _ in
             openRequestedNote()
         }
