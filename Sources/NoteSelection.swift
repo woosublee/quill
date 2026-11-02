@@ -78,6 +78,12 @@ struct NoteSelection: Equatable {
         NoteSelectAllAction(visibleIDs: orderedIDs, selectedIDs: selectedIDs, isSelectable: isSelectable)
     }
 
+    /// What the header button reads in selection mode: Done with nothing
+    /// selected, Cancel once a note is selected (#779).
+    var exitAction: NoteSelectionExitAction {
+        NoteSelectionExitAction(selectedCount: selectedIDs.count)
+    }
+
     /// Unchecks every note and stays in selection mode, even when the
     /// selection came from ⌘-clicks; the focused note is kept to return to.
     mutating func deselectAll() {
