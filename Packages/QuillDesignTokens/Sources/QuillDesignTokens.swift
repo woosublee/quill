@@ -564,8 +564,9 @@ public enum QuillControlSize {
     ]
 }
 
-/// Note screen layout sizes (#697). `QuillNoteLayout` in QuillNoteUI picks
-/// between them by width class; the margins are steps of `QuillSpacing`.
+/// Screen layout sizes: the note screen's (#697), which `QuillNoteLayout` in
+/// QuillNoteUI picks between by width class (the margins are steps of
+/// `QuillSpacing`), and the Settings sidebar's (quill-universal-private#303).
 public enum QuillLayoutSize {
     /// `size-sidebar-notes`: the note list's column when it sits beside the
     /// note: 280 on the Mac, 320 in a wide iPad window (quill-universal-private#306), where the
