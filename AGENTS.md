@@ -91,8 +91,14 @@ otherwise.
 - `Packages/QuillAudioFormatCore/`: the canonical recording file (16 kHz mono
   16-bit PCM with the 44-byte WAV header), shared with the iPhone app: the
   header, validation, the canonical copy of other PCM WAV layouts, and how
-  much of a cut-off recording can be read. Recording, journaling, recovery,
-  and chunking stay in `Sources/`.
+  much of a cut-off recording can be read. It also holds the audio import
+  rules (#308 on the iPhone): the import file types
+  (`AudioImportFileTypes`), an imported file's recording time
+  (`AudioFileRecordingTime`), and the AVFoundation decoder that turns any
+  file the system reads into the canonical recording
+  (`CanonicalAudioFileConversion`; the Mac uses it for on-device
+  transcription of an import). Recording, journaling, recovery, chunking,
+  and the import sheet stay in `Sources/`.
 - `Packages/QuillNoteCore/`: note data and rules shared with the iPhone app:
   how a note's date reads in a list row, its detail, and as an untitled
   note's name (`NoteTimestampFormatter`), and the calendar match record
