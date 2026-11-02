@@ -75,15 +75,17 @@ public struct NoteToolbarInput: Equatable, Sendable {
     /// The note has a summary tab (a summary, or a failed attempt).
     public var hasSummaryTab: Bool
     public var isMakingSummary: Bool
-    /// The summary tab's ↻ could run now, before the work rules apply
-    /// (a model is ready, the feature is on).
+    /// The summary tab's ↻ could run now, before the transcription-work and
+    /// blocked rules apply (`NoteToolbarSummaryInput` has already checked the
+    /// transcript, the app's availability, and a summary being made).
     public var canRunSummary: Bool
     /// The summary is being compared with a candidate or edited, so ↻
     /// would replace what the person is working on.
     public var isSummaryActionBlocked: Bool
     /// The transcript tab's ✨ when the note has no summary tab: nil when
     /// there's nothing to summarize, else whether it can run now. A note
-    /// without a transcript keeps ✨ dimmed whatever this says.
+    /// without a transcript keeps ✨ dimmed whatever this says. Both apps fill
+    /// the summary fields from `NoteToolbarSummaryInput` (#782).
     public var canCreateSummary: Bool?
     public var hasTranscriptToCopy: Bool
     public var hasSummaryToCopy: Bool

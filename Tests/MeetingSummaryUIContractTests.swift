@@ -307,7 +307,9 @@ struct MeetingSummaryUIContractTests {
         let appStateSource = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
         precondition(appStateSource.contains("try? cloudTranscriptionJobStore.delete(historyID: item.id, session: nil)"), "a cancelled job doesn't resume at the next launch")
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
-        precondition(noteBrowser.contains("canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,"))
+        precondition(noteBrowser.contains("kind: summaryToolbarAction.kind,"))
+        precondition(noteBrowser.contains("transcript: summaryTranscript,"))
+        precondition(noteBrowser.contains("canRun: !summaryActionIsDisabled,"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
         let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""
