@@ -1324,9 +1324,21 @@ struct NoteBrowserView: View {
             }
             .foregroundStyle(.secondary)
             .disabled(appState.isRecording || selection.showsSelectionUI)
-            // One button in one place: Select, then Done in selection mode.
+            // One button in one place: Select, then Done in selection mode,
+            // or Cancel once a note is selected (#779). Both only leave
+            // selection mode. The capsule keeps the wider title's width so
+            // the icons beside it don't move when the title changes.
             if selection.showsSelectionUI {
-                Button("Done") { selection.endSelectionMode() }
+                let exitTitle = localizedCatalogString(selection.exitAction.titleKey)
+                Button { selection.endSelectionMode() } label: {
+                    ZStack {
+                        ForEach(NoteSelectionExitAction.allCases, id: \.self) { action in
+                            Text(verbatim: localizedCatalogString(action.titleKey)).hidden()
+                        }
+                        Text(verbatim: exitTitle)
+                    }
+                }
+                    .accessibilityLabel(Text(verbatim: exitTitle))
                     .buttonStyle(SidebarCapsuleButtonStyle())
                     .overrideCursor(.arrow)
             } else {

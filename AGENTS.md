@@ -98,7 +98,9 @@ otherwise.
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
   values, and what the note list's Select All button does
   (`NoteSelectAllAction`: Deselect All once every selectable visible note is
-  selected), and what a note's transcript is after an edit
+  selected), what its selection-mode header button reads
+  (`NoteSelectionExitAction`: Cancel once a note is selected, Done
+  otherwise), and what a note's transcript is after an edit
   (`NoteTranscriptEdit`: clearing it clears the raw transcript too, so a
   cleared note shows, summarizes, and syncs as empty on both apps), and how a
   note's synced post-processing status reads (`NoteMachineStatus`: importing,

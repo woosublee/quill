@@ -39,6 +39,7 @@ struct LocalizationResourceTests {
 
         try testSharedIssueCopyKeysAreInTheCatalog(strings)
         try testSharedWorkStatusKeysAreInTheCatalog(strings)
+        try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
 
@@ -407,6 +408,25 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared work-status keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The note list's selection-mode buttons read their titles from shared
+    /// keys (Select All #702, Done or Cancel #779), looked up at run time.
+    private static func testSharedSelectionKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = Set(
+            NoteSelectionExitAction.allCases.map(\.titleKey)
+                + [NoteSelectAllAction.selectAll.titleKey, NoteSelectAllAction.deselectAll.titleKey]
+        )
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared selection keys missing from the catalog: \(missing)")
         }
     }
 

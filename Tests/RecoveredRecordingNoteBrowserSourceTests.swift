@@ -80,9 +80,13 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(titleRow.contains("headerIconButton(\"magnifyingglass\""))
         precondition(titleRow.contains(".keyboardShortcut(\"f\", modifiers: .command)"))
         precondition(titleRow.contains("headerIconButton(\"waveform.badge.plus\", help: \"Import Audio File\")"))
-        precondition(titleRow.contains("Button(\"Done\") { selection.endSelectionMode() }"))
+        precondition(titleRow.contains("Button { selection.endSelectionMode() } label: {"))
         precondition(titleRow.contains("Button(\"Select\") { beginSelection() }"))
         precondition(titleRow.contains(".disabled(selection.showsSelectionUI)"))
+        // Done, or Cancel once a note is selected (#779), from the shared rule.
+        precondition(titleRow.contains("localizedCatalogString(selection.exitAction.titleKey)"))
+        precondition(titleRow.contains(".accessibilityLabel(Text(verbatim: exitTitle))"))
+        precondition(!titleRow.contains("Button(\"Done\")"))
         precondition(titleRow.contains(".background(WindowDragArea())"))
         precondition(!source.contains("Text(verbatim: \"Recordings\")"))
 

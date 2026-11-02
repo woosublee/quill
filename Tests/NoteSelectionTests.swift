@@ -17,6 +17,7 @@ struct NoteSelectionTests {
         try testSelectionModeKeepsEmptySelection()
         try testSelectAllSkipsUnselectableNotes()
         try testSelectAllActionFollowsEverySelectableNote()
+        try testExitActionReadsCancelOnceANoteIsSelected()
         try testDeselectAllClearsAndStaysInSelectionMode()
         try testUnselectableNotesCannotBeAdded()
         try testEndSelectionModeReturnsToFocusedNote()
@@ -108,6 +109,39 @@ struct NoteSelectionTests {
 
         try expect(selection.selectedIDs == [ids[0], ids[2], ids[3], ids[4]], "Select All skips busy notes")
         try expect(selection.showsSelectionUI, "Select All shows the selection UI")
+    }
+
+    private static func testExitActionReadsCancelOnceANoteIsSelected() throws {
+        try expect(NoteSelectionExitAction(selectedCount: 0) == .done, "nothing selected reads Done")
+        try expect(NoteSelectionExitAction(selectedCount: 1) == .cancel, "one selected reads Cancel")
+        try expect(NoteSelectionExitAction(selectedCount: 4) == .cancel, "several selected reads Cancel")
+        try expect(NoteSelectionExitAction.done.titleKey == "Done", "Done catalog key")
+        try expect(NoteSelectionExitAction.cancel.titleKey == "Cancel", "Cancel catalog key")
+
+        var selection = NoteSelection(focusedID: ids[0])
+        selection.beginSelectionMode()
+        try expect(selection.exitAction == .done, "selection mode starts as Done")
+        selection.click(ids[2], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
+        try expect(selection.exitAction == .cancel, "checking a note turns it into Cancel")
+        selection.click(ids[2], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
+        try expect(selection.exitAction == .done, "unchecking the last note turns it back into Done")
+        selection.selectAll(orderedIDs: ids, isSelectable: everySelectable)
+        try expect(selection.exitAction == .cancel, "Select All reads Cancel")
+        selection.deselectAll()
+        try expect(selection.exitAction == .done, "Deselect All reads Done")
+
+        selection.selectAll(orderedIDs: ids, isSelectable: everySelectable)
+        selection.endSelectionMode()
+        try expect(!selection.showsSelectionUI, "Cancel leaves selection mode")
+        try expect(
+            selection.focusedID.map { [$0] } == selection.selectedIDs,
+            "Cancel keeps only the focused note, acting on nothing"
+        )
+
+        var commandClicked = NoteSelection(focusedID: ids[0])
+        commandClicked.click(ids[1], modifier: .toggle, orderedIDs: ids, isSelectable: everySelectable)
+        try expect(commandClicked.showsSelectionUI, "⌘-click opens the selection UI")
+        try expect(commandClicked.exitAction == .cancel, "a ⌘-click selection reads Cancel")
     }
 
     private static func testSelectAllActionFollowsEverySelectableNote() throws {
