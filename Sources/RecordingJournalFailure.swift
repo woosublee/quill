@@ -32,17 +32,6 @@ extension RecordingInterruptionReason {
         }
     }
 
-    var causeDescriptionLocalizationKey: String {
-        switch self {
-        case .storageFull:
-            return "Quill stopped recording because storage was full."
-        case .permissionDenied:
-            return "Quill stopped recording because audio storage was unavailable."
-        case .journalIOFailure:
-            return "Quill stopped recording because of an audio save error."
-        }
-    }
-
     var overlayLocalizationKey: String {
         switch self {
         case .storageFull:

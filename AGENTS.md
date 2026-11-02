@@ -105,10 +105,15 @@ otherwise.
   recording, transcribing, recovered, failed, or finished, and whether an
   empty transcript is still to come or was cleared and stays editable), with
   its status parsers and the one interrupted-transcription placeholder check
-  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720). It imports
-  `QuillUserIssueCore`; the status text and recovery file work stay in
-  `Sources/`. Reading a
-  note's recording times stays in
+  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720), and how a note
+  list row reads from that status and the work running for it
+  (`NoteListRowState`: its status, which dot it draws, its preview line,
+  its Audio only and Summary badges, and the state VoiceOver reads; #697),
+  with a recovered recording's description keys
+  (`RecoveredRecordingContext.descriptionLocalizationKeys`).
+  It imports `QuillUserIssueCore`; the status text and recovery file work
+  stay in `Sources/`. Reading a
+  note's recording times, its title, and the preview's localized text stay in
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
