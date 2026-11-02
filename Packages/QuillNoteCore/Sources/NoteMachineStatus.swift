@@ -126,6 +126,54 @@ public extension RecoveredRecordingMode {
     }
 }
 
+public extension RecordingInterruptionReason {
+    /// What stopped the recording, as a catalog key each app translates.
+    var causeDescriptionLocalizationKey: String {
+        switch self {
+        case .storageFull:
+            return "Quill stopped recording because storage was full."
+        case .permissionDenied:
+            return "Quill stopped recording because audio storage was unavailable."
+        case .journalIOFailure:
+            return "Quill stopped recording because of an audio save error."
+        }
+    }
+}
+
+public extension RecoveredRecordingMode {
+    /// What was recovered, as a catalog key each app translates.
+    var descriptionLocalizationKey: String {
+        switch self {
+        case .complete:
+            return "Recovered after an unexpected shutdown. Not yet transcribed."
+        case .microphoneOnly:
+            return "System Audio could not be recovered. Microphone audio is available for playback or transcription."
+        case .systemAudioOnly:
+            return "Microphone audio could not be recovered. System Audio is available for playback or transcription."
+        case .partial:
+            return "Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
+        }
+    }
+}
+
+public extension RecoveredRecordingContext {
+    /// What the user can do with the recovered audio, as a catalog key.
+    var resultLocalizationKey: String {
+        interruptionReason != nil && mode == .complete
+            ? "Audio saved before the interruption is available for playback or transcription."
+            : mode.descriptionLocalizationKey
+    }
+
+    /// The recovered recording's description as catalog keys, read in order
+    /// and joined with a space: what stopped it, when known, then what was
+    /// recovered. A note list row's preview and the note's notice use it on
+    /// both apps.
+    var descriptionLocalizationKeys: [String] {
+        guard let interruptionReason else { return [mode.descriptionLocalizationKey] }
+        return [interruptionReason.causeDescriptionLocalizationKey, resultLocalizationKey]
+    }
+}
+
 /// A recording that recovery turned back into audio, or whose transcription
 /// was interrupted: `<prefix>[:<reason>][:<mode>]`.
 public struct RecoveredRecordingContext: Equatable, Sendable {

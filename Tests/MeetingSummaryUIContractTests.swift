@@ -68,7 +68,7 @@ struct MeetingSummaryUIContractTests {
 
     private static func testNoteListRowSummaryBadgeOrder(_ noteBrowser: String) {
         guard let audioOnlyBadge = noteBrowser.range(
-            of: "displayData.status == .audioOnly"
+            of: "displayData.rowState.showsAudioOnlyBadge"
         ), let summaryBadge = noteBrowser.range(
             of: "displayData.hasMeetingSummary"
         ) else {
@@ -271,8 +271,11 @@ struct MeetingSummaryUIContractTests {
         // comes first, and Summary work started elsewhere opens its tab.
         // The note toolbar is the shared QuillNoteUI view and #690 table
         // (#697); the Note Browser only maps its state and actions.
-        precondition(noteBrowser.contains("let state = NoteToolbarState.make(toolbarInput)\n        return NoteFloatingToolbar(\n            state: state,"))
+        precondition(noteBrowser.contains("let state = NoteToolbarState.make(toolbarInput(actionState))\n        return NoteFloatingToolbar(\n            state: state,"))
         precondition(noteBrowser.contains("transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,"))
+        // #771: audio still uploading keeps Retry, dimmed, and its help says why.
+        precondition(noteBrowser.contains("canRunTranscriptAction: actionState.canRunRetry,"))
+        precondition(noteBrowser.contains("actionState.canRunRetry ? nil : actionState.audioUnavailableMessage"))
         // #699: the first transcription and a cleanup alone stop from the
         // same ✕ the iPhone shows, each keeping what's saved.
         precondition(noteBrowser.contains("canCancelWork: canCancelToolbarWork,"))

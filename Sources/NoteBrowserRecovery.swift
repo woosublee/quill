@@ -20,6 +20,9 @@ struct NoteBrowserActionState: Equatable {
     /// Why the audio isn't here or in iCloud yet (for example, the Mac that
     /// recorded it is still uploading it), for a retry that can't run.
     let audioUnavailableMessage: String?
+    /// The note has audio that isn't here or in iCloud yet: the device that
+    /// recorded it is still uploading it, or sync is off (#771).
+    let isAudioAwaited: Bool
 
     init(
         hasStoredAudio: Bool,
@@ -27,7 +30,8 @@ struct NoteBrowserActionState: Equatable {
         retryAvailability: NoteBrowserRetryAvailability,
         postProcessingEnabled: Bool = true,
         hasSummary: Bool = false,
-        audioUnavailableMessage: String? = nil
+        audioUnavailableMessage: String? = nil,
+        isAudioAwaited: Bool = false
     ) {
         self.hasStoredAudio = hasStoredAudio
         self.hasTranscriptText = !transcript
@@ -37,9 +41,16 @@ struct NoteBrowserActionState: Equatable {
         self.postProcessingEnabled = postProcessingEnabled
         self.hasSummary = hasSummary
         self.audioUnavailableMessage = audioUnavailableMessage
+        self.isAudioAwaited = isAudioAwaited
     }
 
-    var showsRetryButton: Bool { hasStoredAudio || retryAvailability == .needsDownload }
+    /// Retranscribe shows on every note with audio, here, in iCloud, or on
+    /// its way (#771).
+    var showsRetryButton: Bool {
+        hasStoredAudio || retryAvailability == .needsDownload || isAudioAwaited
+    }
+    /// Audio on its way can't be transcribed yet: the button shows dimmed.
+    var canRunRetry: Bool { retryAvailability != .noAudio }
     var canCopy: Bool { hasTranscriptText }
     var canSaveFiles: Bool {
         hasStoredAudio || retryAvailability == .needsDownload || hasTranscriptText || hasSummary

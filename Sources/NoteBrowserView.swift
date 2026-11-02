@@ -2130,7 +2130,7 @@ private struct NoteListRow: View {
                         .quillTextStyle(.metaLabel)
                         .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
-                    if displayData.status == .audioOnly {
+                    if displayData.rowState.showsAudioOnlyBadge {
                         Text(localizedCatalogString("Audio only"))
                             .quillTextStyle(.badgeLabel)
                             .foregroundStyle(selectedMetaColor)
@@ -2279,8 +2279,8 @@ private struct NoteListRow: View {
             // same color as the accent visible.
             .overlay {
                 if isKeyboardHighlighted,
-                   [.done, .audioOnly, .fail].contains(displayData.status),
-                   !(differentiateWithoutColor && displayData.status == .fail) {
+                   [.done, .failure].contains(displayData.rowState.dotRole),
+                   !(differentiateWithoutColor && displayData.rowState.dotRole == .failure) {
                     Circle()
                         .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
                         .frame(width: 8, height: 8)
@@ -2290,7 +2290,10 @@ private struct NoteListRow: View {
 
     @ViewBuilder
     private var statusIndicatorContent: some View {
-        switch displayData.status {
+        // Which dot each state draws is shared with the iPhone app
+        // (`NoteListRowState.dotRole`); a finished and an audio-only note
+        // both get the green dot.
+        switch displayData.rowState.dotRole {
         case .done:
             Circle()
                 .fill(QuillColor.statusDone)
@@ -2309,20 +2312,16 @@ private struct NoteListRow: View {
                     }
                 }
             }
-        case .transcribing:
+        case .processing:
             // White on the keyboard-highlighted row's accent fill, like the
             // failed note's icon: the darker light-mode orange is hard to see
             // on blue.
             YellowSpinner(color: isKeyboardHighlighted ? Color.white : QuillColor.statusProcessing)
-        case .audioOnly:
-            Circle()
-                .fill(QuillColor.statusDone)
-                .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(QuillColor.statusProcessing.opacity(metaOpacity(0.7)))
-        case .fail:
+        case .failure:
             if differentiateWithoutColor {
                 // Differentiate Without Color: a failed note gets a shape,
                 // not only a red dot that matches a finished note's size.
@@ -2777,15 +2776,19 @@ private struct NoteDetailView: View {
         appState.noteBrowserRetryAvailability(for: item)
     }
     private var actionState: NoteBrowserActionState {
-        NoteBrowserActionState(
+        // Read once for this render: the retry availability, the reason,
+        // and whether the audio is on its way all come from it (#771).
+        let noteAudioState = appState.noteAudioState(for: item)
+        let retryAvailability = appState.noteBrowserRetryAvailability(for: item, audioState: noteAudioState)
+        let audioState = retryAvailability == .noAudio ? noteAudioState : nil
+        return NoteBrowserActionState(
             hasStoredAudio: storedAudioURL != nil,
             transcript: displayContent,
             retryAvailability: retryAvailability,
             postProcessingEnabled: !appState.disablePostProcessing,
             hasSummary: summaryEnvelope != nil,
-            audioUnavailableMessage: retryAvailability == .noAudio
-                ? appState.noteAudioState(for: item).unavailableMessage
-                : nil
+            audioUnavailableMessage: audioState?.unavailableMessage,
+            isAudioAwaited: audioState?.isAwaited ?? false
         )
     }
     private var issuePresentation: QuillUserIssuePresentation? {
@@ -4046,10 +4049,12 @@ private struct NoteDetailView: View {
     /// The toolbar follows the open tab (#262): each tab's "make again"
     /// action sits first, before the divider, and runs where you can see it.
     private var floatingToolbar: some View {
-        let state = NoteToolbarState.make(toolbarInput)
+        // One read of the note's audio for the toolbar's state and labels.
+        let actionState = actionState
+        let state = NoteToolbarState.make(toolbarInput(actionState))
         return NoteFloatingToolbar(
             state: state,
-            labels: toolbarLabels,
+            labels: toolbarLabels(actionState),
             actions: NoteToolbarActions(
                 firstAction: { handleToolbarFirstAction($0) },
                 copy: { copyContent() },
@@ -4074,12 +4079,15 @@ private struct NoteDetailView: View {
     }
 
     /// What this note's toolbar shows, for the shared #690 table.
-    private var toolbarInput: NoteToolbarInput {
+    private func toolbarInput(_ actionState: NoteBrowserActionState) -> NoteToolbarInput {
         NoteToolbarInput(
             tab: isShowingSummaryTab ? .summary : .transcript,
             work: toolbarWork,
             canCancelWork: canCancelToolbarWork,
             transcriptAction: actionState.showsRetryButton ? (isAudioOnly ? .transcribe : .retry) : nil,
+            // Audio still uploading from the device that recorded it: the
+            // button stays, dimmed, until it can be had (#771).
+            canRunTranscriptAction: actionState.canRunRetry,
             hasSummaryTab: showsSummaryTab,
             isMakingSummary: isGeneratingSummary,
             canRunSummary: !summaryActionIsDisabled,
@@ -4119,7 +4127,7 @@ private struct NoteDetailView: View {
         }
     }
 
-    private var toolbarLabels: NoteToolbarLabels {
+    private func toolbarLabels(_ actionState: NoteBrowserActionState) -> NoteToolbarLabels {
         NoteToolbarLabels(
             // The work labels come from the shared table (#697), so they
             // read the same as the status they cancel.
@@ -4143,7 +4151,17 @@ private struct NoteDetailView: View {
             ),
             save: localizedCatalogString("Save Files"),
             createSummary: localizedCatalogString("Create Summary"),
-            delete: localizedCatalogString("Delete note")
+            delete: localizedCatalogString("Delete note"),
+            // Audio still uploading, or out of reach with sync off: the
+            // dimmed Retry says why, as the audio bar does (#771).
+            firstActionUnavailableReason: { action in
+                switch action {
+                case .transcribe, .retry, .retranscribe:
+                    actionState.canRunRetry ? nil : actionState.audioUnavailableMessage
+                default:
+                    nil
+                }
+            }
         )
     }
 

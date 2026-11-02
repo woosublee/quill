@@ -45,6 +45,7 @@ struct NoteSyncCoordinatorTests {
         testLateDeleteDoesNotRestartAStoppedSync()
         testUnreadableSaveStillCountsAsUploaded()
         testOfflineDoesNotReplaceTheAccountNotice()
+        testFullStorageOutranksAccountAndOffline()
         await testUnreadableNoteIsNeverDeletedAfterASend()
         try await testUnreadableNoteKeepsItsParts()
         testLateFailuresDoNotRestartStoppedSync()
@@ -1012,6 +1013,28 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleSendFailures([.network(noteID: UUID())])
         coordinator.handleNetworkChange(isOnline: false)
         precondition(coordinator.status == .paused(.accountNeedsAttention))
+    }
+
+    /// A full iCloud outranks an account to look at, which outranks being
+    /// offline, whichever comes first (#283, shared `NoteSyncProblem`).
+    @MainActor
+    static func testFullStorageOutranksAccountAndOffline() {
+        let (coordinator, store, _) = make()
+        let a = record()
+        store.records[a.noteID] = a
+        store.syncable = [a.noteID]
+        coordinator.handleSendFailures([.accountNeedsAttention, .network(noteID: UUID()), .quotaExceeded(noteID: a.noteID)])
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "storage first when all fail at once")
+        coordinator.handleSendFailures([.accountNeedsAttention])
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "an account notice doesn't replace full storage")
+        coordinator.handleNetworkChange(isOnline: false)
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "offline doesn't replace full storage")
+
+        let (other, _, _) = make()
+        other.handleSendFailures([.network(noteID: UUID())])
+        precondition(other.status == .paused(.offline))
+        other.handleSendFailures([.accountNeedsAttention])
+        precondition(other.status == .paused(.accountNeedsAttention), "an account notice replaces offline")
     }
 
     /// Notes that can't be read are left alone: a finished save, a

@@ -19,7 +19,11 @@ otherwise.
 - `Sources/UpdateManager.swift`: Sparkle update behavior.
 - `Sources/SettingsView.swift`, `Sources/SetupView.swift`, and other SwiftUI files: UI.
 - `Packages/QuillNoteSyncCore/`: note sync record, merge, payload, CloudKit,
-  and audio-part logic shared with the iPhone app (#634).
+  and audio-part logic shared with the iPhone app (#634), and how the sync
+  status reads (`NoteSyncStatusPresentation`): which problem shows first
+  (`NoteSyncProblem`: full iCloud storage, then an account to look at, then
+  offline), its copy keys, and the "x min. ago" text in the locale the app
+  passes. Each app translates the keys with its own String Catalog.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
@@ -101,7 +105,12 @@ otherwise.
   recording, transcribing, recovered, failed, or finished, and whether an
   empty transcript is still to come or was cleared and stays editable), with
   its status parsers and the one interrupted-transcription placeholder check
-  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720), what Save Files
+  (`NoteMachineStatus.isTranscriptionPlaceholder`, #720), how a note
+  list row reads from that status and the work running for it
+  (`NoteListRowState`: its status, which dot it draws, its preview line,
+  its Audio only and Summary badges, and the state VoiceOver reads; #697),
+  with a recovered recording's description keys
+  (`RecoveredRecordingContext.descriptionLocalizationKeys`), what Save Files
   offers and names (`NoteExportPlan`: blank text isn't offered, a stale
   summary is flagged, `<name>-summary` and the 255-character limit), the
   delete confirmation's copy (`NoteDeletionConfirmation`), and how long
@@ -110,7 +119,7 @@ otherwise.
   app writes the export files and runs the delete itself. It imports
   `QuillUserIssueCore`; the status text and recovery file work stay in
   `Sources/`. Reading a
-  note's recording times stays in
+  note's recording times, its title, and the preview's localized text stay in
   `Sources/NoteListRowDisplayData.swift`, and each app keeps its own selection
   state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app

@@ -900,24 +900,36 @@ final class NoteSyncCoordinator {
     }
 
     /// A full iCloud outranks an account to look at, which outranks being
-    /// offline.
+    /// offline (`NoteSyncProblem`, shared with the iPhone, #283).
     private func setFailureStatus(quotaCount: Int, account: Bool, offline: Bool) {
-        if quotaCount > 0 {
-            status = .paused(.quotaExceeded(pending: quotaCount))
-        } else if account {
-            if case .paused(.quotaExceeded) = status { return }
-            status = .paused(.accountNeedsAttention)
-        } else if offline {
-            showOffline()
-        }
+        guard let problem = NoteSyncProblem.mostUrgent(
+            storageFull: quotaCount > 0, accountNeedsAttention: account, offline: offline
+        ) else { return }
+        show(problem, quotaPending: quotaCount)
     }
 
     /// Offline never replaces a full iCloud or an account to look at: coming
     /// back online would clear a notice that still applies.
     private func showOffline() {
+        show(.offline)
+    }
+
+    /// Shows `problem` unless one that outranks it is already shown.
+    private func show(_ problem: NoteSyncProblem, quotaPending: Int = 0) {
+        if let shown = shownProblem, shown.outranks(problem) { return }
+        switch problem {
+        case .storageFull: status = .paused(.quotaExceeded(pending: quotaPending))
+        case .accountNeedsAttention: status = .paused(.accountNeedsAttention)
+        case .offline: status = .paused(.offline)
+        }
+    }
+
+    private var shownProblem: NoteSyncProblem? {
         switch status {
-        case .paused(.quotaExceeded), .paused(.accountNeedsAttention): return
-        default: status = .paused(.offline)
+        case .paused(.quotaExceeded): .storageFull
+        case .paused(.accountNeedsAttention): .accountNeedsAttention
+        case .paused(.offline): .offline
+        default: nil
         }
     }
 
