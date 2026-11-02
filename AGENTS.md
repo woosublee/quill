@@ -166,7 +166,8 @@ otherwise.
   row, checkbox, status dot, empty disc, record button, close button,
   search field, summary bullet; a value per platform where they differ),
   the note layout sizes (`QuillLayoutSize`: list column, 280 on the Mac and
-  320 on iOS (quill-universal-private#306), note side margins,
+  320 on iOS (quill-universal-private#306), the Settings sidebar, 180 on
+  the Mac and 150 on iOS (quill-universal-private#303), note side margins,
   body maximum width, and the Mac Summary tab's width and bottom room), and
   the width breakpoints (#697).
   `Tests/QuillDesignTokensTests.swift` checks them against

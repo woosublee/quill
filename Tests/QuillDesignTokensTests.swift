@@ -463,7 +463,7 @@ struct QuillDesignTokensTests {
         for (name, value) in QuillLayoutSize.all {
             precondition(sizes[name] == Double(value), "\(name) is \(value) in Swift but \(sizes[name].map(String.init(describing:)) ?? "missing") in tokens.json")
         }
-        let layoutPrefixes = ["size-sidebar-notes", "size-note-margin-", "size-note-body-"]
+        let layoutPrefixes = ["size-sidebar-notes", "size-sidebar-settings", "size-note-margin-", "size-note-body-"]
         for name in sizes.keys where layoutPrefixes.contains(where: name.hasPrefix) {
             precondition(QuillLayoutSize.all.contains { $0.name == name }, "tokens.json size \(name) is missing from QuillLayoutSize")
         }
@@ -473,6 +473,7 @@ struct QuillDesignTokensTests {
         // narrowest note column, 520 pt.
         precondition(QuillBreakpoint.wide - QuillLayoutSize.sidebarNotesMac == 520, "800 = 280 list + 520 note")
         precondition(QuillLayoutSize.sidebarNotes == QuillLayoutSize.sidebarNotesMac, "this Mac test sees the Mac list column")
+        precondition(QuillLayoutSize.sidebarSettings == QuillLayoutSize.sidebarSettingsMac, "this Mac test sees the Mac settings sidebar")
         // The iPad's wider list (quill-universal-private#306) still leaves a note column at the
         // narrowest wide window: 800 − 320 = 480, about an iPhone's width.
         precondition(QuillBreakpoint.wide - QuillLayoutSize.sidebarNotesIPhone == 480, "800 = 320 list + 480 note on the iPad")
