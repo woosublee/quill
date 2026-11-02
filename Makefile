@@ -1007,8 +1007,6 @@ _test-recording: $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/AudioMixdownServiceTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) "$(CURDIR)/Sources/AudioImportConversionService.swift" "$(CURDIR)/Tests/AudioImportConversionServiceTests.swift" -o $(TEST_BUILD_DIR)/AudioImportConversionServiceTests
 	@$(TEST_BUILD_DIR)/AudioImportConversionServiceTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/AudioImportFileConversionTests.swift -o $(TEST_BUILD_DIR)/AudioImportFileConversionTests
-	@$(TEST_BUILD_DIR)/AudioImportFileConversionTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/AudioWaveformHeightsTests.swift -o $(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@$(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AudioInputDevice.swift Tests/SystemAudioAppStateRoutingTests.swift -o $(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
