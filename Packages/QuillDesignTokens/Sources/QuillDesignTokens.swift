@@ -564,8 +564,9 @@ public enum QuillControlSize {
     ]
 }
 
-/// Note screen layout sizes (#697). `QuillNoteLayout` in QuillNoteUI picks
-/// between them by width class; the margins are steps of `QuillSpacing`.
+/// Screen layout sizes: the note screen's (#697), which `QuillNoteLayout` in
+/// QuillNoteUI picks between by width class (the margins are steps of
+/// `QuillSpacing`), and the Settings sidebar's (quill-universal-private#303).
 public enum QuillLayoutSize {
     /// `size-sidebar-notes`: the note list's column when it sits beside the
     /// note: 280 on the Mac, 320 in a wide iPad window (quill-universal-private#306), where the
@@ -577,6 +578,18 @@ public enum QuillLayoutSize {
     public static let sidebarNotes = sidebarNotesMac
     #else
     public static let sidebarNotes = sidebarNotesIPhone
+    #endif
+    /// `size-sidebar-settings`: the Settings sidebar: 180 in the Mac's
+    /// Settings window, 150 in the Settings sheet of a wide iPad window
+    /// (quill-universal-private#303), which leaves the sheet's pages room
+    /// for their cards.
+    public static let sidebarSettingsMac: CGFloat = 180
+    public static let sidebarSettingsIPhone: CGFloat = 150
+
+    #if os(macOS)
+    public static let sidebarSettings = sidebarSettingsMac
+    #else
+    public static let sidebarSettings = sidebarSettingsIPhone
     #endif
     /// `size-note-margin-compact`: a note's side margins in a compact
     /// column (an iPhone in portrait). `space-16`.
@@ -598,6 +611,8 @@ public enum QuillLayoutSize {
     public static let all: [(name: String, value: CGFloat)] = [
         ("size-sidebar-notes", sidebarNotesMac),
         ("size-sidebar-notes-iphone", sidebarNotesIPhone),
+        ("size-sidebar-settings", sidebarSettingsMac),
+        ("size-sidebar-settings-iphone", sidebarSettingsIPhone),
         ("size-note-margin-compact", noteMarginCompact),
         ("size-note-margin-regular", noteMarginRegular),
         ("size-note-body-max-width", noteBodyMaxWidth),
