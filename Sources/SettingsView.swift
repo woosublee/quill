@@ -49,7 +49,7 @@ private let iso8601DayFormatter: DateFormatter = {
 // MARK: - Settings
 
 struct SettingsView: View {
-    static let sidebarWidth: CGFloat = 180
+    static let sidebarWidth = QuillLayoutSize.sidebarSettings
     /// The sidebar plus room for a page's 280-320 point controls; tall
     /// enough for every sidebar tab, which doesn't scroll.
     static let minimumSize = NSSize(width: sidebarWidth + 500, height: 520)

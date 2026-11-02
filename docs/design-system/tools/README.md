@@ -40,7 +40,7 @@ Mac과 iPhone이 함께 쓰는 Swift 모듈 `Packages/QuillDesignTokens`가 `tok
 - 불투명도 `opacity-status-wash`.
 - 글자 `note-title`·`empty-title`·`row-title`·`transcript`·`callout`·`row-preview`·`banner-title`·`meta-label`·`badge-label`·`meta-mono`·`meta-chip-mono`·`status-title`·`status-percent`·`status-detail`·`summary-section-title`(`QuillTypeStyle`: macOS는 고정 크기, iOS는 Dynamic Type. 메타 줄 두 스타일은 iOS에서도 macOS 크기에서 `.caption2` 기준으로 커짐. 자간이 플랫폼마다 다르면 `letterSpacingIphone`. 화면에서는 `quillTextStyle(_:)`로 그림).
 - 크기 `size-note-toolbar`·`size-note-toolbar-button`(`-iphone`)·`size-status-progress`·`size-touch-min`·`size-note-row`·`size-checkbox`(`-iphone`)·`size-status-dot`·`size-empty-disc`·`size-record-button`(`-iphone`)(`QuillControlSize`).
-- 노트 배치 크기 `size-sidebar-notes`·`size-sidebar-notes-iphone`·`size-note-margin-compact`·`size-note-margin-regular`·`size-note-body-max-width`(`QuillLayoutSize`, #697), 폭 경계 `breakpoint-regular`·`breakpoint-wide`.
+- 노트 배치 크기 `size-sidebar-notes`·`size-sidebar-notes-iphone`·`size-sidebar-settings`·`size-sidebar-settings-iphone`·`size-note-margin-compact`·`size-note-margin-regular`·`size-note-body-max-width`(`QuillLayoutSize`, #697), 폭 경계 `breakpoint-regular`·`breakpoint-wide`.
 
 #736 1단계에서 더한 토큰은 아직 두 앱 어느 화면도 읽지 않습니다(화면별로 다음 단계에서 옮김). `Tests/QuillDesignTokensTests.swift`가 두 파일을 비교하므로, 토큰을 더하거나 바꾸면 양쪽을 함께 고칩니다(`make check`에서 실패로 드러남).
 
