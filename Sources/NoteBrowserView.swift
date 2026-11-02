@@ -67,6 +67,7 @@ private struct PendingAudioImport: Identifiable {
     let fileURL: URL
     let currentChoice: TranscriptionBackendChoice
     let apiStandardModelID: String
+    let apiStandardModelIDs: [String]
     let hasAPIKey: Bool
     let hasNativeLocalWhisperModel: Bool
     let legacyLocalWhisperModels: [TranscriptionModel]
@@ -81,6 +82,7 @@ private struct PendingAudioImport: Identifiable {
         fileURL: URL,
         currentChoice: TranscriptionBackendChoice,
         apiStandardModelID: String,
+        apiStandardModelIDs: [String],
         hasAPIKey: Bool,
         hasNativeLocalWhisperModel: Bool,
         legacyLocalWhisperModels: [TranscriptionModel],
@@ -93,6 +95,7 @@ private struct PendingAudioImport: Identifiable {
         self.fileURL = fileURL
         self.currentChoice = currentChoice
         self.apiStandardModelID = apiStandardModelID
+        self.apiStandardModelIDs = apiStandardModelIDs
         self.hasAPIKey = hasAPIKey
         self.hasNativeLocalWhisperModel = hasNativeLocalWhisperModel
         self.legacyLocalWhisperModels = legacyLocalWhisperModels
@@ -109,6 +112,7 @@ private struct PendingAudioImport: Identifiable {
             fileExtension: fileURL.pathExtension,
             currentChoice: currentChoice,
             apiStandardModelID: apiStandardModelID,
+            apiStandardModelIDs: apiStandardModelIDs,
             fileSizeBytes: fileSizeBytes,
             hasAPIKey: hasAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
@@ -1729,6 +1733,7 @@ struct NoteBrowserView: View {
             fileURL: url,
             currentChoice: appState.currentNoteBrowserTranscriptionChoice,
             apiStandardModelID: appState.transcriptionModel,
+            apiStandardModelIDs: appState.standardAPIModelIDs,
             hasAPIKey: appState.hasTranscriptionAPIKey,
             hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
             legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,

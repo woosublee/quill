@@ -9653,6 +9653,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 .audioImportCloudTranscriptionDependenciesFactory(),
             postProcessingService: makePostProcessingService()
         )
+        let pickedModelID = Self.importPickedModelID(
+            choice: choice,
+            selected: currentNoteBrowserTranscriptionChoice,
+            savedCloudModelID: resolvedStandardTranscriptionModelID
+        )
         let jobID = UUID()
         let noteID = UUID()
         let startedAt = Date()
@@ -9755,7 +9760,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingEnabled: configuration.postProcessingEnabled,
                     outputLanguage: configuration.outputLanguage,
                     pressEnterCommandEnabled: configuration.pressEnterCommandEnabled
-                )
+                ),
+                pickedModelID: pickedModelID
             )
 
             let task = Task { [weak self] in
@@ -10050,6 +10056,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             fileExtension: audioURL.pathExtension,
             currentChoice: currentNoteBrowserTranscriptionChoice,
             apiStandardModelID: resolvedStandardTranscriptionModelID,
+            apiStandardModelIDs: standardAPIModelIDs,
             fileSizeBytes: Self.fileSizeBytes(for: audioURL),
             hasAPIKey: hasTranscriptionAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
@@ -10507,6 +10514,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return cloud.model
         case .local(let local, _):
             return local.localAIExecution?.modelID
+        }
+    }
+
+    /// The same for an import (#784): a model picked in the import sheet
+    /// that isn't the selected one is saved with the job, so an import cut
+    /// off by a relaunch resumes on it. Nil for the selected model, for the
+    /// saved Cloud model (a resume already runs it, and it keeps following
+    /// Settings, for example while Realtime is selected), and for models
+    /// that keep no job.
+    static func importPickedModelID(
+        choice: TranscriptionBackendChoice,
+        selected: TranscriptionBackendChoice,
+        savedCloudModelID: String
+    ) -> String? {
+        guard choice != selected else { return nil }
+        switch choice {
+        case .apiStandard(let modelID):
+            return modelID == savedCloudModelID ? nil : modelID
+        case .localAI(let modelID):
+            return modelID
+        case .apiRealtime, .nativeWhisper, .legacyMlxWhisper, .appleLive:
+            return nil
         }
     }
 
@@ -14286,7 +14315,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         historyID: UUID,
         usesJobStore: Bool,
         reportsProgressFromStart: Bool = false,
-        completionPolicy: TranscriptionCompletionSnapshot
+        completionPolicy: TranscriptionCompletionSnapshot,
+        pickedModelID: String? = nil
     ) -> CloudTranscriptionExecutionContext? {
         guard usesJobStore else { return nil }
         let session = cloudTranscriptionJobStore.beginSession(
@@ -14301,7 +14331,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let checkpointStore = cloudTranscriptionJobStore.checkpointStore(
             session: session,
-            completionPolicy: completionPolicy.cloudJobPolicy
+            completionPolicy: completionPolicy.cloudJobPolicy,
+            pickedModelID: pickedModelID
         )
         return CloudTranscriptionExecutionContext(
             historyID: historyID,
