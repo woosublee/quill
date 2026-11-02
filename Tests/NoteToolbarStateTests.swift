@@ -24,6 +24,11 @@ struct NoteToolbarStateTests {
         testSummaryActionBlockedWhileComparingOrEditing()
         testHiddenOnlyForRecordingComparingAndKeyboard()
         testEveryCombinationKeepsTheFixedSlots()
+        testSummaryTranscriptReadsTrimmedText()
+        testSummaryKindFollowsSavedSummaryThenFailure()
+        testSummaryInputEveryCombination()
+        testSummaryInputFillsTheToolbarInput()
+        testSummaryInputThroughTheTable()
         testEachMacButtonHasItsOwnCursorViewForItsHelpTag()
         MainActor.assumeIsolated { testEachMacButtonGetsAnAppKitView() }
         print("NoteToolbarStateTests passed")
@@ -396,6 +401,128 @@ struct NoteToolbarStateTests {
                 }
             }
         }
+    }
+
+    // MARK: - The summary buttons' input (#782)
+
+    private static func testSummaryTranscriptReadsTrimmedText() {
+        precondition(NoteSummaryTranscript(hasTranscript: false, text: "Synthetic words") == .missing)
+        precondition(NoteSummaryTranscript(hasTranscript: true, text: nil) == .empty)
+        precondition(NoteSummaryTranscript(hasTranscript: true, text: " \n\t ") == .empty)
+        precondition(NoteSummaryTranscript(hasTranscript: true, text: " Synthetic words ") == .present)
+    }
+
+    private static func testSummaryKindFollowsSavedSummaryThenFailure() {
+        precondition(NoteSummaryKind(hasSummary: false, lastAttemptFailed: false) == .create)
+        precondition(NoteSummaryKind(hasSummary: false, lastAttemptFailed: true) == .retry)
+        precondition(NoteSummaryKind(hasSummary: true, lastAttemptFailed: false) == .regenerate)
+        precondition(NoteSummaryKind(hasSummary: true, lastAttemptFailed: true) == .regenerate)
+    }
+
+    /// Every input combination, against the rule written out once more.
+    private static func testSummaryInputEveryCombination() {
+        let kinds: [NoteSummaryKind] = [.create, .retry, .regenerate]
+        let transcripts: [NoteSummaryTranscript] = [.missing, .empty, .present]
+        let flags = [false, true]
+        var count = 0
+        for kind in kinds {
+            for transcript in transcripts {
+                for canRun in flags {
+                    for hasTab in flags {
+                        for making in flags {
+                            for blocked in flags {
+                                for copy in flags {
+                                    let input = NoteToolbarSummaryInput.make(
+                                        kind: kind, transcript: transcript, canRun: canRun, hasSummaryTab: hasTab,
+                                        isMakingSummary: making, isBlocked: blocked, hasSummaryToCopy: copy
+                                    )
+                                    let label = "\(kind) \(transcript) run:\(canRun) tab:\(hasTab) making:\(making) blocked:\(blocked)"
+                                    let canSummarize = transcript == .present && canRun && !making
+                                    precondition(input.canRunSummary == canSummarize, label)
+                                    precondition(
+                                        input.canCreateSummary == (kind == .create ? canSummarize : nil), label
+                                    )
+                                    precondition(input.hasSummaryTab == hasTab, label)
+                                    precondition(input.isMakingSummary == making, label)
+                                    precondition(input.isSummaryActionBlocked == blocked, label)
+                                    precondition(input.hasSummaryToCopy == copy, label)
+                                    count += 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        precondition(count == 3 * 3 * 2 * 2 * 2 * 2 * 2)
+        precondition(NoteToolbarSummaryInput.none.canCreateSummary == nil)
+        precondition(!NoteToolbarSummaryInput.none.canRunSummary && !NoteToolbarSummaryInput.none.hasSummaryTab)
+    }
+
+    private static func testSummaryInputFillsTheToolbarInput() {
+        let summary = NoteToolbarSummaryInput.make(
+            kind: .regenerate, transcript: .present, canRun: true, hasSummaryTab: true,
+            isMakingSummary: false, isBlocked: true, hasSummaryToCopy: true
+        )
+        let input = NoteToolbarInput(
+            tab: .summary, work: .postProcessing, canCancelWork: true, transcriptAction: .retry,
+            canRunTranscriptAction: false, summary: summary, hasTranscriptToCopy: true, hasFilesToSave: true, canDelete: false
+        )
+        precondition(input == NoteToolbarInput(
+            tab: .summary, work: .postProcessing, canCancelWork: true, transcriptAction: .retry,
+            canRunTranscriptAction: false, hasSummaryTab: true, isMakingSummary: false, canRunSummary: true,
+            isSummaryActionBlocked: true, canCreateSummary: nil, hasTranscriptToCopy: true, hasSummaryToCopy: true,
+            hasFilesToSave: true, canDelete: false
+        ))
+    }
+
+    /// The note states the device checks found, drawn by the table: a note
+    /// with no transcript keeps ✨ dimmed whatever its first action (the
+    /// Mac's Transcribe, the iPhone's ↻ on a synced note, or none).
+    private static func testSummaryInputThroughTheTable() {
+        func toolbar(
+            _ transcript: NoteSummaryTranscript, canRun: Bool = true, action: NoteToolbarTranscriptAction? = nil,
+            kind: NoteSummaryKind = .create, hasTab: Bool = false, making: Bool = false, blocked: Bool = false,
+            tab: NoteToolbarTab = .transcript
+        ) -> State {
+            State.make(NoteToolbarInput(
+                tab: tab,
+                transcriptAction: action,
+                summary: .make(
+                    kind: kind, transcript: transcript, canRun: canRun, hasSummaryTab: hasTab,
+                    isMakingSummary: making, isBlocked: blocked, hasSummaryToCopy: hasTab
+                ),
+                hasTranscriptToCopy: transcript == .present,
+                hasFilesToSave: true,
+                canDelete: true
+            ))
+        }
+        for action in [nil, NoteToolbarTranscriptAction.transcribe, .retry, .retranscribe, .openModelSetup] {
+            for transcript in [NoteSummaryTranscript.missing, .empty] {
+                for canRun in [false, true] {
+                    precondition(
+                        toolbar(transcript, canRun: canRun, action: action).createSummary == .button(isEnabled: false),
+                        "\(transcript) \(String(describing: action))"
+                    )
+                }
+            }
+            precondition(toolbar(.present, action: action).createSummary == .button(isEnabled: true))
+            precondition(toolbar(.present, canRun: false, action: action).createSummary == .button(isEnabled: false))
+        }
+        // With a summary tab, ✨ isn't on the transcript tab; ↻ runs there.
+        precondition(toolbar(.present, kind: .regenerate, hasTab: true).createSummary == .none)
+        precondition(toolbar(.present, kind: .regenerate, hasTab: true, tab: .summary).firstSlot == .button(.runSummary, isEnabled: true))
+        precondition(toolbar(.empty, kind: .regenerate, hasTab: true, tab: .summary).firstSlot == .button(.runSummary, isEnabled: false))
+        precondition(
+            toolbar(.present, kind: .regenerate, hasTab: true, blocked: true, tab: .summary).firstSlot
+                == .button(.runSummary, isEnabled: false)
+        )
+        precondition(
+            toolbar(.present, kind: .regenerate, hasTab: true, making: true, tab: .summary).firstSlot
+                == .button(.cancelSummary, isEnabled: true)
+        )
+        // A first summary being made opens its tab; ✨ leaves.
+        precondition(toolbar(.present, hasTab: true, making: true).createSummary == .none)
     }
 
     /// A Mac toolbar button floating over the transcript's text view shows

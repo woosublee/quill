@@ -124,8 +124,10 @@ otherwise.
   state.
 - `Packages/QuillNoteUI/`: SwiftUI note screens shared with the iPhone app
   (#697), built for macOS and iOS. So far: the note toolbar's state table
-  (`NoteToolbarState`, the #690 rules for both apps) and its view
-  (`NoteFloatingToolbar`); the one-line notice banner (`NoteBanner`, its
+  (`NoteToolbarState`, the #690 rules for both apps), what a note gives its
+  summary buttons (`NoteToolbarSummaryInput`: the transcript, the summary kind,
+  and whether ✨ and ↻ can run, #782), and its view (`NoteFloatingToolbar`);
+  the one-line notice banner (`NoteBanner`, its
   "+N" and close buttons, its info button (`NoteBannerDetails`), a
   prominent action, and its surface, #744: the Mac's
   `QuillStatusBanner` forwards to it); the work status (`NoteWorkStatus`:

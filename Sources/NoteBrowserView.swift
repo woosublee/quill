@@ -2759,6 +2759,13 @@ private struct NoteDetailView: View {
             || (currentSummaryAttempt?.outcome == .failed
                 && currentSummaryAttempt?.issue != nil)
     }
+    /// What a summary would read. The availability already says when there's
+    /// no text to summarize (it reads the summary source, and checks that
+    /// before the setting is off), so the Mac reads it from there.
+    private var summaryTranscript: NoteSummaryTranscript {
+        if isAudioOnly { return .missing }
+        return summaryAvailability == .transcriptUnavailable ? .empty : .present
+    }
     private var summaryActionIsDisabled: Bool {
         switch summaryAvailability {
         case .available, .featureDisabled:
@@ -4088,13 +4095,19 @@ private struct NoteDetailView: View {
             // Audio still uploading from the device that recorded it: the
             // button stays, dimmed, until it can be had (#771).
             canRunTranscriptAction: actionState.canRunRetry,
-            hasSummaryTab: showsSummaryTab,
-            isMakingSummary: isGeneratingSummary,
-            canRunSummary: !summaryActionIsDisabled,
-            // The shared table keeps ✨ dimmed when the action is Transcribe.
-            canCreateSummary: summaryToolbarAction == .create ? !summaryActionIsDisabled : nil,
+            // The same rule as both iPhone note screens (#782).
+            summary: .make(
+                kind: summaryToolbarAction.kind,
+                transcript: summaryTranscript,
+                canRun: !summaryActionIsDisabled,
+                hasSummaryTab: showsSummaryTab,
+                isMakingSummary: isGeneratingSummary,
+                // The toolbar hides while comparing; an edited summary asks
+                // before it's replaced.
+                isBlocked: false,
+                hasSummaryToCopy: summaryEnvelope != nil
+            ),
             hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            hasSummaryToCopy: summaryEnvelope != nil,
             hasFilesToSave: actionState.canSaveFiles,
             canDelete: !isRecoveringRecording
         )
@@ -4559,6 +4572,14 @@ private enum SummaryToolbarAction {
     case create
     case retry
     case regenerate
+
+    var kind: NoteSummaryKind {
+        switch self {
+        case .create: .create
+        case .retry: .retry
+        case .regenerate: .regenerate
+        }
+    }
 
     var systemImage: String {
         switch self {
