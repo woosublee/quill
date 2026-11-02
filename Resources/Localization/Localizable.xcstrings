@@ -1,70 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Recently Deleted": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recently Deleted"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최근 삭제"
-          }
-        }
-      }
-    },
-    "Archive and Open Recently Deleted": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive and Open Recently Deleted"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "보관하고 최근 삭제 열기"
-          }
-        }
-      }
-    },
-    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 새 기록을 시작하고 설정의 최근 삭제를 열어요. 이전 기록은 자동으로 가져오지 않아요."
-          }
-        }
-      }
-    },
-    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 별도의 새 기록을 시작해요. 이전 기록은 나중에 설정의 최근 삭제에서 가져올 수 있어요."
-          }
-        }
-      }
-    },
     "Download this model in Settings to use it": {
       "localizations": {
         "en": {
@@ -125,6 +61,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 모델은 MP3, MP4, M4A, MPEG, MPGA, WAV 파일만 가져올 수 있어요."
+          }
+        }
+      }
+    },
+    "Recently Deleted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recently Deleted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 삭제"
+          }
+        }
+      }
+    },
+    "Archive and Open Recently Deleted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive and Open Recently Deleted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관하고 최근 삭제 열기"
+          }
+        }
+      }
+    },
+    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recently Deleted in Settings. Your earlier notes are not imported automatically."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 새 기록을 시작하고 설정의 최근 삭제를 열어요. 이전 기록은 자동으로 가져오지 않아요."
+          }
+        }
+      }
+    },
+    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recently Deleted in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 별도의 새 기록을 시작해요. 이전 기록은 나중에 설정의 최근 삭제에서 가져올 수 있어요."
           }
         }
       }
@@ -17060,50 +17060,18 @@
         }
       }
     },
-    "Archive old history and open Recovery?": {
+    "Archive old history and open Recently Deleted?": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Archive old history and open Recovery?"
+            "value": "Archive old history and open Recently Deleted?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 기록을 보관하고 기록 복구를 열까요?"
-          }
-        }
-      }
-    },
-    "Archive and Open Recovery": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive and Open Recovery"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "보관하고 기록 복구 열기"
-          }
-        }
-      }
-    },
-    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recovery settings. Your earlier notes are not imported automatically.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a new history and open Recovery settings. Your earlier notes are not imported automatically."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 새 기록을 시작하고 기록 복구 설정을 열어요. 이전 기록은 자동으로 가져오지 않아요."
+            "value": "이전 기록을 보관하고 최근 삭제를 열까요?"
           }
         }
       }
@@ -17120,38 +17088,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "이전 기록을 보관하고 새 기록을 시작할까요?"
-          }
-        }
-      }
-    },
-    "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recovery settings.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill will preserve the original database, audio, transcripts, and recovery metadata in a recovery snapshot. It will then start a separate new history. You can import earlier notes later from Recovery settings."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quill은 원본 데이터베이스, 오디오, 전사문, 복구 메타데이터를 복구 보관본에 보존해요. 이후 별도의 새 기록을 시작해요. 이전 기록은 나중에 기록 복구 설정에서 가져올 수 있어요."
-          }
-        }
-      }
-    },
-    "Recovery": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recovery"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기록 복구"
           }
         }
       }
@@ -21887,7 +21823,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "30일 동안 최근 삭제된 노트에서 복구할 수 있어요."
+            "value": "30일 동안 최근 삭제에서 복구할 수 있어요."
           }
         }
       }
@@ -21903,7 +21839,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "녹음과 요약도 함께 옮겨져요. 30일 동안 최근 삭제된 노트에서 복구할 수 있어요."
+            "value": "녹음과 요약도 함께 옮겨져요. 30일 동안 최근 삭제에서 복구할 수 있어요."
           }
         }
       }
@@ -21919,7 +21855,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 최근 삭제된 노트로 옮겨져요. 30일 동안 복구할 수 있어요."
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 최근 삭제로 옮겨져요. 30일 동안 복구할 수 있어요."
           }
         }
       }
