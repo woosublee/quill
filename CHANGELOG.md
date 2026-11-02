@@ -15,9 +15,9 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - **Drop audio on the Note Browser.** Drag an audio file from Finder, or a recording from Voice Memos, onto the Note Browser to import it.
 - **See what each note is doing.** The note list row shows the work running for a note (transcribing, cleaning up, summarizing), and cloud transcription shows its progress.
 - **Cancel a retranscription** from the Note Browser toolbar.
-- **Cloud consent.** Quill asks before your audio or text goes to a provider for the first time after you save its API key. Settings lists each provider with the date you agreed, and you can withdraw it there. Clearing a provider's key withdraws its consent.
+- **Cloud consent.** Saving an API key for a cloud provider now asks you to agree to send audio and text to that provider (Send or Cancel). Settings lists each provider with the date you agreed; keys saved before this release show "Not agreed yet" and keep working. Withdrawing consent deletes that provider's API key (both keys, if they go to the same provider) and switches the features that used it to a local model or off. It can't be withdrawn while Quill is recording, transcribing, or importing. Clearing a provider's key withdraws its consent.
 - **Notices stay dismissed on every device.** With iCloud sync on, dismissing a note's notice (post-processing warning, summary notices, "same transcript", "Nothing to clean up") on the Mac or iPhone dismisses it on the other too.
-- **Pick any cloud model for a one-time transcription.** When transcription is off and you transcribe a note by hand, the choice sheet lists every cloud transcription model from Settings. The picked model is also used if the transcription is interrupted and resumes.
+- **Pick any cloud model for a one-time transcription.** When transcription is off and you transcribe a note by hand, and when you import an audio file, the choice sheet lists every cloud transcription model from Settings. The picked model, cloud or Local AI, is also used if the transcription is interrupted and resumes.
 - **Deselect All.** Select All turns into Deselect All once every note is selected.
 
 ### Changed
@@ -25,12 +25,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - Settings › Recovery is now **Settings › Recently Deleted**, the same name as on iPhone and iPad.
 - In note selection mode, Done reads Cancel once a note is selected.
 - Each recording's waveform is drawn against its own loud level, so quiet recordings no longer look flat.
-- Create Summary stays in the toolbar, dimmed, on notes that aren't transcribed yet, and Retranscribe stays visible, dimmed, while a note's audio waits for upload.
+- Create Summary stays in the toolbar, dimmed, on notes that aren't transcribed yet.
+- Retranscribe stays visible, dimmed, while a note's audio waits to arrive from another device, and its help tag says why.
+- Cloud models without a usable API key are dimmed in every model menu.
 - Summary editing: each section ends in an empty row to type into, untyped rows are dropped, and regenerating identical text counts as unchanged.
 - The light-mode warning color is darker for contrast.
 - Fallback model pickers are labeled "Fallback Model".
 - The API key check says why it failed.
-- The transcription choice sheet explains in Korean why a model can't be picked, and says to download a local model in Settings.
 
 ### Fixed
 
@@ -41,8 +42,10 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - A recording reminder's calendar event stays on the note after transcription.
 - The "Nothing to clean up" notice hides once the transcript is cleared, and dismissed Summary notices stay dismissed across notes.
 - Quill no longer offers a retry that can't run while a note's audio hasn't arrived yet.
-- Transcription replies with unexpected time values no longer break a transcript.
-- Provider URLs with IPv6 addresses keep their brackets.
+- Transcription replies with Infinity or NaN values no longer fail.
+- A damaged sync payload can no longer read a true/false value as a 1970 date and delete a note.
+- Notes whose transcription was interrupted read as transcribing in the title, list row, and detail instead of falling back to the date title.
+- The transcription and import choice sheets show why a model can't be picked in Korean too, and say to download it in Settings.
 
 ## [1.2.2] - 2026-10-25
 
