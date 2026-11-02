@@ -580,10 +580,10 @@ public enum QuillLayoutSize {
     public static let sidebarNotes = sidebarNotesIPhone
     #endif
     /// `size-sidebar-settings`: the Settings sidebar: 180 in the Mac's
-    /// Settings window, 220 in the Settings sheet of a wide iPad window
+    /// Settings window and in the Settings sheet of a wide iPad window
     /// (quill-universal-private#303), whose pages are grouped lists.
     public static let sidebarSettingsMac: CGFloat = 180
-    public static let sidebarSettingsIPhone: CGFloat = 220
+    public static let sidebarSettingsIPhone: CGFloat = 180
 
     #if os(macOS)
     public static let sidebarSettings = sidebarSettingsMac
