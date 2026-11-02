@@ -724,13 +724,23 @@ struct NoteBrowserView: View {
         }
     }
 
+    /// The shared confirmation copy (QuillNoteCore), the same as the iPhone's.
+    private var deletionConfirmation: NoteDeletionConfirmation {
+        NoteDeletionConfirmation(
+            count: pendingDeletionIDs.count,
+            includesRecordingPieces: pendingDeletionIncludesRecordingPieces,
+            includesUnrecovered: pendingDeletionIncludesUnrecoveredRecording,
+            canMoveToRecentlyDeleted: pendingDeletionIDs.count == 1
+                && appState.canMoveHistoryEntryToRecentlyDeleted(id: pendingDeletionIDs[0])
+        )
+    }
+
     private var deletionConfirmationTitle: Text {
-        if pendingDeletionIDs.count == 1 {
-            return pendingDeletionIncludesRecordingPieces
-                ? Text("Delete this note and its recording pieces?")
-                : Text("Delete this note?")
+        let confirmation = deletionConfirmation
+        if case let .deleteNotes(count) = confirmation.title {
+            return Text(localizedCatalogFormat(confirmation.titleKey, count))
         }
-        return Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+        return Text(localizedCatalogString(confirmation.titleKey))
     }
 
     /// Whether a note waiting to be deleted still holds the pieces of a
@@ -974,17 +984,7 @@ struct NoteBrowserView: View {
             Button("Delete", role: .destructive) { performPendingDeletion() }
             Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
         } message: {
-            if pendingDeletionIDs.count == 1, pendingDeletionIncludesRecordingPieces {
-                Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
-            } else if pendingDeletionIDs.count != 1, pendingDeletionIncludesUnrecoveredRecording {
-                Text("Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored.")
-            } else if pendingDeletionIDs.count != 1 {
-                Text("Their audio and summaries go with them. You can restore them from Recently Deleted for 30 days.")
-            } else if appState.canMoveHistoryEntryToRecentlyDeleted(id: pendingDeletionIDs[0]) {
-                Text("You can restore it from Recently Deleted for 30 days.")
-            } else {
-                Text("Deleted notes cannot be recovered.")
-            }
+            Text(localizedCatalogString(deletionConfirmation.messageKey))
         }
         .background(NoteBrowserKeyCommandMonitor(windowReference: browserWindow, handle: handleKeyCommand))
         // Notes that start a summary or a retry while checked leave the selection.

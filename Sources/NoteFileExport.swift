@@ -1,5 +1,9 @@
 import Foundation
+import QuillNoteCore
 
+/// Save Files' items, names, and summary rules are shared with the iPhone
+/// (`NoteExportPlan` in QuillNoteCore). The Mac writes into a folder the
+/// person picks.
 enum NoteFileExportNaming {
     static func suggestedBaseName(
         customTitle: String?,
@@ -8,54 +12,23 @@ enum NoteFileExportNaming {
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> String {
-        for candidate in [customTitle, calendarTitle] {
-            let trimmed = candidate?.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            ) ?? ""
-            if !trimmed.isEmpty { return trimmed }
-        }
-
-        let formatted = Date.FormatStyle(
-            date: .long,
-            time: .shortened,
+        NoteExportPlan.suggestedBaseName(
+            customTitle: customTitle,
+            calendarTitle: calendarTitle,
+            timestamp: timestamp,
             locale: locale,
             timeZone: timeZone
-        ).format(timestamp)
-        return normalizedSpaces(in: formatted)
-    }
-
-    private static func normalizedSpaces(in value: String) -> String {
-        value.replacingOccurrences(of: "\u{202F}", with: " ")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
-            .replacingOccurrences(of: "\u{2009}", with: " ")
+        )
     }
 }
 
-enum NoteFileExportItem: String, CaseIterable, Hashable, Sendable {
-    case transcript
-    case summary
-    case audio
-}
-
-enum NoteFileExportTextFormat: String, CaseIterable, Identifiable, Sendable {
-    case plainText
-    case markdown
-
-    var id: String { rawValue }
-
-    var pathExtension: String {
-        switch self {
-        case .plainText: return "txt"
-        case .markdown: return "md"
-        }
-    }
-}
+typealias NoteFileExportItem = NoteExportItem
+typealias NoteFileExportTextFormat = NoteExportTextFormat
 
 struct NoteFileExportSource: Sendable {
-    let transcript: String?
-    let summary: String?
+    /// The shared rules for what is offered and how files are named.
+    let plan: NoteExportPlan
     let audioURL: URL?
-    let isSummaryStale: Bool
     /// The audio is in iCloud: `audioURL` is where it lands once downloaded.
     let audioNeedsDownload: Bool
     /// Why there is no audio to save, when it isn't simply missing.
@@ -69,25 +42,23 @@ struct NoteFileExportSource: Sendable {
         audioNeedsDownload: Bool = false,
         audioUnavailableMessage: String? = nil
     ) {
-        self.transcript = transcript
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty ? nil : transcript
-        self.summary = summary?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false ? summary : nil
+        plan = NoteExportPlan(
+            transcript: transcript,
+            summary: summary,
+            audioPathExtension: audioURL?.pathExtension,
+            isSummaryStale: isSummaryStale
+        )
         self.audioURL = audioURL
-        self.isSummaryStale = self.summary != nil && isSummaryStale
         self.audioNeedsDownload = audioURL != nil && audioNeedsDownload
         self.audioUnavailableMessage = audioUnavailableMessage
     }
 
-    var availableItems: Set<NoteFileExportItem> {
-        var items = Set<NoteFileExportItem>()
-        if transcript != nil { items.insert(.transcript) }
-        if summary != nil { items.insert(.summary) }
-        if audioURL != nil { items.insert(.audio) }
-        return items
-    }
+    /// Nil when there is no text to save.
+    var transcript: String? { plan.transcript }
+    var summary: String? { plan.summary }
+    /// The summary was made from an older transcript. Only with a summary.
+    var isSummaryStale: Bool { plan.isSummaryStale }
+    var availableItems: Set<NoteFileExportItem> { plan.availableItems }
 }
 
 struct NoteFileExportRequest: Sendable {
@@ -119,49 +90,21 @@ struct NoteFileExportResult: Equatable, Sendable {
 
 enum NoteFileExporter {
     static func sanitizedBaseName(_ candidate: String, fallback: String) -> String {
-        let invalid = CharacterSet(charactersIn: "/\\*?\"<>|")
-            .union(.controlCharacters)
-        let trimmedCharacters = CharacterSet(charactersIn: " .")
-
-        func sanitize(_ value: String) -> String? {
-            let components = value.components(separatedBy: invalid)
-            let usableContent = components
-                .joined()
-                .trimmingCharacters(in: trimmedCharacters)
-            guard !usableContent.isEmpty else { return nil }
-            return components
-                .joined(separator: "-")
-                .trimmingCharacters(in: trimmedCharacters)
-        }
-
-        return sanitize(candidate)
-            ?? sanitize(fallback)
-            ?? "Quill Recording"
+        NoteExportPlan.sanitizedBaseName(candidate, fallback: fallback)
     }
 
     static func destinationURLs(
         for request: NoteFileExportRequest
     ) -> [NoteFileExportItem: URL] {
+        // Only items that are there get a name; a selected item without
+        // one is reported as missing when saving.
         var urls: [NoteFileExportItem: URL] = [:]
-        let baseName = sanitizedBaseName(request.baseName, fallback: "Quill Recording")
-        if request.selectedItems.contains(.transcript) {
-            urls[.transcript] = request.destinationDirectory
-                .appendingPathComponent(baseName)
-                .appendingPathExtension(request.textFormat.pathExtension)
-        }
-        if request.selectedItems.contains(.summary) {
-            urls[.summary] = request.destinationDirectory
-                .appendingPathComponent("\(baseName)-summary")
-                .appendingPathExtension(request.textFormat.pathExtension)
-        }
-        if request.selectedItems.contains(.audio),
-           let audioURL = request.source.audioURL {
-            let audioExtension = audioURL.pathExtension.isEmpty
-                ? "wav"
-                : audioURL.pathExtension
-            urls[.audio] = request.destinationDirectory
-                .appendingPathComponent(baseName)
-                .appendingPathExtension(audioExtension)
+        for entry in request.source.plan.fileNames(
+            for: request.selectedItems,
+            textFormat: request.textFormat,
+            baseName: request.baseName
+        ) {
+            urls[entry.item] = request.destinationDirectory.appendingPathComponent(entry.name)
         }
         return urls
     }
@@ -172,7 +115,7 @@ enum NoteFileExporter {
         let destinations = destinationURLs(for: request)
         return NoteFileExportItem.allCases.compactMap { item in
             guard let destination = destinations[item],
-                  destination.lastPathComponent.utf16.count > 255 else {
+                  NoteExportPlan.isFileNameTooLong(destination.lastPathComponent) else {
                 return nil
             }
             return NoteFileExportFailure(item: item, reason: .fileNameTooLong)
