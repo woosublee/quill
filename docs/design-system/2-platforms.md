@@ -80,7 +80,7 @@ iOS 간격 단계는 `QuillVisualSystem.Spacing`의 여섯 개입니다: `xxs` 4
 | `size-note-row` | 80 고정 | 고정 높이. 견본 글자로 메타 1줄 + 제목 1줄 + 미리보기 2줄 높이를 잡고 글자 크기를 따라 커짐. 위아래 9 | 80 |
 | 노트 행 폭 | 사이드바 안 `radius-8` 행 | 화면 폭 가득, 0.5pt 구분선도 끝까지 | 사이드바 안 `radius-8` 행 |
 | `size-sidebar-notes` / `size-sidebar-notes-iphone` | 280 | — | 320(`size-sidebar-notes-iphone`, quill-universal-private#306 2026-11-02 결정). 바탕 `surface-sidebar-iphone`, 노트 열과 1pt 구분선 |
-| `size-sidebar-settings` / `size-sidebar-settings-iphone` | 180 | — (설정은 스택에 미는 목록) | 180(`size-sidebar-settings-iphone`, quill-universal-private#303 2026-11-02 결정, 기기 확인 뒤 B안). regular 이상 창에서 시트로 뜨는 설정 안의 사이드바. 페이지는 iPhone과 같은 묶음 목록(inset grouped), 고른 행은 `accent-tint-nav`·`radius-6`. 녹음 중이면 사이드바 아래 녹음 버튼과 그 위 REC 시간 |
+| `size-sidebar-settings` / `size-sidebar-settings-iphone` | 180 | — (설정은 스택에 미는 목록) | 220(`size-sidebar-settings-iphone`, quill-universal-private#303 2026-11-02 결정, 기기 확인 뒤 B안). regular 이상 창에서 시트로 뜨는 설정 안의 사이드바. 페이지는 iPhone과 같은 묶음 목록(inset grouped), 고른 행은 `accent-tint-nav`·`radius-6`. 녹음 중이면 사이드바 아래 녹음 버튼과 그 위 REC 시간 |
 | `size-record-button` / `size-record-button-iphone` | 44 | 56(`size-record-button-iphone`)에서 시작해 글자 크기를 따라 커짐, 최대 88 | 44(macOS 값 `size-record-button`. 목록이 노트 옆일 때 목록 열 아래, macOS와 같은 버튼. `QuillNoteLayout.recordingControl`, quill-universal-private#306) |
 | `AudioPlayer` 높이 | 72 | 최소 72(접근성 크기 88), 반경 16 | 72 |
 | `NoteToolbar` 높이 | 48 | 48 | 48 |
