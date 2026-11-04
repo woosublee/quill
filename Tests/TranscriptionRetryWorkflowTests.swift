@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteUI
 import QuillAudioFormatCore
 import QuillAITextCore
 import QuillUserIssueCore
@@ -37,6 +38,9 @@ struct TranscriptionRetryWorkflowTests {
         try await testManualProviderFailurePersistsVersionedIssue()
         try await testManualFailureUsesCapturedIssueContext()
         try await testManualFailurePreservesCurrentTranscriptAIAndSummary()
+        try await testNativeWhisperRetryShowsProgressFromTheStart()
+        try await testOtherLocalRetryKeepsTheSpinner()
+        try await testNativeWhisperPercentReachesTheBarThroughTheService()
         try await testManualFailurePreservesSummaryActionCompletion()
         try await testTimeoutFallbackPersistsRawTranscriptAndFailedOutcome()
         try testFailureDiagnosticsExcludeCredentialValues()
@@ -3631,6 +3635,160 @@ struct TranscriptionRetryWorkflowTests {
     ) throws {
         let session = store.beginSession(historyID: record.historyID)
         try store.create(record, session: session)
+    }
+
+    private static func makeNativeWhisperExecution() -> TranscriptionExecutionSnapshot {
+        .local(
+            LocalTranscriptionExecutionSnapshot(
+                model: .find(id: "mlx-community/whisper-large-v3-turbo"),
+                localWhisperPath: nil,
+                useLegacyMlxWhisper: false,
+                language: .find(code: "en")
+            ),
+            TranscriptionCompletionSnapshot(
+                postProcessingEnabled: true,
+                outputLanguage: "en",
+                pressEnterCommandEnabled: false
+            )
+        )
+    }
+
+    /// #798: a local Whisper retranscription shows 0% at the start, then the
+    /// helper's percent on the same bar, like the iPhone.
+    @MainActor
+    private static func testNativeWhisperRetryShowsProgressFromTheStart() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let gate = TranscriptionRetryControlledTranscriber()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: TranscriptionRetryWorkflowDependencies(
+                transcribe: { _, _, _, context in
+                    NativeWhisperProgress.report?(40)
+                    return try await gate.run(context: context)
+                },
+                makeAttemptToken: { UUID() }
+            )
+        )
+        workflow.onEvent = events.record
+
+        _ = workflow.startManual(
+            request: try makeRequest(item: item, fixture: fixture, execution: makeNativeWhisperExecution()),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+        try expectEqual(workflow.state.progressByNoteID[item.id], .preparing, "bar at 0% from the start")
+
+        await gate.waitUntilStarted()
+        try await waitUntil { workflow.state.progressByNoteID[item.id]?.completedChunkCount == 40 }
+        let shown = try XCTUnwrapProgress(workflow.state.progressByNoteID[item.id])
+        try expectEqual(shown.totalChunkCount, 100, "percent on the bar")
+        try expect(shown.activeAttempt != nil, "a running job, never a cloud job resuming")
+        try expect(
+            NoteBrowserWorkStatus.firstTranscription(
+                isPostProcessing: false, isCloudTranscribing: true, cloudProgress: shown
+            ) == .transcribing(NoteWorkProgress(completed: 40, total: 100)),
+            "note left on a cloud job reads as transcribing"
+        )
+        await gate.succeed(transcriptionResult(text: "provider raw"))
+        try await waitUntil { events.outcomes.count == 1 }
+        try expect(workflow.state.progressByNoteID[item.id] == nil, "progress cleared")
+    }
+
+    /// The real service between the workflow and the engine: a detached task
+    /// on the way would lose the percent and leave the bar at 0%.
+    @MainActor
+    private static func testNativeWhisperPercentReachesTheBarThroughTheService() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let gate = TranscriptionRetryControlledTranscriber()
+        let native = NativeWhisperExecutionSnapshot(
+            modelID: "synthetic",
+            modelIsReady: { true },
+            modelURL: { URL(fileURLWithPath: "/tmp/synthetic-model.bin") },
+            validateRunnerAndModel: { _ in },
+            prepareAudio: { url in
+                NativeWhisperExecutionSnapshot.PreparedAudio(fileURL: url, cleanup: {})
+            },
+            transcribe: { _, _, _ in
+                NativeWhisperProgress.report?(40)
+                return try await gate.run(context: nil)
+            }
+        )
+        let workflow = TranscriptionRetryWorkflow(dependencies: .live)
+        workflow.onEvent = events.record
+        let execution = TranscriptionExecutionSnapshot.local(
+            LocalTranscriptionExecutionSnapshot(
+                model: .find(id: "mlx-community/whisper-large-v3-turbo"),
+                localWhisperPath: nil,
+                useLegacyMlxWhisper: false,
+                language: .find(code: "en"),
+                nativeWhisperExecution: native
+            ),
+            TranscriptionCompletionSnapshot(
+                postProcessingEnabled: true,
+                outputLanguage: "en",
+                pressEnterCommandEnabled: false
+            )
+        )
+        _ = workflow.startManual(
+            request: try makeRequest(item: item, fixture: fixture, execution: execution),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+        await gate.waitUntilStarted()
+        try await waitUntil { workflow.state.progressByNoteID[item.id]?.completedChunkCount == 40 }
+        await gate.succeed(transcriptionResult(text: "provider raw"))
+        try await waitUntil { events.outcomes.count == 1 }
+    }
+
+    private static func XCTUnwrapProgress(
+        _ progress: CloudTranscriptionDisplayProgress?
+    ) throws -> CloudTranscriptionDisplayProgress {
+        try expect(progress != nil, "progress")
+        return progress!
+    }
+
+    /// Apple Speech reports nothing, so it keeps the spinner.
+    @MainActor
+    private static func testOtherLocalRetryKeepsTheSpinner() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let gate = TranscriptionRetryControlledTranscriber()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: TranscriptionRetryWorkflowDependencies(
+                transcribe: { _, _, _, context in
+                    try expect(NativeWhisperProgress.report == nil, "no percent to report")
+                    return try await gate.run(context: context)
+                },
+                makeAttemptToken: { UUID() }
+            )
+        )
+        workflow.onEvent = events.record
+
+        _ = workflow.startManual(
+            request: try makeRequest(item: item, fixture: fixture, execution: makeLocalExecution()),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+        await gate.waitUntilStarted()
+        try expect(workflow.state.progressByNoteID[item.id] == nil, "no bar")
+        await gate.succeed(transcriptionResult(text: "provider raw"))
+        try await waitUntil { events.outcomes.count == 1 }
     }
 
     private static func makeLocalExecution() -> TranscriptionExecutionSnapshot {

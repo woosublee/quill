@@ -64,6 +64,56 @@ enum NativeWhisperRuntimeError: LocalizedError, Equatable {
     }
 }
 
+/// How far whisper-cli has got, read from the progress lines `-pp` writes to
+/// standard error. Only the number is read; those lines hold no transcript.
+enum NativeWhisperProgress {
+    /// Where the current transcription reports its percent. It runs in the
+    /// task that starts the transcription, so only a caller that shows
+    /// progress sets it (#798).
+    @TaskLocal static var report: (@Sendable (Int) -> Void)?
+
+    private static let linePrefix = "whisper_print_progress_callback:"
+
+    static func isProgressLine(_ line: some StringProtocol) -> Bool {
+        line.hasPrefix(linePrefix)
+    }
+
+    /// The percent in one progress line, or nil for any other line.
+    static func percent(inLine line: some StringProtocol) -> Int? {
+        guard isProgressLine(line), let separator = line.lastIndex(of: "=") else { return nil }
+        let value = line[line.index(after: separator)...]
+            .trimmingCharacters(in: .whitespaces)
+        guard value.hasSuffix("%"), let percent = Int(value.dropLast()),
+              (0...100).contains(percent) else { return nil }
+        return percent
+    }
+
+    /// Standard error without the progress lines, so failure details stay
+    /// the engine's own messages.
+    static func removingProgressLines(from text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !isProgressLine($0) }
+            .joined(separator: "\n")
+    }
+
+    /// Splits standard error into lines as it arrives. A chunk can end in the
+    /// middle of a line.
+    struct LineReader {
+        private var pending = Data()
+
+        mutating func percents(in chunk: Data) -> [Int] {
+            pending.append(chunk)
+            var percents: [Int] = []
+            while let end = pending.firstIndex(of: 0x0A) {
+                let line = String(decoding: pending[pending.startIndex..<end], as: UTF8.self)
+                pending = Data(pending[pending.index(after: end)...])
+                if let percent = NativeWhisperProgress.percent(inLine: line) { percents.append(percent) }
+            }
+            return percents
+        }
+    }
+}
+
 struct NativeWhisperRuntime {
     let runnerURL: URL
     let fileManager: FileManager
@@ -90,6 +140,8 @@ struct NativeWhisperRuntime {
     }
 
     func transcribe(audioURL: URL, modelURL: URL, languageCode: String?) async throws -> TranscriptionResult {
+        // A detached task doesn't inherit task-local values.
+        let reportProgress = NativeWhisperProgress.report
         let worker = Task.detached(priority: .userInitiated) {
             try validateRunnerAndModel(modelURL: modelURL)
             try validateAudio(at: audioURL)
@@ -110,6 +162,7 @@ struct NativeWhisperRuntime {
                 "-oj",
                 "-of", outputBase.path
             ]
+            if reportProgress != nil { arguments.append("-pp") }
             let normalizedLanguage = languageCode?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let whisperLanguage = normalizedLanguage.flatMap { language in
@@ -141,7 +194,16 @@ struct NativeWhisperRuntime {
                 Self.decodedOutput(stdout.fileHandleForReading.readDataToEndOfFile())
             }
             let stderrReader = Task.detached {
-                Self.decodedOutput(stderr.fileHandleForReading.readDataToEndOfFile())
+                let handle = stderr.fileHandleForReading
+                var output = Data()
+                var lines = NativeWhisperProgress.LineReader()
+                while true {
+                    let chunk = handle.availableData
+                    if chunk.isEmpty { break }
+                    output.append(chunk)
+                    for percent in lines.percents(in: chunk) { reportProgress?(percent) }
+                }
+                return NativeWhisperProgress.removingProgressLines(from: Self.decodedOutput(output))
             }
             await withTaskCancellationHandler {
                 await exitObserver.wait()
