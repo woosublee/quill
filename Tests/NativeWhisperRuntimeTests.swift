@@ -6,6 +6,10 @@ import QuillUserIssueCore
 struct NativeWhisperRuntimeTests {
     static func main() async throws {
         try await testRuntimeReturnsStdoutTranscript()
+        try await testRuntimeReportsProgressFromStandardError()
+        try await testRuntimeLeavesProgressOutOfFailureDetails()
+        try await testRuntimeAsksForProgressOnlyWhenSomeoneReadsIt()
+        testProgressLineParsing()
         try await testRuntimeReadsOutputJSONLanguage()
         try await testRuntimeNormalizesOutputJSONText()
         try await testRuntimeRemovesDialogueDashesFromOutputJSON()
@@ -24,6 +28,75 @@ struct NativeWhisperRuntimeTests {
         try testRuntimeErrorsMapToSafeUserIssues()
         try await testRuntimeTerminatesHelperOnCancellation()
         print("NativeWhisperRuntimeTests passed")
+    }
+
+    /// #798: real whisper-cli lines, read as they arrive, ending at the last one.
+    private static func testRuntimeReportsProgressFromStandardError() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        case " $* " in *" -pp "*) ;; *) echo "missing -pp" >&2; exit 3 ;; esac
+        echo "whisper_full_with_state: synthetic log line" >&2
+        echo "whisper_print_progress_callback: progress =   5%" >&2
+        printf "whisper_print_progress_callback: prog" >&2
+        printf "ress =  50%%\\n" >&2
+        echo "whisper_print_progress_callback: progress = 100%" >&2
+        echo "hello from native whisper"
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+        let seen = NativeWhisperProgressRecorder()
+
+        let result = try await NativeWhisperProgress.$report.withValue({ seen.record($0) }) {
+            try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: "en")
+        }
+
+        assert(result.text == "hello from native whisper")
+        assert(seen.values == [5, 50, 100], "\(seen.values)")
+    }
+
+    private static func testRuntimeLeavesProgressOutOfFailureDetails() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        echo "whisper_print_progress_callback: progress =   5%" >&2
+        echo "synthetic engine failure" >&2
+        exit 4
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        do {
+            _ = try await NativeWhisperRuntime(runnerURL: helper)
+                .transcribe(audioURL: audio, modelURL: model, languageCode: "en")
+            assertionFailure("expected a failure")
+        } catch NativeWhisperRuntimeError.processFailed(_, let output) {
+            assert(output == "synthetic engine failure", output)
+        }
+    }
+
+    private static func testRuntimeAsksForProgressOnlyWhenSomeoneReadsIt() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        case " $* " in *" -pp "*) echo "asked" ;; *) echo "not asked" ;; esac
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let result = try await NativeWhisperRuntime(runnerURL: helper)
+            .transcribe(audioURL: audio, modelURL: model, languageCode: "en")
+        assert(result.text == "not asked", result.text)
+    }
+
+    private static func testProgressLineParsing() {
+        assert(NativeWhisperProgress.percent(inLine: "whisper_print_progress_callback: progress = 100%") == 100)
+        assert(NativeWhisperProgress.percent(inLine: "whisper_print_progress_callback: progress =   0%") == 0)
+        assert(NativeWhisperProgress.percent(inLine: "whisper_print_progress_callback: progress = 101%") == nil)
+        assert(NativeWhisperProgress.percent(inLine: "whisper_print_progress_callback: progress = many") == nil)
+        assert(NativeWhisperProgress.percent(inLine: "synthetic text about progress = 50%") == nil)
     }
 
     private static func testRuntimeReturnsStdoutTranscript() async throws {
@@ -483,4 +556,11 @@ struct NativeWhisperRuntimeTests {
         }
         return false
     }
+}
+
+private final class NativeWhisperProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Int] = []
+    var values: [Int] { lock.withLock { stored } }
+    func record(_ value: Int) { lock.withLock { stored.append(value) } }
 }

@@ -322,14 +322,24 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         emitState()
 
         let dependencies = dependencies
+        // Native Whisper has no job store. Its percent uses the same bar as
+        // chunk counts, out of 100 (#798).
+        let recordNativeProgress: @Sendable (Int) -> Void = { [weak self] percent in
+            Task { @MainActor [weak self] in
+                self?.recordNativeProgress(percent, noteID: noteID, token: token, revision: revision)
+            }
+        }
+        let reportNativeProgress = request.execution.usesNativeWhisper ? recordNativeProgress : nil
         let task = Task { [weak self] in
             do {
-                let transcription = try await dependencies.transcribe(
-                    request.execution,
-                    request.audioURL,
-                    request.cloudDependencies,
-                    cloudContext
-                )
+                let transcription = try await NativeWhisperProgress.$report.withValue(reportNativeProgress) {
+                    try await dependencies.transcribe(
+                        request.execution,
+                        request.audioURL,
+                        request.cloudDependencies,
+                        cloudContext
+                    )
+                }
                 try Task.checkCancellation()
                 let processing = await request.processing.process(transcription)
                 self?.finishProcessedAttempt(
@@ -708,6 +718,25 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         if progress == .preparing, state.progressByNoteID[noteID] != nil { return }
         state.progressByNoteID[noteID] = Self.displayProgress(progress)
         emitState()
+    }
+
+    /// The helper's percent, shown as a running attempt so a note last left
+    /// on a cloud job doesn't read as "Resuming cloud transcription…". Reports
+    /// arrive in separate tasks, so the bar only moves forward.
+    @MainActor
+    private func recordNativeProgress(
+        _ percent: Int,
+        noteID: UUID,
+        token: UUID,
+        revision: UInt64
+    ) {
+        if let shown = state.progressByNoteID[noteID], percent < shown.completedChunkCount { return }
+        recordProgress(
+            .uploading(index: percent, total: 100, attempt: 1),
+            noteID: noteID,
+            token: token,
+            revision: revision
+        )
     }
 
     private static func displayProgress(

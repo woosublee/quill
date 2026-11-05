@@ -193,8 +193,9 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         )
         try expectOrdered(
             [
-                "if transcriptionRetryWorkflow.startManual(",
-                "cloudTranscriptionProgressByHistoryID.removeValue("
+                // Cleared first: the start publishes the new attempt's 0% bar (#798).
+                "cloudTranscriptionProgressByHistoryID.removeValue(",
+                "if transcriptionRetryWorkflow.startManual("
             ],
             in: retryFlow,
             label: "Manual Retry delegates and clears replaced legacy progress"

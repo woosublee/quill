@@ -10139,14 +10139,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // A note that already has a transcript compares the new one
             // before replacing it (#457); a first transcript is just saved.
             request.deliversCandidate = comparesFirst && Self.hasTranscriptText(item)
+            // Before starting: the start publishes the new attempt's 0% bar.
+            cloudTranscriptionProgressByHistoryID.removeValue(forKey: item.id)
             if transcriptionRetryWorkflow.startManual(
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
             ) {
                 clearUnchangedRetranscription(noteID: item.id)
-                cloudTranscriptionProgressByHistoryID.removeValue(
-                    forKey: item.id
-                )
             }
         } catch {
             let issue = userIssue(

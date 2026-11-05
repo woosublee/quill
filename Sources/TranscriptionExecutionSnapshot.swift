@@ -137,12 +137,22 @@ enum TranscriptionExecutionSnapshot: Sendable {
         }
     }
 
-    /// Local AI always transcribes in chunks, so its note shows the bar at
-    /// 0% from the moment the job starts, not only once the engine reports
-    /// (#697). Cloud jobs can't tell yet (a short file goes in one request
-    /// with no progress), and the other local engines never report.
+    /// Local AI always transcribes in chunks and native Whisper reports its
+    /// percent, so their notes show the bar at 0% from the moment the job
+    /// starts, not only once the engine reports (#697, #798). Cloud jobs can't
+    /// tell yet (a short file goes in one request with no progress), and the
+    /// other local engines never report.
     var reportsProgressFromStart: Bool {
         guard case .local(let local, _) = self else { return false }
-        return local.localAIExecution != nil
+        return local.localAIExecution != nil || usesNativeWhisper
+    }
+
+    /// Native Whisper, whose percent is read from its helper (#798). Same
+    /// order as `TranscriptionService.transcribeAudioLocally`.
+    var usesNativeWhisper: Bool {
+        guard case .local(let local, _) = self else { return false }
+        return local.localAIExecution == nil
+            && !local.model.isAppleSpeech
+            && !local.useLegacyMlxWhisper
     }
 }
