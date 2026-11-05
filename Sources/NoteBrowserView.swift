@@ -4636,7 +4636,7 @@ struct NoteAudioPlayerView: View {
     @State private var volume: Double = 1
     @State private var showVolumePopover = false
 
-    @State private var barHeights: [CGFloat] = Array(repeating: 0.15, count: 80)
+    @State private var waveformLevels: [Double] = []
 
     private var progress: Double {
         guard duration > 0 else { return 0 }
@@ -4675,23 +4675,12 @@ struct NoteAudioPlayerView: View {
 
             // Waveform — border-radius:1px, opacity:0.45 unplayed, accent played
             GeometryReader { geo in
-                let layout = AudioWaveformHeights.layout(
-                    width: geo.size.width,
-                    barCount: barHeights.count,
-                    preferredGap: 2
+                NoteAudioWaveformBars(
+                    levels: waveformLevels,
+                    progress: progress,
+                    playedColor: .accentColor,
+                    unplayedColor: Color.primary.opacity(0.45)
                 )
-                let playedCount = Int(Double(layout.barCount) * progress)
-
-                HStack(alignment: .center, spacing: layout.gap) {
-                    ForEach(0..<layout.barCount, id: \.self) { i in
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(i < playedCount
-                                  ? Color.accentColor
-                                  : Color.primary.opacity(0.45))
-                            .frame(width: layout.barWidth, height: geo.size.height * barHeights[i])
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 // Tap to jump, drag to scrub. minimumDistance 0 makes a plain
                 // tap report through onChanged as well as a drag.
                 .contentShape(Rectangle())
@@ -4822,10 +4811,8 @@ struct NoteAudioPlayerView: View {
                 }
             }
 
-            let resolvedHeights = AudioWaveformHeights.heights(from: samples).map(CGFloat.init)
-            await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.4)) { barHeights = resolvedHeights }
-            }
+            let levels = AudioWaveformHeights.sliceLevels(from: samples)
+            await MainActor.run { waveformLevels = levels }
         }
     }
 

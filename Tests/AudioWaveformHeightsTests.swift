@@ -24,6 +24,10 @@ struct AudioWaveformHeightsTests {
             try returnsNoHeightsForEmptySamples()
             try fitsBarsInsideAvailableWidth()
             try clampsNegativePreferredGap()
+            try aWiderCardShowsMoreBarsOfTheSameWidth()
+            try fittedBarsReachBothEnds()
+            try sliceLevelsMatchMeasuringAtTheBarCount()
+            try heightsFromSliceLevelsHandleFewOrNoSlices()
             try meterLevelFollowsAFixedSequence()
             try meterStaysQuietInSilenceAndVisibleWhenLoud()
             print("AudioWaveformHeightsTests passed")
@@ -267,6 +271,52 @@ struct AudioWaveformHeightsTests {
 
         try expect(layout.gap >= 0, "negative preferred gap should be clamped to non-negative spacing")
         try expect(totalWidth <= 96.0001, "negative preferred gap layout should still fit inside available width")
+    }
+
+    private static func aWiderCardShowsMoreBarsOfTheSameWidth() throws {
+        let phone = AudioWaveformHeights.fittedLayout(width: 226)
+        let tablet = AudioWaveformHeights.fittedLayout(width: 510)
+        try expect(phone.barWidth == tablet.barWidth, "bar width stays the same at every size")
+        try expect(tablet.barCount > phone.barCount * 2, "the wider card shows more bars")
+        try expect(AudioWaveformHeights.fittedLayout(width: 0).barCount == 0, "no width, no bars")
+        try expect(AudioWaveformHeights.fittedLayout(width: 0.5).barCount == 0, "too narrow for a bar")
+        try expect(AudioWaveformHeights.fittedLayout(width: .infinity).barCount == 0, "infinite width doesn't trap")
+        let wide = AudioWaveformHeights.fittedLayout(width: 4_000)
+        try expect(wide.barCount == AudioWaveformHeights.sourceSliceCount, "very wide cards stop adding bars")
+        try expect(AudioWaveformHeights.fittedLayout(width: 1).barCount == 1, "one bar fits")
+    }
+
+    private static func fittedBarsReachBothEnds() throws {
+        for width: CGFloat in [10, 97, 226, 511] {
+            let layout = AudioWaveformHeights.fittedLayout(width: width)
+            let total = CGFloat(layout.barCount) * layout.barWidth + CGFloat(layout.barCount - 1) * layout.gap
+            try expect(abs(total - width) < 0.001, "bars fill width \(width)")
+            try expect(layout.gap >= AudioWaveformHeights.minimumBarGap, "bars keep their gap at \(width)")
+        }
+    }
+
+    // Break caught: heights measured at 480 bars and combined later drew quieter
+    // speech than the same recording measured at the bars it shows.
+    private static func sliceLevelsMatchMeasuringAtTheBarCount() throws {
+        let samples = (0..<96_000).map { index -> Float in
+            let syllable = sin(Float(index) / 2_400) > 0 ? Float(0.2) : Float(0.02)
+            return syllable * sin(Float(index) / 7)
+        }
+        let levels = AudioWaveformHeights.sliceLevels(from: samples, sliceCount: 480)
+        let combined = AudioWaveformHeights.heights(fromSliceLevels: levels, barCount: 80)
+        let measured = AudioWaveformHeights.heights(from: samples, barCount: 80)
+        try expect(combined.count == 80, "one height per bar")
+        for (index, height) in combined.enumerated() {
+            try expect(abs(height - measured[index]) < 0.01, "bar \(index) draws the same")
+        }
+    }
+
+    private static func heightsFromSliceLevelsHandleFewOrNoSlices() throws {
+        try expect(AudioWaveformHeights.heights(fromSliceLevels: [], barCount: 3).isEmpty, "no slices, no bars")
+        try expect(AudioWaveformHeights.heights(fromSliceLevels: [0.2], barCount: 3).count == 3, "one slice spreads")
+        try expect(AudioWaveformHeights.sliceLevels(from: []).isEmpty, "no samples, no levels")
+        let corrupt = AudioWaveformHeights.sliceLevels(from: [Float.nan, 0.5], sliceCount: 2)
+        try expect(corrupt[0] == 0, "a corrupt slice counts as silence")
     }
 
     // Values from the meter before it moved to QuillAudioLevelCore.
