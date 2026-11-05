@@ -4625,8 +4625,6 @@ private struct SummaryIssueViewAction {
 
 struct NoteAudioPlayerView: View {
     let audioURL: URL
-    /// Starts playing at once, after the audio was downloaded to be played.
-    var playsOnAppear = false
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var player: AVAudioPlayer?
@@ -4786,7 +4784,6 @@ struct NoteAudioPlayerView: View {
         .onAppear {
             loadDuration()
             loadWaveform()
-            if playsOnAppear, !isPlaying { togglePlayback() }
         }
         .onChange(of: volume) { newValue in
             player?.volume = Float(newValue)

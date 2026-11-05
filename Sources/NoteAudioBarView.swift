@@ -4,7 +4,7 @@ import QuillDesignTokens
 
 /// The note's audio bar: the player when the audio is on this Mac, and a
 /// download bar when it is in iCloud. A finished download swaps in the
-/// player, which starts playing when the download was asked to play.
+/// player, which waits for the user to press play.
 struct NoteAudioBar: View {
     let item: PipelineHistoryItem
     @ObservedObject var downloader: NoteAudioDownloader
@@ -12,7 +12,6 @@ struct NoteAudioBar: View {
     let onMessage: (String) -> Void
 
     @EnvironmentObject private var appState: AppState
-    @State private var playsWhenDownloaded = false
 
     var body: some View {
         switch appState.noteAudioState(for: item) {
@@ -20,7 +19,7 @@ struct NoteAudioBar: View {
             EmptyView()
         case .local:
             if let url = appState.noteBrowserStoredAudioURL(for: item) {
-                NoteAudioPlayerView(audioURL: url, playsOnAppear: playsWhenDownloaded)
+                NoteAudioPlayerView(audioURL: url)
             }
         case let state:
             // One view whether or not it downloads, so starting or stopping
@@ -43,10 +42,8 @@ struct NoteAudioBar: View {
     }
 
     private func download() {
-        playsWhenDownloaded = true
         Task { @MainActor in
             guard await appState.downloadNoteAudio(for: item) == nil else { return }
-            playsWhenDownloaded = false
             if let message = appState.noteAudioState(for: item).failureToast { onMessage(message) }
         }
     }
