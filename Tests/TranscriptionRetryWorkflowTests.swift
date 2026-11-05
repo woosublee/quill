@@ -3767,10 +3767,13 @@ struct TranscriptionRetryWorkflowTests {
         let history = TranscriptionRetryHistoryRecorder(item: item)
         let events = TranscriptionRetryEventRecorder()
         let gate = TranscriptionRetryControlledTranscriber()
+        let reportersSeen = TranscriptionRetryCounter()
         let workflow = TranscriptionRetryWorkflow(
             dependencies: TranscriptionRetryWorkflowDependencies(
                 transcribe: { _, _, _, context in
-                    try expect(NativeWhisperProgress.report == nil, "no percent to report")
+                    if NativeWhisperProgress.report != nil {
+                        reportersSeen.increment()
+                    }
                     return try await gate.run(context: context)
                 },
                 makeAttemptToken: { UUID() }
@@ -3786,6 +3789,7 @@ struct TranscriptionRetryWorkflowTests {
             )
         )
         await gate.waitUntilStarted()
+        try expect(reportersSeen.value() == 0, "no percent to report")
         try expect(workflow.state.progressByNoteID[item.id] == nil, "no bar")
         await gate.succeed(transcriptionResult(text: "provider raw"))
         try await waitUntil { events.outcomes.count == 1 }
