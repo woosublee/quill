@@ -8,6 +8,14 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.3.1] - 2026-11-06
+
+### Changed
+
+- **Retranscribing with local Whisper shows progress from the start.** The note shows 0% right away, then moves up in steps while Whisper works.
+- **Downloading a note's audio no longer starts playing it.** Press play when you're ready.
+- **Waveform bars keep the same width in any window.** A wider window shows more bars rather than wider ones.
+
 ## [1.3.0] - 2026-11-03
 
 ### Added
