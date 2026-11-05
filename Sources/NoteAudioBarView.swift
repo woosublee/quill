@@ -1,5 +1,5 @@
 import SwiftUI
-import QuillAudioLevelCore
+import QuillNoteUI
 import QuillDesignTokens
 
 /// The note's audio bar: the player when the audio is on this Mac, and a
@@ -93,17 +93,7 @@ struct NoteRemoteAudioBarView: View {
     var body: some View {
         HStack(spacing: 14) {
                 button
-                GeometryReader { geo in
-                    let layout = AudioWaveformHeights.layout(width: geo.size.width, barCount: 80, preferredGap: 2)
-                    HStack(alignment: .center, spacing: layout.gap) {
-                        ForEach(0..<layout.barCount, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 1)
-                                .fill(Color.primary.opacity(0.18))
-                                .frame(width: layout.barWidth, height: geo.size.height * 0.15)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                }
+                NoteAudioWaveformBars(levels: [], playedColor: .clear, unplayedColor: Color.primary.opacity(0.18))
                 .frame(height: 44)
                 .accessibilityHidden(true)
                 if let status = state.barStatus {

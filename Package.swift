@@ -84,7 +84,7 @@ let package = Package(
         // SwiftUI views for both apps (#697). The iPhone app targets iOS 17.
         .target(
             name: "QuillNoteUI",
-            dependencies: ["QuillDesignTokens"],
+            dependencies: ["QuillDesignTokens", "QuillAudioLevelCore"],
             path: "Packages/QuillNoteUI/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

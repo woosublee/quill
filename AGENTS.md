@@ -86,8 +86,10 @@ otherwise.
   temperature cache, the Groq model migration, and the consent grants read
   and write `UserDefaults`. API keys and the rest of the settings stay in the app.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
-  heights, shared with the iPhone app. Reading RMS from the capture, the
-  locking around it, and the SwiftUI drawing stay in `Sources/`.
+  heights, the levels a note's waveform keeps, and how many bars of a fixed
+  width fit a card, shared with the iPhone app. Reading RMS from the capture,
+  the locking around it, and the recording overlay's drawing stay in `Sources/`;
+  a note's bars draw in `QuillNoteUI`.
 - `Packages/QuillAudioFormatCore/`: the canonical recording file (16 kHz mono
   16-bit PCM with the 44-byte WAV header), shared with the iPhone app: the
   header, validation, the canonical copy of other PCM WAV layouts, and how
@@ -140,7 +142,8 @@ otherwise.
   toolbar's work labels, read from the same table) and its views
   (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
-  consent rows on both apps); the layout helper `QuillWidthClass`, which turns a container's width
+  consent rows on both apps); the note audio waveform's bars
+  (`NoteAudioWaveformBars`; seeking stays in each app's player); the layout helper `QuillWidthClass`, which turns a container's width
   into compact, regular, or wide, so screens lay out by width, never by
   device model; and the note layout rules (`QuillNoteLayout`): the window's
   width and height decide whether the list sits beside the note (wide and
@@ -178,7 +181,7 @@ otherwise.
   the width breakpoints (#697).
   `Tests/QuillDesignTokensTests.swift` checks them against
   `docs/design-system/tokens.json`; change both together.
-  `QuillNoteUI` imports it.
+  `QuillNoteUI` imports it and `QuillAudioLevelCore`.
 - The Makefile builds each shared module as its own Swift 6 module before the
   app and every test executable; the root `Package.swift` exposes them to the
   iPhone app in the same language mode.

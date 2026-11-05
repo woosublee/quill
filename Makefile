@@ -280,8 +280,8 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) $(SHARED_COR
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES),-I "$(@D)")
 
-# SwiftUI views shared with the iPhone app (#697). Imports QuillDesignTokens.
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a Makefile $(SHARED_CORE_TOOLCHAIN)
+# SwiftUI views shared with the iPhone app (#697). Imports QuillDesignTokens and QuillAudioLevelCore.
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteUI,$(NOTE_UI_SOURCES),-I "$(@D)")
 

@@ -31,6 +31,61 @@ public enum AudioWaveformHeights {
         return Layout(barCount: barCount, barWidth: barWidth, gap: gap)
     }
 
+    /// A drawn bar's width and the narrowest space between bars. They stay the
+    /// same at every size, so a wider card shows more bars rather than wider ones.
+    public static let barWidth: CGFloat = 1
+    public static let minimumBarGap: CGFloat = 2
+
+    /// How many slices a recording's levels are measured at, and the most bars
+    /// a card draws. A wider card spaces its bars out.
+    public static let sourceSliceCount = 480
+
+    /// As many bars as fit the width, up to `sourceSliceCount`. The space left
+    /// over goes between them, so the bars reach both ends.
+    public static func fittedLayout(width: CGFloat) -> Layout {
+        guard width.isFinite, width >= barWidth else {
+            return Layout(barCount: 0, barWidth: 0, gap: 0)
+        }
+        let fitting = Int((width + minimumBarGap) / (barWidth + minimumBarGap))
+        let barCount = min(fitting, sourceSliceCount)
+        let gap = barCount > 1
+            ? (width - CGFloat(barCount) * barWidth) / CGFloat(barCount - 1)
+            : 0
+        return Layout(barCount: barCount, barWidth: barWidth, gap: gap)
+    }
+
+    /// A recording's RMS level in each of `sliceCount` equal slices. Keep these,
+    /// not heights: `heights(fromSliceLevels:barCount:)` turns them into the
+    /// bars that fit, and a recording's loud level depends on the bar count.
+    public static func sliceLevels(from samples: [Float], sliceCount: Int = sourceSliceCount) -> [Double] {
+        guard !samples.isEmpty, sliceCount > 0 else { return [] }
+        return (0..<sliceCount).map { index in
+            let start = min(samples.count - 1, samples.count * index / sliceCount)
+            let end = max(start + 1, samples.count * (index + 1) / sliceCount)
+            let sum = samples[start..<end].reduce(0.0) { partial, sample in
+                partial + Double(sample) * Double(sample)
+            }
+            let rms = (sum / Double(end - start)).squareRoot()
+            // A slice that isn't a number (a corrupt sample) counts as silence.
+            return rms.isFinite ? rms : 0
+        }
+    }
+
+    /// Bar heights for `barCount` bars, the same as measuring the recording at
+    /// that many bars: slices in one bar combine by power, then the loud level
+    /// is worked out across the bars. With fewer slices than bars, a slice
+    /// spreads over its neighbors.
+    public static func heights(fromSliceLevels levels: [Double], barCount: Int) -> [Float] {
+        guard !levels.isEmpty, barCount > 0 else { return [] }
+        let levelsDB = (0..<barCount).map { index -> Double in
+            let start = min(levels.count - 1, levels.count * index / barCount)
+            let end = max(start + 1, levels.count * (index + 1) / barCount)
+            let power = levels[start..<end].reduce(0.0) { $0 + $1 * $1 } / Double(end - start)
+            return 20 * log10(max(power.squareRoot(), 1e-10))
+        }
+        return heights(levelsDB: levelsDB, barCount: barCount)
+    }
+
     /// The shortest bar, drawn for silence.
     public static let floorHeight: Float = 0.04
 
@@ -78,7 +133,10 @@ public enum AudioWaveformHeights {
             // rather than as the loudest bar, which would flatten the rest.
             return rms.isFinite ? 20 * log10(max(rms, 1e-10)) : -.infinity
         }
+        return heights(levelsDB: levelsDB, barCount: barCount)
+    }
 
+    private static func heights(levelsDB: [Double], barCount: Int) -> [Float] {
         let sounding = levelsDB.filter { $0 > silenceLevelDB }.sorted()
         guard let loudestDB = sounding.last else {
             return [Float](repeating: floorHeight, count: barCount)
