@@ -23,7 +23,11 @@ otherwise.
   status reads (`NoteSyncStatusPresentation`): which problem shows first
   (`NoteSyncProblem`: full iCloud storage, then an account to look at, then
   offline), its copy keys, and the "x min. ago" text in the locale the app
-  passes. Each app translates the keys with its own String Catalog.
+  passes, and the notices above a saved meeting summary
+  (`NoteSummaryNotice`, #697): which show and in what order, each one's
+  image, tint, and copy keys, and the dismissal it syncs (next to
+  `NoteNoticeDismissals`). Each app translates the keys with its own String
+  Catalog, and keeps what a notice's button does.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
