@@ -1,4 +1,5 @@
 import AppKit
+import QuillNoteCore
 import CoreGraphics
 import Foundation
 

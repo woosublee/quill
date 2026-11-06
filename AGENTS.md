@@ -100,7 +100,13 @@ otherwise.
   note's name (`NoteTimestampFormatter`), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
-  values, and what the note list's Select All button does
+  values; a calendar event as both apps read it (`CalendarEvent`, with the
+  Apple attendee mapping `AppleParticipantData`), which event a recording
+  matches (`CalendarEventMatcher`), how events from several calendars merge
+  (`CalendarEventMerger`), and which meetings get a reminder to record and
+  when (`CalendarRecordingReminderPlanner`: the notification identifiers,
+  lead times, and the five-minute grace; reading calendars, notifications,
+  and settings stay in each app); and what the note list's Select All button does
   (`NoteSelectAllAction`: Deselect All once every selectable visible note is
   selected), what its selection-mode header button reads
   (`NoteSelectionExitAction`: Cancel once a note is selected, Done
