@@ -29,12 +29,12 @@ public struct NoteAudioWaveformBars: View {
             let layout = AudioWaveformHeights.fittedLayout(width: size.width)
             guard layout.barCount > 0 else { return }
             let bars = heights.heights(levels: levels, barCount: layout.barCount)
-            let playedCount = Int(Double(layout.barCount) * min(1, max(0, progress)))
-            let scale = max(displayScale, 1)
+            let playedCount = AudioWaveformHeights.playedBarCount(
+                layout: layout, progress: progress, displayScale: displayScale
+            )
             for index in 0..<layout.barCount {
                 let height = size.height * (bars.isEmpty ? Self.flatHeight : CGFloat(bars[index]))
-                // On whole pixels, so the gaps stay even.
-                let x = (CGFloat(index) * (layout.barWidth + layout.gap) * scale).rounded() / scale
+                let x = AudioWaveformHeights.barX(index, layout: layout, displayScale: displayScale)
                 let rect = CGRect(x: x, y: (size.height - height) / 2, width: layout.barWidth, height: height)
                 context.fill(
                     Path(roundedRect: rect, cornerRadius: layout.barWidth / 2),

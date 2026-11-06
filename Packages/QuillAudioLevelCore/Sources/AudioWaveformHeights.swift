@@ -54,6 +54,33 @@ public enum AudioWaveformHeights {
         return Layout(barCount: barCount, barWidth: barWidth, gap: gap)
     }
 
+    /// Where bar `index` draws its left edge: on whole pixels of
+    /// `displayScale`, so the gaps stay even. Drawing and `playedBarCount`
+    /// both use this, so a bar counts as played where it shows.
+    public static func barX(_ index: Int, layout: Layout, displayScale: CGFloat) -> CGFloat {
+        let scale = displayScale.isFinite ? max(displayScale, 1) : 1
+        return (CGFloat(index) * (layout.barWidth + layout.gap) * scale).rounded() / scale
+    }
+
+    /// Slack for a position that lands on a bar's edge but comes back a hair
+    /// short after its trip through a fraction (or a player's frame snapping).
+    static let edgeTolerance: CGFloat = 0.01
+
+    /// How many bars, from the left, draw as played at `progress` (0...1).
+    /// A bar counts once the position reaches its drawn left edge, so the bar
+    /// under the pointer turns played when a click or drag lands on it, and
+    /// during playback the played part runs at most one bar ahead.
+    public static func playedBarCount(layout: Layout, progress: Double, displayScale: CGFloat) -> Int {
+        guard layout.barCount > 0, progress.isFinite, progress > 0 else { return 0 }
+        let width = CGFloat(layout.barCount - 1) * (layout.barWidth + layout.gap) + layout.barWidth
+        let position = width * CGFloat(min(progress, 1)) + edgeTolerance
+        var count = 0
+        while count < layout.barCount, barX(count, layout: layout, displayScale: displayScale) <= position {
+            count += 1
+        }
+        return count
+    }
+
     /// A recording's RMS level in each of `sliceCount` equal slices. Keep these,
     /// not heights: `heights(fromSliceLevels:barCount:)` turns them into the
     /// bars that fit, and a recording's loud level depends on the bar count.

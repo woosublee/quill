@@ -86,8 +86,8 @@ otherwise.
   temperature cache, the Groq model migration, and the consent grants read
   and write `UserDefaults`. API keys and the rest of the settings stay in the app.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
-  heights, the levels a note's waveform keeps, and how many bars of a fixed
-  width fit a card, shared with the iPhone app. Reading RMS from the capture,
+  heights, the levels a note's waveform keeps, how many bars of a fixed
+  width fit a card, where each draws, and how many show as played, shared with the iPhone app. Reading RMS from the capture,
   the locking around it, and the recording overlay's drawing stay in `Sources/`;
   a note's bars draw in `QuillNoteUI`.
 - `Packages/QuillAudioFormatCore/`: the canonical recording file (16 kHz mono
