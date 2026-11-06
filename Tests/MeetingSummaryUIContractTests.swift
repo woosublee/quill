@@ -131,10 +131,8 @@ struct MeetingSummaryUIContractTests {
         noteBrowser: String,
         summaryView: String
     ) {
+        // The two tabs are the shared `NoteContentMode` (QuillNoteUI).
         for expected in [
-            "enum NoteContentMode",
-            "case transcript",
-            "case summary",
             "@State private var selectedContentMode: NoteContentMode = .transcript",
             "Picker(\"Note Content\", selection: userContentModeSelection)",
             ".pickerStyle(.segmented)",
