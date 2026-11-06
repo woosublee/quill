@@ -42,6 +42,7 @@ struct LocalizationResourceTests {
         try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
+        try testSharedMetaTagKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -427,6 +428,21 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared selection keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The note detail's meta tags read their words from the shared
+    /// NoteMetaTags (#697), so every key must be translated here.
+    private static func testSharedMetaTagKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let missing = Set(NoteMetaTags.allCopyKeys).filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared meta tag keys missing from the catalog: \(missing)")
         }
     }
 
