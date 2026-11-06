@@ -26,6 +26,7 @@ struct AudioWaveformHeightsTests {
             try clampsNegativePreferredGap()
             try aWiderCardShowsMoreBarsOfTheSameWidth()
             try fittedBarsReachBothEnds()
+            try theBarUnderThePointerDrawsPlayed()
             try sliceLevelsMatchMeasuringAtTheBarCount()
             try heightsFromSliceLevelsHandleFewOrNoSlices()
             try meterLevelFollowsAFixedSequence()
@@ -293,6 +294,30 @@ struct AudioWaveformHeightsTests {
             try expect(abs(total - width) < 0.001, "bars fill width \(width)")
             try expect(layout.gap >= AudioWaveformHeights.minimumBarGap, "bars keep their gap at \(width)")
         }
+    }
+
+    // Break caught: with 1 pt bars, the played count came from the progress
+    // times the bar count, so a click or drag right on a bar left that bar (and
+    // often one before it) unplayed: the tall bar under the pointer stayed grey.
+    private static func theBarUnderThePointerDrawsPlayed() throws {
+        let width: CGFloat = 510
+        let layout = AudioWaveformHeights.fittedLayout(width: width)
+        let step = layout.barWidth + layout.gap
+        for index in [0, 1, 37, layout.barCount / 2, layout.barCount - 1] {
+            let left = CGFloat(index) * step
+            for x in [left, left + layout.barWidth / 2, left + layout.barWidth] {
+                let played = AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: Double(x / width))
+                if x > 0 {
+                    try expect(played == index + 1, "pointer on bar \(index) at \(x) plays it and no more, got \(played)")
+                }
+            }
+        }
+        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: 0) == 0, "start plays nothing")
+        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: 1) == layout.barCount, "end plays all")
+        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: 2) == layout.barCount, "past the end plays all")
+        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: .nan) == 0, "NaN plays nothing")
+        let empty = AudioWaveformHeights.fittedLayout(width: 0)
+        try expect(AudioWaveformHeights.playedBarCount(layout: empty, width: 0, progress: 0.5) == 0, "no bars")
     }
 
     // Break caught: heights measured at 480 bars and combined later drew quieter

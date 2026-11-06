@@ -54,6 +54,16 @@ public enum AudioWaveformHeights {
         return Layout(barCount: barCount, barWidth: barWidth, gap: gap)
     }
 
+    /// How many bars, from the left, draw as played at `progress` (0...1) of
+    /// `width`. A bar counts once the position reaches its left edge, so the bar
+    /// under the pointer turns played when a click or drag lands on it.
+    public static func playedBarCount(layout: Layout, width: CGFloat, progress: Double) -> Int {
+        let step = layout.barWidth + layout.gap
+        guard layout.barCount > 0, progress.isFinite, progress > 0, width.isFinite, step > 0 else { return 0 }
+        let position = width * CGFloat(min(progress, 1))
+        return min(layout.barCount, Int(position / step) + 1)
+    }
+
     /// A recording's RMS level in each of `sliceCount` equal slices. Keep these,
     /// not heights: `heights(fromSliceLevels:barCount:)` turns them into the
     /// bars that fit, and a recording's loud level depends on the bar count.

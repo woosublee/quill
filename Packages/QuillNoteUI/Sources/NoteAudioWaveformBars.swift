@@ -29,7 +29,7 @@ public struct NoteAudioWaveformBars: View {
             let layout = AudioWaveformHeights.fittedLayout(width: size.width)
             guard layout.barCount > 0 else { return }
             let bars = heights.heights(levels: levels, barCount: layout.barCount)
-            let playedCount = Int(Double(layout.barCount) * min(1, max(0, progress)))
+            let playedCount = AudioWaveformHeights.playedBarCount(layout: layout, width: size.width, progress: progress)
             let scale = max(displayScale, 1)
             for index in 0..<layout.barCount {
                 let height = size.height * (bars.isEmpty ? Self.flatHeight : CGFloat(bars[index]))
