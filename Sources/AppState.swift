@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillAudioLevelCore
 import QuillNoteUI
 import Combine
 import AppKit
@@ -3049,7 +3050,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }()
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
-    private var recordingInputHintState: RecordingInputHintState?
+    private var recordingInputHintState: RecordingInputHintState<UUID>?
     private var recordingInputHintInputID: String?
     private var recordingInputHintTimer: DispatchSourceTimer?
     private var recordingInputHintLevelCancellable: AnyCancellable?
