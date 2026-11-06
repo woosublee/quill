@@ -299,25 +299,34 @@ struct AudioWaveformHeightsTests {
     // Break caught: with 1 pt bars, the played count came from the progress
     // times the bar count, so a click or drag right on a bar left that bar (and
     // often one before it) unplayed: the tall bar under the pointer stayed grey.
+    // Checked at the drawn (pixel-rounded) edge, and at widths where the trip
+    // through a fraction comes back a hair short.
     private static func theBarUnderThePointerDrawsPlayed() throws {
-        let width: CGFloat = 510
-        let layout = AudioWaveformHeights.fittedLayout(width: width)
-        let step = layout.barWidth + layout.gap
-        for index in [0, 1, 37, layout.barCount / 2, layout.barCount - 1] {
-            let left = CGFloat(index) * step
-            for x in [left, left + layout.barWidth / 2, left + layout.barWidth] {
-                let played = AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: Double(x / width))
-                if x > 0 {
-                    try expect(played == index + 1, "pointer on bar \(index) at \(x) plays it and no more, got \(played)")
+        for width: CGFloat in [226, 333.3, 510, 1_439] {
+            let layout = AudioWaveformHeights.fittedLayout(width: width)
+            for scale: CGFloat in [1, 2, 3] {
+                for index in 1..<layout.barCount {
+                    let left = AudioWaveformHeights.barX(index, layout: layout, displayScale: scale)
+                    for x in [left, left + layout.barWidth / 2, left + layout.barWidth] {
+                        let played = AudioWaveformHeights.playedBarCount(
+                            layout: layout, progress: Double(x / width), displayScale: scale
+                        )
+                        try expect(
+                            played == index + 1,
+                            "width \(width) @\(scale)x: pointer on bar \(index) at \(x) plays it and no more, got \(played)"
+                        )
+                    }
                 }
             }
+            // Bar 0 starts at 0, where nothing has played yet; any step in plays it.
+            try expect(AudioWaveformHeights.playedBarCount(layout: layout, progress: 0, displayScale: 2) == 0, "start plays nothing")
+            try expect(AudioWaveformHeights.playedBarCount(layout: layout, progress: 0.0001, displayScale: 2) == 1, "first step plays bar 0")
+            try expect(AudioWaveformHeights.playedBarCount(layout: layout, progress: 1, displayScale: 2) == layout.barCount, "end plays all")
+            try expect(AudioWaveformHeights.playedBarCount(layout: layout, progress: 2, displayScale: 2) == layout.barCount, "past the end plays all")
+            try expect(AudioWaveformHeights.playedBarCount(layout: layout, progress: .nan, displayScale: 2) == 0, "NaN plays nothing")
         }
-        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: 0) == 0, "start plays nothing")
-        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: 1) == layout.barCount, "end plays all")
-        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: 2) == layout.barCount, "past the end plays all")
-        try expect(AudioWaveformHeights.playedBarCount(layout: layout, width: width, progress: .nan) == 0, "NaN plays nothing")
         let empty = AudioWaveformHeights.fittedLayout(width: 0)
-        try expect(AudioWaveformHeights.playedBarCount(layout: empty, width: 0, progress: 0.5) == 0, "no bars")
+        try expect(AudioWaveformHeights.playedBarCount(layout: empty, progress: 0.5, displayScale: 2) == 0, "no bars")
     }
 
     // Break caught: heights measured at 480 bars and combined later drew quieter
