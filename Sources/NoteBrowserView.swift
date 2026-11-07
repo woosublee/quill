@@ -1004,6 +1004,15 @@ struct NoteBrowserView: View {
         .onChange(of: appState.recoveringRecordingIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
         }
+        // Design screenshots only (`DesignSceneFixture`).
+        .onReceive(NotificationCenter.default.publisher(for: DesignSceneFixture.browserStateNotification)) { note in
+            guard let state = note.object as? DesignSceneFixture.BrowserState else { return }
+            if state.clearsSelection { selection.focus(nil) }
+            if let query = state.searchQuery {
+                isSearchOpen = true
+                searchText = query
+            }
+        }
         // Open Note in Settings › Recently Deleted asks for a restored note.
         .onChange(of: appState.noteBrowserOpenRequest) { _ in
             openRequestedNote()

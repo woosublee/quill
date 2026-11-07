@@ -3,7 +3,7 @@ import SwiftUI
 import UserNotifications
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    let appState = AppState()
+    let appState = AppState(dependencies: DesignSceneFixture.appStateDependencies)
     var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var noteBrowserWindow: NSWindow?
@@ -48,6 +48,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let scene = DesignSceneFixture.active {
+            launchDesignScene(scene)
+            return
+        }
         NetworkMonitor.shared.start()
 
         AppNotificationManager.shared.install()
@@ -102,6 +106,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     }
 
+    /// Design screenshots only (`DesignSceneFixture`): the note window on
+    /// the scene's synthetic notes, with no other service started.
+    private func launchDesignScene(_ scene: DesignSceneFixture.Scene) {
+        NSApp.appearance = NSAppearance(named: .aqua)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowNoteBrowser),
+            name: .showNoteBrowser,
+            object: nil
+        )
+        updateActivationPolicy()
+        showNoteBrowserWindow()
+        if let window = noteBrowserWindow {
+            window.setContentSize(NSSize(width: 1100, height: 720))
+            window.center()
+        }
+        MainActor.assumeIsolated { DesignSceneFixture.present(scene, in: appState) }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let recordingReply = appState.requestTerminationWhileRecording()
         guard recordingReply == .terminateNow else { return recordingReply }
@@ -109,6 +132,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DesignSceneFixture.removeTemporaryFiles()
         // Quitting with New settings open keeps the AI tools choice; the
         // window comes back next time, since it may not have been read.
         // Only the setting is saved; no server starts while quitting.

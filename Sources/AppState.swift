@@ -10729,6 +10729,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
+    /// Design screenshots only (`DesignSceneFixture`): reads the notes and
+    /// their stored notices again, and shows a synthetic retranscription
+    /// waiting to be compared, without running a retry.
+    @MainActor
+    func applyDesignScene(transcriptionCandidate: String?, noteID: UUID?) {
+        guard DesignSceneFixture.active != nil else { return }
+        applyLoadedHistory(pipelineHistoryStore.loadAllHistory())
+        if let transcriptionCandidate, let noteID {
+            transcriptionCandidates[noteID] = transcriptionCandidate
+        }
+    }
+
     /// Opens the Note Browser on a note.
     @MainActor
     func openNoteInBrowser(id: UUID) {

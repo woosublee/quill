@@ -18,6 +18,14 @@ otherwise.
 - `Sources/PipelineHistoryStore.swift` and `Sources/NoteAssetStore.swift`: local note history.
 - `Sources/UpdateManager.swift`: Sparkle update behavior.
 - `Sources/SettingsView.swift`, `Sources/SetupView.swift`, and other SwiftUI files: UI.
+- `Sources/DesignSceneFixture.swift`: development-only screenshots of the note
+  window (#697), to compare with the iPhone's. It runs only in an app built
+  with the `com.woosublee.quill.shots` bundle identifier and launched with
+  `-QuillDesignScene <name>` (a `DesignSceneFixture.Scene` case), on invented
+  notes in a temporary folder; sync, calendar, updates, shortcuts, and the
+  Keychain stay off. Build it with
+  `make ARCH="$(uname -m)" BUILD_DIR="$HOME/Library/Caches/quill-shots-build" APP_NAME="Quill Shots" BUNDLE_ID=com.woosublee.quill.shots`,
+  then run `open -n "$HOME/Library/Caches/quill-shots-build/Quill Shots.app" --args -QuillDesignScene noSelection -AppleLanguages '(ko)'`.
 - `Packages/QuillNoteSyncCore/`: note sync record, merge, payload, CloudKit,
   and audio-part logic shared with the iPhone app (#634), and how the sync
   status reads (`NoteSyncStatusPresentation`): which problem shows first
