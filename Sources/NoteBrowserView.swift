@@ -591,9 +591,10 @@ struct NoteBrowserView: View {
             for: item,
             retrying: appState.retryingItemIDs,
             stoppedCloud: appState.stoppedCloudTranscriptionIDs
-        ).isBulkSelectable
-            && !appState.meetingSummaryGeneratingNoteIDs.contains(item.id)
-            && !appState.recoveringRecordingIDs.contains(item.id)
+        ).joinsSelection(
+            isMakingSummary: appState.meetingSummaryGeneratingNoteIDs.contains(item.id),
+            isRecoveringRecording: appState.recoveringRecordingIDs.contains(item.id)
+        )
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -2308,7 +2309,7 @@ private struct NoteListRow: View {
                     .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
                 if let startedAt = displayData.recordingStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
+                        Text(verbatim: RecordingElapsedFormat.string(from: startedAt, to: context.date))
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
                             .foregroundStyle(QuillColor.statusRecording.opacity(metaOpacity(0.8)))
                     }
@@ -5343,7 +5344,7 @@ private struct YellowSpinner: View {
     }
 }
 
-/// "Recording · 03:12", updated every second.
+/// "Recording · 3:12", updated every second.
 private struct RecordingElapsedTitle: View {
     let startedAt: Date
 
@@ -5351,7 +5352,7 @@ private struct RecordingElapsedTitle: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             Text(verbatim: localizedCatalogFormat(
                 "Recording · %@",
-                RecordingElapsedFormatter.string(from: startedAt, to: context.date)
+                RecordingElapsedFormat.string(from: startedAt, to: context.date)
             ))
             .monospacedDigit()
         }

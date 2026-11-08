@@ -150,8 +150,10 @@ struct NoteBrowserMultiSelectionSourceTests {
 
         // Busy notes can't join a selection.
         let selectable = try body(of: "private func canJoinSelection(_ item: PipelineHistoryItem) -> Bool", in: source)
-        precondition(selectable.contains(".isBulkSelectable"))
-        precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(item.id)"))
+        // The shared rule both apps use (decision r4).
+        precondition(selectable.contains(".joinsSelection("))
+        precondition(selectable.contains("isMakingSummary: appState.meetingSummaryGeneratingNoteIDs.contains(item.id)"))
+        precondition(selectable.contains("isRecoveringRecording: appState.recoveringRecordingIDs.contains(item.id)"))
         // The selectable notes are worked out once, not looked up per note (#707).
         let selectableIDs = try body(of: "private var isBulkSelectable: (UUID) -> Bool", in: source)
         precondition(selectableIDs.contains("if selectableIDs == nil { selectableIDs = bulkSelectableIDs(in: history) }"))

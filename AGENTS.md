@@ -136,6 +136,9 @@ otherwise.
   list row reads from that status and the work running for it
   (`NoteListRowState`: its status, which dot it draws, its preview line,
   its Audio only and Summary badges, and the state VoiceOver reads; #697),
+  whether it can join the list's selection (`NoteListRowStatus.joinsSelection`),
+  how a recording's running time reads (`RecordingElapsedFormat`: `m:ss`,
+  then `h:mm:ss`, paused time not counted),
   with a recovered recording's description keys
   (`RecoveredRecordingContext.descriptionLocalizationKeys`), what Save Files
   offers and names (`NoteExportPlan`: blank text isn't offered, a stale

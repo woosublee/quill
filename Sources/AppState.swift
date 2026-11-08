@@ -8778,8 +8778,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // a confirmation; Recently Deleted would keep the note while its
         // journal can bring it back on the next launch.
         guard item.unrecoveredRecordingContext == nil else { return false }
-        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs).isBulkSelectable
-            && !meetingSummaryGeneratingNoteIDs.contains(id)
+        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs)
+            .joinsSelection(isMakingSummary: meetingSummaryGeneratingNoteIDs.contains(id))
     }
 
     /// Ends the Cancel window of a deleted summary. Safe to call at any time.
