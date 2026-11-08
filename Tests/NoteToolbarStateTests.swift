@@ -23,6 +23,9 @@ struct NoteToolbarStateTests {
         testCreateSummaryWaitsForAllWork()
         testSummaryActionBlockedWhileComparingOrEditing()
         testHiddenOnlyForRecordingComparingAndKeyboard()
+        testSoftwareKeyboardIsTheTallFrameOnScreen()
+        testCopyableTextIgnoresSpaces()
+        testSummaryReadinessPressRule()
         testEveryCombinationKeepsTheFixedSlots()
         testSummaryTranscriptReadsTrimmedText()
         testSummaryKindFollowsSavedSummaryThenFailure()
@@ -368,7 +371,37 @@ struct NoteToolbarStateTests {
         precondition(!State.isHidden(isRecording: false, isComparingCandidates: false))
         precondition(State.isHidden(isRecording: true, isComparingCandidates: false))
         precondition(State.isHidden(isRecording: false, isComparingCandidates: true))
-        precondition(State.isHidden(isRecording: false, isComparingCandidates: false, isEditingWithKeyboard: true))
+        // Decision t4: editing hides it only with the on-screen keyboard up.
+        precondition(State.isHidden(isRecording: false, isComparingCandidates: false, isEditing: true, isSoftwareKeyboardVisible: true))
+        precondition(!State.isHidden(isRecording: false, isComparingCandidates: false, isEditing: true, isSoftwareKeyboardVisible: false))
+        precondition(!State.isHidden(isRecording: false, isComparingCandidates: false, isEditing: false, isSoftwareKeyboardVisible: true))
+    }
+
+    /// The on-screen keyboard counts; the hardware keyboard's shortcut bar
+    /// and a keyboard moved off the screen don't.
+    private static func testSoftwareKeyboardIsTheTallFrameOnScreen() {
+        let screen = CGRect(x: 0, y: 0, width: 1024, height: 1366)
+        precondition(NoteSoftwareKeyboard.isVisible(endFrame: CGRect(x: 0, y: 1013, width: 1024, height: 353), screenBounds: screen))
+        precondition(!NoteSoftwareKeyboard.isVisible(endFrame: CGRect(x: 0, y: 1311, width: 1024, height: 55), screenBounds: screen), "shortcut bar")
+        precondition(!NoteSoftwareKeyboard.isVisible(endFrame: CGRect(x: 0, y: 1366, width: 1024, height: 353), screenBounds: screen), "off screen")
+        precondition(!NoteSoftwareKeyboard.isVisible(endFrame: .zero, screenBounds: screen))
+    }
+
+    /// Decision t3: only text counts as something to copy.
+    private static func testCopyableTextIgnoresSpaces() {
+        precondition(!NoteToolbarInput.hasCopyableText(nil))
+        precondition(!NoteToolbarInput.hasCopyableText(""))
+        precondition(!NoteToolbarInput.hasCopyableText(" \n\t "))
+        precondition(NoteToolbarInput.hasCopyableText(" a "))
+    }
+
+    /// Decision t2: a summary that can't run can't be pressed; one that's
+    /// off can, to open the setting.
+    private static func testSummaryReadinessPressRule() {
+        let pressable: Set<NoteSummaryReadiness> = [.ready, .featureOff]
+        for readiness in NoteSummaryReadiness.allCases {
+            precondition(readiness.allowsPress == pressable.contains(readiness), "\(readiness)")
+        }
     }
 
     /// Whatever the input, Save and Delete are off during any work, Copy

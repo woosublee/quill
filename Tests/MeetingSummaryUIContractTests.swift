@@ -157,7 +157,7 @@ struct MeetingSummaryUIContractTests {
             "summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))",
             "private var showsSummaryTab: Bool {",
             "summaryEnvelope != nil || (currentSummaryAttempt?.outcome == .failed && currentSummaryAttempt?.issue != nil) || summaryIssue != nil",
-            "summaryActionIsDisabled",
+            "summaryReadiness",
             "handleSummaryAction",
             "@State private var showDeleteChoice = false",
             "\"What do you want to delete?\"",
@@ -309,7 +309,7 @@ struct MeetingSummaryUIContractTests {
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
         precondition(noteBrowser.contains("kind: summaryToolbarAction.kind,"))
         precondition(noteBrowser.contains("transcript: summaryTranscript,"))
-        precondition(noteBrowser.contains("canRun: !summaryActionIsDisabled,"))
+        precondition(noteBrowser.contains("canRun: summaryReadiness.allowsPress,"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
         let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""

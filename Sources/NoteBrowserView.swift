@@ -2785,13 +2785,16 @@ private struct NoteDetailView: View {
         if isAudioOnly { return .missing }
         return summaryAvailability == .transcriptUnavailable ? .empty : .present
     }
-    private var summaryActionIsDisabled: Bool {
+    /// The summary buttons' shared readiness (decision t2): only a ready
+    /// summary, or one that's off (pressing says so), can be pressed.
+    private var summaryReadiness: NoteSummaryReadiness {
         switch summaryAvailability {
-        case .available, .featureDisabled:
-            return false
-        case .modelUnavailable, .transcriptUnavailable,
-             .transcriptionInProgress, .generationInProgress:
-            return true
+        case .available: .ready
+        case .featureDisabled: .featureOff
+        case .modelUnavailable: .noModel
+        case .transcriptUnavailable: .noTranscript
+        case .transcriptionInProgress: .transcribing
+        case .generationInProgress: .making
         }
     }
     private var storedAudioURL: URL? {
@@ -4118,7 +4121,7 @@ private struct NoteDetailView: View {
             summary: .make(
                 kind: summaryToolbarAction.kind,
                 transcript: summaryTranscript,
-                canRun: !summaryActionIsDisabled,
+                canRun: summaryReadiness.allowsPress,
                 hasSummaryTab: showsSummaryTab,
                 isMakingSummary: isGeneratingSummary,
                 // The toolbar hides while comparing; an edited summary asks
@@ -4126,7 +4129,7 @@ private struct NoteDetailView: View {
                 isBlocked: false,
                 hasSummaryToCopy: summaryEnvelope != nil
             ),
-            hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasTranscriptToCopy: NoteToolbarInput.hasCopyableText(displayContent),
             hasFilesToSave: actionState.canSaveFiles,
             canDelete: !isRecoveringRecording
         )
