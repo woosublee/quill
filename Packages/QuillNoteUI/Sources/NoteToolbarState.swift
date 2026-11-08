@@ -87,6 +87,9 @@ public struct NoteToolbarInput: Equatable, Sendable {
     /// without a transcript keeps ✨ dimmed whatever this says. Both apps fill
     /// the summary fields from `NoteToolbarSummaryInput` (#782).
     public var canCreateSummary: Bool?
+    /// The transcript has text to copy: a cleared transcript, or one of only
+    /// spaces and line breaks, has none (decision t3). Both apps fill it
+    /// from `hasCopyableText(_:)`.
     public var hasTranscriptToCopy: Bool
     public var hasSummaryToCopy: Bool
     public var hasFilesToSave: Bool
@@ -122,6 +125,14 @@ public struct NoteToolbarInput: Equatable, Sendable {
         self.hasSummaryToCopy = hasSummaryToCopy
         self.hasFilesToSave = hasFilesToSave
         self.canDelete = canDelete
+    }
+}
+
+extension NoteToolbarInput {
+    /// Whether `text` has something to copy: only spaces or line breaks
+    /// count as nothing, the same as an empty transcript (decision e7).
+    public static func hasCopyableText(_ text: String?) -> Bool {
+        text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 }
 
@@ -161,14 +172,17 @@ public struct NoteToolbarState: Equatable, Sendable {
     }
 
     /// The toolbar hides only while recording (the recorder panel takes its
-    /// place), while comparing candidates (the choice bar does), and on the
-    /// iPhone while editing with the keyboard up.
+    /// place), while comparing candidates (the choice bar does), and while
+    /// editing the transcript or summary with the on-screen keyboard up
+    /// (2026-11-08 decision t4). An iPad with a hardware keyboard and the
+    /// Mac keep it while editing.
     public static func isHidden(
         isRecording: Bool,
         isComparingCandidates: Bool,
-        isEditingWithKeyboard: Bool = false
+        isEditing: Bool = false,
+        isSoftwareKeyboardVisible: Bool = false
     ) -> Bool {
-        isRecording || isComparingCandidates || isEditingWithKeyboard
+        isRecording || isComparingCandidates || (isEditing && isSoftwareKeyboardVisible)
     }
 
     /// The #690 table.

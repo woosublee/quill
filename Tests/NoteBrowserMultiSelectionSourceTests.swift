@@ -30,7 +30,7 @@ struct NoteBrowserMultiSelectionSourceTests {
 
         // The header overlays the list at its width, so the no-results view
         // must fill the sidebar or the search field is squeezed away.
-        precondition(source.contains("Text(\"No Search Results\")\n                        .font(.system(size: 12))\n                        .foregroundStyle(.tertiary)\n                    Spacer()\n                }\n                // Fill the sidebar: the header overlays this view at its\n                // width, so a narrow view squeezed the search field away.\n                .frame(maxWidth: .infinity)"))
+        precondition(source.contains("Text(verbatim: localizedCatalogString(NoteEmptyStateCopy.noSearchResults))\n                        .font(.system(size: 12))\n                        .foregroundStyle(.tertiary)\n                    Spacer()\n                }\n                // Fill the sidebar: the header overlays this view at its\n                // width, so a narrow view squeezed the search field away.\n                .frame(maxWidth: .infinity)"))
 
         // The search keeps focus and stays open while it moves the open note,
         // and the header keeps its identity across the no-results view.
