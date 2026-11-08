@@ -50,3 +50,33 @@ public struct CloudAPIKeyValidator: Sendable {
         }
     }
 }
+
+/// What an API key check says when it fails for a reason other than a
+/// rejected key, the same on the Mac and the iPhone (#697). Each app
+/// translates the keys with its own String Catalog. Only a blocked http
+/// URL reads differently: the iPhone also allows http on the local network,
+/// so each app passes its own key for it.
+public enum CloudAPIKeyCheckCopy {
+    public static let notFoundKey = "No API was found at this URL. Check the path at the end, like /openai/v1."
+    public static let rateLimitedKey = "Too many requests right now. Try again in a moment."
+    /// Also a server error or any status other than 200, 401, 403, 404, or 429.
+    public static let unreachableKey = "Couldn't reach the provider, or it answered with an error. Try again in a moment."
+    public static let invalidURLKey =
+        "Check the API URL. Enter an http or https address without a username, password, or anything after ? or #."
+
+    /// The reason's copy key, or nil for a valid or rejected key (the
+    /// rejected key has its own message on each app).
+    public static func failureReasonKey(
+        for result: CloudAPIKeyValidationResult,
+        insecureConnectionKey: String
+    ) -> String? {
+        switch result {
+        case .valid, .rejected: nil
+        case .notFound: notFoundKey
+        case .rateLimited: rateLimitedKey
+        case .unreachable: unreachableKey
+        case .insecureConnection: insecureConnectionKey
+        case .invalidURL: invalidURLKey
+        }
+    }
+}

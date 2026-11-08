@@ -12,6 +12,7 @@ struct CloudConsentTests {
             try ledgerPersistsGrantsWithTheirDates()
             try targetsFollowTheTranscriptionFallback()
             try unconsentedTargetsListEachNewProvider()
+            try sequenceAsksEachProviderThenRechecks()
             try withdrawalClearsEveryKeyThatGoesThere()
             try clearingAKeyWithdrawsItsAgreedProvider()
             try clearingAKeySavedBeforeConsentOnlyDeletesIt()
@@ -101,6 +102,30 @@ struct CloudConsentTests {
         try expect(settings.unconsented(in: ledger).count == 2, "both new providers ask")
         ledger.grant(forBaseURL: mainURL)
         try expect(settings.unconsented(in: ledger).map(\.baseURL) == [otherURL], "only the one not agreed to asks")
+    }
+
+    /// One provider at a time, both apps (#697): after the first Agree the
+    /// next one is asked; after the last, the change is checked again with
+    /// the agreed providers counted, and a provider it now reaches is asked.
+    static func sequenceAsksEachProviderThenRechecks() throws {
+        let ledger = CloudConsentLedger()
+        let both = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: otherURL, transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        let asked = CloudConsentSequence.targetsToAsk(proposed: both, ledger: ledger)
+        try expect(asked.map(\.baseURL) == [mainURL, otherURL], "both, main first")
+        let first = CloudConsentSequence.afterAgreeing(targets: asked, agreed: [], reproposed: { both }, ledger: ledger)
+        try expect(first.agreed.map(\.baseURL) == [mainURL] && first.remaining.map(\.baseURL) == [otherURL], "then the other")
+        let last = CloudConsentSequence.afterAgreeing(
+            targets: first.remaining, agreed: first.agreed, reproposed: { both }, ledger: ledger
+        )
+        try expect(last.agreed.map(\.baseURL) == [mainURL, otherURL] && last.remaining.isEmpty, "nothing left once both agreed")
+
+        // Another window moved transcription to a third provider meanwhile.
+        let third = "https://voice.example-third.test/v1"
+        let moved = CloudConsentTargets(apiBaseURL: mainURL, apiKey: "sk-main", apiKeyIsUnreadable: false, transcriptionAPIURL: third, transcriptionAPIKey: "", transcriptionAPIKeyIsUnreadable: false)
+        let recheck = CloudConsentSequence.afterAgreeing(targets: [asked[0]], agreed: [], reproposed: { moved }, ledger: ledger)
+        try expect(recheck.remaining.map(\.baseURL) == [third], "the provider it now reaches is asked")
+        let savedKey = CloudConsentSequence.afterAgreeing(targets: [asked[0]], agreed: [], reproposed: { nil }, ledger: ledger)
+        try expect(savedKey.remaining.isEmpty, "a saved key's consent has no change to recheck")
     }
 
     static func withdrawalClearsEveryKeyThatGoesThere() throws {

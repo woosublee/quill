@@ -231,3 +231,42 @@ extension CloudConsentTargets: CustomStringConvertible, CustomDebugStringConvert
         return CloudProviderURL.origin(of: url) ?? "<invalid>"
     }
 }
+
+/// Asking for cloud consent one provider at a time, the same on the Mac and
+/// the iPhone (#693, #697). A change can need two providers (the main one
+/// and a separate transcription one): they're asked one after the other,
+/// and nothing is granted until every one is agreed to. On the last Agree
+/// the change is checked again against the settings as they are now, since
+/// another window shares them: a provider it would now reach is asked about
+/// too. Each app keeps its own dialog, copy, and when it grants.
+public enum CloudConsentSequence {
+    /// The providers to ask about before `proposed` is applied, in order.
+    /// Empty when every one already has consent.
+    public static func targetsToAsk(
+        proposed: CloudConsentTargets,
+        ledger: CloudConsentLedger
+    ) -> [CloudConsentTargets.Target] {
+        proposed.unconsented(in: ledger)
+    }
+
+    /// After the first of `targets` is agreed to: every provider agreed so
+    /// far, and those still to ask. `reproposed` applies the change to the
+    /// settings as they are now; it runs only on the last Agree, and returns
+    /// nil when there's no change to check (agreeing to a key that's
+    /// already saved).
+    public static func afterAgreeing(
+        targets: [CloudConsentTargets.Target],
+        agreed: [CloudConsentTargets.Target],
+        reproposed: () -> CloudConsentTargets?,
+        ledger: CloudConsentLedger
+    ) -> (agreed: [CloudConsentTargets.Target], remaining: [CloudConsentTargets.Target]) {
+        let agreed = agreed + targets.prefix(1)
+        var rest = Array(targets.dropFirst())
+        if rest.isEmpty, let reproposed = reproposed() {
+            var granted = ledger
+            for target in agreed { granted.grant(forBaseURL: target.baseURL) }
+            rest = reproposed.unconsented(in: granted)
+        }
+        return (agreed, rest)
+    }
+}

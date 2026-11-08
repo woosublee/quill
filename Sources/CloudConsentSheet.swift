@@ -41,7 +41,7 @@ struct CloudConsentRequest: Identifiable {
     ) -> CloudConsentRequest? {
         var proposed = appState.cloudConsentTargets
         change(&proposed)
-        let targets = proposed.unconsented(in: appState.cloudConsent)
+        let targets = CloudConsentSequence.targetsToAsk(proposed: proposed, ledger: appState.cloudConsent)
         guard !targets.isEmpty else {
             apply()
             return nil
@@ -60,15 +60,17 @@ struct CloudConsentRequest: Identifiable {
     /// now that the settings have changed. Nil when none is left.
     @MainActor
     fileprivate func remaining(appState: AppState) -> CloudConsentRequest? {
-        let agreed = agreed + targets.prefix(1)
-        var rest = Array(targets.dropFirst())
-        if rest.isEmpty, let change {
-            var proposed = appState.cloudConsentTargets
-            change(&proposed)
-            var ledger = appState.cloudConsent
-            for target in agreed { ledger.grant(forBaseURL: target.baseURL) }
-            rest = proposed.unconsented(in: ledger)
-        }
+        let (agreed, rest) = CloudConsentSequence.afterAgreeing(
+            targets: targets, agreed: agreed,
+            reproposed: {
+                change.map { change in
+                    var proposed = appState.cloudConsentTargets
+                    change(&proposed)
+                    return proposed
+                }
+            },
+            ledger: appState.cloudConsent
+        )
         guard !rest.isEmpty else { return nil }
         return CloudConsentRequest(
             targets: rest,
