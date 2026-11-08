@@ -3744,6 +3744,15 @@ private struct NoteDetailView: View {
                 tint: summaryNoticeTint(kind),
                 title: localizedCatalogString(kind.titleKey ?? ""),
                 detail: localizedCatalogString(kind.detailKey ?? ""),
+                // "View Models" when the setting is off or the model is
+                // missing, as on the iPhone (decision s2).
+                action: kind.action.map { action in
+                    NoteBannerAction(title: localizedCatalogString(action.titleKey)) {
+                        switch action {
+                        case .openModels: performRecoveryAction(.openModelsSettings)
+                        }
+                    }
+                },
                 expansion: expansion,
                 onDismiss: {
                     if kind == .unchanged {

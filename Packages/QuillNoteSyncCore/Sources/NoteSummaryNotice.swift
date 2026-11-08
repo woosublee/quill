@@ -30,6 +30,20 @@ public enum NoteSummaryNotice: String, CaseIterable, Equatable, Sendable {
         case modelUnavailable
     }
 
+    /// A notice's button. A failure's button depends on its issue, so each
+    /// app picks it from the issue record.
+    public enum Action: Equatable, Sendable {
+        /// Opens Settings › Models, where the summary model is set up and
+        /// Meeting Summary is turned on.
+        case openModels
+
+        public var titleKey: String {
+            switch self {
+            case .openModels: "View Models"
+            }
+        }
+    }
+
     /// How a notice is tinted: each app maps these to its own colors.
     public enum Tint: Equatable, Sendable {
         /// The banner warning color.
@@ -75,6 +89,17 @@ public enum NoteSummaryNotice: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .failure, .stale, .unverifiedEvidence: return .warning
         case .unchanged, .featureDisabled, .modelUnavailable: return .secondary
+        }
+    }
+
+    /// The notice's button: "View Models" when the setting is off or the
+    /// model is missing, on both apps (the owner's 2026-11-08 decision s2,
+    /// the iPhone's button). None for a failure (its issue decides) or the
+    /// review reminders.
+    public var action: Action? {
+        switch self {
+        case .featureDisabled, .modelUnavailable: .openModels
+        case .unchanged, .failure, .stale, .unverifiedEvidence: nil
         }
     }
 

@@ -6799,6 +6799,22 @@
         }
       }
     },
+    "View Models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 보기"
+          }
+        }
+      }
+    },
     "Voice Command (What you say)": {
       "localizations": {
         "en": {

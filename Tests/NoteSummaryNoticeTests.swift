@@ -27,6 +27,12 @@ struct NoteSummaryNoticeTests {
             isStale: true, isUnverifiedEvidence: true, setting: .featureDisabled
         )
         precondition(none.isEmpty, "no saved summary, no notices")
+        // Decision s2: "View Models" on the setting notices, on both apps.
+        for notice in NoteSummaryNotice.allCases {
+            let expected: NoteSummaryNotice.Action? = [.featureDisabled, .modelUnavailable].contains(notice) ? .openModels : nil
+            precondition(notice.action == expected, "\(notice)")
+        }
+        precondition(NoteSummaryNotice.Action.openModels.titleKey == "View Models")
         precondition(NoteSummaryNotice.notices(
             hasSummary: true, showsUnchanged: false, hasCurrentFailure: false,
             isStale: false, isUnverifiedEvidence: false, setting: .ready
