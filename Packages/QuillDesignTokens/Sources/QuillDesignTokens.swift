@@ -507,6 +507,17 @@ public enum QuillControlSize {
     /// full issue page, the iPhone's empty transcript states).
     public static let issueDisc: CGFloat = 64
 
+    /// `size-empty-disc-large`: the dashed disc of the empty state shown
+    /// when there are no notes at all.
+    public static let emptyDiscLarge: CGFloat = 96
+    /// `size-empty-glyph`: the ultralight symbol inside `size-empty-disc`.
+    public static let emptyGlyph: CGFloat = 30
+    /// `size-empty-glyph-large`: the symbol inside `size-empty-disc-large`.
+    public static let emptyGlyphLarge: CGFloat = 38
+    /// `size-empty-detail-width`: the widest a standard empty state's
+    /// explanation runs before it wraps.
+    public static let emptyDetailWidth: CGFloat = 360
+
     /// `size-record-button`: the round record button. On the iPhone it grows
     /// with Dynamic Type from this size.
     public static let recordButtonMac: CGFloat = 44
@@ -554,6 +565,10 @@ public enum QuillControlSize {
         ("size-status-dot", statusDot),
         ("size-empty-disc", emptyDisc),
         ("size-issue-disc", issueDisc),
+        ("size-empty-disc-large", emptyDiscLarge),
+        ("size-empty-glyph", emptyGlyph),
+        ("size-empty-glyph-large", emptyGlyphLarge),
+        ("size-empty-detail-width", emptyDetailWidth),
         ("size-record-button", recordButtonMac),
         ("size-record-button-iphone", recordButtonIPhone),
         ("size-close", closeMac),
@@ -864,6 +879,9 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// `empty-title`: an empty state's title, and the work status shown
     /// alone in the middle of a note with no text yet.
     public static let emptyTitle = QuillTypeStyle(size: 15, lineHeight: 20, weight: 600, dynamicStyle: .subheadline)
+    /// `empty-hero-title`: the empty state shown when there are no notes at
+    /// all, with `size-empty-disc-large`.
+    public static let emptyHeroTitle = QuillTypeStyle(size: 18, lineHeight: 23, weight: 600, dynamicStyle: .title3)
     /// `row-title`: a note list row's title.
     public static let rowTitle = QuillTypeStyle(
         size: 13, lineHeight: 16, weight: 600, dynamicStyle: .subheadline
@@ -887,6 +905,11 @@ public struct QuillTypeStyle: Sendable, Equatable {
     public static let emptyDetail = QuillTypeStyle(
         size: callout.size, lineHeight: callout.lineHeight, weight: callout.weight, dynamicStyle: .subheadline
     )
+    /// `empty-hero-detail`: the explanation under `empty-hero-title`.
+    public static let emptyHeroDetail = QuillTypeStyle(size: 13, lineHeight: 16, weight: 400, dynamicStyle: .subheadline)
+    /// `empty-quiet-title`: an empty transcript's one line ("No content"),
+    /// drawn without a detail.
+    public static let emptyQuietTitle = QuillTypeStyle(size: 14, lineHeight: 18, weight: 400, dynamicStyle: .subheadline)
     /// `row-preview`: a note list row's two-line preview.
     public static let rowPreview = QuillTypeStyle(size: 11.5, lineHeight: 15, weight: 400, dynamicStyle: .subheadline)
     /// `banner-title`: a notice or status banner's title.
@@ -933,11 +956,14 @@ public struct QuillTypeStyle: Sendable, Equatable {
     /// Every style this module carries, by its token name.
     public static let all: [(name: String, value: QuillTypeStyle)] = [
         ("note-title", noteTitle),
+        ("empty-hero-title", emptyHeroTitle),
         ("empty-title", emptyTitle),
         ("row-title", rowTitle),
         ("transcript", transcript),
         ("callout", callout),
         ("empty-detail", emptyDetail),
+        ("empty-hero-detail", emptyHeroDetail),
+        ("empty-quiet-title", emptyQuietTitle),
         ("row-preview", rowPreview),
         ("banner-title", bannerTitle),
         ("meta-label", metaLabel),

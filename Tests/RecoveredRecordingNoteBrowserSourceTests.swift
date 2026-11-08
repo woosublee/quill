@@ -134,7 +134,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             to: "// MARK: - Detail"
         )
         // The sidebar shows one quiet line; the detail pane has the icon and hint.
-        precondition(listEmpty.contains("Text(\"No recordings yet\")"))
+        precondition(listEmpty.contains("NoteEmptyStateCopy.noRecordingsListLine"))
         precondition(!listEmpty.contains("Image(systemName:"))
         precondition(!listEmpty.contains("No Recordings"))
         let detailEmpty = block(
@@ -142,8 +142,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "private var emptyDetailNoRecordings: some View {",
             to: "// MARK: - Horizontally Scrollable Title Field"
         )
-        precondition(detailEmpty.contains("Image(systemName: \"mic\")"))
-        precondition(detailEmpty.contains("Start your first recording with the Record button or your shortcut."))
+        precondition(detailEmpty.contains("systemImage: \"mic\""))
+        precondition(detailEmpty.contains("NoteEmptyStateCopy.noRecordingsDetail(mentionsShortcut: true)"))
     }
 
     private static func testRetryWithoutReadyModelUsesToast(

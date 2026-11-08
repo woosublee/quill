@@ -162,6 +162,9 @@ otherwise.
   paused state, its copy key, indicator, reason, and progress, and the
   toolbar's work labels, read from the same table) and its views
   (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
+  the empty states (`NoteEmptyState`: the symbol in a light disc, a title,
+  and a detail, in a hero, standard, or quiet style, with its copy keys in
+  `NoteEmptyStateCopy`, #697);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
   consent rows on both apps); a note's two tabs (`NoteContentMode`) and the
   summary field being edited (`NoteSummaryField`); the note audio waveform's bars

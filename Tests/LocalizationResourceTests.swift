@@ -43,6 +43,7 @@ struct LocalizationResourceTests {
         try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
+        try testSharedEmptyStateKeysAreInTheCatalog(strings)
         try testSharedTranscriptNoticeKeysAreInTheCatalog(strings)
         try testSharedMetaTagKeysAreInTheCatalog(strings)
         try testSharedSummaryNoticeKeysAreInTheCatalog(strings)
@@ -476,6 +477,20 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared transcript notice keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The empty states read their copy from the shared table (#697).
+    private static func testSharedEmptyStateKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let missing = Set(NoteEmptyStateCopy.allKeys).filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared empty-state keys missing from the catalog: \(missing)")
         }
     }
 

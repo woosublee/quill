@@ -1553,7 +1553,7 @@ struct NoteBrowserView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 22, weight: .ultraLight))
                         .foregroundStyle(.tertiary)
-                    Text("No Search Results")
+                    Text(verbatim: localizedCatalogString(NoteEmptyStateCopy.noSearchResults))
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -1748,7 +1748,7 @@ struct NoteBrowserView: View {
     /// One quiet line; the detail pane carries the full empty state.
     private var emptyListState: some View {
         VStack {
-            Text("No recordings yet")
+            Text(verbatim: localizedCatalogString(NoteEmptyStateCopy.noRecordingsListLine))
                 .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .padding(.top, QuillSpacing.space24)
@@ -1787,22 +1787,18 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSearchResults: some View {
-        VStack(spacing: QuillSpacing.space12) {
+        VStack {
             Spacer()
-            ZStack {
-                EmptyStateDisc(edge: .solid)
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 30, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            Text("No Matching Notes")
-                .quillTextStyle(.emptyTitle)
-                .foregroundStyle(.secondary)
-            Text("No notes match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word, or clear the search.")
-                .quillTextStyle(.emptyDetail)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+            NoteEmptyState(
+                systemImage: "magnifyingglass",
+                title: localizedCatalogString(NoteEmptyStateCopy.noMatchingNotes),
+                detail: localizedCatalogFormat(
+                    NoteEmptyStateCopy.noMatchingNotesDetailFormat,
+                    searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                ),
+                style: .standard,
+                edge: .solid
+            )
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -1810,21 +1806,15 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSelection: some View {
-        VStack(spacing: QuillSpacing.space12) {
+        VStack {
             Spacer()
-            ZStack {
-                EmptyStateDisc(edge: .solid)
-                Image(systemName: "doc.text")
-                    .font(.system(size: 32, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            Text("Select a Note")
-                .quillTextStyle(.emptyTitle)
-                .foregroundStyle(.secondary)
-            Text("Select a recording from the list to view its transcript")
-                .quillTextStyle(.emptyDetail)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            NoteEmptyState(
+                systemImage: "doc.text",
+                title: localizedCatalogString(NoteEmptyStateCopy.selectNoteTitle),
+                detail: localizedCatalogString(NoteEmptyStateCopy.selectNoteDetail),
+                style: .standard,
+                edge: .solid
+            )
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -1832,22 +1822,15 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoRecordings: some View {
-        VStack(spacing: QuillSpacing.space14) {
+        VStack {
             Spacer()
-            ZStack {
-                EmptyStateDisc(size: 96, edge: .dashed)
-                Image(systemName: "mic")
-                    .font(.system(size: 38, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            // 18 / 13 here and the 96 dashed disc have no token yet (#736).
-            Text("No Recordings")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text("Start your first recording with the Record button or your shortcut.\nYour transcript will appear here.")
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            NoteEmptyState(
+                systemImage: "mic",
+                title: localizedCatalogString(NoteEmptyStateCopy.noRecordingsTitle),
+                detail: localizedCatalogString(NoteEmptyStateCopy.noRecordingsDetail(mentionsShortcut: true)),
+                style: .hero,
+                edge: .dashed
+            )
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -3921,18 +3904,12 @@ private struct NoteDetailView: View {
     }
 
     private var noContentLabel: some View {
-        VStack(spacing: QuillSpacing.space14) {
-            ZStack {
-                EmptyStateDisc(edge: .none)
-                Image(systemName: "doc.text")
-                    .font(.system(size: 30, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            // 14 has no token yet (#736).
-            Text("No content")
-                .font(.system(size: 14))
-                .foregroundStyle(.tertiary)
-        }
+        NoteEmptyState(
+            systemImage: "doc.text",
+            title: localizedCatalogString(NoteEmptyStateCopy.noContent),
+            style: .quiet,
+            edge: .none
+        )
     }
 
     /// A recording startup recovery could not restore. With no audio left,
@@ -5358,39 +5335,6 @@ private struct YellowSpinner: View {
                 rotation = 0
                 withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false)) {
                     rotation = 360
-                }
-            }
-    }
-}
-
-/// The neutral disc behind an empty state's glyph: `fill-empty-disc`, with
-/// a 1 pt `hairline-strong` edge (solid or dashed) or none.
-private struct EmptyStateDisc: View {
-    enum Edge {
-        case none
-        case solid
-        case dashed
-    }
-
-    var size: CGFloat = QuillControlSize.emptyDisc
-    let edge: Edge
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        Circle()
-            .fill(QuillColor.fillEmptyDisc.color(for: colorScheme))
-            .frame(width: size, height: size)
-            .overlay {
-                switch edge {
-                case .none:
-                    EmptyView()
-                case .solid:
-                    Circle().stroke(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)
-                case .dashed:
-                    Circle().stroke(
-                        QuillColor.hairlineStrong.color(for: colorScheme),
-                        style: StrokeStyle(lineWidth: 1, dash: [4])
-                    )
                 }
             }
     }
