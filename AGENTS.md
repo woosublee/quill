@@ -51,7 +51,8 @@ otherwise.
   `Sources/QuillUserIssue.swift` and `Sources/QuillUserIssueView.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
-  rendering) and summary editing (what counts as an empty row, dropping
+  rendering, and the text search reads,
+  `MeetingSummaryContent.searchableText`) and summary editing (what counts as an empty row, dropping
   empty rows, saving an edit, reverting to the original, keeping done
   states, and keeping rows on a same-text regeneration).
   The attempt's on-screen details stay in `Sources/MeetingSummaryModels.swift`.
