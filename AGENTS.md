@@ -167,7 +167,12 @@ otherwise.
   `NoteEmptyStateCopy`, #697);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
   consent rows on both apps); a note's two tabs (`NoteContentMode`) and the
-  summary field being edited (`NoteSummaryField`); the note audio waveform's bars
+  summary field being edited (`NoteSummaryField`); the Keep/Use comparison's
+  layout (side by side unless the window is compact, where a segmented picker
+  shows the new side first: `NoteComparisonLayout`, `NoteComparisonSides`), its
+  copy keys (`NoteComparisonCopy`), and its card look
+  (`NoteComparisonCardStyle`; the Mac keeps its own choice bar and landing
+  animation); the note audio waveform's bars
   (`NoteAudioWaveformBars`; seeking stays in each app's player); the layout helper `QuillWidthClass`, which turns a container's width
   into compact, regular, or wide, so screens lay out by width, never by
   device model; and the note layout rules (`QuillNoteLayout`): the window's

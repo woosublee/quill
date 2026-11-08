@@ -42,6 +42,7 @@ struct LocalizationResourceTests {
         try testSharedWorkStatusKeysAreInTheCatalog(strings)
         try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
+        try testSharedComparisonKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
         try testSharedEmptyStateKeysAreInTheCatalog(strings)
         try testSharedTranscriptNoticeKeysAreInTheCatalog(strings)
@@ -491,6 +492,21 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared empty-state keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The Keep/Use comparisons read their copy from the shared keys (#697).
+    private static func testSharedComparisonKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = NoteComparisonCopy.transcript.allKeys + NoteComparisonCopy.summary.allKeys + [NoteComparisonCopy.editedNote]
+        let missing = Set(keys).filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared comparison keys missing from the catalog: \(missing)")
         }
     }
 
