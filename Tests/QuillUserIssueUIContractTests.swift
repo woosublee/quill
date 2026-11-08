@@ -50,7 +50,6 @@ struct QuillUserIssueUIContractTests {
             // Suggestion and diagnostics live behind the shared info
             // popover, the same one the iPhone shows (#234).
             "NoteBannerDetailsButton(details: details)",
-            "struct QuillInfoNotice: View",
             // The button keys come from the shared core (#191).
             "actionTitleOverride ?? presentation.recoveryAction.titleKey"
         ] {
@@ -119,9 +118,6 @@ struct QuillUserIssueUIContractTests {
             ("row button", shared, "public struct NoteBannerButtonSurface: View", "/// The surface behind", [
                 "RoundedRectangle(cornerRadius: QuillRadius.radius6)",
                 ".strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)",
-            ]),
-            ("info notice", source, "struct QuillInfoNotice: View", "/// The text the shared banner", [
-                ".quillTextStyle(.callout)", "HStack(spacing: QuillSpacing.space6)",
             ]),
             ("status banner", shared, "public struct NoteBanner: View", "/// The \"+N\" / \"Show Less\" pill", [
                 ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)", ".noteBannerBackground()",
@@ -371,18 +367,15 @@ struct QuillUserIssueUIContractTests {
         )
         let warningBannerUsage = block(
             noteBrowser,
-            from: "!isWarningBannerDismissed,\n                   let warningPresentation",
-            to: "NoteTextView("
+            from: "case .warning:\n            if let warningPresentation {",
+            to: "private var suggestedCalendarTitleInfo"
         )
-        // #457: notices stay as they are while retranscribing, under the
-        // progress layer, instead of disappearing.
+        // #697 n2 (owner decision 2026-11-08, replacing #457): the notices
+        // describe the transcript being replaced, so none show while a
+        // retranscription or cleanup runs. The shared group decides it.
         try expect(
-            !warningBannerUsage.contains("!appState.retryingItemIDs.contains(item.id)"),
-            "previous warning stays visible while retranscription is in progress"
-        )
-        try expect(
-            warningBannerUsage.contains("let warningPresentation"),
-            "warning presentation is evaluated only after cheap visibility guards"
+            noteBrowser.contains("|| appState.postProcessingNoteIDs.contains(item.id)\n        let postProcessing: NoteTranscriptNotice.PostProcessing?\n        if isWorkRunning {"),
+            "notices hide while a retranscription or cleanup runs"
         )
         try expect(warningBannerUsage.contains("style: .warningBanner"), "sanity: this is the warning banner usage")
         try expect(warningBannerUsage.contains("onDismiss:"), "warning banner usage wires a dismiss handler")

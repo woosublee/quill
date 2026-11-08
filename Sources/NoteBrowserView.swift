@@ -2837,18 +2837,100 @@ private struct NoteDetailView: View {
     private var isWarningBannerDismissed: Bool {
         appState.isPostProcessingWarningDismissed(item)
     }
-    /// Dismissed on any device (synced, #730), or on this Mac before the
-    /// dismissal synced.
-    private var isNothingToPostProcessDismissed: Bool {
-        isWarningBannerDismissed
-            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    /// The transcript's notices for this note (shared, QuillNoteCore). It
+    /// reads only cheap flags; the warning's presentation is built only when
+    /// its row draws.
+    private var transcriptNoticeGroup: NoteTranscriptNoticeGroup {
+        let isWorkRunning = isRetrying
+            || isDownloadingToRetry
+            || isRecoveringRecording
+            || appState.postProcessingNoteIDs.contains(item.id)
+        let postProcessing: NoteTranscriptNotice.PostProcessing?
+        if isWorkRunning {
+            postProcessing = nil
+        } else if isNothingToPostProcess {
+            postProcessing = .nothingToCleanUp
+        } else if item.userIssueRecord?.severity == .warning {
+            postProcessing = .warning
+        } else {
+            postProcessing = nil
+        }
+        return NoteTranscriptNoticeGroup(
+            showsSameAsCurrent: appState.unchangedRetranscriptions[item.id]?
+                .matches(item.displayedTranscript) == true,
+            postProcessing: postProcessing,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank,
+            isNothingToCleanUpDismissed: appState.isNoticeDismissed(
+                noteID: item.id,
+                notice: NoteDismissedNotices.nothingToCleanUp
+            ),
+            isWarningDismissed: isWarningBannerDismissed,
+            isWorkRunning: isWorkRunning
+        )
     }
-    private var showsNothingToPostProcessNotice: Bool {
-        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: item.userIssueRecord,
-            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
-        ) && !isNothingToPostProcessDismissed
+
+    @ViewBuilder
+    private func transcriptNoticeRow(
+        _ notice: NoteTranscriptNotice,
+        group: NoteTranscriptNoticeGroup
+    ) -> some View {
+        let expansion = notice == group.notices.first
+            ? group.hiddenCount.map { hidden in
+                QuillBannerExpansion(
+                    hiddenCount: hidden,
+                    isExpanded: areTranscriptNoticesExpanded,
+                    toggle: {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            areTranscriptNoticesExpanded.toggle()
+                        }
+                    }
+                )
+            }
+            : nil
+        switch notice {
+        case .sameAsCurrent, .nothingToCleanUp:
+            QuillStatusBanner(
+                systemImage: notice.systemImage ?? "info.circle",
+                tint: .secondary,
+                title: notice.titleKey.map { localizedCatalogString($0) } ?? "",
+                detail: notice.detailKey.map { localizedCatalogString($0) } ?? "",
+                expansion: expansion,
+                onDismiss: {
+                    if notice == .sameAsCurrent {
+                        areTranscriptNoticesExpanded = false
+                        appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
+                    } else {
+                        appState.dismissNotice(
+                            noteID: item.id,
+                            notice: NoteDismissedNotices.nothingToCleanUp,
+                            fallbackCode: warningBannerCode
+                        )
+                    }
+                }
+            )
+            .padding(.horizontal, QuillSpacing.space40)
+            .padding(.top, QuillSpacing.space14)
+        case .warning:
+            if let warningPresentation {
+                QuillUserIssueView(
+                    presentation: warningPresentation,
+                    style: .warningBanner,
+                    action: {
+                        performRecoveryAction(
+                            warningPresentation.recoveryAction
+                        )
+                    },
+                    onDismiss: {
+                        appState.dismissPostProcessingWarning(item)
+                    },
+                    expansion: expansion
+                )
+                .padding(.horizontal, QuillSpacing.space40)
+                .padding(.top, QuillSpacing.space16)
+            }
+        }
     }
+
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
     }
@@ -3378,72 +3460,17 @@ private struct NoteDetailView: View {
             emptyContentState
         } else {
             VStack(spacing: 0) {
-                // Notices stay while retranscribing, under the progress layer.
-                // A same-result retry notice leads, grouped like the
-                // Summary tab's notices: the others wait behind "+1".
-                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?
-                    .matches(item.displayedTranscript) == true
-                let hasOtherNotice = showsNothingToPostProcessNotice
-                    || (!isWarningBannerDismissed && warningPresentation != nil)
-                if showsUnchangedNotice {
-                    QuillStatusBanner(
-                        systemImage: "info.circle",
-                        tint: .secondary,
-                        title: localizedCatalogString("The new transcript is the same as the current one."),
-                        detail: localizedCatalogString("The transcript text didn't change."),
-                        expansion: hasOtherNotice
-                            ? QuillBannerExpansion(
-                                hiddenCount: 1,
-                                isExpanded: areTranscriptNoticesExpanded,
-                                toggle: {
-                                    withAnimation(.easeOut(duration: 0.16)) {
-                                        areTranscriptNoticesExpanded.toggle()
-                                    }
-                                }
-                            )
-                            : nil,
-                        onDismiss: {
-                            areTranscriptNoticesExpanded = false
-                            appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space14)
+                // The transcript's notices, from the shared table: none while
+                // a retranscription or cleanup runs; a same-result notice
+                // leads and folds the rest behind "+1", like the Summary
+                // tab's notices.
+                let notices = transcriptNoticeGroup
+                ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \.self) { notice in
+                    transcriptNoticeRow(notice, group: notices)
                 }
-                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   showsNothingToPostProcessNotice {
-                    QuillInfoNotice(
-                        text: localizedCatalogString(
-                            "Nothing to clean up; showing the original transcript."
-                        ),
-                        onDismiss: {
-                            appState.dismissNotice(
-                                noteID: item.id,
-                                notice: NoteDismissedNotices.nothingToCleanUp,
-                                fallbackCode: warningBannerCode
-                            )
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space14)
-                }
-                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   !isWarningBannerDismissed,
-                   let warningPresentation {
-                    QuillUserIssueView(
-                        presentation: warningPresentation,
-                        style: .warningBanner,
-                        action: {
-                            performRecoveryAction(
-                                warningPresentation.recoveryAction
-                            )
-                        },
-                        onDismiss: {
-                            appState.dismissPostProcessingWarning(item)
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space16)
+                .onChange(of: notices.folds) { folds in
+                    // A new group starts folded behind "+1".
+                    if !folds { areTranscriptNoticesExpanded = false }
                 }
                 NoteTextView(
                     text: displayContent,

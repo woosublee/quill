@@ -160,7 +160,7 @@ struct MeetingSummaryView<Notices: View>: View {
 
     // MARK: Content
 
-    /// Sized like `QuillInfoNotice`, the app's one-line notes.
+    /// A quiet one-line note: an 11 pt icon beside callout text.
     private var editedMarker: some View {
         HStack(spacing: QuillSpacing.space6) {
             Image(systemName: "pencil")

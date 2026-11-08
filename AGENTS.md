@@ -109,7 +109,10 @@ otherwise.
   note's name (`NoteTimestampFormatter`), how its audio time reads
   (`NoteAudioDuration`: `m:ss` or `h:mm:ss`), the tags on its detail meta line
   (`NoteMetaTags`: LOCAL/CLOUD or Audio only, CTX, LLM, the fixed language,
-  and their spoken words), and the calendar match record
+  and their spoken words), the notices above its transcript
+  (`NoteTranscriptNoticeGroup`, #697: which show, none while a retranscription
+  or cleanup runs, the same-result notice folding the rest behind "+1", and
+  their copy keys), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
   values; a calendar event as both apps read it (`CalendarEvent`, with the
