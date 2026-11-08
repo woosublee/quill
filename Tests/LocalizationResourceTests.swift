@@ -42,6 +42,7 @@ struct LocalizationResourceTests {
         try testSharedWorkStatusKeysAreInTheCatalog(strings)
         try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
+        try testSharedAPIKeyCheckKeysAreInTheCatalog(strings)
         try testSharedComparisonKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
         try testSharedEmptyStateKeysAreInTheCatalog(strings)
@@ -507,6 +508,25 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared comparison keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// A failed API key check reads its copy from the shared keys (#697).
+    private static func testSharedAPIKeyCheckKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = [
+            CloudAPIKeyCheckCopy.notFoundKey, CloudAPIKeyCheckCopy.rateLimitedKey,
+            CloudAPIKeyCheckCopy.unreachableKey, CloudAPIKeyCheckCopy.invalidURLKey,
+            "This http URL was blocked. Enter an https URL.",
+        ]
+        let missing = Set(keys).filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared API key check keys missing from the catalog: \(missing)")
         }
     }
 

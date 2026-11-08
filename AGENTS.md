@@ -74,7 +74,8 @@ otherwise.
   cloud and local model lists and capabilities, rate-limit cooldowns, the
   temperature capability cache, the request transport, provider URL checks,
   the API key check, the cloud transcription failure categories and retry
-  policy, the cloud transcription request and reply parser, whether a saved
+  policy, what a failed key check says
+  (`CloudAPIKeyCheckCopy`), the cloud transcription request and reply parser, whether a saved
   cloud or local AI transcription job resumes, starts over, or waits for a
   retry under the current settings (`CloudTranscriptionResumeDecision`; the
   Mac fills its identities in `Sources/CloudTranscriptionResumeIdentity.swift`),
@@ -84,7 +85,9 @@ otherwise.
   session rules (WebSocket URL, connection request, `session.update`), the
   chat completion request, and cloud consent (#693): the per-origin grants
   (`CloudConsentLedger`), which providers a set of saved keys goes to and
-  what withdrawing one clears (`CloudConsentTargets`), the settings'
+  what withdrawing one clears (`CloudConsentTargets`), asking them one at a
+  time and checking the change again on the last Agree
+  (`CloudConsentSequence`), the settings'
   consent rows (`CloudConsentRow`: a provider, and the date it was agreed to
   or not yet), which provider clearing
   a key withdraws (#723), and the copy keys for the prompt, the consent
