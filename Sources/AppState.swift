@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillAudioLevelCore
 import QuillNoteUI
 import Combine
 import AppKit
@@ -2501,15 +2502,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     // MARK: Warning banner dismissal (per note + issue code, invalidated by retry)
 
-    /// A notice above a saved summary that can be dismissed.
-    enum SummaryNoticeKind: String, Hashable {
-        case unchanged
-        case failure
-        case stale
-        case unverifiedEvidence
-        case featureDisabled
-        case modelUnavailable
-    }
+    /// A notice above a saved summary that can be dismissed: the shared
+    /// table (QuillNoteSyncCore), the same as the iPhone's. Its raw values
+    /// are part of the saved dismissal keys.
+    typealias SummaryNoticeKind = NoteSummaryNotice
 
     // A per-note counter bumped every time that note is retried. Dismissals
     // are recorded against the generation they were dismissed at, so a later
@@ -3049,7 +3045,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }()
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
-    private var recordingInputHintState: RecordingInputHintState?
+    private var recordingInputHintState: RecordingInputHintState<UUID>?
     private var recordingInputHintInputID: String?
     private var recordingInputHintTimer: DispatchSourceTimer?
     private var recordingInputHintLevelCancellable: AnyCancellable?
@@ -8782,8 +8778,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // a confirmation; Recently Deleted would keep the note while its
         // journal can bring it back on the next launch.
         guard item.unrecoveredRecordingContext == nil else { return false }
-        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs).isBulkSelectable
-            && !meetingSummaryGeneratingNoteIDs.contains(id)
+        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs)
+            .joinsSelection(isMakingSummary: meetingSummaryGeneratingNoteIDs.contains(id))
     }
 
     /// Ends the Cancel window of a deleted summary. Safe to call at any time.

@@ -131,10 +131,8 @@ struct MeetingSummaryUIContractTests {
         noteBrowser: String,
         summaryView: String
     ) {
+        // The two tabs are the shared `NoteContentMode` (QuillNoteUI).
         for expected in [
-            "enum NoteContentMode",
-            "case transcript",
-            "case summary",
             "@State private var selectedContentMode: NoteContentMode = .transcript",
             "Picker(\"Note Content\", selection: userContentModeSelection)",
             ".pickerStyle(.segmented)",
@@ -157,7 +155,7 @@ struct MeetingSummaryUIContractTests {
             "summaryAttempt.isCurrent(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))",
             "private var showsSummaryTab: Bool {",
             "summaryEnvelope != nil || (currentSummaryAttempt?.outcome == .failed && currentSummaryAttempt?.issue != nil) || summaryIssue != nil",
-            "summaryActionIsDisabled",
+            "summaryReadiness",
             "handleSummaryAction",
             "@State private var showDeleteChoice = false",
             "\"What do you want to delete?\"",
@@ -309,7 +307,7 @@ struct MeetingSummaryUIContractTests {
         precondition(appStateSource.contains("transcriptionRetryWorkflowItemIDs.contains(item.id) && !postProcessingNoteIDs.contains(item.id)"))
         precondition(noteBrowser.contains("kind: summaryToolbarAction.kind,"))
         precondition(noteBrowser.contains("transcript: summaryTranscript,"))
-        precondition(noteBrowser.contains("canRun: !summaryActionIsDisabled,"))
+        precondition(noteBrowser.contains("canRun: summaryReadiness.allowsPress,"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
         let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""
@@ -332,15 +330,19 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("|| (showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
         // A retry with the same text skips the comparison and says so with the
         // Summary tab's status banner; other notices wait behind its "+1".
-        precondition(noteBrowser.contains("let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?\n                    .matches(item.displayedTranscript) == true"), "the notice ends once the transcript changes")
-        precondition(noteBrowser.contains("title: localizedCatalogString(\"The new transcript is the same as the current one.\")"))
-        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   showsNothingToPostProcessNotice {"))
+        // Which notices show, their order and folding come from the shared
+        // NoteTranscriptNoticeGroup (NoteTranscriptNoticesTests); none show
+        // while a retranscription or cleanup runs (#697 n2).
+        precondition(noteBrowser.contains("showsSameAsCurrent: appState.unchangedRetranscriptions[item.id]?\n                .matches(item.displayedTranscript) == true"), "the notice ends once the transcript changes")
+        precondition(noteBrowser.contains("let isWorkRunning = isRetrying\n            || isDownloadingToRetry\n            || isRecoveringRecording\n            || appState.postProcessingNoteIDs.contains(item.id)"))
+        precondition(noteBrowser.contains("ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \\.self)"))
         // #730: "Nothing to clean up" is dismissed for good on every device;
-        // an earlier dismissal on this Mac still hides it.
-        precondition(noteBrowser.contains("isWarningBannerDismissed\n            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)"))
-        precondition(noteBrowser.contains("appState.dismissNotice(\n                                noteID: item.id,\n                                notice: NoteDismissedNotices.nothingToCleanUp,\n                                fallbackCode: warningBannerCode\n                            )"))
-        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   !isWarningBannerDismissed,"))
-
+        // an earlier dismissal on this Mac still hides it. It draws as the
+        // shared grey banner (#697 n1).
+        precondition(noteBrowser.contains("isNothingToCleanUpDismissed: appState.isNoticeDismissed(\n                noteID: item.id,\n                notice: NoteDismissedNotices.nothingToCleanUp\n            ),"))
+        precondition(noteBrowser.contains("isWarningDismissed: isWarningBannerDismissed,"))
+        precondition(noteBrowser.contains("appState.dismissNotice(\n                            noteID: item.id,\n                            notice: NoteDismissedNotices.nothingToCleanUp,\n                            fallbackCode: warningBannerCode\n                        )"))
+        precondition(!noteBrowser.contains("QuillInfoNotice("), "no quiet line; the notice is a banner")
         for unexpected in [
             "Quick review draft",
             "onDelete",
@@ -454,8 +456,11 @@ struct MeetingSummaryUIContractTests {
             "actionTitleOverride: summaryAction.actionTitleOverride",
             "isSummaryIssueBannerDismissed = true",
             "effectiveEvidenceVerification == .unverified",
-            "Some evidence could not be verified.",
-            "Transcript changed after this summary was generated.",
+            // The kinds, order, images, and copy come from the shared table
+            // (NoteSummaryNoticeTests pins them).
+            "NoteSummaryNotice.notices(",
+            "kind.titleKey",
+            "kind.detailKey",
             "QuillStatusBanner(",
             "onDismiss: {",
             "QuillBannerExpansion(",
@@ -470,13 +475,13 @@ struct MeetingSummaryUIContractTests {
         // Most important first: a failed attempt, then a stale transcript,
         // then unverified evidence, then availability.
         let order = [
-            "kinds.append(.failure)",
-            "kinds.append(.stale)",
-            "kinds.append(.unverifiedEvidence)",
-            "kinds.append(.featureDisabled)"
+            "hasCurrentFailure:",
+            "isStale:",
+            "isUnverifiedEvidence:",
+            "setting: setting"
         ].map { marker -> String.Index in
             guard let range = notices.range(of: marker) else {
-                preconditionFailure("Missing summary notice: \(marker)")
+                preconditionFailure("Missing summary notice input: \(marker)")
             }
             return range.lowerBound
         }
