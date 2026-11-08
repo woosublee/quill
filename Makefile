@@ -883,6 +883,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteExportPlanTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteDeletionConfirmationTests.swift -o $(TEST_BUILD_DIR)/NoteDeletionConfirmationTests
 	@$(TEST_BUILD_DIR)/NoteDeletionConfirmationTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteTranscriptNoticesTests.swift -o $(TEST_BUILD_DIR)/NoteTranscriptNoticesTests
+	@$(TEST_BUILD_DIR)/NoteTranscriptNoticesTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteMachineStatusTests.swift -o $(TEST_BUILD_DIR)/NoteMachineStatusTests
 	@$(TEST_BUILD_DIR)/NoteMachineStatusTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteListRowStateTests.swift -o $(TEST_BUILD_DIR)/NoteListRowStateTests

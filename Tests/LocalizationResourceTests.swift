@@ -42,6 +42,7 @@ struct LocalizationResourceTests {
         try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
+        try testSharedTranscriptNoticeKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -427,6 +428,20 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared selection keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The transcript's notices read their copy from the shared table (#697).
+    private static func testSharedTranscriptNoticeKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let missing = Set(NoteTranscriptNotice.allCopyKeys).filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared transcript notice keys missing from the catalog: \(missing)")
         }
     }
 

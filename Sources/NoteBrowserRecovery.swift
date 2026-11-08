@@ -66,16 +66,6 @@ enum NoteBrowserRecoveryPresentation {
             && record.context.postProcessingFailureReason == .emptyOutput
     }
 
-    /// The quiet "Nothing to clean up" notice points at the original
-    /// transcript, so it hides once the transcript is cleared (here or on
-    /// the iPhone). The record itself stays.
-    static func showsNothingToPostProcessNotice(
-        for record: QuillUserIssueRecord?,
-        isDisplayedTranscriptBlank: Bool
-    ) -> Bool {
-        isNothingToPostProcess(record) && !isDisplayedTranscriptBlank
-    }
-
     private static let postProcessingIssueCodes: Set<QuillUserIssueCode> = [
         .postProcessingFailed,
         .postProcessingRateLimited,

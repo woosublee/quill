@@ -332,15 +332,19 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("|| (showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
         // A retry with the same text skips the comparison and says so with the
         // Summary tab's status banner; other notices wait behind its "+1".
-        precondition(noteBrowser.contains("let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?\n                    .matches(item.displayedTranscript) == true"), "the notice ends once the transcript changes")
-        precondition(noteBrowser.contains("title: localizedCatalogString(\"The new transcript is the same as the current one.\")"))
-        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   showsNothingToPostProcessNotice {"))
+        // Which notices show, their order and folding come from the shared
+        // NoteTranscriptNoticeGroup (NoteTranscriptNoticesTests); none show
+        // while a retranscription or cleanup runs (#697 n2).
+        precondition(noteBrowser.contains("showsSameAsCurrent: appState.unchangedRetranscriptions[item.id]?\n                .matches(item.displayedTranscript) == true"), "the notice ends once the transcript changes")
+        precondition(noteBrowser.contains("let isWorkRunning = isRetrying\n            || isDownloadingToRetry\n            || isRecoveringRecording\n            || appState.postProcessingNoteIDs.contains(item.id)"))
+        precondition(noteBrowser.contains("ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \\.self)"))
         // #730: "Nothing to clean up" is dismissed for good on every device;
-        // an earlier dismissal on this Mac still hides it.
-        precondition(noteBrowser.contains("isWarningBannerDismissed\n            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)"))
-        precondition(noteBrowser.contains("appState.dismissNotice(\n                                noteID: item.id,\n                                notice: NoteDismissedNotices.nothingToCleanUp,\n                                fallbackCode: warningBannerCode\n                            )"))
-        precondition(noteBrowser.contains("if !showsUnchangedNotice || areTranscriptNoticesExpanded,\n                   !isWarningBannerDismissed,"))
-
+        // an earlier dismissal on this Mac still hides it. It draws as the
+        // shared grey banner (#697 n1).
+        precondition(noteBrowser.contains("isNothingToCleanUpDismissed: appState.isNoticeDismissed(\n                noteID: item.id,\n                notice: NoteDismissedNotices.nothingToCleanUp\n            ),"))
+        precondition(noteBrowser.contains("isWarningDismissed: isWarningBannerDismissed,"))
+        precondition(noteBrowser.contains("appState.dismissNotice(\n                            noteID: item.id,\n                            notice: NoteDismissedNotices.nothingToCleanUp,\n                            fallbackCode: warningBannerCode\n                        )"))
+        precondition(!noteBrowser.contains("QuillInfoNotice("), "no quiet line; the notice is a banner")
         for unexpected in [
             "Quick review draft",
             "onDelete",
