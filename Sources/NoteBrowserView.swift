@@ -2555,11 +2555,6 @@ private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
 
 // MARK: - Note Detail View
 
-enum NoteContentMode: Hashable {
-    case transcript
-    case summary
-}
-
 private struct NoteDetailView: View {
     let item: PipelineHistoryItem
     let isSearchActive: Bool
@@ -2825,18 +2820,100 @@ private struct NoteDetailView: View {
     private var isWarningBannerDismissed: Bool {
         appState.isPostProcessingWarningDismissed(item)
     }
-    /// Dismissed on any device (synced, #730), or on this Mac before the
-    /// dismissal synced.
-    private var isNothingToPostProcessDismissed: Bool {
-        isWarningBannerDismissed
-            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    /// The transcript's notices for this note (shared, QuillNoteCore). It
+    /// reads only cheap flags; the warning's presentation is built only when
+    /// its row draws.
+    private var transcriptNoticeGroup: NoteTranscriptNoticeGroup {
+        let isWorkRunning = isRetrying
+            || isDownloadingToRetry
+            || isRecoveringRecording
+            || appState.postProcessingNoteIDs.contains(item.id)
+        let postProcessing: NoteTranscriptNotice.PostProcessing?
+        if isWorkRunning {
+            postProcessing = nil
+        } else if isNothingToPostProcess {
+            postProcessing = .nothingToCleanUp
+        } else if item.userIssueRecord?.severity == .warning {
+            postProcessing = .warning
+        } else {
+            postProcessing = nil
+        }
+        return NoteTranscriptNoticeGroup(
+            showsSameAsCurrent: appState.unchangedRetranscriptions[item.id]?
+                .matches(item.displayedTranscript) == true,
+            postProcessing: postProcessing,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank,
+            isNothingToCleanUpDismissed: appState.isNoticeDismissed(
+                noteID: item.id,
+                notice: NoteDismissedNotices.nothingToCleanUp
+            ),
+            isWarningDismissed: isWarningBannerDismissed,
+            isWorkRunning: isWorkRunning
+        )
     }
-    private var showsNothingToPostProcessNotice: Bool {
-        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: item.userIssueRecord,
-            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
-        ) && !isNothingToPostProcessDismissed
+
+    @ViewBuilder
+    private func transcriptNoticeRow(
+        _ notice: NoteTranscriptNotice,
+        group: NoteTranscriptNoticeGroup
+    ) -> some View {
+        let expansion = notice == group.notices.first
+            ? group.hiddenCount.map { hidden in
+                QuillBannerExpansion(
+                    hiddenCount: hidden,
+                    isExpanded: areTranscriptNoticesExpanded,
+                    toggle: {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            areTranscriptNoticesExpanded.toggle()
+                        }
+                    }
+                )
+            }
+            : nil
+        switch notice {
+        case .sameAsCurrent, .nothingToCleanUp:
+            QuillStatusBanner(
+                systemImage: notice.systemImage ?? "info.circle",
+                tint: .secondary,
+                title: notice.titleKey.map { localizedCatalogString($0) } ?? "",
+                detail: notice.detailKey.map { localizedCatalogString($0) } ?? "",
+                expansion: expansion,
+                onDismiss: {
+                    if notice == .sameAsCurrent {
+                        areTranscriptNoticesExpanded = false
+                        appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
+                    } else {
+                        appState.dismissNotice(
+                            noteID: item.id,
+                            notice: NoteDismissedNotices.nothingToCleanUp,
+                            fallbackCode: warningBannerCode
+                        )
+                    }
+                }
+            )
+            .padding(.horizontal, QuillSpacing.space40)
+            .padding(.top, QuillSpacing.space14)
+        case .warning:
+            if let warningPresentation {
+                QuillUserIssueView(
+                    presentation: warningPresentation,
+                    style: .warningBanner,
+                    action: {
+                        performRecoveryAction(
+                            warningPresentation.recoveryAction
+                        )
+                    },
+                    onDismiss: {
+                        appState.dismissPostProcessingWarning(item)
+                    },
+                    expansion: expansion
+                )
+                .padding(.horizontal, QuillSpacing.space40)
+                .padding(.top, QuillSpacing.space16)
+            }
+        }
     }
+
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
     }
@@ -3178,73 +3255,57 @@ private struct NoteDetailView: View {
         // state already says what happened.
     }
 
+    /// The shared tag rules (QuillNoteCore), the same as the iPhone's.
+    private var metaTags: NoteMetaTags {
+        NoteMetaTags(
+            isAudioOnly: isAudioOnly,
+            usedLocalTranscription: item.usedLocalTranscription,
+            usedContextCapture: item.usedContextCapture,
+            usedPostProcessing: item.usedPostProcessing,
+            languageCode: item.transcriptionLanguageCode
+        )
+    }
+
     @ViewBuilder
     private var statusBadges: some View {
+        let tags = metaTags.tags
         HStack(spacing: 5) {
-            if isAudioOnly {
+            ForEach(Array(tags.enumerated()), id: \.element.helpKey) { index, tag in
+                if index > 0 {
+                    metaDot
+                }
                 metaTag(
-                    localizedCatalogString("Audio only"),
-                    active: true,
-                    help: "Audio-only recording"
-                )
-            } else {
-                metaTag(
-                    item.usedLocalTranscription ? "LOCAL" : "CLOUD",
-                    active: item.usedLocalTranscription,
-                    help: item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-                )
-            }
-            metaDot
-            metaTag(
-                item.usedContextCapture ? "CTX" : "NO CTX",
-                active: item.usedContextCapture,
-                help: item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
-            )
-            metaDot
-            metaTag(
-                item.usedPostProcessing ? "LLM" : "NO LLM",
-                active: item.usedPostProcessing,
-                help: item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
-            )
-            if item.transcriptionLanguageCode != "auto" {
-                metaDot
-                metaTag(
-                    item.transcriptionLanguageCode.uppercased(),
-                    active: true,
-                    help: "Transcription language"
+                    metaTagText(tag.label),
+                    active: tag.isActive,
+                    help: LocalizedStringKey(tag.helpKey)
                 )
             }
         }
         .fixedSize(horizontal: true, vertical: false)
         // VoiceOver reads the row once, in words, not the abbreviations.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: statusBadgesSpokenText))
+        .accessibilityLabel(Text(verbatim: Self.spokenText(tags)))
+    }
+
+    private func metaTagText(_ label: NoteMetaTags.Label) -> String {
+        switch label {
+        case .verbatim(let text): return text
+        case .key(let key): return localizedCatalogString(key)
+        }
     }
 
     /// The metadata row spelled out, such as "Local transcription, Context
     /// capture disabled, LLM post-processing enabled, Transcription language: KO".
-    private var statusBadgesSpokenText: String {
-        var parts: [String] = []
-        if isAudioOnly {
-            parts.append(localizedCatalogString("Audio-only recording"))
-        } else {
-            parts.append(localizedCatalogString(
-                item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-            ))
+    private static func spokenText(_ tags: [NoteMetaTags.Tag]) -> String {
+        tags.map { tag in
+            switch tag.spoken {
+            case .key(let key):
+                return localizedCatalogString(key)
+            case .transcriptionLanguage(let code):
+                return localizedCatalogFormat(NoteMetaTags.Spoken.transcriptionLanguageFormatKey, code)
+            }
         }
-        parts.append(localizedCatalogString(
-            item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
-        ))
-        parts.append(localizedCatalogString(
-            item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
-        ))
-        if item.transcriptionLanguageCode != "auto" {
-            parts.append(localizedCatalogFormat(
-                "Transcription language: %@",
-                item.transcriptionLanguageCode.uppercased()
-            ))
-        }
-        return parts.joined(separator: ", ")
+        .joined(separator: ", ")
     }
 
     private var metaDot: some View {
@@ -3382,72 +3443,17 @@ private struct NoteDetailView: View {
             emptyContentState
         } else {
             VStack(spacing: 0) {
-                // Notices stay while retranscribing, under the progress layer.
-                // A same-result retry notice leads, grouped like the
-                // Summary tab's notices: the others wait behind "+1".
-                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?
-                    .matches(item.displayedTranscript) == true
-                let hasOtherNotice = showsNothingToPostProcessNotice
-                    || (!isWarningBannerDismissed && warningPresentation != nil)
-                if showsUnchangedNotice {
-                    QuillStatusBanner(
-                        systemImage: "info.circle",
-                        tint: .secondary,
-                        title: localizedCatalogString("The new transcript is the same as the current one."),
-                        detail: localizedCatalogString("The transcript text didn't change."),
-                        expansion: hasOtherNotice
-                            ? QuillBannerExpansion(
-                                hiddenCount: 1,
-                                isExpanded: areTranscriptNoticesExpanded,
-                                toggle: {
-                                    withAnimation(.easeOut(duration: 0.16)) {
-                                        areTranscriptNoticesExpanded.toggle()
-                                    }
-                                }
-                            )
-                            : nil,
-                        onDismiss: {
-                            areTranscriptNoticesExpanded = false
-                            appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space14)
+                // The transcript's notices, from the shared table: none while
+                // a retranscription or cleanup runs; a same-result notice
+                // leads and folds the rest behind "+1", like the Summary
+                // tab's notices.
+                let notices = transcriptNoticeGroup
+                ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \.self) { notice in
+                    transcriptNoticeRow(notice, group: notices)
                 }
-                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   showsNothingToPostProcessNotice {
-                    QuillInfoNotice(
-                        text: localizedCatalogString(
-                            "Nothing to clean up; showing the original transcript."
-                        ),
-                        onDismiss: {
-                            appState.dismissNotice(
-                                noteID: item.id,
-                                notice: NoteDismissedNotices.nothingToCleanUp,
-                                fallbackCode: warningBannerCode
-                            )
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space14)
-                }
-                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   !isWarningBannerDismissed,
-                   let warningPresentation {
-                    QuillUserIssueView(
-                        presentation: warningPresentation,
-                        style: .warningBanner,
-                        action: {
-                            performRecoveryAction(
-                                warningPresentation.recoveryAction
-                            )
-                        },
-                        onDismiss: {
-                            appState.dismissPostProcessingWarning(item)
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space16)
+                .onChange(of: notices.folds) { folds in
+                    // A new group starts folded behind "+1".
+                    if !folds { areTranscriptNoticesExpanded = false }
                 }
                 NoteTextView(
                     text: displayContent,
@@ -3621,20 +3627,11 @@ private struct NoteDetailView: View {
     /// holds, and once dismissed they stay closed for this summary on every
     /// device.
     private func syncedSummaryNotice(_ kind: SummaryNoticeKind) -> NoteNoticeDismissals.Notice? {
-        switch kind {
-        case .failure:
-            return currentSummaryAttempt.map { .summaryFailure(attemptAt: $0.occurredAt) }
-        case .stale:
-            return .summaryStale(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))
-        case .unverifiedEvidence:
-            return summaryEnvelope.map { .summaryUnverifiedEvidence(generatedAt: $0.generatedAt) }
-        case .featureDisabled:
-            return summaryEnvelope.map { .summaryFeatureDisabled(generatedAt: $0.generatedAt) }
-        case .modelUnavailable:
-            return summaryEnvelope.map { .summaryModelUnavailable(generatedAt: $0.generatedAt) }
-        case .unchanged:
-            return nil
-        }
+        kind.syncedDismissal(
+            failedAttemptAt: currentSummaryAttempt?.occurredAt,
+            sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item),
+            summaryGeneratedAt: summaryEnvelope?.generatedAt
+        )
     }
 
     private func isSummaryNoticeDismissed(_ kind: SummaryNoticeKind) -> Bool {
@@ -3657,27 +3654,23 @@ private struct NoteDetailView: View {
 
     private var visibleSummaryNotices: [SummaryNoticeKind] {
         guard let summaryEnvelope else { return [] }
-        var kinds: [SummaryNoticeKind] = []
-        // A same-result regeneration leads, like the transcript's.
-        if appState.unchangedMeetingSummaries[item.id]?.matches(
-            summaryGeneratedAt: summaryEnvelope.generatedAt
-        ) == true {
-            kinds.append(.unchanged)
+        let setting: NoteSummaryNotice.Setting
+        switch summaryAvailability {
+        case .featureDisabled: setting = .featureDisabled
+        case .modelUnavailable: setting = .modelUnavailable
+        default: setting = .ready
         }
-        if summaryFailureNoticePresentation != nil {
-            kinds.append(.failure)
-        }
-        if isSummaryStale {
-            kinds.append(.stale)
-        }
-        if summaryEnvelope.effectiveEvidenceVerification == .unverified {
-            kinds.append(.unverifiedEvidence)
-        }
-        if summaryAvailability == .featureDisabled {
-            kinds.append(.featureDisabled)
-        } else if summaryAvailability == .modelUnavailable {
-            kinds.append(.modelUnavailable)
-        }
+        let kinds = NoteSummaryNotice.notices(
+            hasSummary: true,
+            // A same-result regeneration leads, like the transcript's.
+            showsUnchanged: appState.unchangedMeetingSummaries[item.id]?.matches(
+                summaryGeneratedAt: summaryEnvelope.generatedAt
+            ) == true,
+            hasCurrentFailure: summaryFailureNoticePresentation != nil,
+            isStale: isSummaryStale,
+            isUnverifiedEvidence: summaryEnvelope.effectiveEvidenceVerification == .unverified,
+            setting: setting
+        )
         return kinds.filter { kind in
             kind == .unchanged || kind == .failure || !isSummaryNoticeDismissed(kind)
         }
@@ -3716,20 +3709,7 @@ private struct NoteDetailView: View {
         _ kind: SummaryNoticeKind,
         expansion: QuillBannerExpansion?
     ) -> some View {
-        switch kind {
-        case .unchanged:
-            QuillStatusBanner(
-                systemImage: "info.circle",
-                tint: .secondary,
-                title: localizedCatalogString("The new summary is the same as the current one."),
-                detail: localizedCatalogString("The summary text didn't change."),
-                expansion: expansion,
-                onDismiss: {
-                    areSummaryNoticesExpanded = false
-                    appState.dismissUnchangedMeetingSummaryNotice(noteID: item.id)
-                }
-            )
-        case .failure:
+        if kind == .failure {
             if let presentation = summaryFailureNoticePresentation {
                 let summaryAction = summaryIssueAction(for: presentation)
                 QuillUserIssueView(
@@ -3747,63 +3727,30 @@ private struct NoteDetailView: View {
                     expansion: expansion
                 )
             }
-        case .stale:
-            summaryStatusNotice(
-                kind,
-                systemImage: "exclamationmark.triangle.fill",
-                tint: QuillStatusBanner.warningTint,
-                title: "Transcript changed after this summary was generated.",
-                detail: "Regenerate to align the draft with the current transcript.",
-                expansion: expansion
-            )
-        case .unverifiedEvidence:
-            summaryStatusNotice(
-                kind,
-                systemImage: "exclamationmark.triangle.fill",
-                tint: QuillStatusBanner.warningTint,
-                title: "Some evidence could not be verified.",
-                detail: "Review the summary before sharing it.",
-                expansion: expansion
-            )
-        case .featureDisabled:
-            summaryStatusNotice(
-                kind,
-                systemImage: "pause.circle",
-                tint: .secondary,
-                title: "Meeting Summary is off",
-                detail: "This saved summary is still available. Turn the feature on to regenerate it.",
-                expansion: expansion
-            )
-        case .modelUnavailable:
-            summaryStatusNotice(
-                kind,
-                systemImage: "exclamationmark.circle",
-                tint: .secondary,
-                title: "Summary model is unavailable.",
-                detail: "This saved summary remains available for review and copying.",
-                expansion: expansion
+        } else {
+            QuillStatusBanner(
+                systemImage: kind.systemImage,
+                tint: summaryNoticeTint(kind),
+                title: localizedCatalogString(kind.titleKey ?? ""),
+                detail: localizedCatalogString(kind.detailKey ?? ""),
+                expansion: expansion,
+                onDismiss: {
+                    if kind == .unchanged {
+                        areSummaryNoticesExpanded = false
+                        appState.dismissUnchangedMeetingSummaryNotice(noteID: item.id)
+                    } else {
+                        dismissSummaryNotice(kind)
+                    }
+                }
             )
         }
     }
 
-    private func summaryStatusNotice(
-        _ kind: SummaryNoticeKind,
-        systemImage: String,
-        tint: Color,
-        title: String,
-        detail: String,
-        expansion: QuillBannerExpansion?
-    ) -> some View {
-        QuillStatusBanner(
-            systemImage: systemImage,
-            tint: tint,
-            title: localizedCatalogString(title),
-            detail: localizedCatalogString(detail),
-            expansion: expansion,
-            onDismiss: {
-                dismissSummaryNotice(kind)
-            }
-        )
+    private func summaryNoticeTint(_ kind: SummaryNoticeKind) -> Color {
+        switch kind.tint {
+        case .warning: return QuillStatusBanner.warningTint
+        case .secondary: return .secondary
+        }
     }
 
     private func summaryFailureContent(
@@ -4899,15 +4846,10 @@ struct NoteAudioPlayerView: View {
         Self.formatDuration(t)
     }
 
-    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar.
+    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar and
+    /// the iPhone (QuillNoteCore).
     static func formatDuration(_ t: TimeInterval) -> String {
-        guard t.isFinite else { return "0:00" }
-        let total = Int(t)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+        NoteAudioDuration.text(t)
     }
 }
 

@@ -31,14 +31,8 @@ struct NoteBrowserRecoveryTests {
             code: .postProcessingFailed,
             context: QuillUserIssueContext(postProcessingFailureReason: .emptyOutput)
         )
-        precondition(NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: nothingToCleanUp,
-            isDisplayedTranscriptBlank: false
-        ))
-        precondition(!NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: nothingToCleanUp,
-            isDisplayedTranscriptBlank: true
-        ))
+        // Whether it shows over a blank transcript is the shared
+        // NoteTranscriptNoticeGroup's rule (NoteTranscriptNoticesTests).
         // Still recognized, so the warning banner keeps staying hidden.
         precondition(NoteBrowserRecoveryPresentation.isNothingToPostProcess(nothingToCleanUp))
 
@@ -47,10 +41,6 @@ struct NoteBrowserRecoveryTests {
             context: QuillUserIssueContext(postProcessingFailureReason: .invalidResponse)
         )
         precondition(!NoteBrowserRecoveryPresentation.isNothingToPostProcess(otherFailure))
-        precondition(!NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: otherFailure,
-            isDisplayedTranscriptBlank: false
-        ))
         precondition(!NoteBrowserRecoveryPresentation.isNothingToPostProcess(nil))
     }
 
