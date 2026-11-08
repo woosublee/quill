@@ -279,6 +279,8 @@ struct QuillStatusBanner: View {
     let tint: Color
     let title: String
     let detail: String
+    /// A button beside the text, such as "View Models".
+    var action: NoteBannerAction?
     var expansion: QuillBannerExpansion?
     var onDismiss: (() -> Void)?
 
@@ -291,6 +293,7 @@ struct QuillStatusBanner: View {
             title: title,
             detail: detail,
             strings: .mac,
+            action: action,
             expansion: expansion,
             onDismiss: onDismiss
         )

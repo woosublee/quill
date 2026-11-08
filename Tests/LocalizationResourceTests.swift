@@ -439,7 +439,7 @@ struct LocalizationResourceTests {
     /// The saved summary's notices read their titles and details from the
     /// shared table (#697), so every key must be translated here.
     private static func testSharedSummaryNoticeKeysAreInTheCatalog(_ strings: [String: Any]) throws {
-        let keys = Set(NoteSummaryNotice.allCases.flatMap { [$0.titleKey, $0.detailKey].compactMap { $0 } })
+        let keys = Set(NoteSummaryNotice.allCases.flatMap { [$0.titleKey, $0.detailKey, $0.action?.titleKey].compactMap { $0 } })
         let missing = keys.filter { key in
             let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             return ["en", "ko"].contains { language in
