@@ -106,7 +106,8 @@ otherwise.
   and chunking stay in `Sources/`.
 - `Packages/QuillNoteCore/`: note data and rules shared with the iPhone app:
   how a note's date reads in a list row, its detail, and as an untitled
-  note's name (`NoteTimestampFormatter`), and the calendar match record
+  note's name (`NoteTimestampFormatter`), how its audio time reads
+  (`NoteAudioDuration`: `m:ss` or `h:mm:ss`), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
   values; a calendar event as both apps read it (`CalendarEvent`, with the
@@ -157,7 +158,8 @@ otherwise.
   toolbar's work labels, read from the same table) and its views
   (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
-  consent rows on both apps); the note audio waveform's bars
+  consent rows on both apps); a note's two tabs (`NoteContentMode`) and the
+  summary field being edited (`NoteSummaryField`); the note audio waveform's bars
   (`NoteAudioWaveformBars`; seeking stays in each app's player); the layout helper `QuillWidthClass`, which turns a container's width
   into compact, regular, or wide, so screens lay out by width, never by
   device model; and the note layout rules (`QuillNoteLayout`): the window's

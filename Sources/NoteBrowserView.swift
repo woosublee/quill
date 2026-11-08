@@ -2572,11 +2572,6 @@ private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
 
 // MARK: - Note Detail View
 
-enum NoteContentMode: Hashable {
-    case transcript
-    case summary
-}
-
 private struct NoteDetailView: View {
     let item: PipelineHistoryItem
     let isSearchActive: Bool
@@ -4863,15 +4858,10 @@ struct NoteAudioPlayerView: View {
         Self.formatDuration(t)
     }
 
-    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar.
+    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar and
+    /// the iPhone (QuillNoteCore).
     static func formatDuration(_ t: TimeInterval) -> String {
-        guard t.isFinite else { return "0:00" }
-        let total = Int(t)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+        NoteAudioDuration.text(t)
     }
 }
 
