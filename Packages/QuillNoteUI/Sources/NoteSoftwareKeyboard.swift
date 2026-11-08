@@ -40,10 +40,9 @@ public final class NoteSoftwareKeyboardMonitor: ObservableObject {
         observers.append(center.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main
         ) { [weak self] note in
-            MainActor.assumeIsolated {
-                guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-                self?.update(frame: frame, screen: (note.object as? UIScreen)?.bounds)
-            }
+            // Only the frame crosses into the main actor; the screen is read there.
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            MainActor.assumeIsolated { self?.update(frame: frame) }
         })
         observers.append(center.addObserver(
             forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main
@@ -52,12 +51,11 @@ public final class NoteSoftwareKeyboardMonitor: ObservableObject {
         })
     }
 
-    private func update(frame: CGRect, screen: CGRect?) {
-        // The notification names its screen; otherwise the app's first
-        // window scene's.
-        let bounds = screen ?? UIApplication.shared.connectedScenes
-            .compactMap { ($0 as? UIWindowScene)?.screen.bounds }
-            .first
+    private func update(frame: CGRect) {
+        // The keyboard's frame is in its screen's coordinates: the app's
+        // foreground window scene's screen.
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let bounds = (scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.screen.bounds
         guard let bounds else {
             isVisible = frame.height >= NoteSoftwareKeyboard.minimumHeight
             return
