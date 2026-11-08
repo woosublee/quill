@@ -141,6 +141,9 @@ otherwise.
   paused state, its copy key, indicator, reason, and progress, and the
   toolbar's work labels, read from the same table) and its views
   (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
+  the empty states (`NoteEmptyState`: the symbol in a light disc, a title,
+  and a detail, in a hero, standard, or quiet style, with its copy keys in
+  `NoteEmptyStateCopy`, #697);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
   consent rows on both apps); the note audio waveform's bars
   (`NoteAudioWaveformBars`; seeking stays in each app's player); the layout helper `QuillWidthClass`, which turns a container's width
