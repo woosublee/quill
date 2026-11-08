@@ -209,10 +209,6 @@ private struct NoteSyncSettingsCard: View {
         }
     }
 
-    private func noteCountText(_ count: Int) -> LocalizedStringKey {
-        count == 1 ? "1 note" : "\(count) notes"
-    }
-
     /// Sync Now shows while sync runs, not after it stopped.
     private var showsSyncNow: Bool {
         guard controller.isEnabled, controller.unavailableReason == nil else { return false }
@@ -264,9 +260,9 @@ private struct NoteSyncSettingsCard: View {
                 .foregroundStyle(Color.accentColor)
         case .upToDate(let date):
             TimelineView(.periodic(from: .now, by: 30)) { context in
+                // Without the note count, as on the iPhone (decision y3).
                 Label {
                     Text("Up to date · \(NoteSyncStatusText.relativeTime(date, now: context.date))")
-                        + Text(verbatim: " · ") + Text(noteCountText(controller.syncableNoteCount))
                 } icon: {
                     Image(systemName: "checkmark.circle.fill")
                 }

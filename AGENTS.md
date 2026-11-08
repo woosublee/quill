@@ -22,8 +22,10 @@ otherwise.
   and audio-part logic shared with the iPhone app (#634), and how the sync
   status reads (`NoteSyncStatusPresentation`): which problem shows first
   (`NoteSyncProblem`: full iCloud storage, then an account to look at, then
-  offline), its copy keys, and the "x min. ago" text in the locale the app
-  passes. Each app translates the keys with its own String Catalog.
+  offline), the whole line's order after them (`NoteSyncLine`: notes that
+  couldn't sync, recordings waiting for Wi-Fi, uploading, a failed fetch,
+  up to date; offline isn't a warning), its copy keys, and the "x min. ago"
+  text in the locale the app passes. Each app translates the keys with its own String Catalog.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
