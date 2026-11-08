@@ -65,20 +65,6 @@ extension NoteTimestampFormatter {
     }
 }
 
-/// Elapsed recording time as `mm:ss`, or `h:mm:ss` past an hour.
-enum RecordingElapsedFormatter {
-    static func string(from start: Date, to now: Date) -> String {
-        let total = max(0, Int(now.timeIntervalSince(start)))
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-}
-
 struct NoteListRowDisplayData: Equatable {
     let id: UUID
     /// The row's status, dot, preview, badges, and VoiceOver state, shared

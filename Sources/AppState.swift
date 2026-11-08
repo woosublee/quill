@@ -1,5 +1,6 @@
 import Foundation
 import QuillAudioFormatCore
+import QuillAudioLevelCore
 import QuillNoteUI
 import Combine
 import AppKit
@@ -3044,7 +3045,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }()
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
-    private var recordingInputHintState: RecordingInputHintState?
+    private var recordingInputHintState: RecordingInputHintState<UUID>?
     private var recordingInputHintInputID: String?
     private var recordingInputHintTimer: DispatchSourceTimer?
     private var recordingInputHintLevelCancellable: AnyCancellable?
@@ -8777,8 +8778,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // a confirmation; Recently Deleted would keep the note while its
         // journal can bring it back on the next launch.
         guard item.unrecoveredRecordingContext == nil else { return false }
-        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs).isBulkSelectable
-            && !meetingSummaryGeneratingNoteIDs.contains(id)
+        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs)
+            .joinsSelection(isMakingSummary: meetingSummaryGeneratingNoteIDs.contains(id))
     }
 
     /// Ends the Cancel window of a deleted summary. Safe to call at any time.

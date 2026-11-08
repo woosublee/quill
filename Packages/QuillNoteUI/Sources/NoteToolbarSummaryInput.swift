@@ -42,6 +42,38 @@ public enum NoteSummaryKind: Equatable, Sendable {
     }
 }
 
+/// Where a summary stands right now, read from each app's own availability.
+/// It decides whether ✨ and the summary tab's ↻ do something when pressed.
+public enum NoteSummaryReadiness: Equatable, CaseIterable, Sendable {
+    case ready
+    /// Meeting Summary is off in Settings: pressing says so.
+    case featureOff
+    /// The on-device model is busy with a recording, a transcription, or
+    /// another note's summary (the iPhone).
+    case modelBusy
+    /// No summary model is set up or ready.
+    case noModel
+    /// The cloud summary model has no API key (the iPhone).
+    case noKey
+    case transcribing
+    case postProcessing
+    /// Nothing to summarize: no transcript, or no text in it.
+    case noTranscript
+    /// This note's summary is being made.
+    case making
+
+    /// ✨ and ↻ stay dimmed and can't be pressed while a summary can't run:
+    /// no model, no key, the model busy, transcribing, or post-processing,
+    /// as on the Mac (2026-11-08 decision t2). A summary that's off can
+    /// still be pressed: it opens the setting that turns it on.
+    public var allowsPress: Bool {
+        switch self {
+        case .ready, .featureOff: true
+        case .modelBusy, .noModel, .noKey, .transcribing, .postProcessing, .noTranscript, .making: false
+        }
+    }
+}
+
 /// The summary part of `NoteToolbarInput`.
 public struct NoteToolbarSummaryInput: Equatable, Sendable {
     public private(set) var hasSummaryTab: Bool
@@ -78,9 +110,9 @@ public struct NoteToolbarSummaryInput: Equatable, Sendable {
     }
 
     /// - Parameters:
-    ///   - canRun: the app's summary availability lets the button do
-    ///     something now (make the summary, or say why it can't, or open
-    ///     model setup), before the transcript and work rules here.
+    ///   - canRun: the button does something now, from
+    ///     `NoteSummaryReadiness.allowsPress`, before the transcript and
+    ///     work rules here.
     ///   - isBlocked: the summary is being compared with a candidate or
     ///     edited, so ↻ would replace what the person is working on.
     public static func make(

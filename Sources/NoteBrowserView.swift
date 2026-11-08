@@ -591,9 +591,10 @@ struct NoteBrowserView: View {
             for: item,
             retrying: appState.retryingItemIDs,
             stoppedCloud: appState.stoppedCloudTranscriptionIDs
-        ).isBulkSelectable
-            && !appState.meetingSummaryGeneratingNoteIDs.contains(item.id)
-            && !appState.recoveringRecordingIDs.contains(item.id)
+        ).joinsSelection(
+            isMakingSummary: appState.meetingSummaryGeneratingNoteIDs.contains(item.id),
+            isRecoveringRecording: appState.recoveringRecordingIDs.contains(item.id)
+        )
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -1553,7 +1554,7 @@ struct NoteBrowserView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 22, weight: .ultraLight))
                         .foregroundStyle(.tertiary)
-                    Text("No Search Results")
+                    Text(verbatim: localizedCatalogString(NoteEmptyStateCopy.noSearchResults))
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -1748,7 +1749,7 @@ struct NoteBrowserView: View {
     /// One quiet line; the detail pane carries the full empty state.
     private var emptyListState: some View {
         VStack {
-            Text("No recordings yet")
+            Text(verbatim: localizedCatalogString(NoteEmptyStateCopy.noRecordingsListLine))
                 .quillTextStyle(.emptyDetail)
                 .foregroundStyle(.tertiary)
                 .padding(.top, QuillSpacing.space24)
@@ -1787,22 +1788,18 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSearchResults: some View {
-        VStack(spacing: QuillSpacing.space12) {
+        VStack {
             Spacer()
-            ZStack {
-                EmptyStateDisc(edge: .solid)
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 30, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            Text("No Matching Notes")
-                .quillTextStyle(.emptyTitle)
-                .foregroundStyle(.secondary)
-            Text("No notes match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word, or clear the search.")
-                .quillTextStyle(.emptyDetail)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+            NoteEmptyState(
+                systemImage: "magnifyingglass",
+                title: localizedCatalogString(NoteEmptyStateCopy.noMatchingNotes),
+                detail: localizedCatalogFormat(
+                    NoteEmptyStateCopy.noMatchingNotesDetailFormat,
+                    searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                ),
+                style: .standard,
+                edge: .solid
+            )
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -1810,21 +1807,15 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoSelection: some View {
-        VStack(spacing: QuillSpacing.space12) {
+        VStack {
             Spacer()
-            ZStack {
-                EmptyStateDisc(edge: .solid)
-                Image(systemName: "doc.text")
-                    .font(.system(size: 32, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            Text("Select a Note")
-                .quillTextStyle(.emptyTitle)
-                .foregroundStyle(.secondary)
-            Text("Select a recording from the list to view its transcript")
-                .quillTextStyle(.emptyDetail)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            NoteEmptyState(
+                systemImage: "doc.text",
+                title: localizedCatalogString(NoteEmptyStateCopy.selectNoteTitle),
+                detail: localizedCatalogString(NoteEmptyStateCopy.selectNoteDetail),
+                style: .standard,
+                edge: .solid
+            )
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -1832,22 +1823,15 @@ struct NoteBrowserView: View {
     }
 
     private var emptyDetailNoRecordings: some View {
-        VStack(spacing: QuillSpacing.space14) {
+        VStack {
             Spacer()
-            ZStack {
-                EmptyStateDisc(size: 96, edge: .dashed)
-                Image(systemName: "mic")
-                    .font(.system(size: 38, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            // 18 / 13 here and the 96 dashed disc have no token yet (#736).
-            Text("No Recordings")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text("Start your first recording with the Record button or your shortcut.\nYour transcript will appear here.")
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            NoteEmptyState(
+                systemImage: "mic",
+                title: localizedCatalogString(NoteEmptyStateCopy.noRecordingsTitle),
+                detail: localizedCatalogString(NoteEmptyStateCopy.noRecordingsDetail(mentionsShortcut: true)),
+                style: .hero,
+                edge: .dashed
+            )
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -2325,7 +2309,7 @@ private struct NoteListRow: View {
                     .frame(width: QuillControlSize.statusDot, height: QuillControlSize.statusDot)
                 if let startedAt = displayData.recordingStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
+                        Text(verbatim: RecordingElapsedFormat.string(from: startedAt, to: context.date))
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
                             .foregroundStyle(QuillColor.statusRecording.opacity(metaOpacity(0.8)))
                     }
@@ -2572,11 +2556,6 @@ private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
 
 // MARK: - Note Detail View
 
-enum NoteContentMode: Hashable {
-    case transcript
-    case summary
-}
-
 private struct NoteDetailView: View {
     let item: PipelineHistoryItem
     let isSearchActive: Bool
@@ -2785,13 +2764,16 @@ private struct NoteDetailView: View {
         if isAudioOnly { return .missing }
         return summaryAvailability == .transcriptUnavailable ? .empty : .present
     }
-    private var summaryActionIsDisabled: Bool {
+    /// The summary buttons' shared readiness (decision t2): only a ready
+    /// summary, or one that's off (pressing says so), can be pressed.
+    private var summaryReadiness: NoteSummaryReadiness {
         switch summaryAvailability {
-        case .available, .featureDisabled:
-            return false
-        case .modelUnavailable, .transcriptUnavailable,
-             .transcriptionInProgress, .generationInProgress:
-            return true
+        case .available: .ready
+        case .featureDisabled: .featureOff
+        case .modelUnavailable: .noModel
+        case .transcriptUnavailable: .noTranscript
+        case .transcriptionInProgress: .transcribing
+        case .generationInProgress: .making
         }
     }
     private var storedAudioURL: URL? {
@@ -2842,18 +2824,100 @@ private struct NoteDetailView: View {
     private var isWarningBannerDismissed: Bool {
         appState.isPostProcessingWarningDismissed(item)
     }
-    /// Dismissed on any device (synced, #730), or on this Mac before the
-    /// dismissal synced.
-    private var isNothingToPostProcessDismissed: Bool {
-        isWarningBannerDismissed
-            || appState.isNoticeDismissed(noteID: item.id, notice: NoteDismissedNotices.nothingToCleanUp)
+    /// The transcript's notices for this note (shared, QuillNoteCore). It
+    /// reads only cheap flags; the warning's presentation is built only when
+    /// its row draws.
+    private var transcriptNoticeGroup: NoteTranscriptNoticeGroup {
+        let isWorkRunning = isRetrying
+            || isDownloadingToRetry
+            || isRecoveringRecording
+            || appState.postProcessingNoteIDs.contains(item.id)
+        let postProcessing: NoteTranscriptNotice.PostProcessing?
+        if isWorkRunning {
+            postProcessing = nil
+        } else if isNothingToPostProcess {
+            postProcessing = .nothingToCleanUp
+        } else if item.userIssueRecord?.severity == .warning {
+            postProcessing = .warning
+        } else {
+            postProcessing = nil
+        }
+        return NoteTranscriptNoticeGroup(
+            showsSameAsCurrent: appState.unchangedRetranscriptions[item.id]?
+                .matches(item.displayedTranscript) == true,
+            postProcessing: postProcessing,
+            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank,
+            isNothingToCleanUpDismissed: appState.isNoticeDismissed(
+                noteID: item.id,
+                notice: NoteDismissedNotices.nothingToCleanUp
+            ),
+            isWarningDismissed: isWarningBannerDismissed,
+            isWorkRunning: isWorkRunning
+        )
     }
-    private var showsNothingToPostProcessNotice: Bool {
-        NoteBrowserRecoveryPresentation.showsNothingToPostProcessNotice(
-            for: item.userIssueRecord,
-            isDisplayedTranscriptBlank: isDisplayedTranscriptBlank
-        ) && !isNothingToPostProcessDismissed
+
+    @ViewBuilder
+    private func transcriptNoticeRow(
+        _ notice: NoteTranscriptNotice,
+        group: NoteTranscriptNoticeGroup
+    ) -> some View {
+        let expansion = notice == group.notices.first
+            ? group.hiddenCount.map { hidden in
+                QuillBannerExpansion(
+                    hiddenCount: hidden,
+                    isExpanded: areTranscriptNoticesExpanded,
+                    toggle: {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            areTranscriptNoticesExpanded.toggle()
+                        }
+                    }
+                )
+            }
+            : nil
+        switch notice {
+        case .sameAsCurrent, .nothingToCleanUp:
+            QuillStatusBanner(
+                systemImage: notice.systemImage ?? "info.circle",
+                tint: .secondary,
+                title: notice.titleKey.map { localizedCatalogString($0) } ?? "",
+                detail: notice.detailKey.map { localizedCatalogString($0) } ?? "",
+                expansion: expansion,
+                onDismiss: {
+                    if notice == .sameAsCurrent {
+                        areTranscriptNoticesExpanded = false
+                        appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
+                    } else {
+                        appState.dismissNotice(
+                            noteID: item.id,
+                            notice: NoteDismissedNotices.nothingToCleanUp,
+                            fallbackCode: warningBannerCode
+                        )
+                    }
+                }
+            )
+            .padding(.horizontal, QuillSpacing.space40)
+            .padding(.top, QuillSpacing.space14)
+        case .warning:
+            if let warningPresentation {
+                QuillUserIssueView(
+                    presentation: warningPresentation,
+                    style: .warningBanner,
+                    action: {
+                        performRecoveryAction(
+                            warningPresentation.recoveryAction
+                        )
+                    },
+                    onDismiss: {
+                        appState.dismissPostProcessingWarning(item)
+                    },
+                    expansion: expansion
+                )
+                .padding(.horizontal, QuillSpacing.space40)
+                .padding(.top, QuillSpacing.space16)
+            }
+        }
     }
+
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
     }
@@ -3195,73 +3259,57 @@ private struct NoteDetailView: View {
         // state already says what happened.
     }
 
+    /// The shared tag rules (QuillNoteCore), the same as the iPhone's.
+    private var metaTags: NoteMetaTags {
+        NoteMetaTags(
+            isAudioOnly: isAudioOnly,
+            usedLocalTranscription: item.usedLocalTranscription,
+            usedContextCapture: item.usedContextCapture,
+            usedPostProcessing: item.usedPostProcessing,
+            languageCode: item.transcriptionLanguageCode
+        )
+    }
+
     @ViewBuilder
     private var statusBadges: some View {
+        let tags = metaTags.tags
         HStack(spacing: 5) {
-            if isAudioOnly {
+            ForEach(Array(tags.enumerated()), id: \.element.helpKey) { index, tag in
+                if index > 0 {
+                    metaDot
+                }
                 metaTag(
-                    localizedCatalogString("Audio only"),
-                    active: true,
-                    help: "Audio-only recording"
-                )
-            } else {
-                metaTag(
-                    item.usedLocalTranscription ? "LOCAL" : "CLOUD",
-                    active: item.usedLocalTranscription,
-                    help: item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-                )
-            }
-            metaDot
-            metaTag(
-                item.usedContextCapture ? "CTX" : "NO CTX",
-                active: item.usedContextCapture,
-                help: item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
-            )
-            metaDot
-            metaTag(
-                item.usedPostProcessing ? "LLM" : "NO LLM",
-                active: item.usedPostProcessing,
-                help: item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
-            )
-            if item.transcriptionLanguageCode != "auto" {
-                metaDot
-                metaTag(
-                    item.transcriptionLanguageCode.uppercased(),
-                    active: true,
-                    help: "Transcription language"
+                    metaTagText(tag.label),
+                    active: tag.isActive,
+                    help: LocalizedStringKey(tag.helpKey)
                 )
             }
         }
         .fixedSize(horizontal: true, vertical: false)
         // VoiceOver reads the row once, in words, not the abbreviations.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: statusBadgesSpokenText))
+        .accessibilityLabel(Text(verbatim: Self.spokenText(tags)))
+    }
+
+    private func metaTagText(_ label: NoteMetaTags.Label) -> String {
+        switch label {
+        case .verbatim(let text): return text
+        case .key(let key): return localizedCatalogString(key)
+        }
     }
 
     /// The metadata row spelled out, such as "Local transcription, Context
     /// capture disabled, LLM post-processing enabled, Transcription language: KO".
-    private var statusBadgesSpokenText: String {
-        var parts: [String] = []
-        if isAudioOnly {
-            parts.append(localizedCatalogString("Audio-only recording"))
-        } else {
-            parts.append(localizedCatalogString(
-                item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-            ))
+    private static func spokenText(_ tags: [NoteMetaTags.Tag]) -> String {
+        tags.map { tag in
+            switch tag.spoken {
+            case .key(let key):
+                return localizedCatalogString(key)
+            case .transcriptionLanguage(let code):
+                return localizedCatalogFormat(NoteMetaTags.Spoken.transcriptionLanguageFormatKey, code)
+            }
         }
-        parts.append(localizedCatalogString(
-            item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
-        ))
-        parts.append(localizedCatalogString(
-            item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
-        ))
-        if item.transcriptionLanguageCode != "auto" {
-            parts.append(localizedCatalogFormat(
-                "Transcription language: %@",
-                item.transcriptionLanguageCode.uppercased()
-            ))
-        }
-        return parts.joined(separator: ", ")
+        .joined(separator: ", ")
     }
 
     private var metaDot: some View {
@@ -3399,72 +3447,17 @@ private struct NoteDetailView: View {
             emptyContentState
         } else {
             VStack(spacing: 0) {
-                // Notices stay while retranscribing, under the progress layer.
-                // A same-result retry notice leads, grouped like the
-                // Summary tab's notices: the others wait behind "+1".
-                let showsUnchangedNotice = appState.unchangedRetranscriptions[item.id]?
-                    .matches(item.displayedTranscript) == true
-                let hasOtherNotice = showsNothingToPostProcessNotice
-                    || (!isWarningBannerDismissed && warningPresentation != nil)
-                if showsUnchangedNotice {
-                    QuillStatusBanner(
-                        systemImage: "info.circle",
-                        tint: .secondary,
-                        title: localizedCatalogString("The new transcript is the same as the current one."),
-                        detail: localizedCatalogString("The transcript text didn't change."),
-                        expansion: hasOtherNotice
-                            ? QuillBannerExpansion(
-                                hiddenCount: 1,
-                                isExpanded: areTranscriptNoticesExpanded,
-                                toggle: {
-                                    withAnimation(.easeOut(duration: 0.16)) {
-                                        areTranscriptNoticesExpanded.toggle()
-                                    }
-                                }
-                            )
-                            : nil,
-                        onDismiss: {
-                            areTranscriptNoticesExpanded = false
-                            appState.dismissUnchangedRetranscriptionNotice(noteID: item.id)
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space14)
+                // The transcript's notices, from the shared table: none while
+                // a retranscription or cleanup runs; a same-result notice
+                // leads and folds the rest behind "+1", like the Summary
+                // tab's notices.
+                let notices = transcriptNoticeGroup
+                ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \.self) { notice in
+                    transcriptNoticeRow(notice, group: notices)
                 }
-                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   showsNothingToPostProcessNotice {
-                    QuillInfoNotice(
-                        text: localizedCatalogString(
-                            "Nothing to clean up; showing the original transcript."
-                        ),
-                        onDismiss: {
-                            appState.dismissNotice(
-                                noteID: item.id,
-                                notice: NoteDismissedNotices.nothingToCleanUp,
-                                fallbackCode: warningBannerCode
-                            )
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space14)
-                }
-                if !showsUnchangedNotice || areTranscriptNoticesExpanded,
-                   !isWarningBannerDismissed,
-                   let warningPresentation {
-                    QuillUserIssueView(
-                        presentation: warningPresentation,
-                        style: .warningBanner,
-                        action: {
-                            performRecoveryAction(
-                                warningPresentation.recoveryAction
-                            )
-                        },
-                        onDismiss: {
-                            appState.dismissPostProcessingWarning(item)
-                        }
-                    )
-                    .padding(.horizontal, QuillSpacing.space40)
-                    .padding(.top, QuillSpacing.space16)
+                .onChange(of: notices.folds) { folds in
+                    // A new group starts folded behind "+1".
+                    if !folds { areTranscriptNoticesExpanded = false }
                 }
                 NoteTextView(
                     text: displayContent,
@@ -3924,18 +3917,12 @@ private struct NoteDetailView: View {
     }
 
     private var noContentLabel: some View {
-        VStack(spacing: QuillSpacing.space14) {
-            ZStack {
-                EmptyStateDisc(edge: .none)
-                Image(systemName: "doc.text")
-                    .font(.system(size: 30, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            // 14 has no token yet (#736).
-            Text("No content")
-                .font(.system(size: 14))
-                .foregroundStyle(.tertiary)
-        }
+        NoteEmptyState(
+            systemImage: "doc.text",
+            title: localizedCatalogString(NoteEmptyStateCopy.noContent),
+            style: .quiet,
+            edge: .none
+        )
     }
 
     /// A recording startup recovery could not restore. With no audio left,
@@ -4068,7 +4055,7 @@ private struct NoteDetailView: View {
             summary: .make(
                 kind: summaryToolbarAction.kind,
                 transcript: summaryTranscript,
-                canRun: !summaryActionIsDisabled,
+                canRun: summaryReadiness.allowsPress,
                 hasSummaryTab: showsSummaryTab,
                 isMakingSummary: isGeneratingSummary,
                 // The toolbar hides while comparing; an edited summary asks
@@ -4076,7 +4063,7 @@ private struct NoteDetailView: View {
                 isBlocked: false,
                 hasSummaryToCopy: summaryEnvelope != nil
             ),
-            hasTranscriptToCopy: !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasTranscriptToCopy: NoteToolbarInput.hasCopyableText(displayContent),
             hasFilesToSave: actionState.canSaveFiles,
             canDelete: !isRecoveringRecording
         )
@@ -4872,15 +4859,10 @@ struct NoteAudioPlayerView: View {
         Self.formatDuration(t)
     }
 
-    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar.
+    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar and
+    /// the iPhone (QuillNoteCore).
     static func formatDuration(_ t: TimeInterval) -> String {
-        guard t.isFinite else { return "0:00" }
-        let total = Int(t)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+        NoteAudioDuration.text(t)
     }
 }
 
@@ -5371,40 +5353,7 @@ private struct YellowSpinner: View {
     }
 }
 
-/// The neutral disc behind an empty state's glyph: `fill-empty-disc`, with
-/// a 1 pt `hairline-strong` edge (solid or dashed) or none.
-private struct EmptyStateDisc: View {
-    enum Edge {
-        case none
-        case solid
-        case dashed
-    }
-
-    var size: CGFloat = QuillControlSize.emptyDisc
-    let edge: Edge
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        Circle()
-            .fill(QuillColor.fillEmptyDisc.color(for: colorScheme))
-            .frame(width: size, height: size)
-            .overlay {
-                switch edge {
-                case .none:
-                    EmptyView()
-                case .solid:
-                    Circle().stroke(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)
-                case .dashed:
-                    Circle().stroke(
-                        QuillColor.hairlineStrong.color(for: colorScheme),
-                        style: StrokeStyle(lineWidth: 1, dash: [4])
-                    )
-                }
-            }
-    }
-}
-
-/// "Recording · 03:12", updated every second.
+/// "Recording · 3:12", updated every second.
 private struct RecordingElapsedTitle: View {
     let startedAt: Date
 
@@ -5412,7 +5361,7 @@ private struct RecordingElapsedTitle: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             Text(verbatim: localizedCatalogFormat(
                 "Recording · %@",
-                RecordingElapsedFormatter.string(from: startedAt, to: context.date)
+                RecordingElapsedFormat.string(from: startedAt, to: context.date)
             ))
             .monospacedDigit()
         }

@@ -126,10 +126,21 @@ struct NoteListRowDisplayDataTests {
 
     private static func testRecordingElapsedFormatter() {
         let start = Date(timeIntervalSince1970: 10_000)
-        assert(RecordingElapsedFormatter.string(from: start, to: start) == "00:00")
-        assert(RecordingElapsedFormatter.string(from: start, to: start.addingTimeInterval(192.9)) == "03:12")
-        assert(RecordingElapsedFormatter.string(from: start, to: start.addingTimeInterval(3_725)) == "1:02:05")
-        assert(RecordingElapsedFormatter.string(from: start, to: start.addingTimeInterval(-5)) == "00:00")
+        // The iPhone's clock (decision r1/r2): m:ss, then h:mm:ss.
+        precondition(RecordingElapsedFormat.string(from: start, to: start) == "0:00")
+        precondition(RecordingElapsedFormat.string(from: start, to: start.addingTimeInterval(192.9)) == "3:12")
+        precondition(RecordingElapsedFormat.string(from: start, to: start.addingTimeInterval(3_725)) == "1:02:05")
+        precondition(RecordingElapsedFormat.string(from: start, to: start.addingTimeInterval(-5)) == "0:00")
+        precondition(RecordingElapsedFormat.string(milliseconds: 599_999) == "9:59")
+        precondition(RecordingElapsedFormat.string(milliseconds: 7_200_000) == "2:00:00")
+        precondition(RecordingElapsedFormat.string(milliseconds: -1) == "0:00")
+        // Decision r4: busy notes stay out of the selection.
+        precondition(NoteListRowStatus.done.joinsSelection(isMakingSummary: false))
+        precondition(!NoteListRowStatus.done.joinsSelection(isMakingSummary: true))
+        precondition(!NoteListRowStatus.fail.joinsSelection(isMakingSummary: false, isRecoveringRecording: true))
+        precondition(!NoteListRowStatus.transcribing.joinsSelection(isMakingSummary: false))
+        precondition(!NoteListRowStatus.recording.joinsSelection(isMakingSummary: false))
+        precondition(NoteListRowStatus.audioOnly.joinsSelection(isMakingSummary: false))
     }
 
     private static func testUnfinishedRecordingNoteNeedsNoContentOrAudio() {
