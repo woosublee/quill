@@ -394,6 +394,30 @@ struct SettingsLocalizationTests {
         assert(NoteSyncProblem.storageFull.outranks(.accountNeedsAttention))
         assert(NoteSyncProblem.accountNeedsAttention.outranks(.offline))
         assert(!NoteSyncProblem.offline.outranks(.storageFull) && !NoteSyncProblem.offline.outranks(.offline))
+        // One fixed order on both apps (decision y2): storage > account >
+        // offline > failed notes > Wi-Fi > uploading > fetch failure > up to date.
+        func line(
+            account: Bool = false, online: Bool = true, full: Bool = false, failing: Int = 0, wifi: Int = 0,
+            pending: Int = 0, total: Int = 0, fetch: NoteSyncLine.FetchFailure? = nil, moved: Bool = false
+        ) -> NoteSyncLine {
+            NoteSyncLine.make(
+                accountNeedsAttention: account, isOnline: online, isStorageFull: full, failingNotes: failing,
+                waitingForWiFi: wifi, pendingUploads: pending, uploadTotal: total, fetchFailure: fetch,
+                uploadsMovedSinceFetchFailure: moved, lastSynced: now
+            )
+        }
+        precondition(line(account: true, online: false, full: true, failing: 2) == .storageFull)
+        precondition(line(account: true, online: false, failing: 2) == .accountNeedsAttention)
+        precondition(line(online: false, failing: 2, pending: 3) == .offline)
+        precondition(line(failing: 2, wifi: 1, pending: 3, total: 5) == .notesFailed(2))
+        precondition(line(wifi: 1, pending: 3, total: 5) == .waitingForWiFi(1))
+        precondition(line(pending: 3, total: 5, fetch: .network, moved: true) == .uploading(done: 2, total: 5))
+        precondition(line(pending: 3, total: 5, fetch: .network) == .couldNotReachICloud)
+        precondition(line(fetch: .other) == .couldNotSync)
+        precondition(line(fetch: .account) == .accountNeedsAttention)
+        precondition(line() == .upToDate(now))
+        // Decision y1: offline is a grey line, not a warning.
+        precondition(!NoteSyncLine.offline.isWarning && NoteSyncLine.notesFailed(1).isWarning)
         // Each shared copy key is in this app's catalog and is what the
         // status line shows.
         let problemKo: [NoteSyncProblem: String] = [

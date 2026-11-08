@@ -38,22 +38,6 @@ extension PipelineHistoryItem {
     }
 }
 
-extension MeetingSummaryContent {
-    /// The summary text a person can read on the Summary tab, joined for search.
-    var searchableText: String {
-        var parts = [overview.text]
-        parts += keyPoints.map(\.text)
-        parts += decisions.map(\.text)
-        for item in actionItems {
-            parts.append(item.task)
-            if let owner = item.owner { parts.append(owner) }
-            if let dueDate = item.dueDate { parts.append(dueDate) }
-        }
-        parts += openQuestions.map(\.text)
-        return parts.joined(separator: "\n")
-    }
-}
-
 /// Matches notes against the Note Browser search text. It checks the title,
 /// calendar title, the transcript the detail view shows (processed, or raw
 /// when there is no processed text), and saved meeting summary.

@@ -1,30 +1,10 @@
 import Foundation
+import QuillNoteCore
 import UserNotifications
-
-struct CalendarRecordingReminderPlan: Equatable {
-    let scheduled: [CalendarRecordingReminderSchedule]
-    let immediate: [CalendarRecordingReminderSchedule]
-}
 
 struct CalendarRecordingReminderNotificationAction: Equatable {
     let identifier: String
     let reminderGroupIdentifier: String?
-}
-
-struct CalendarRecordingReminderSchedule: Equatable {
-    let identifier: String
-    let fireDate: Date
-    let event: CalendarEvent
-    let delivery: Delivery
-
-    var reminderGroupIdentifier: String {
-        CalendarRecordingReminderScheduler.reminderGroupIdentifier(for: event)
-    }
-
-    enum Delivery: Equatable {
-        case scheduled
-        case immediate
-    }
 }
 
 @MainActor
@@ -55,14 +35,14 @@ final class CalendarRecordingReminderScheduler {
     /// so events cached by an earlier refresh may be reused.
     typealias EventProvider = (_ timeMin: Date, _ timeMax: Date, _ reusesCachedEvents: Bool) async throws -> [CalendarEvent]
 
-    nonisolated static let notificationIdentifierPrefix = "calendar-recording-reminder"
+    nonisolated static let notificationIdentifierPrefix = CalendarRecordingReminderPlanner.identifierPrefix
     nonisolated static let notificationCategoryIdentifier = "calendar-recording-reminder"
-    nonisolated static let defaultLeadMinutes = 10
+    nonisolated static let defaultLeadMinutes = CalendarRecordingReminderPlanner.defaultLeadMinutes
     nonisolated static let defaultRefreshIntervalMinutes = 15
-    nonisolated static let leadMinuteOptions = [1, 5, 10, 15, 30, 60]
+    nonisolated static let leadMinuteOptions = CalendarRecordingReminderPlanner.leadMinuteOptions
     nonisolated static let refreshIntervalMinuteOptions = [5, 15, 30, 60]
     nonisolated static let scheduleWindow: TimeInterval = 24 * 60 * 60
-    nonisolated static let startedMeetingGracePeriod: TimeInterval = 5 * 60
+    nonisolated static let startedMeetingGracePeriod = CalendarRecordingReminderPlanner.startedMeetingGracePeriod
     nonisolated static let localNotificationFallbackDelay: TimeInterval = 2
 
     private let notificationManager: CalendarRecordingReminderNotificationManaging
@@ -411,39 +391,7 @@ final class CalendarRecordingReminderScheduler {
         now: Date,
         calendar: Calendar
     ) -> CalendarRecordingReminderPlan {
-        let normalizedLeadMinuteValues = normalizedLeadMinutes(leadMinutes)
-        let schedules = events.flatMap { event -> [CalendarRecordingReminderSchedule] in
-            guard isReminderEligible(event) else { return [] }
-            return normalizedLeadMinuteValues.compactMap { normalizedLeadMinutes in
-                let fireDate = event.start.addingTimeInterval(TimeInterval(-normalizedLeadMinutes * 60))
-                let identifier = notificationIdentifier(for: event, leadMinutes: normalizedLeadMinutes)
-                if fireDate > now {
-                    return CalendarRecordingReminderSchedule(
-                        identifier: identifier,
-                        fireDate: fireDate,
-                        event: event,
-                        delivery: .scheduled
-                    )
-                }
-                guard event.start > now || now.timeIntervalSince(event.start) <= startedMeetingGracePeriod else {
-                    return nil
-                }
-                return CalendarRecordingReminderSchedule(
-                    identifier: identifier,
-                    fireDate: now,
-                    event: event,
-                    delivery: .immediate
-                )
-            }
-        }
-        .sorted {
-            if $0.fireDate != $1.fireDate { return $0.fireDate < $1.fireDate }
-            return $0.identifier < $1.identifier
-        }
-        return CalendarRecordingReminderPlan(
-            scheduled: schedules.filter { $0.delivery == .scheduled },
-            immediate: schedules.filter { $0.delivery == .immediate }
-        )
+        CalendarRecordingReminderPlanner.plan(for: events, leadMinutes: leadMinutes, now: now)
     }
 
     nonisolated static func leadTimeOptionTitle(_ minutes: Int) -> String {
@@ -494,21 +442,15 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func isReminderEligible(_ event: CalendarEvent) -> Bool {
-        event.isMeetingCandidate
+        CalendarRecordingReminderPlanner.isReminderEligible(event)
     }
 
     nonisolated static func notificationIdentifier(for event: CalendarEvent, leadMinutes: Int) -> String {
-        let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
-        let normalizedLeadMinutes = normalizedLeadMinuteOption(leadMinutes)
-        return "\(notificationIdentifierPrefix):\(event.calendarID):\(event.id):\(startTimestamp):\(normalizedLeadMinutes)"
+        CalendarRecordingReminderPlanner.identifier(for: event, leadMinutes: leadMinutes)
     }
 
     nonisolated static func reminderGroupIdentifier(for event: CalendarEvent) -> String {
-        reminderGroupIdentifier(
-            calendarID: event.calendarID,
-            eventID: event.id,
-            startTimestamp: Int(event.start.timeIntervalSince1970.rounded())
-        )
+        CalendarRecordingReminderPlanner.groupIdentifier(for: event)
     }
 
     nonisolated static func reminderGroupIdentifier(from userInfo: [AnyHashable: Any]) -> String? {
@@ -524,7 +466,11 @@ final class CalendarRecordingReminderScheduler {
     }
 
     private nonisolated static func reminderGroupIdentifier(calendarID: String, eventID: String, startTimestamp: Int) -> String {
-        "\(calendarID):\(eventID):\(startTimestamp)"
+        CalendarRecordingReminderPlanner.groupIdentifier(
+            calendarID: calendarID,
+            eventID: eventID,
+            startTimestamp: startTimestamp
+        )
     }
 
     /// Any number in userInfo arrives as NSNumber. A boolean does too, but it
@@ -536,7 +482,7 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func isCalendarReminderIdentifier(_ identifier: String) -> Bool {
-        identifier.hasPrefix("\(notificationIdentifierPrefix):")
+        CalendarRecordingReminderPlanner.isReminderIdentifier(identifier)
     }
 
     nonisolated static func calendarReminderIdentifiers(in identifiers: [String]) -> [String] {
@@ -548,14 +494,11 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func normalizedLeadMinuteOption(_ value: Int) -> Int {
-        leadMinuteOptions.min { lhs, rhs in
-            abs(lhs - value) < abs(rhs - value)
-        } ?? defaultLeadMinutes
+        CalendarRecordingReminderPlanner.normalizedLeadMinuteOption(value)
     }
 
     nonisolated static func normalizedLeadMinutes(_ values: [Int]) -> [Int] {
-        let normalized = Set(values.map(normalizedLeadMinuteOption)).sorted()
-        return normalized.isEmpty ? [defaultLeadMinutes] : normalized
+        CalendarRecordingReminderPlanner.normalizedLeadMinutes(values)
     }
 
     nonisolated static func normalizedRefreshIntervalMinutes(_ value: Int) -> Int {

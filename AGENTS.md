@@ -22,8 +22,15 @@ otherwise.
   and audio-part logic shared with the iPhone app (#634), and how the sync
   status reads (`NoteSyncStatusPresentation`): which problem shows first
   (`NoteSyncProblem`: full iCloud storage, then an account to look at, then
-  offline), its copy keys, and the "x min. ago" text in the locale the app
-  passes. Each app translates the keys with its own String Catalog.
+  offline), the whole line's order after them (`NoteSyncLine`: notes that
+  couldn't sync, recordings waiting for Wi-Fi, uploading, a failed fetch,
+  up to date; offline isn't a warning), its copy keys, and the "x min. ago"
+  text in the locale the app passes, and the notices above a saved meeting
+  summary (`NoteSummaryNotice`, #697): which show and in what order, each
+  one's image, tint, copy keys, and button ("View Models" when the setting is
+  off or the model is missing), and the dismissal it syncs (next to
+  `NoteNoticeDismissals`). Each app translates the keys with its own String
+  Catalog, and keeps what a notice's button does.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
@@ -51,7 +58,8 @@ otherwise.
   `Sources/QuillUserIssue.swift` and `Sources/QuillUserIssueView.swift`.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
-  rendering) and summary editing (what counts as an empty row, dropping
+  rendering, and the text search reads,
+  `MeetingSummaryContent.searchableText`) and summary editing (what counts as an empty row, dropping
   empty rows, saving an edit, reverting to the original, keeping done
   states, and keeping rows on a same-text regeneration).
   The attempt's on-screen details stay in `Sources/MeetingSummaryModels.swift`.
@@ -90,7 +98,12 @@ otherwise.
   and write `UserDefaults`. API keys and the rest of the settings stay in the app.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
   heights, the levels a note's waveform keeps, how many bars of a fixed
-  width fit a card, where each draws, and how many show as played, shared with the iPhone app. Reading RMS from the capture,
+  width fit a card, where each draws, and how many show as played, and the
+  recording input hints (`RecordingInputHintState` with
+  `RecordingQuietInputDetector` and `AudioBufferStarvationDetector`: the
+  one-time "Are you talking?" hint and the input-lost warning; the
+  iPhone-only storage-low warning; their copy keys, and
+  `RecordingNoticeSeverity`'s levels and symbols), shared with the iPhone app. Reading RMS from the capture,
   the locking around it, and the recording overlay's drawing stay in `Sources/`;
   a note's bars draw in `QuillNoteUI`.
 - `Packages/QuillAudioFormatCore/`: the canonical recording file (16 kHz mono
@@ -100,10 +113,22 @@ otherwise.
   and chunking stay in `Sources/`.
 - `Packages/QuillNoteCore/`: note data and rules shared with the iPhone app:
   how a note's date reads in a list row, its detail, and as an untitled
-  note's name (`NoteTimestampFormatter`), and the calendar match record
+  note's name (`NoteTimestampFormatter`), how its audio time reads
+  (`NoteAudioDuration`: `m:ss` or `h:mm:ss`), the tags on its detail meta line
+  (`NoteMetaTags`: LOCAL/CLOUD or Audio only, CTX, LLM, the fixed language,
+  and their spoken words), the notices above its transcript
+  (`NoteTranscriptNoticeGroup`, #697: which show, none while a retranscription
+  or cleanup runs, the same-result notice folding the rest behind "+1", and
+  their copy keys), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
-  values, and what the note list's Select All button does
+  values; a calendar event as both apps read it (`CalendarEvent`, with the
+  Apple attendee mapping `AppleParticipantData`), which event a recording
+  matches (`CalendarEventMatcher`), how events from several calendars merge
+  (`CalendarEventMerger`), and which meetings get a reminder to record and
+  when (`CalendarRecordingReminderPlanner`: the notification identifiers,
+  lead times, and the five-minute grace; reading calendars, notifications,
+  and settings stay in each app); and what the note list's Select All button does
   (`NoteSelectAllAction`: Deselect All once every selectable visible note is
   selected), what its selection-mode header button reads
   (`NoteSelectionExitAction`: Cancel once a note is selected, Done
@@ -118,6 +143,9 @@ otherwise.
   list row reads from that status and the work running for it
   (`NoteListRowState`: its status, which dot it draws, its preview line,
   its Audio only and Summary badges, and the state VoiceOver reads; #697),
+  whether it can join the list's selection (`NoteListRowStatus.joinsSelection`),
+  how a recording's running time reads (`RecordingElapsedFormat`: `m:ss`,
+  then `h:mm:ss`, paused time not counted),
   with a recovered recording's description keys
   (`RecoveredRecordingContext.descriptionLocalizationKeys`), what Save Files
   offers and names (`NoteExportPlan`: blank text isn't offered, a stale
@@ -135,7 +163,10 @@ otherwise.
   (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps), what a note gives its
   summary buttons (`NoteToolbarSummaryInput`: the transcript, the summary kind,
-  and whether ✨ and ↻ can run, #782), and its view (`NoteFloatingToolbar`);
+  and whether ✨ and ↻ can run, #782; whether they can be pressed at all,
+  `NoteSummaryReadiness`), when it hides (recording, comparing, or editing
+  with the on-screen keyboard up, `NoteSoftwareKeyboard`), and its view
+  (`NoteFloatingToolbar`);
   the one-line notice banner (`NoteBanner`, its
   "+N" and close buttons, its info button (`NoteBannerDetails`), a
   prominent action, and its surface, #744: the Mac's
@@ -144,8 +175,17 @@ otherwise.
   paused state, its copy key, indicator, reason, and progress, and the
   toolbar's work labels, read from the same table) and its views
   (`NoteWorkStatusView`, `NoteWorkStatusOverlay`, `NoteWorkStatusIndicator`);
+  the empty states (`NoteEmptyState`: the symbol in a light disc, a title,
+  and a detail, in a hero, standard, or quiet style, with its copy keys in
+  `NoteEmptyStateCopy`, #697);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
-  consent rows on both apps); the note audio waveform's bars
+  consent rows on both apps); a note's two tabs (`NoteContentMode`) and the
+  summary field being edited (`NoteSummaryField`); the Keep/Use comparison's
+  layout (side by side unless the window is compact, where a segmented picker
+  shows the new side first: `NoteComparisonLayout`, `NoteComparisonSides`), its
+  copy keys (`NoteComparisonCopy`), and its card look
+  (`NoteComparisonCardStyle`; the Mac keeps its own choice bar and landing
+  animation); the note audio waveform's bars
   (`NoteAudioWaveformBars`; seeking stays in each app's player); the layout helper `QuillWidthClass`, which turns a container's width
   into compact, regular, or wide, so screens lay out by width, never by
   device model; and the note layout rules (`QuillNoteLayout`): the window's

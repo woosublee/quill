@@ -1,4 +1,5 @@
 import CoreGraphics
+import QuillNoteCore
 import EventKit
 import Foundation
 
@@ -62,8 +63,7 @@ final class AppleCalendarService {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: calendars)
         return store.events(matching: predicate).map { event in
             CalendarEvent(
-                // Occurrences of a repeating event share the item identifier.
-                id: "\(event.calendarItemIdentifier)@\(Int(event.startDate.timeIntervalSince1970))",
+                id: CalendarEvent.appleEventID(itemIdentifier: event.calendarItemIdentifier, start: event.startDate),
                 calendarID: event.calendar.calendarIdentifier,
                 title: event.title ?? "",
                 start: event.startDate,

@@ -242,35 +242,6 @@ struct QuillUserIssueView: View {
 
 }
 
-/// A quiet, dismissible line for an outcome that needs no action, such as
-/// cleanup having nothing to change.
-struct QuillInfoNotice: View {
-    let text: String
-    var onDismiss: (() -> Void)?
-
-    var body: some View {
-        HStack(spacing: QuillSpacing.space6) {
-            Image(systemName: "info.circle")
-                .font(.system(size: 11, weight: .medium))
-            Text(text)
-                .quillTextStyle(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: QuillSpacing.space6)
-            if let onDismiss {
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(localizedCatalogString("Dismiss"))
-            }
-        }
-        .foregroundStyle(.secondary)
-    }
-}
-
 /// The text the shared banner's own controls show, in this app's language.
 extension NoteBannerStrings {
     static var mac: NoteBannerStrings {
@@ -308,6 +279,8 @@ struct QuillStatusBanner: View {
     let tint: Color
     let title: String
     let detail: String
+    /// A button beside the text, such as "View Models".
+    var action: NoteBannerAction?
     var expansion: QuillBannerExpansion?
     var onDismiss: (() -> Void)?
 
@@ -320,6 +293,7 @@ struct QuillStatusBanner: View {
             title: title,
             detail: detail,
             strings: .mac,
+            action: action,
             expansion: expansion,
             onDismiss: onDismiss
         )

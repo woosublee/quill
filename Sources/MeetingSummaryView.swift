@@ -1,7 +1,7 @@
 import SwiftUI
 import QuillDesignTokens
 import QuillSummaryFormatCore
-import QuillDesignTokens
+import QuillNoteUI
 
 /// The Summary tab. Like the transcript, the summary is always editable and
 /// saves on its own: Return adds a row below, ⌫ on an empty row removes it,
@@ -160,7 +160,7 @@ struct MeetingSummaryView<Notices: View>: View {
 
     // MARK: Content
 
-    /// Sized like `QuillInfoNotice`, the app's one-line notes.
+    /// A quiet one-line note: an 11 pt icon beside callout text.
     private var editedMarker: some View {
         HStack(spacing: QuillSpacing.space6) {
             Image(systemName: "pencil")
@@ -547,21 +547,8 @@ final class MeetingSummaryDraftSaver {
     var saveNow: () -> Bool = { true }
 }
 
-private enum SummaryField: Hashable {
-    case overview
-    case point(UUID)
-    case task(UUID)
-    case owner(UUID)
-    case dueDate(UUID)
-
-    /// The row this field belongs to; nil for the overview.
-    var rowID: UUID? {
-        switch self {
-        case .overview: nil
-        case .point(let id), .task(let id), .owner(let id), .dueDate(let id): id
-        }
-    }
-}
+/// The shared summary field (QuillNoteUI), the same as the iPhone's.
+private typealias SummaryField = NoteSummaryField
 
 /// ⌫ on an empty row removes it, like Reminders. Key handling needs macOS 14;
 /// on macOS 13 the row's remove button does the same.

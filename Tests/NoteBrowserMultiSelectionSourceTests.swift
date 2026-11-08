@@ -30,7 +30,7 @@ struct NoteBrowserMultiSelectionSourceTests {
 
         // The header overlays the list at its width, so the no-results view
         // must fill the sidebar or the search field is squeezed away.
-        precondition(source.contains("Text(\"No Search Results\")\n                        .font(.system(size: 12))\n                        .foregroundStyle(.tertiary)\n                    Spacer()\n                }\n                // Fill the sidebar: the header overlays this view at its\n                // width, so a narrow view squeezed the search field away.\n                .frame(maxWidth: .infinity)"))
+        precondition(source.contains("Text(verbatim: localizedCatalogString(NoteEmptyStateCopy.noSearchResults))\n                        .font(.system(size: 12))\n                        .foregroundStyle(.tertiary)\n                    Spacer()\n                }\n                // Fill the sidebar: the header overlays this view at its\n                // width, so a narrow view squeezed the search field away.\n                .frame(maxWidth: .infinity)"))
 
         // The search keeps focus and stays open while it moves the open note,
         // and the header keeps its identity across the no-results view.
@@ -150,8 +150,10 @@ struct NoteBrowserMultiSelectionSourceTests {
 
         // Busy notes can't join a selection.
         let selectable = try body(of: "private func canJoinSelection(_ item: PipelineHistoryItem) -> Bool", in: source)
-        precondition(selectable.contains(".isBulkSelectable"))
-        precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(item.id)"))
+        // The shared rule both apps use (decision r4).
+        precondition(selectable.contains(".joinsSelection("))
+        precondition(selectable.contains("isMakingSummary: appState.meetingSummaryGeneratingNoteIDs.contains(item.id)"))
+        precondition(selectable.contains("isRecoveringRecording: appState.recoveringRecordingIDs.contains(item.id)"))
         // The selectable notes are worked out once, not looked up per note (#707).
         let selectableIDs = try body(of: "private var isBulkSelectable: (UUID) -> Bool", in: source)
         precondition(selectableIDs.contains("if selectableIDs == nil { selectableIDs = bulkSelectableIDs(in: history) }"))

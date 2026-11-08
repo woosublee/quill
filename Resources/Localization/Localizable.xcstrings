@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Start your first recording with the Record button.\nYour transcript will appear here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start your first recording with the Record button.\nYour transcript will appear here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 버튼으로 첫 녹음을 시작하세요.\n전사문이 여기에 표시돼요."
+          }
+        }
+      }
+    },
     "Download this model in Settings to use it": {
       "localizations": {
         "en": {
@@ -6795,6 +6811,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "기본값 보기"
+          }
+        }
+      }
+    },
+    "View Models": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Models"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 보기"
           }
         }
       }
@@ -18864,6 +18896,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "마이크 입력이 끊겼어요. 연결을 확인하세요."
+          }
+        }
+      }
+    },
+    "Storage is almost full. Quill will save the recording before it runs out.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storage is almost full. Quill will save the recording before it runs out."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 공간이 거의 없어요. 공간이 다 차기 전에 녹음을 저장해요."
           }
         }
       }
