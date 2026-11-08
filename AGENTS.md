@@ -91,7 +91,12 @@ otherwise.
   and write `UserDefaults`. API keys and the rest of the settings stay in the app.
 - `Packages/QuillAudioLevelCore/`: the recording meter level and waveform bar
   heights, the levels a note's waveform keeps, how many bars of a fixed
-  width fit a card, where each draws, and how many show as played, shared with the iPhone app. Reading RMS from the capture,
+  width fit a card, where each draws, and how many show as played, and the
+  recording input hints (`RecordingInputHintState` with
+  `RecordingQuietInputDetector` and `AudioBufferStarvationDetector`: the
+  one-time "Are you talking?" hint and the input-lost warning; the
+  iPhone-only storage-low warning; their copy keys, and
+  `RecordingNoticeSeverity`'s levels and symbols), shared with the iPhone app. Reading RMS from the capture,
   the locking around it, and the recording overlay's drawing stay in `Sources/`;
   a note's bars draw in `QuillNoteUI`.
 - `Packages/QuillAudioFormatCore/`: the canonical recording file (16 kHz mono
