@@ -153,7 +153,10 @@ otherwise.
   (#697), built for macOS and iOS. So far: the note toolbar's state table
   (`NoteToolbarState`, the #690 rules for both apps), what a note gives its
   summary buttons (`NoteToolbarSummaryInput`: the transcript, the summary kind,
-  and whether ✨ and ↻ can run, #782), and its view (`NoteFloatingToolbar`);
+  and whether ✨ and ↻ can run, #782; whether they can be pressed at all,
+  `NoteSummaryReadiness`), when it hides (recording, comparing, or editing
+  with the on-screen keyboard up, `NoteSoftwareKeyboard`), and its view
+  (`NoteFloatingToolbar`);
   the one-line notice banner (`NoteBanner`, its
   "+N" and close buttons, its info button (`NoteBannerDetails`), a
   prominent action, and its surface, #744: the Mac's
