@@ -63,3 +63,83 @@ public enum NoteSyncStatusPresentation {
         return formatter.localizedString(for: date, relativeTo: now)
     }
 }
+
+/// What the sync status line shows while sync is on, in one fixed order on
+/// both apps (the owner's 2026-11-08 decision y2, the iPhone's order): a
+/// full iCloud > an account to look at > offline > notes that couldn't sync
+/// > recordings waiting for Wi-Fi > uploading > a fetch that failed > up to
+/// date. The first three follow `NoteSyncProblem`. A device passes only what
+/// it has (the Mac never waits for Wi-Fi).
+public enum NoteSyncLine: Equatable, Sendable {
+    case storageFull
+    case accountNeedsAttention
+    case offline
+    case notesFailed(Int)
+    case waitingForWiFi(Int)
+    case uploading(done: Int, total: Int)
+    /// The last fetch couldn't reach iCloud.
+    case couldNotReachICloud
+    /// iCloud refused the last fetch for another reason.
+    case couldNotSync
+    /// Up to date; nil before the first sync finishes.
+    case upToDate(Date?)
+
+    /// Why the last fetch failed.
+    public enum FetchFailure: Equatable, Sendable {
+        case network
+        case account
+        case storageFull
+        case other
+    }
+
+    /// A fetch failure shows behind uploads that are still going up; with no
+    /// upload since it failed, it shows first. A fetch refused for the
+    /// account or for space shows that notice.
+    public static func make(
+        accountNeedsAttention: Bool,
+        isOnline: Bool,
+        isStorageFull: Bool,
+        failingNotes: Int,
+        waitingForWiFi: Int = 0,
+        pendingUploads: Int,
+        uploadTotal: Int,
+        fetchFailure: FetchFailure? = nil,
+        uploadsMovedSinceFetchFailure: Bool = false,
+        lastSynced: Date?
+    ) -> Self {
+        switch NoteSyncProblem.mostUrgent(
+            storageFull: isStorageFull || fetchFailure == .storageFull,
+            accountNeedsAttention: accountNeedsAttention || fetchFailure == .account,
+            offline: !isOnline
+        ) {
+        case .storageFull?: return .storageFull
+        case .accountNeedsAttention?: return .accountNeedsAttention
+        case .offline?: return .offline
+        case nil: break
+        }
+        if failingNotes > 0 { return .notesFailed(failingNotes) }
+        if waitingForWiFi > 0 { return .waitingForWiFi(waitingForWiFi) }
+        let fetchLine: Self? = switch fetchFailure {
+        case .network?: .couldNotReachICloud
+        case .other?: .couldNotSync
+        case .account?, .storageFull?, nil: nil
+        }
+        if pendingUploads > 0 {
+            if let fetchLine, !uploadsMovedSinceFetchFailure { return fetchLine }
+            let total = max(uploadTotal, pendingUploads)
+            return .uploading(done: total - pendingUploads, total: total)
+        }
+        if let fetchLine { return fetchLine }
+        return .upToDate(lastSynced)
+    }
+
+    /// Whether the line draws as a warning. Offline isn't one: notes still
+    /// work, and sync goes on by itself when the network is back (decision
+    /// y1, the Mac's grey line).
+    public var isWarning: Bool {
+        switch self {
+        case .storageFull, .accountNeedsAttention, .notesFailed, .couldNotReachICloud, .couldNotSync: true
+        case .offline, .waitingForWiFi, .uploading, .upToDate: false
+        }
+    }
+}

@@ -22,10 +22,12 @@ otherwise.
   and audio-part logic shared with the iPhone app (#634), and how the sync
   status reads (`NoteSyncStatusPresentation`): which problem shows first
   (`NoteSyncProblem`: full iCloud storage, then an account to look at, then
-  offline), its copy keys, and the "x min. ago" text in the locale the app
-  passes, and the notices above a saved meeting summary
-  (`NoteSummaryNotice`, #697): which show and in what order, each one's
-  image, tint, and copy keys, and the dismissal it syncs (next to
+  offline), the whole line's order after them (`NoteSyncLine`: notes that
+  couldn't sync, recordings waiting for Wi-Fi, uploading, a failed fetch,
+  up to date; offline isn't a warning), its copy keys, and the "x min. ago"
+  text in the locale the app passes, and the notices above a saved meeting
+  summary (`NoteSummaryNotice`, #697): which show and in what order, each
+  one's image, tint, and copy keys, and the dismissal it syncs (next to
   `NoteNoticeDismissals`). Each app translates the keys with its own String
   Catalog, and keeps what a notice's button does.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
