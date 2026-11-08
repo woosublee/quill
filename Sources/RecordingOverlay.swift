@@ -1,7 +1,7 @@
 import SwiftUI
+import QuillAudioLevelCore
 import QuillDesignTokens
 import AppKit
-import QuillDesignTokens
 
 // MARK: - State
 
@@ -328,26 +328,9 @@ struct DegradedCombinedCaptureNoticeLifecycle {
 /// Severity of a recording-overlay notice. One icon rule for every notice:
 /// info is a gray info symbol, warning an orange triangle, error a red circle.
 /// Each level also has a distinct symbol shape, so it never relies on color
-/// alone (Differentiate Without Color).
-enum RecordingNoticeSeverity: Equatable, CaseIterable {
-    /// Something the user may want to know; recording is unaffected.
-    case info
-    /// Recording continues, but something needs attention.
-    case warning
-    /// Recording stopped or an operation failed.
-    case error
-
-    var symbolName: String {
-        switch self {
-        case .info:
-            return "info.circle.fill"
-        case .warning:
-            return "exclamationmark.triangle.fill"
-        case .error:
-            return "exclamationmark.circle.fill"
-        }
-    }
-
+/// alone (Differentiate Without Color). The levels and symbols are shared
+/// (QuillAudioLevelCore); the overlay picks the colors.
+extension RecordingNoticeSeverity {
     func tint(increasedContrast: Bool) -> Color {
         switch self {
         case .info:

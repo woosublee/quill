@@ -115,45 +115,6 @@ extension Array where Element == GoogleCalendarInfo {
     }
 }
 
-struct CalendarEvent: Identifiable, Equatable {
-    let id: String
-    let calendarID: String
-    let title: String
-    let start: Date
-    let end: Date
-    let isAllDay: Bool
-    let attendees: [CalendarEventAttendee]
-    let provider: CalendarProvider
-
-    init(
-        id: String,
-        calendarID: String,
-        title: String,
-        start: Date,
-        end: Date,
-        isAllDay: Bool,
-        attendees: [CalendarEventAttendee],
-        provider: CalendarProvider = .google
-    ) {
-        self.id = id
-        self.calendarID = calendarID
-        self.title = title
-        self.start = start
-        self.end = end
-        self.isAllDay = isAllDay
-        self.attendees = attendees
-        self.provider = provider
-    }
-
-    var hasUsableTitle: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    func match(accountID: String?, source: CalendarMatchSource, titleState: CalendarTitleState) -> CalendarEventMatch {
-        CalendarEventMatch(accountID: accountID, calendarID: calendarID, eventID: id, title: title, start: start, end: end, attendees: attendees, matchSource: source, titleState: titleState, provider: provider)
-    }
-}
-
 enum GoogleCalendarHealthStatus: String, Codable, Equatable {
     case unknown
     case healthy
@@ -372,13 +333,5 @@ struct GoogleCalendarOAuthConfiguration: Equatable {
 
     var isConfigured: Bool {
         !clientID.isEmpty
-    }
-}
-
-extension CalendarEvent {
-    /// A timed, titled event the person has not declined.
-    var isMeetingCandidate: Bool {
-        guard !isAllDay, hasUsableTitle, end > start else { return false }
-        return !attendees.contains { $0.isSelf && $0.responseStatus == "declined" }
     }
 }

@@ -452,8 +452,11 @@ struct MeetingSummaryUIContractTests {
             "actionTitleOverride: summaryAction.actionTitleOverride",
             "isSummaryIssueBannerDismissed = true",
             "effectiveEvidenceVerification == .unverified",
-            "Some evidence could not be verified.",
-            "Transcript changed after this summary was generated.",
+            // The kinds, order, images, and copy come from the shared table
+            // (NoteSummaryNoticeTests pins them).
+            "NoteSummaryNotice.notices(",
+            "kind.titleKey",
+            "kind.detailKey",
             "QuillStatusBanner(",
             "onDismiss: {",
             "QuillBannerExpansion(",
@@ -468,13 +471,13 @@ struct MeetingSummaryUIContractTests {
         // Most important first: a failed attempt, then a stale transcript,
         // then unverified evidence, then availability.
         let order = [
-            "kinds.append(.failure)",
-            "kinds.append(.stale)",
-            "kinds.append(.unverifiedEvidence)",
-            "kinds.append(.featureDisabled)"
+            "hasCurrentFailure:",
+            "isStale:",
+            "isUnverifiedEvidence:",
+            "setting: setting"
         ].map { marker -> String.Index in
             guard let range = notices.range(of: marker) else {
-                preconditionFailure("Missing summary notice: \(marker)")
+                preconditionFailure("Missing summary notice input: \(marker)")
             }
             return range.lowerBound
         }

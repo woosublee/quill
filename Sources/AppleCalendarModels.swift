@@ -44,48 +44,6 @@ extension Array where Element == AppleCalendarInfo {
     }
 }
 
-enum AppleParticipantResponse {
-    case accepted
-    case declined
-    case tentative
-    case pending
-    case unknown
-}
-
-/// EventKit-free copy of an `EKParticipant`, so attendee mapping is testable.
-struct AppleParticipantData {
-    let name: String?
-    let url: URL?
-    let response: AppleParticipantResponse
-    let isOptional: Bool
-    let isCurrentUser: Bool
-
-    /// Uses Google's response strings so the reminder rules apply unchanged.
-    func attendee() -> CalendarEventAttendee {
-        let email: String? = {
-            guard let url, url.scheme?.lowercased() == "mailto",
-                  let address = URLComponents(url: url, resolvingAgainstBaseURL: false)?.path,
-                  !address.isEmpty else { return nil }
-            return address
-        }()
-        let status: String? = switch response {
-        case .accepted: "accepted"
-        case .declined: "declined"
-        case .tentative: "tentative"
-        case .pending: "needsAction"
-        case .unknown: nil
-        }
-        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return CalendarEventAttendee(
-            displayName: (trimmedName?.isEmpty ?? true) ? nil : trimmedName,
-            email: email,
-            responseStatus: status,
-            isOptional: isOptional,
-            isSelf: isCurrentUser
-        )
-    }
-}
-
 enum AppleCalendarRowState: Equatable {
     case notConnected
     case needsAccess

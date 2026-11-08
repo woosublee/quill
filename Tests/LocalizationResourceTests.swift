@@ -3,6 +3,7 @@ import QuillUserIssueCore
 import QuillNoteUI
 import QuillProviderCore
 import QuillNoteCore
+import QuillNoteSyncCore
 
 @main
 struct LocalizationResourceTests {
@@ -42,6 +43,7 @@ struct LocalizationResourceTests {
         try testSharedSelectionKeysAreInTheCatalog(strings)
         try testSharedDeletionAndExportKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
+        try testSharedSummaryNoticeKeysAreInTheCatalog(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -427,6 +429,22 @@ struct LocalizationResourceTests {
         }.sorted()
         guard missing.isEmpty else {
             throw TestFailure("Shared selection keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The saved summary's notices read their titles and details from the
+    /// shared table (#697), so every key must be translated here.
+    private static func testSharedSummaryNoticeKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = Set(NoteSummaryNotice.allCases.flatMap { [$0.titleKey, $0.detailKey].compactMap { $0 } })
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }.sorted()
+        guard missing.isEmpty else {
+            throw TestFailure("Shared summary notice keys missing from the catalog: \(missing)")
         }
     }
 

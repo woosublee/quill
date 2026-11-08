@@ -823,7 +823,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/MeetingSummaryUIContractTests
 	@$(TEST_BUILD_DIR)/NoteToolbarStateTests
 	@$(TEST_BUILD_DIR)/PostProcessingStopSwitchTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o $(TEST_BUILD_DIR)/CalendarEventMatcherTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/CalendarIntegrationModels.swift Tests/CalendarEventMatcherTests.swift -o $(TEST_BUILD_DIR)/CalendarEventMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o $(TEST_BUILD_DIR)/ShortcutMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o $(TEST_BUILD_DIR)/ShortcutCaptureKeyHandlingTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/ShortcutValidationMessages.swift Tests/ShortcutValidationMessagesTests.swift -o $(TEST_BUILD_DIR)/ShortcutValidationMessagesTests
@@ -835,9 +835,11 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AppName.swift Sources/ShortcutCore/DictationShortcutSessionController.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/ShortcutCore/ShortcutModels.swift Tests/ShortcutCoreTests.swift -o $(TEST_BUILD_DIR)/ShortcutCoreTests
 	@$(TEST_BUILD_DIR)/ShortcutCoreTests
 	@$(TEST_BUILD_DIR)/CalendarEventMatcherTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/CalendarEventMerger.swift Sources/AppleCalendarModels.swift Sources/SVGPath.swift Sources/GoogleLogoMark.swift Tests/CalendarSourcesTests.swift -o $(TEST_BUILD_DIR)/CalendarSourcesTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/CalendarRecordingReminderPlannerTests.swift -o $(TEST_BUILD_DIR)/CalendarRecordingReminderPlannerTests
+	@$(TEST_BUILD_DIR)/CalendarRecordingReminderPlannerTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/AppleCalendarModels.swift Sources/SVGPath.swift Sources/GoogleLogoMark.swift Tests/CalendarSourcesTests.swift -o $(TEST_BUILD_DIR)/CalendarSourcesTests
 	@$(TEST_BUILD_DIR)/CalendarSourcesTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/AudioImportCalendar.swift Tests/AudioImportCalendarTests.swift -o $(TEST_BUILD_DIR)/AudioImportCalendarTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/AudioImportCalendar.swift Tests/AudioImportCalendarTests.swift -o $(TEST_BUILD_DIR)/AudioImportCalendarTests
 	@$(TEST_BUILD_DIR)/AudioImportCalendarTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/RecentlyDeletedPolicy.swift Tests/RecentlyDeletedCoreTests.swift -o $(TEST_BUILD_DIR)/RecentlyDeletedCoreTests
 	@$(TEST_BUILD_DIR)/RecentlyDeletedCoreTests
@@ -885,6 +887,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteDeletionConfirmationTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteDetailSharedPiecesTests.swift -o $(TEST_BUILD_DIR)/NoteDetailSharedPiecesTests
 	@$(TEST_BUILD_DIR)/NoteDetailSharedPiecesTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteSummaryNoticeTests.swift -o $(TEST_BUILD_DIR)/NoteSummaryNoticeTests
+	@$(TEST_BUILD_DIR)/NoteSummaryNoticeTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteMachineStatusTests.swift -o $(TEST_BUILD_DIR)/NoteMachineStatusTests
 	@$(TEST_BUILD_DIR)/NoteMachineStatusTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteListRowStateTests.swift -o $(TEST_BUILD_DIR)/NoteListRowStateTests
@@ -1011,6 +1015,8 @@ _test-recording: $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/AudioImportConversionServiceTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/AudioWaveformHeightsTests.swift -o $(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@$(TEST_BUILD_DIR)/AudioWaveformHeightsTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/RecordingInputHintStateTests.swift -o $(TEST_BUILD_DIR)/RecordingInputHintStateTests
+	@$(TEST_BUILD_DIR)/RecordingInputHintStateTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AudioInputDevice.swift Tests/SystemAudioAppStateRoutingTests.swift -o $(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
 	@$(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
 _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests $(TEST_BUILD_DIR)/NoteSyncCloudRecordTests $(TEST_BUILD_DIR)/NoteSyncControllerTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
@@ -1081,7 +1087,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/LLMAPITransportTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/OverlayScreenGeometry.swift Tests/OverlayScreenGeometryTests.swift -o $(TEST_BUILD_DIR)/OverlayScreenGeometryTests
 	@$(TEST_BUILD_DIR)/OverlayScreenGeometryTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/AccessibilityDisplayPreferences.swift Sources/RecordingOverlay.swift Sources/RecordingInputHints.swift Tests/RecordingOverlayGeometryTests.swift -o $(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/AccessibilityDisplayPreferences.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o $(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
 	@$(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/UpstreamMergeBehaviorTests.swift -o $(TEST_BUILD_DIR)/UpstreamMergeBehaviorTests
 	@$(TEST_BUILD_DIR)/UpstreamMergeBehaviorTests

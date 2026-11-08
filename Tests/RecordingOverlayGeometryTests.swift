@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import QuillAudioLevelCore
 import SwiftUI
 import QuillDesignTokens
 
@@ -595,7 +596,9 @@ struct RecordingOverlayGeometryTests {
         let strings = catalog?["strings"] as? [String: Any] ?? [:]
         let expectedKorean = [
             RecordingInputHint.quiet.messageKey: "말하고 계신가요? 마이크에서 소리가 들리지 않아요.",
-            RecordingInputHint.inputLost.messageKey: "마이크 입력이 끊겼어요. 연결을 확인하세요."
+            RecordingInputHint.inputLost.messageKey: "마이크 입력이 끊겼어요. 연결을 확인하세요.",
+            // Shared with the iPhone, which is the only app that shows it.
+            RecordingInputHint.storageLow.messageKey: "저장 공간이 거의 없어요. 공간이 다 차기 전에 녹음을 저장해요."
         ]
         for (key, korean) in expectedKorean {
             let entry = strings[key] as? [String: Any]
