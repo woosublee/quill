@@ -2572,11 +2572,6 @@ private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
 
 // MARK: - Note Detail View
 
-enum NoteContentMode: Hashable {
-    case transcript
-    case summary
-}
-
 private struct NoteDetailView: View {
     let item: PipelineHistoryItem
     let isSearchActive: Bool
@@ -3622,20 +3617,11 @@ private struct NoteDetailView: View {
     /// holds, and once dismissed they stay closed for this summary on every
     /// device.
     private func syncedSummaryNotice(_ kind: SummaryNoticeKind) -> NoteNoticeDismissals.Notice? {
-        switch kind {
-        case .failure:
-            return currentSummaryAttempt.map { .summaryFailure(attemptAt: $0.occurredAt) }
-        case .stale:
-            return .summaryStale(sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item))
-        case .unverifiedEvidence:
-            return summaryEnvelope.map { .summaryUnverifiedEvidence(generatedAt: $0.generatedAt) }
-        case .featureDisabled:
-            return summaryEnvelope.map { .summaryFeatureDisabled(generatedAt: $0.generatedAt) }
-        case .modelUnavailable:
-            return summaryEnvelope.map { .summaryModelUnavailable(generatedAt: $0.generatedAt) }
-        case .unchanged:
-            return nil
-        }
+        kind.syncedDismissal(
+            failedAttemptAt: currentSummaryAttempt?.occurredAt,
+            sourceFingerprint: appState.meetingSummarySourceFingerprint(for: item),
+            summaryGeneratedAt: summaryEnvelope?.generatedAt
+        )
     }
 
     private func isSummaryNoticeDismissed(_ kind: SummaryNoticeKind) -> Bool {
@@ -3658,27 +3644,23 @@ private struct NoteDetailView: View {
 
     private var visibleSummaryNotices: [SummaryNoticeKind] {
         guard let summaryEnvelope else { return [] }
-        var kinds: [SummaryNoticeKind] = []
-        // A same-result regeneration leads, like the transcript's.
-        if appState.unchangedMeetingSummaries[item.id]?.matches(
-            summaryGeneratedAt: summaryEnvelope.generatedAt
-        ) == true {
-            kinds.append(.unchanged)
+        let setting: NoteSummaryNotice.Setting
+        switch summaryAvailability {
+        case .featureDisabled: setting = .featureDisabled
+        case .modelUnavailable: setting = .modelUnavailable
+        default: setting = .ready
         }
-        if summaryFailureNoticePresentation != nil {
-            kinds.append(.failure)
-        }
-        if isSummaryStale {
-            kinds.append(.stale)
-        }
-        if summaryEnvelope.effectiveEvidenceVerification == .unverified {
-            kinds.append(.unverifiedEvidence)
-        }
-        if summaryAvailability == .featureDisabled {
-            kinds.append(.featureDisabled)
-        } else if summaryAvailability == .modelUnavailable {
-            kinds.append(.modelUnavailable)
-        }
+        let kinds = NoteSummaryNotice.notices(
+            hasSummary: true,
+            // A same-result regeneration leads, like the transcript's.
+            showsUnchanged: appState.unchangedMeetingSummaries[item.id]?.matches(
+                summaryGeneratedAt: summaryEnvelope.generatedAt
+            ) == true,
+            hasCurrentFailure: summaryFailureNoticePresentation != nil,
+            isStale: isSummaryStale,
+            isUnverifiedEvidence: summaryEnvelope.effectiveEvidenceVerification == .unverified,
+            setting: setting
+        )
         return kinds.filter { kind in
             kind == .unchanged || kind == .failure || !isSummaryNoticeDismissed(kind)
         }
@@ -3717,20 +3699,7 @@ private struct NoteDetailView: View {
         _ kind: SummaryNoticeKind,
         expansion: QuillBannerExpansion?
     ) -> some View {
-        switch kind {
-        case .unchanged:
-            QuillStatusBanner(
-                systemImage: "info.circle",
-                tint: .secondary,
-                title: localizedCatalogString("The new summary is the same as the current one."),
-                detail: localizedCatalogString("The summary text didn't change."),
-                expansion: expansion,
-                onDismiss: {
-                    areSummaryNoticesExpanded = false
-                    appState.dismissUnchangedMeetingSummaryNotice(noteID: item.id)
-                }
-            )
-        case .failure:
+        if kind == .failure {
             if let presentation = summaryFailureNoticePresentation {
                 let summaryAction = summaryIssueAction(for: presentation)
                 QuillUserIssueView(
@@ -3748,63 +3717,30 @@ private struct NoteDetailView: View {
                     expansion: expansion
                 )
             }
-        case .stale:
-            summaryStatusNotice(
-                kind,
-                systemImage: "exclamationmark.triangle.fill",
-                tint: QuillStatusBanner.warningTint,
-                title: "Transcript changed after this summary was generated.",
-                detail: "Regenerate to align the draft with the current transcript.",
-                expansion: expansion
-            )
-        case .unverifiedEvidence:
-            summaryStatusNotice(
-                kind,
-                systemImage: "exclamationmark.triangle.fill",
-                tint: QuillStatusBanner.warningTint,
-                title: "Some evidence could not be verified.",
-                detail: "Review the summary before sharing it.",
-                expansion: expansion
-            )
-        case .featureDisabled:
-            summaryStatusNotice(
-                kind,
-                systemImage: "pause.circle",
-                tint: .secondary,
-                title: "Meeting Summary is off",
-                detail: "This saved summary is still available. Turn the feature on to regenerate it.",
-                expansion: expansion
-            )
-        case .modelUnavailable:
-            summaryStatusNotice(
-                kind,
-                systemImage: "exclamationmark.circle",
-                tint: .secondary,
-                title: "Summary model is unavailable.",
-                detail: "This saved summary remains available for review and copying.",
-                expansion: expansion
+        } else {
+            QuillStatusBanner(
+                systemImage: kind.systemImage,
+                tint: summaryNoticeTint(kind),
+                title: localizedCatalogString(kind.titleKey ?? ""),
+                detail: localizedCatalogString(kind.detailKey ?? ""),
+                expansion: expansion,
+                onDismiss: {
+                    if kind == .unchanged {
+                        areSummaryNoticesExpanded = false
+                        appState.dismissUnchangedMeetingSummaryNotice(noteID: item.id)
+                    } else {
+                        dismissSummaryNotice(kind)
+                    }
+                }
             )
         }
     }
 
-    private func summaryStatusNotice(
-        _ kind: SummaryNoticeKind,
-        systemImage: String,
-        tint: Color,
-        title: String,
-        detail: String,
-        expansion: QuillBannerExpansion?
-    ) -> some View {
-        QuillStatusBanner(
-            systemImage: systemImage,
-            tint: tint,
-            title: localizedCatalogString(title),
-            detail: localizedCatalogString(detail),
-            expansion: expansion,
-            onDismiss: {
-                dismissSummaryNotice(kind)
-            }
-        )
+    private func summaryNoticeTint(_ kind: SummaryNoticeKind) -> Color {
+        switch kind.tint {
+        case .warning: return QuillStatusBanner.warningTint
+        case .secondary: return .secondary
+        }
     }
 
     private func summaryFailureContent(
@@ -4906,15 +4842,10 @@ struct NoteAudioPlayerView: View {
         Self.formatDuration(t)
     }
 
-    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar.
+    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar and
+    /// the iPhone (QuillNoteCore).
     static func formatDuration(_ t: TimeInterval) -> String {
-        guard t.isFinite else { return "0:00" }
-        let total = Int(t)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 { return String(format: "%d:%02d:%02d", h, m, s) }
-        return String(format: "%d:%02d", m, s)
+        NoteAudioDuration.text(t)
     }
 }
 
