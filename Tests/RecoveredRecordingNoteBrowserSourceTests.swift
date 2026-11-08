@@ -244,8 +244,9 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(!metaTag.contains("Button("), "Metadata tags are plain text, not no-op buttons")
         precondition(metaTag.contains(".help(tooltip)"))
         precondition(!source.contains("Button(action: {})"), "No no-op buttons in the Note Browser")
-        precondition(source.contains(".accessibilityLabel(Text(verbatim: statusBadgesSpokenText))"))
-        precondition(source.contains("\"Transcription language: %@\""))
+        precondition(source.contains(".accessibilityLabel(Text(verbatim: Self.spokenText(tags)))"))
+        // The tags and their spoken words come from the shared NoteMetaTags.
+        precondition(source.contains("NoteMetaTags.Spoken.transcriptionLanguageFormatKey"))
         precondition(source.contains(".accessibilityLabel(Text(\"Recording recovered after an unexpected shutdown\"))"))
         precondition(source.contains("textView.setAccessibilityLabel(localizedCatalogString(\"Note Title\"))"))
         precondition(source.contains("textView.setAccessibilityPlaceholderValue(placeholder)"))
@@ -359,11 +360,17 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         precondition(source.contains("item.machineStatus == .audioOnly"))
         precondition(
-            source.components(separatedBy: "localizedCatalogString(\"Audio only\")").count >= 3
+            source.components(separatedBy: "localizedCatalogString(\"Audio only\")").count >= 2
         )
         precondition(!source.contains("Text(\"Audio only\")"))
         precondition(source.contains("Text(\"Audio recording\")"))
-        precondition(source.contains("help: \"Audio-only recording\""))
+        // The meta line's "Audio only" tag and its "Audio-only recording"
+        // tooltip come from the shared NoteMetaTags (NoteMetaTagsTests).
+        precondition(source.contains("isAudioOnly: isAudioOnly,"))
+        let badges = block(source, from: "private var statusBadges: some View {", to: "private var metaDot: some View {")
+        precondition(badges.contains("help: LocalizedStringKey(tag.helpKey)"), "each tag keeps its tooltip")
+        precondition(badges.contains("case .key(let key): return localizedCatalogString(key)"), "\"Audio only\" is translated")
+        precondition(badges.contains("localizedCatalogFormat(NoteMetaTags.Spoken.transcriptionLanguageFormatKey, code)"))
         precondition(source.contains("Saved without transcription. You can transcribe it later."))
         // The toolbar's Transcribe label comes from the shared table (#697).
         let sharedWorkStatus = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatus.swift", encoding: .utf8)) ?? ""

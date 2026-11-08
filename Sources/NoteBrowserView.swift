@@ -3190,73 +3190,57 @@ private struct NoteDetailView: View {
         // state already says what happened.
     }
 
+    /// The shared tag rules (QuillNoteCore), the same as the iPhone's.
+    private var metaTags: NoteMetaTags {
+        NoteMetaTags(
+            isAudioOnly: isAudioOnly,
+            usedLocalTranscription: item.usedLocalTranscription,
+            usedContextCapture: item.usedContextCapture,
+            usedPostProcessing: item.usedPostProcessing,
+            languageCode: item.transcriptionLanguageCode
+        )
+    }
+
     @ViewBuilder
     private var statusBadges: some View {
+        let tags = metaTags.tags
         HStack(spacing: 5) {
-            if isAudioOnly {
+            ForEach(Array(tags.enumerated()), id: \.element.helpKey) { index, tag in
+                if index > 0 {
+                    metaDot
+                }
                 metaTag(
-                    localizedCatalogString("Audio only"),
-                    active: true,
-                    help: "Audio-only recording"
-                )
-            } else {
-                metaTag(
-                    item.usedLocalTranscription ? "LOCAL" : "CLOUD",
-                    active: item.usedLocalTranscription,
-                    help: item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-                )
-            }
-            metaDot
-            metaTag(
-                item.usedContextCapture ? "CTX" : "NO CTX",
-                active: item.usedContextCapture,
-                help: item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
-            )
-            metaDot
-            metaTag(
-                item.usedPostProcessing ? "LLM" : "NO LLM",
-                active: item.usedPostProcessing,
-                help: item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
-            )
-            if item.transcriptionLanguageCode != "auto" {
-                metaDot
-                metaTag(
-                    item.transcriptionLanguageCode.uppercased(),
-                    active: true,
-                    help: "Transcription language"
+                    metaTagText(tag.label),
+                    active: tag.isActive,
+                    help: LocalizedStringKey(tag.helpKey)
                 )
             }
         }
         .fixedSize(horizontal: true, vertical: false)
         // VoiceOver reads the row once, in words, not the abbreviations.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: statusBadgesSpokenText))
+        .accessibilityLabel(Text(verbatim: Self.spokenText(tags)))
+    }
+
+    private func metaTagText(_ label: NoteMetaTags.Label) -> String {
+        switch label {
+        case .verbatim(let text): return text
+        case .key(let key): return localizedCatalogString(key)
+        }
     }
 
     /// The metadata row spelled out, such as "Local transcription, Context
     /// capture disabled, LLM post-processing enabled, Transcription language: KO".
-    private var statusBadgesSpokenText: String {
-        var parts: [String] = []
-        if isAudioOnly {
-            parts.append(localizedCatalogString("Audio-only recording"))
-        } else {
-            parts.append(localizedCatalogString(
-                item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-            ))
+    private static func spokenText(_ tags: [NoteMetaTags.Tag]) -> String {
+        tags.map { tag in
+            switch tag.spoken {
+            case .key(let key):
+                return localizedCatalogString(key)
+            case .transcriptionLanguage(let code):
+                return localizedCatalogFormat(NoteMetaTags.Spoken.transcriptionLanguageFormatKey, code)
+            }
         }
-        parts.append(localizedCatalogString(
-            item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
-        ))
-        parts.append(localizedCatalogString(
-            item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
-        ))
-        if item.transcriptionLanguageCode != "auto" {
-            parts.append(localizedCatalogFormat(
-                "Transcription language: %@",
-                item.transcriptionLanguageCode.uppercased()
-            ))
-        }
-        return parts.joined(separator: ", ")
+        .joined(separator: ", ")
     }
 
     private var metaDot: some View {
