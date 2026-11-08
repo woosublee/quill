@@ -477,3 +477,23 @@ public struct SummarySourceData: Codable, Equatable, Sendable {
         self.calendar = calendar
     }
 }
+
+extension MeetingSummaryContent {
+    /// The summary text a person can read on the Summary tab, joined with
+    /// line breaks for search, the same on the Mac and the iPhone (#697):
+    /// the overview, key points, decisions, each action item's task, owner,
+    /// and due date (done ones too), then open questions. Source quotes are
+    /// left out.
+    public var searchableText: String {
+        var parts = [overview.text]
+        parts += keyPoints.map(\.text)
+        parts += decisions.map(\.text)
+        for item in actionItems {
+            parts.append(item.task)
+            if let owner = item.owner { parts.append(owner) }
+            if let dueDate = item.dueDate { parts.append(dueDate) }
+        }
+        parts += openQuestions.map(\.text)
+        return parts.joined(separator: "\n")
+    }
+}

@@ -22,6 +22,7 @@ struct MeetingSummaryEditingTests {
         try testUneditedSummaryCannotRevert()
         try testEditedSummaryRoundTrips()
         try testVisibleTextIgnoresIDsLinksAndCompletion()
+        try testSearchableTextOrderIsPinned()
         print("MeetingSummaryEditingTests passed")
     }
 
@@ -222,6 +223,32 @@ struct MeetingSummaryEditingTests {
     }
 
     // MARK: Fixtures
+
+    /// The search text both apps read (#697): overview, key points,
+    /// decisions, each action item's task, owner, and due date (done ones
+    /// too), then open questions, one per line. Quotes are left out.
+    private static func testSearchableTextOrderIsPinned() throws {
+        let content = MeetingSummaryContent(
+            overview: MeetingSummaryEvidenceText(text: "Overview", sourceQuotes: ["Quote A."]),
+            keyPoints: [MeetingSummaryPoint(id: pointID(1), text: "Point", sourceQuote: "Quote B.")],
+            decisions: [MeetingSummaryPoint(id: pointID(2), text: "Decision", sourceQuote: nil)],
+            actionItems: [
+                MeetingSummaryActionItem(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000051")!,
+                    task: "Task one", owner: "Owner", dueDate: "Friday", sourceQuote: "Quote C.", isCompleted: true
+                ),
+                MeetingSummaryActionItem(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000052")!,
+                    task: "Task two", owner: nil, dueDate: nil, sourceQuote: nil, isCompleted: false
+                ),
+            ],
+            openQuestions: [MeetingSummaryPoint(id: pointID(3), text: "Question", sourceQuote: nil)]
+        )
+        try expect(
+            content.searchableText == "Overview\nPoint\nDecision\nTask one\nOwner\nFriday\nTask two\nQuestion",
+            "search text order: \(content.searchableText)"
+        )
+    }
 
     private static func envelope(completed: Bool = false) -> MeetingSummaryEnvelope {
         MeetingSummaryEnvelope(
