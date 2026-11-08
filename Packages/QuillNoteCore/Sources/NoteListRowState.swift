@@ -13,6 +13,15 @@ public enum NoteListRowStatus: Equatable, Sendable {
         }
     }
 
+    /// Whether a note can join the list's selection (the Mac's rule for both
+    /// apps, the owner's 2026-11-08 decision r4): not while it records or is
+    /// transcribed or post-processed, while its summary is being made, or
+    /// while its recording is being recovered, so a bulk delete never skips
+    /// a busy note silently.
+    public func joinsSelection(isMakingSummary: Bool, isRecoveringRecording: Bool = false) -> Bool {
+        isBulkSelectable && !isMakingSummary && !isRecoveringRecording
+    }
+
     /// A note's row status from its synced post-processing status and the
     /// work running for it. `isRetrying` wins over everything: the note is
     /// being transcribed again. `isCloudTranscriptionStopped` marks a
