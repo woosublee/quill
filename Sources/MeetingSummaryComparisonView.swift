@@ -1,8 +1,10 @@
 import SwiftUI
 import QuillDesignTokens
+import QuillNoteUI
 import QuillSummaryFormatCore
 
-/// The wording for one comparison: a summary or a transcript.
+/// The wording for one comparison: a summary or a transcript, from the
+/// shared keys (`NoteComparisonCopy`, #697).
 struct ComparisonLabels {
     let prompt: LocalizedStringKey
     let keepCurrent: LocalizedStringKey
@@ -11,6 +13,15 @@ struct ComparisonLabels {
     let newTag: LocalizedStringKey
     /// A note next to the current side's tag, such as "Edited".
     var currentNote: LocalizedStringKey?
+
+    init(_ copy: NoteComparisonCopy, currentNote: String? = nil) {
+        prompt = LocalizedStringKey(copy.prompt)
+        keepCurrent = LocalizedStringKey(copy.keepCurrent)
+        useNew = LocalizedStringKey(copy.useNew)
+        currentTag = LocalizedStringKey(copy.currentTag)
+        newTag = LocalizedStringKey(copy.newTag)
+        self.currentNote = currentNote.map { LocalizedStringKey($0) }
+    }
 }
 
 /// How the chosen side ends up, so it lands where the tab then shows it.
@@ -27,6 +38,8 @@ struct SideBySideChoiceView<Side: View, ChosenHeader: View>: View {
     enum Kind {
         case current
         case candidate
+
+        var side: NoteComparisonSide { self == .current ? .current : .candidate }
     }
 
     let labels: ComparisonLabels
@@ -47,7 +60,7 @@ struct SideBySideChoiceView<Side: View, ChosenHeader: View>: View {
         case useNew
     }
 
-    private static var cardGap: CGFloat { 16 }
+    private static var cardGap: CGFloat { NoteComparisonCardStyle.gap }
     private static var sideMargin: CGFloat { 28 }
     private static var pushDuration: Double { 0.55 }
 
@@ -149,24 +162,21 @@ struct SideBySideChoiceView<Side: View, ChosenHeader: View>: View {
             }
             side(kind, isChosen)
         }
-        .padding(isChosen ? 0 : 16)
+        .padding(isChosen ? 0 : NoteComparisonCardStyle.padding)
         .frame(width: max(contentWidth, 0), alignment: .leading)
         .background {
             if !isChosen {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(kind == .current
-                          ? Color.primary.opacity(0.035)
-                          : Color.clear)
+                RoundedRectangle(cornerRadius: NoteComparisonCardStyle.cornerRadius)
+                    .fill(Color.primary.opacity(NoteComparisonCardStyle.fillOpacity(kind.side)))
             }
         }
         .overlay {
             if !isChosen {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: NoteComparisonCardStyle.cornerRadius)
                     .strokeBorder(
-                        kind == .current
-                            ? Color.primary.opacity(0.1)
-                            : Color.accentColor.opacity(0.55),
-                        lineWidth: kind == .current ? 0.5 : 1.5
+                        (kind == .current ? Color.primary : Color.accentColor)
+                            .opacity(NoteComparisonCardStyle.strokeOpacity(kind.side)),
+                        lineWidth: NoteComparisonCardStyle.strokeWidth(kind.side)
                     )
             }
         }
@@ -179,9 +189,8 @@ struct SideBySideChoiceView<Side: View, ChosenHeader: View>: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 1)
                 .background(
-                    kind == .current
-                        ? Color.primary.opacity(0.07)
-                        : Color.accentColor.opacity(0.14),
+                    (kind == .current ? Color.primary : Color.accentColor)
+                        .opacity(NoteComparisonCardStyle.tagFillOpacity(kind.side)),
                     in: Capsule()
                 )
             if kind == .current, let note = labels.currentNote {
@@ -230,12 +239,8 @@ struct MeetingSummaryComparisonView: View {
     var body: some View {
         SideBySideChoiceView(
             labels: ComparisonLabels(
-                prompt: "Choose the summary to use",
-                keepCurrent: "Keep Current Summary",
-                useNew: "Use New Summary",
-                currentTag: "Current Summary",
-                newTag: "New Summary",
-                currentNote: current.isEdited ? "Edited" : nil
+                .summary,
+                currentNote: current.isEdited ? NoteComparisonCopy.editedNote : nil
             ),
             landing: ComparisonLanding(
                 width: { total in
@@ -285,13 +290,7 @@ struct TranscriptComparisonView: View {
 
     var body: some View {
         SideBySideChoiceView(
-            labels: ComparisonLabels(
-                prompt: "Choose the transcript to use",
-                keepCurrent: "Keep Current Transcript",
-                useNew: "Use New Transcript",
-                currentTag: "Current Transcript",
-                newTag: "New Transcript"
-            ),
+            labels: ComparisonLabels(.transcript),
             landing: ComparisonLanding(
                 width: { total in max(total - 80, 0) },
                 topPadding: 20
