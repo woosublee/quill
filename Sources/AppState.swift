@@ -2501,15 +2501,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     // MARK: Warning banner dismissal (per note + issue code, invalidated by retry)
 
-    /// A notice above a saved summary that can be dismissed.
-    enum SummaryNoticeKind: String, Hashable {
-        case unchanged
-        case failure
-        case stale
-        case unverifiedEvidence
-        case featureDisabled
-        case modelUnavailable
-    }
+    /// A notice above a saved summary that can be dismissed: the shared
+    /// table (QuillNoteSyncCore), the same as the iPhone's. Its raw values
+    /// are part of the saved dismissal keys.
+    typealias SummaryNoticeKind = NoteSummaryNotice
 
     // A per-note counter bumped every time that note is retried. Dismissals
     // are recorded against the generation they were dismissed at, so a later
