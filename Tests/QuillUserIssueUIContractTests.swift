@@ -50,7 +50,6 @@ struct QuillUserIssueUIContractTests {
             // Suggestion and diagnostics live behind the shared info
             // popover, the same one the iPhone shows (#234).
             "NoteBannerDetailsButton(details: details)",
-            "struct QuillInfoNotice: View",
             // The button keys come from the shared core (#191).
             "actionTitleOverride ?? presentation.recoveryAction.titleKey"
         ] {
@@ -120,9 +119,6 @@ struct QuillUserIssueUIContractTests {
                 "RoundedRectangle(cornerRadius: QuillRadius.radius6)",
                 ".strokeBorder(QuillColor.hairline.color(for: colorScheme), lineWidth: 1)",
             ]),
-            ("info notice", source, "struct QuillInfoNotice: View", "/// The text the shared banner", [
-                ".quillTextStyle(.callout)", "HStack(spacing: QuillSpacing.space6)",
-            ]),
             ("status banner", shared, "public struct NoteBanner: View", "/// The \"+N\" / \"Show Less\" pill", [
                 ".quillTextStyle(.bannerTitle)", ".quillTextStyle(.callout)", ".noteBannerBackground()",
             ]),
@@ -153,14 +149,23 @@ struct QuillUserIssueUIContractTests {
         _ issueView: String,
         _ noteBrowser: String
     ) throws {
-        let disc = block(noteBrowser, from: "private struct EmptyStateDisc: View {", to: "private struct RecordingElapsedTitle: View {")
+        // The disc, symbol, and text come from the shared NoteEmptyState
+        // (QuillNoteUI), the same on every device (#697 e1).
+        let shared = try String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteEmptyState.swift", encoding: .utf8)
         for marker in [
-            "var size: CGFloat = QuillControlSize.emptyDisc",
+            "QuillControlSize.emptyDiscLarge : QuillControlSize.emptyDisc",
+            "QuillControlSize.emptyGlyphLarge : QuillControlSize.emptyGlyph",
             ".fill(QuillColor.fillEmptyDisc.color(for: colorScheme))",
             "Circle().stroke(QuillColor.hairlineStrong.color(for: colorScheme), lineWidth: 1)",
             "style: StrokeStyle(lineWidth: 1, dash: [4])",
+            "case .hero: return .emptyHeroTitle",
+            "case .standard: return .emptyTitle",
+            "case .quiet: return .emptyQuietTitle",
+            ".quillTextStyle(style == .hero ? .emptyHeroDetail : .emptyDetail)",
+            "VStack(spacing: style == .standard ? QuillSpacing.space12 : QuillSpacing.space14)",
+            ".frame(maxWidth: style == .standard ? QuillControlSize.emptyDetailWidth : nil)",
         ] {
-            try expect(disc.contains(marker), "empty-state disc reads the token \(marker)")
+            try expect(shared.contains(marker), "the shared empty state reads the token \(marker)")
         }
         let states: [(name: String, source: String, from: String, to: String, markers: [String])] = [
             ("issue page", issueView, "private var fullView: some View {", "private var bannerView: some View {", [
@@ -173,15 +178,13 @@ struct QuillUserIssueUIContractTests {
                 ".quillTextStyle(.emptyDetail)", ".padding(.horizontal, QuillSpacing.space20)",
             ]),
             ("no search results", noteBrowser, "private var emptyDetailNoSearchResults: some View {", "private var emptyDetailNoSelection: some View {", [
-                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
-                "VStack(spacing: QuillSpacing.space12)",
+                "NoteEmptyState(", "style: .standard", "edge: .solid",
             ]),
             ("no selection", noteBrowser, "private var emptyDetailNoSelection: some View {", "private var emptyDetailNoRecordings: some View {", [
-                "EmptyStateDisc(edge: .solid)", ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
-                "VStack(spacing: QuillSpacing.space12)",
+                "NoteEmptyState(", "style: .standard", "edge: .solid",
             ]),
             ("no recordings", noteBrowser, "private var emptyDetailNoRecordings: some View {", "// MARK: - Horizontally Scrollable Title Field", [
-                "EmptyStateDisc(size: 96, edge: .dashed)", "VStack(spacing: QuillSpacing.space14)",
+                "NoteEmptyState(", "style: .hero", "edge: .dashed",
             ]),
             ("note empty content", noteBrowser, "private var emptyContentState: some View {", "private var emptyTranscriptPlaceholder: some View {", [
                 ".quillTextStyle(.emptyTitle)", ".quillTextStyle(.emptyDetail)",
@@ -192,7 +195,7 @@ struct QuillUserIssueUIContractTests {
                 ".quillTextStyle(.emptyDetail)", "VStack(spacing: QuillSpacing.space14)",
             ]),
             ("no content label", noteBrowser, "private var noContentLabel: some View {", "private func unrecoveredRecordingState(", [
-                "EmptyStateDisc(edge: .none)", "VStack(spacing: QuillSpacing.space14)",
+                "NoteEmptyState(", "style: .quiet", "edge: .none",
             ]),
         ]
         for state in states {
@@ -371,18 +374,15 @@ struct QuillUserIssueUIContractTests {
         )
         let warningBannerUsage = block(
             noteBrowser,
-            from: "!isWarningBannerDismissed,\n                   let warningPresentation",
-            to: "NoteTextView("
+            from: "case .warning:\n            if let warningPresentation {",
+            to: "private var suggestedCalendarTitleInfo"
         )
-        // #457: notices stay as they are while retranscribing, under the
-        // progress layer, instead of disappearing.
+        // #697 n2 (owner decision 2026-11-08, replacing #457): the notices
+        // describe the transcript being replaced, so none show while a
+        // retranscription or cleanup runs. The shared group decides it.
         try expect(
-            !warningBannerUsage.contains("!appState.retryingItemIDs.contains(item.id)"),
-            "previous warning stays visible while retranscription is in progress"
-        )
-        try expect(
-            warningBannerUsage.contains("let warningPresentation"),
-            "warning presentation is evaluated only after cheap visibility guards"
+            noteBrowser.contains("|| appState.postProcessingNoteIDs.contains(item.id)\n        let postProcessing: NoteTranscriptNotice.PostProcessing?\n        if isWorkRunning {"),
+            "notices hide while a retranscription or cleanup runs"
         )
         try expect(warningBannerUsage.contains("style: .warningBanner"), "sanity: this is the warning banner usage")
         try expect(warningBannerUsage.contains("onDismiss:"), "warning banner usage wires a dismiss handler")
@@ -390,7 +390,7 @@ struct QuillUserIssueUIContractTests {
         let errorCardUsage = block(
             noteBrowser,
             from: "if let issuePresentation {",
-            to: "EmptyStateDisc(edge: .none)"
+            to: "private var emptyTranscriptPlaceholder: some View {"
         )
         try expect(errorCardUsage.contains("QuillUserIssueView("), "sanity: this is the centered error card usage")
         try expect(!errorCardUsage.contains("onDismiss"), "centered error card usage never passes onDismiss")

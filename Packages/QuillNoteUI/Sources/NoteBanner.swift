@@ -203,7 +203,9 @@ public struct NoteBanner: View {
         // 7 is off the spacing scale (#736); it stays a literal for now.
         .padding(.vertical, hasSmallControl ? QuillSpacing.space6 : 7)
         .noteBannerBackground()
-        .help(Text(verbatim: detail))
+        // The title can be cut off in a narrow column; a banner without a
+        // detail shows the whole title instead.
+        .help(Text(verbatim: detail.isEmpty ? title : detail))
     }
 
     /// A 20 pt control (close or info) sets the banner's height, like the
