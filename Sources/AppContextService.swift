@@ -184,7 +184,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
     func collectContext() async -> AppContext {
         let contextSystemPrompt = resolveContextPrompt()
 
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+        guard !Task.isCancelled, let frontmostApp = NSWorkspace.shared.frontmostApplication else {
             return AppContext(
                 appName: nil,
                 bundleIdentifier: nil,
@@ -205,15 +205,19 @@ Return only two sentences, no labels, no markdown, no extra commentary.
 
         let windowTitle = focusedWindowTitle(from: appElement) ?? appName
         let selectedText = selectedText(from: appElement)
-        let screenshot = captureActiveWindowScreenshot(
-            processIdentifier: frontmostApp.processIdentifier,
-            appElement: appElement,
-            focusedWindowTitle: windowTitle
-        )
+        // Turning context off during a recording cancels this task: no
+        // screenshot is taken and no context request is sent after that.
+        let screenshot = captureScreenshotIfNotCancelled {
+            captureActiveWindowScreenshot(
+                processIdentifier: frontmostApp.processIdentifier,
+                appElement: appElement,
+                focusedWindowTitle: windowTitle
+            )
+        }
         let currentActivity: String
         let contextPrompt: String?
         let userIssueRecord: QuillUserIssueRecord?
-        if backendExecutor.isConfigured {
+        if !Task.isCancelled, backendExecutor.isConfigured {
             let inference = await inferActivityWithOutcome(
                 appName: appName,
                 bundleIdentifier: bundleIdentifier,
@@ -294,6 +298,15 @@ Return only two sentences, no labels, no markdown, no extra commentary.
             screenshotDataURL: screenshotDataURL,
             contextSystemPrompt: contextSystemPrompt
         ).result
+    }
+
+    func captureScreenshotIfNotCancelled(
+        using capture: () -> (dataURL: String?, mimeType: String?, error: String?)
+    ) -> (dataURL: String?, mimeType: String?, error: String?) {
+        guard !Task.isCancelled else {
+            return (nil, nil, "Context capture cancelled")
+        }
+        return capture()
     }
 
     private func inferActivityWithOutcome(

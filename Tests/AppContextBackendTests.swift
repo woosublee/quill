@@ -27,6 +27,8 @@ struct AppContextBackendTests {
         try testAppStatePersistsPostProcessingIssueBeforeContextIssue()
         try testStopTimeFallbackDistinguishesDisabledFromIncompleteCapture()
         try testResolveStoppedRecordingContextSanitizesUnusableCapture()
+        try await testCancellationSkipsScreenshotAfterMetadata()
+        try testTurningContextOffDropsTheRecordingsContext()
         try await testLocalFailureReturnsNilAndRecordsPrivateIssue()
         try await testLocalProcessExitRecordsDedicatedIssue()
         print("AppContextBackendTests passed")
@@ -946,6 +948,56 @@ struct AppContextBackendTests {
             throw AppContextBackendTestFailure("missing \(value)")
         }
         return range
+    }
+
+    /// Turning context off cancels the capture task. A cancellation that
+    /// arrives while metadata is read must skip the screenshot (upstream #341).
+    private static func testCancellationSkipsScreenshotAfterMetadata() async throws {
+        let service = AppContextService(apiKey: "")
+        let enabled = service.captureScreenshotIfNotCancelled {
+            ("synthetic-image", "image/jpeg", nil)
+        }
+        try expect(enabled.dataURL == "synthetic-image", "an uncancelled capture runs")
+
+        let task = Task {
+            var captureCalls = 0
+            // Cancellation arriving during a synchronous metadata read.
+            let collectMetadata = {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return "Synthetic window"
+            }
+            let windowTitle = collectMetadata()
+            let screenshot = service.captureScreenshotIfNotCancelled {
+                captureCalls += 1
+                return (windowTitle, "image/jpeg", nil)
+            }
+            return (captureCalls, screenshot)
+        }
+        let (captureCalls, screenshot) = await task.value
+        try expect(captureCalls == 0, "a cancelled capture takes no screenshot")
+        try expect(screenshot.dataURL == nil && screenshot.mimeType == nil, "and returns none")
+        try expect(screenshot.error == "Context capture cancelled", "it says why")
+    }
+
+    /// Turning context off during a recording drops what was captured for it,
+    /// checked again after waiting for an in-flight capture (upstream #341).
+    private static func testTurningContextOffDropsTheRecordingsContext() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let setting = String(source[try requiredRange("@Published var disableContextCapture: Bool {", in: source).lowerBound...].prefix(700))
+        try expect(setting.contains("contextCaptureGeneration = UUID()"), "turning context off starts a new generation")
+        try expect(setting.contains("contextCaptureTask?.cancel()"), "and cancels the capture in flight")
+        try expect(setting.contains("capturedContext = nil"), "and drops what was captured")
+
+        let resolveStart = try requiredRange("private func resolveStoppedRecordingContext(", in: source)
+        let resolveBody = String(source[resolveStart.lowerBound...].prefix(1400))
+        let check = "guard !disableContextCapture, generation == contextCaptureGeneration else {"
+        let first = try requiredRange(check, in: resolveBody)
+        let wait = try requiredRange("await inFlightContextTask?.value", in: resolveBody)
+        try expect(first.lowerBound < wait.lowerBound, "checked before waiting for the capture")
+        try expect(
+            resolveBody.range(of: check, range: wait.upperBound..<resolveBody.endIndex) != nil,
+            "and again after it"
+        )
     }
 
     private static func expect(

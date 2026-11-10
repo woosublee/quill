@@ -4721,22 +4721,6 @@
         }
       }
     },
-    "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전면 앱의 스크린샷과 메타데이터를 캡처한 후 컨텍스트 프롬프트를 실행해 활동을 추론해요."
-          }
-        }
-      }
-    },
     "Change this to use a different OpenAI-compatible API provider.": {
       "localizations": {
         "en": {
@@ -22576,6 +22560,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "손을 떼도 눌러서 전환을 쓴 것처럼 녹음이 계속돼요. 단축키를 한 번 더 누르면 멈춰요. 짧게 한 번만 누르면 멈추기까지 0.3초 더 걸려요."
+          }
+        }
+      }
+    },
+    "Captures a screenshot and metadata from the frontmost app and sends them to your Context model, even when Context is off for dictation. If the active window can't be captured and whole-screen capture is on, the screenshot can include other windows.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captures a screenshot and metadata from the frontmost app and sends them to your Context model, even when Context is off for dictation. If the active window can't be captured and whole-screen capture is on, the screenshot can include other windows."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전면 앱의 스크린샷과 메타데이터를 캡처해 컨텍스트 모델로 보내요. 받아쓰기에서 컨텍스트를 꺼 둬도 보내요. 활성 창을 캡처할 수 없고 전체 화면 캡처가 켜져 있으면 스크린샷에 다른 창이 담길 수 있어요."
+          }
+        }
+      }
+    },
+    "Run the context test while Context is off?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run the context test while Context is off?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트가 꺼져 있는데 테스트를 실행할까요?"
+          }
+        }
+      }
+    },
+    "Run One Test": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run One Test"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번만 실행"
+          }
+        }
+      }
+    },
+    "This one test captures a screenshot and app details and sends them to your Context model. Context stays off for dictation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This one test captures a screenshot and app details and sends them to your Context model. Context stays off for dictation."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 테스트만 스크린샷과 앱 정보를 캡처해 컨텍스트 모델로 보내요. 받아쓰기의 컨텍스트는 꺼진 채로 있어요."
           }
         }
       }

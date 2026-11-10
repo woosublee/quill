@@ -1209,6 +1209,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var disableContextCapture: Bool {
         didSet {
             UserDefaults.standard.set(disableContextCapture, forKey: disableContextCaptureStorageKey)
+            if disableContextCapture, !oldValue {
+                // Turned off during a recording: what was captured, or is
+                // still being captured, isn't sent to cleanup (upstream #341).
+                contextCaptureGeneration = UUID()
+                contextCaptureTask?.cancel()
+                contextCaptureTask = nil
+                capturedContext = nil
+            }
         }
     }
 
@@ -3334,6 +3342,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var settingsDraftCommits: [UUID: () -> Void] = [:]
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
+    /// Changes when context is turned off, so a recording's context resolved
+    /// after that is dropped (upstream #341).
+    private var contextCaptureGeneration = UUID()
     private var googleCalendarConnectionTask: Task<Void, Never>?
     /// Google events from the last complete reminder refresh, reused when
     /// only Apple Calendar changed.
@@ -13378,8 +13389,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func resolveStoppedRecordingContext(
         sessionContext: AppContext?,
-        inFlightContextTask: Task<AppContext?, Never>?
+        inFlightContextTask: Task<AppContext?, Never>?,
+        generation: UUID
     ) async -> AppContext {
+        // Context turned off since the recording started: nothing captured
+        // for it goes to cleanup or into the note (upstream #341). Checked
+        // again after waiting, since the setting can change meanwhile.
+        guard !disableContextCapture, generation == contextCaptureGeneration else {
+            return fallbackContextAtStop()
+        }
         let resolvedContext: AppContext
         if let sessionContext {
             resolvedContext = sessionContext
@@ -13387,6 +13405,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             resolvedContext = inFlightContext
         } else {
             resolvedContext = fallbackContextAtStop()
+        }
+        guard !disableContextCapture, generation == contextCaptureGeneration else {
+            return fallbackContextAtStop()
         }
         return Self.sanitizedCapturedContext(
             resolvedContext,
@@ -13632,6 +13653,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let sessionContext = capturedContext
         let inFlightContextTask = contextCaptureTask
+        let contextGeneration = contextCaptureGeneration
         let jobID = currentRecordingLiveNoteID ?? activeRecordingID ?? UUID()
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
@@ -13773,7 +13795,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
-                        inFlightContextTask: inFlightContextTask
+                        inFlightContextTask: inFlightContextTask,
+                        generation: contextGeneration
                     )
                     let completion = try await self.makeStoppedTranscriptionCompletionSummary(
                         transcription: transcription,
@@ -13809,7 +13832,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     let resolvedContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
-                        inFlightContextTask: inFlightContextTask
+                        inFlightContextTask: inFlightContextTask,
+                        generation: contextGeneration
                     )
                     let errorAudioFile = transcriber.recordedAudioURL.flatMap { url -> SavedAudioFile? in
                         let saved = try? capturedNoteAssetStore.saveAudio(from: url)
@@ -13905,7 +13929,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 .adoptOrSaveStoppedAudio(from: fileURL)
             let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
             if let savedAudioFile {
-                let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
+                let recoveryContext = (!self.disableContextCapture && contextGeneration == self.contextCaptureGeneration ? sessionContext : nil) ?? self.fallbackContextAtStop()
                 let activeJob = self.activeTranscriptionJobs[jobID]
                 let didPersistRecoveryPlaceholder = self.createTranscriptionRecoveryPlaceholder(
                     jobID: jobID,
@@ -14024,7 +14048,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
-                        inFlightContextTask: inFlightContextTask
+                        inFlightContextTask: inFlightContextTask,
+                        generation: contextGeneration
                     )
                     let completion = try await self.makeStoppedTranscriptionCompletionSummary(
                         transcription: transcription,
@@ -14067,7 +14092,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     let resolvedContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
-                        inFlightContextTask: inFlightContextTask
+                        inFlightContextTask: inFlightContextTask,
+                        generation: contextGeneration
                     )
                     let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
                     await MainActor.run {

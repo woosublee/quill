@@ -3986,6 +3986,7 @@ struct PromptsSettingsView: View {
     @State private var systemTestIssue: QuillUserIssueRecord?
     @State private var systemTestPrompt: String?
     @State private var contextTestRunning = false
+    @State private var showContextTestConfirmation = false
     @State private var contextTestOutput: String?
     @State private var contextTestIssue: QuillUserIssueRecord?
     @State private var contextTestError: String?
@@ -4414,12 +4415,12 @@ struct PromptsSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Test Context Prompt")
                     .font(.caption.weight(.semibold))
-                Text("Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity.")
+                Text("Captures a screenshot and metadata from the frontmost app and sends them to your Context model, even when Context is off for dictation. If the active window can't be captured and whole-screen capture is on, the screenshot can include other windows.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Button {
-                    runContextPromptTest()
+                    requestContextPromptTest()
                 } label: {
                     HStack(spacing: 6) {
                         if contextTestRunning {
@@ -4435,6 +4436,14 @@ struct PromptsSettingsView: View {
                     contextTestRunning
                         || !appState.isAIProcessingBackendReady(for: .context)
                 )
+                .alert("Run the context test while Context is off?", isPresented: $showContextTestConfirmation) {
+                    Button("Cancel", role: .cancel) { }
+                    Button("Run One Test") {
+                        runContextPromptTest()
+                    }
+                } message: {
+                    Text("This one test captures a screenshot and app details and sends them to your Context model. Context stays off for dictation.")
+                }
 
                 if contextUsesCloud && !hasConfiguredCloudAPIKey {
                     providerConfigurationWarning("API key required to test")
@@ -4480,6 +4489,16 @@ struct PromptsSettingsView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// With Context off, a manual test still sends a screenshot, so it asks
+    /// first (upstream #341).
+    private func requestContextPromptTest() {
+        if appState.disableContextCapture {
+            showContextTestConfirmation = true
+        } else {
+            runContextPromptTest()
         }
     }
 
