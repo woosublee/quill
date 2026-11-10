@@ -56,6 +56,9 @@ struct NoteSyncCoordinatorTests {
         try await testAudioIsQueuedOnceAndNeverWhenInICloud()
         try await testManifestIsWrittenAfterTheLastPart()
         try await testFirstUploadCountsAudio()
+        try await testFailedNotesShowAheadOfTheFirstUpload()
+        try await testFirstUploadKeepsCountingThroughANotice()
+        testFailedNoteStaysShownWhileItsRetryRuns()
         try await testDeleteRemovesMarkedParts()
         try await testDeleteMidUploadLooksUpItsParts()
         try testAudioFailuresPauseAndRetry()
@@ -439,6 +442,96 @@ struct NoteSyncCoordinatorTests {
         engine.finish(parts(withAudio, 1)[0])
         await coordinator.handleAudioPartSaved(parts(withAudio, 1)[0])
         precondition(coordinator.status == .uploading(done: 2, total: 2))
+    }
+
+    /// During the first upload, a note whose audio keeps failing shows as
+    /// "couldn't sync" ahead of the upload's progress, as on the iPhone
+    /// (#815); the progress shows again, still counted, once it goes up.
+    @MainActor
+    static func testFailedNotesShowAheadOfTheFirstUpload() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let withAudio = noteWithAudio(store), textOnly = record()
+        store.records[textOnly.noteID] = textOnly
+        store.syncable.insert(textOnly.noteID)
+        coordinator.startInitialUpload()
+        await coordinator.lastAudioCheck?.value
+        let part = parts(withAudio, 1)[0]
+        precondition(engine.audioSaves == [part])
+        coordinator.handleSaved(id: withAudio, systemFields: Data([1]))
+        for _ in 0..<4 {
+            coordinator.handleAudioSendFailures([.failed(part)])
+            passTime(3600)
+            // The text-only note is still going up.
+            coordinator.handleFetchFinished(pending: 1)
+        }
+        precondition(
+            coordinator.status == .paused(.notesFailed(count: 1, willRetry: false)),
+            "the failed note shows first: \(coordinator.status)"
+        )
+        coordinator.handleSaved(id: textOnly.noteID, systemFields: Data([1]))
+        precondition(
+            coordinator.status == .paused(.notesFailed(count: 1, willRetry: false)),
+            "progress kept counting behind it: \(coordinator.status)"
+        )
+        engine.finish(part)
+        await coordinator.handleAudioPartSaved(part)
+        precondition(coordinator.status == .uploading(done: 2, total: 2), "\(coordinator.status)")
+    }
+
+    /// An account notice, or going offline, during the first upload: the
+    /// upload's line comes back once it clears, and keeps counting.
+    @MainActor
+    static func testFirstUploadKeepsCountingThroughANotice() async throws {
+        let (coordinator, store, _, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let notes = (0..<3).map { _ in record() }
+        for note in notes {
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
+        coordinator.startInitialUpload()
+        await coordinator.lastAudioCheck?.value
+        coordinator.handleSaved(id: notes[0].noteID, systemFields: Data([1]))
+        precondition(coordinator.status == .uploading(done: 1, total: 3))
+        coordinator.handleAudioSendFailures([.accountNeedsAttention])
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
+        coordinator.handleSaved(id: notes[1].noteID, systemFields: Data([1]))
+        precondition(coordinator.status == .paused(.accountNeedsAttention), "the notice stays until a change goes through")
+        coordinator.handleChangesWentThrough()
+        precondition(coordinator.status == .uploading(done: 2, total: 3), "\(coordinator.status)")
+        coordinator.handleNetworkChange(isOnline: false)
+        precondition(coordinator.status == .paused(.offline))
+        coordinator.handleNetworkChange(isOnline: true)
+        precondition(coordinator.status == .uploading(done: 2, total: 3), "\(coordinator.status)")
+        coordinator.handleSaved(id: notes[2].noteID, systemFields: Data([1]))
+        precondition(coordinator.status == .uploading(done: 3, total: 3), "still counted: \(coordinator.status)")
+    }
+
+    /// During the first upload, a note that keeps failing stays shown
+    /// while its retry is in flight, rather than flipping back to the
+    /// progress at every try; an edit, which starts its tries over, clears it.
+    @MainActor
+    static func testFailedNoteStaysShownWhileItsRetryRuns() {
+        let (coordinator, store, engine) = make()
+        let failing = record(), other = record()
+        for note in [failing, other] {
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
+        coordinator.startInitialUpload()
+        for wait: TimeInterval in [60, 5 * 60] {
+            coordinator.handleSendFailures([.other(noteID: failing.noteID)])
+            coordinator.handleFetchFinished(pending: 1)
+            passTime(wait)
+        }
+        precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: true)), "\(coordinator.status)")
+        let sent = engine.saves.count
+        coordinator.handleFetchFinished(pending: 1)
+        precondition(engine.saves.count == sent + 1, "its retry is sent")
+        precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: true)), "still shown while it's tried: \(coordinator.status)")
+        coordinator.handleLocalChanges([.saved(failing.noteID)])
+        precondition(coordinator.status == .uploading(done: 0, total: 2), "an edit starts its tries over: \(coordinator.status)")
     }
 
     @MainActor
