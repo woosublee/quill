@@ -3,7 +3,11 @@ import SwiftUI
 import UserNotifications
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    #if QUILL_DESIGN_SHOTS
+    let appState = AppState(dependencies: DesignSceneFixture.makeAppStateDependencies())
+    #else
     let appState = AppState()
+    #endif
     var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var noteBrowserWindow: NSWindow?
@@ -48,6 +52,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if QUILL_DESIGN_SHOTS
+        if let scene = DesignSceneFixture.active {
+            launchDesignScene(scene)
+            return
+        }
+        #endif
         NetworkMonitor.shared.start()
 
         AppNotificationManager.shared.install()
@@ -102,6 +112,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     }
 
+    #if QUILL_DESIGN_SHOTS
+    /// Design screenshots only (`DesignSceneFixture`): the note window on
+    /// the scene's synthetic notes, with no other service started.
+    private func launchDesignScene(_ scene: DesignSceneFixture.Scene) {
+        NSApp.appearance = NSAppearance(named: .aqua)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowNoteBrowser),
+            name: .showNoteBrowser,
+            object: nil
+        )
+        updateActivationPolicy()
+        showNoteBrowserWindow()
+        if let window = noteBrowserWindow {
+            window.setContentSize(NSSize(width: 1100, height: 720))
+            window.center()
+        }
+        MainActor.assumeIsolated { DesignSceneFixture.present(scene, in: appState) }
+    }
+    #endif
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let recordingReply = appState.requestTerminationWhileRecording()
         guard recordingReply == .terminateNow else { return recordingReply }
@@ -121,6 +152,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pieces of a deleted unrecovered recording are removed in the
         // background; let that finish so the note does not come back.
         appState.waitForPendingRecordingPieceRemovals(timeout: 2)
+        #if QUILL_DESIGN_SHOTS
+        // Last, after the work above that still writes to the scene's store.
+        DesignSceneFixture.removeTemporaryFiles()
+        #endif
     }
 
     /// iCloud sync registers for CloudKit pushes; without them another Mac's

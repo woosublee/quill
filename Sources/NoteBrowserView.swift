@@ -802,6 +802,18 @@ struct NoteBrowserView: View {
         )
     }
 
+    #if QUILL_DESIGN_SHOTS
+    /// Design screenshots only: the scene's empty selection or search.
+    private func applyDesignSceneBrowserState() {
+        guard let state = DesignSceneFixture.takePendingBrowserState() else { return }
+        if state.clearsSelection { selection.focus(nil) }
+        if let query = state.searchQuery {
+            isSearchOpen = true
+            searchText = query
+        }
+    }
+    #endif
+
     /// Selects and scrolls to the note another window asked for, then
     /// clears the request.
     private func openRequestedNote() {
@@ -1004,6 +1016,13 @@ struct NoteBrowserView: View {
         .onChange(of: appState.recoveringRecordingIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
         }
+        #if QUILL_DESIGN_SHOTS
+        // Design screenshots only (`DesignSceneFixture`).
+        .onReceive(NotificationCenter.default.publisher(for: DesignSceneFixture.browserStateNotification)) { _ in
+            applyDesignSceneBrowserState()
+        }
+        .onAppear { applyDesignSceneBrowserState() }
+        #endif
         // Open Note in Settings › Recently Deleted asks for a restored note.
         .onChange(of: appState.noteBrowserOpenRequest) { _ in
             openRequestedNote()
