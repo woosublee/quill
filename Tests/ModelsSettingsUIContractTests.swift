@@ -144,7 +144,7 @@ struct ModelsSettingsUIContractTests {
         precondition(context.contains("private let backendExecutor: AIProcessingBackendExecutor"))
         precondition(context.contains("cloudBaseURL: baseURL"))
         precondition(context.contains("cloudAPIKey: apiKey"))
-        precondition(context.contains("if backendExecutor.isConfigured"))
+        precondition(context.contains("if !Task.isCancelled, backendExecutor.isConfigured {"))
     }
 
     private static func testExistingModelCatalogRemains(_ source: String) {
