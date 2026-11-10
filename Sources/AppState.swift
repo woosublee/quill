@@ -10729,9 +10729,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
+    #if QUILL_DESIGN_SHOTS
     /// Design screenshots only (`DesignSceneFixture`): reads the notes and
     /// their stored notices again, and shows a synthetic retranscription
-    /// waiting to be compared, without running a retry.
+    /// waiting to be compared, without running a retry. It is a picture:
+    /// Keep and Use do nothing, since no retry is waiting behind it.
     @MainActor
     func applyDesignScene(transcriptionCandidate: String?, noteID: UUID?) {
         guard DesignSceneFixture.active != nil else { return }
@@ -10740,6 +10742,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionCandidates[noteID] = transcriptionCandidate
         }
     }
+    #endif
 
     /// Opens the Note Browser on a note.
     @MainActor

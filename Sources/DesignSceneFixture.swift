@@ -1,3 +1,4 @@
+#if QUILL_DESIGN_SHOTS
 import AppKit
 import Foundation
 import QuillAITextCore
@@ -5,12 +6,13 @@ import QuillAudioFormatCore
 import QuillNoteSyncCore
 import QuillUserIssueCore
 
-/// Development-only screenshots of the note window (#697). Active only in a
-/// separately built app whose bundle identifier is `bundleIdentifier`, and
-/// only when launched with `-QuillDesignScene <name>`. The scene runs on a
-/// fresh store in a temporary folder with invented Korean notes; sync,
-/// calendar, updates, shortcuts, and model downloads never start, and no
-/// key is read from or written to the Keychain.
+/// Development-only screenshots of the note window (#697). Compiled only
+/// into the shots build (`QUILL_DESIGN_SHOTS`, set by the Makefile for the
+/// `bundleIdentifier` bundle), and active only when launched with
+/// `-QuillDesignScene <name>`; any other launch of that build quits. The
+/// scene runs on a fresh store in a temporary folder with invented Korean
+/// notes; sync, calendar, updates, shortcuts, and model downloads never
+/// start, and no key is read from or written to the Keychain.
 enum DesignSceneFixture {
     static let bundleIdentifier = "com.woosublee.quill.shots"
     static let browserStateNotification = Notification.Name("QuillDesignSceneBrowserState")
@@ -41,22 +43,37 @@ enum DesignSceneFixture {
         return Scene(rawValue: arguments[index + 1])
     }()
 
+    /// One fixed folder, emptied at each launch, so a run that was killed
+    /// before it could clean up leaves nothing behind for long.
     private static let rootDirectory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("QuillDesignScene-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("QuillDesignScene", isDirectory: true)
     private static let audioFileName = "design-scene-tone.wav"
     private static var focusedNoteID: UUID?
     private static var candidateTranscript: String?
+    /// The browser state of the scene being shown, kept until the note
+    /// window reads it, in case its view appears after the notification.
+    private static var pendingBrowserState: BrowserState?
 
-    /// The live dependencies, or the scene's temporary ones.
+    /// The scene's temporary dependencies. A shots build launched without a
+    /// known scene quits instead of starting as a full app.
     static var appStateDependencies: AppStateDependencies {
-        guard let scene = active else { return .live }
-        // Registered defaults stay in memory; nothing is written for them.
+        guard let scene = active else {
+            let names = Scene.allCases.map(\.rawValue).joined(separator: ", ")
+            FileHandle.standardError.write(Data("Quill Shots needs -QuillDesignScene <name>: \(names)\n".utf8))
+            exit(64)
+        }
+        // Each scene starts from the same settings: what the app wrote in an
+        // earlier run is cleared, and the scene's choices are registered,
+        // as a set-up user's (with meeting summaries on).
+        UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
         UserDefaults.standard.register(defaults: [
             "hasCompletedSetup": true,
+            "meeting_summary_settings_initialized": true,
             "app_appearance": "light",
             ConnectionsChoices.seenStorageKey: true,
             "transcription_enabled": true
         ])
+        try? FileManager.default.removeItem(at: rootDirectory)
         let layout = AppStateStorageLayout(rootDirectory: rootDirectory)
         try? FileManager.default.createDirectory(at: layout.audioDirectory, withIntermediateDirectories: true)
         seed(scene, layout: layout)
@@ -87,11 +104,18 @@ enum DesignSceneFixture {
                 }
                 if state.clearsSelection || state.searchQuery != nil {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        pendingBrowserState = state
                         NotificationCenter.default.post(name: browserStateNotification, object: state)
                     }
                 }
             }
         }
+    }
+
+    /// The browser state still waiting for the note window, once.
+    static func takePendingBrowserState() -> BrowserState? {
+        defer { pendingBrowserState = nil }
+        return pendingBrowserState
     }
 
     static func removeTemporaryFiles() {
@@ -126,7 +150,7 @@ enum DesignSceneFixture {
     private static let lunchTranscript = "점심은 근처 국숫집으로 가기로 했어요. 열두 시 반에 일 층에서 만나요."
 
     private static func seed(_ scene: Scene, layout: AppStateStorageLayout) {
-        guard scene != .noRecordings else { return }
+        if scene == .noRecordings { return }
         let store = PipelineHistoryStore(storeURL: layout.historyStoreURL)
         let now = Date()
         var notes: [PipelineHistoryItem] = [
@@ -136,7 +160,9 @@ enum DesignSceneFixture {
         ]
         var focused: PipelineHistoryItem?
         switch scene {
-        case .noRecordings, .noSelection, .noSearchResults:
+        case .noRecordings:
+            return
+        case .noSelection, .noSearchResults:
             notes.append(note(title: "주간 제품 회의", transcript: weeklyTranscript, minutesAgo: 25, hasAudio: true))
         case .emptyTranscript:
             focused = note(title: "짧은 메모", transcript: "", minutesAgo: 10, hasAudio: true)
@@ -246,3 +272,4 @@ enum DesignSceneFixture {
         try? (header + samples).write(to: url)
     }
 }
+#endif

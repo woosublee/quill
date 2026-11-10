@@ -4,6 +4,10 @@ APP_NAME ?= Quill
 BUNDLE_ID ?= com.woosublee.quill
 DEV_APP_NAME ?= Quill Dev
 DEV_BUNDLE_ID ?= com.woosublee.quill.dev
+# Design screenshots (#697): only a build with this bundle identifier
+# compiles Sources/DesignSceneFixture.swift's scenes (AGENTS.md).
+SHOTS_BUNDLE_ID = com.woosublee.quill.shots
+APP_SWIFT_DEFINES = $(if $(filter $(SHOTS_BUNDLE_ID),$(BUNDLE_ID)),-D QUILL_DESIGN_SHOTS)
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 # Local builds sign with the first valid Developer ID Application identity in
@@ -331,6 +335,7 @@ ifeq ($(ARCH),universal)
 		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target arm64-apple-macosx13.0 \
 		$(call shared_core_flags,arm64) \
+		$(APP_SWIFT_DEFINES) \
 		$(SOURCES)
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
@@ -342,6 +347,7 @@ ifeq ($(ARCH),universal)
 		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target x86_64-apple-macosx13.0 \
 		$(call shared_core_flags,x86_64) \
+		$(APP_SWIFT_DEFINES) \
 		$(SOURCES)
 	lipo -create -output "$(MACOS_DIR)/$(APP_NAME)" \
 		"$(MACOS_DIR)/$(APP_NAME)-arm64" \
@@ -358,6 +364,7 @@ else
 		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target $(ARCH)-apple-macosx13.0 \
 		$(call shared_core_flags,$(ARCH)) \
+		$(APP_SWIFT_DEFINES) \
 		$(SOURCES)
 endif
 	@cp Info.plist "$(CONTENTS)/"
