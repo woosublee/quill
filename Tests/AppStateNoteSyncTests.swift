@@ -23,6 +23,7 @@ struct AppStateNoteSyncTests {
         try await testPurgeWaitsWhenICloudCantBeAsked()
         try await testOlderLiveCopyDoesNotHoldBackTheDelete()
         try await testPurgeRunsAtOnceWhenSyncIsOff()
+        try await testSavedNoticesShowAtLaunch()
         print("AppStateNoteSyncTests passed")
     }
 
@@ -125,6 +126,42 @@ struct AppStateNoteSyncTests {
         appState.startNoteSync()
         engine.saves = []
         return Fixture(root: root, layout: layout, store: store, engine: engine, appState: appState)
+    }
+
+    /// The notices saved with a note (dismissed, dismissed while a
+    /// condition holds, and the same-result markers) show as soon as the
+    /// app starts, not only after the history next reloads (#824). Built
+    /// without `makeFixture`, which starts sync, so nothing but launch
+    /// can read the notices.
+    static func testSavedNoticesShowAtLaunch() async throws {
+        try await MainActor.run {
+            let note = makeItem()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("quill-launch-notices-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let layout = AppStateStorageLayout(rootDirectory: root)
+            let store = PipelineHistoryStore(storeURL: layout.historyStoreURL)
+            _ = try store.append(note, maxCount: Int.max)
+            try store.dismissNotice("synthetic-notice", id: note.id)
+            try store.dismissNotice("synthetic-conditional", condition: "synthetic-condition", id: note.id)
+            try store.setUnchangedRetranscription(.matching(note.displayedTranscript, at: t0), id: note.id)
+            try store.setUnchangedSummaryRegeneration(.matching(summaryGeneratedAt: t0, at: t0), id: note.id)
+            let saved = store.noticeState()
+            precondition(saved.dismissed[note.id] != nil && saved.unchanged[note.id] != nil
+                && saved.conditionalDismissals[note.id] != nil && saved.unchangedSummaries[note.id] != nil,
+                "the store kept all four")
+
+            var dependencies = AppStateDependencies.live
+            dependencies.storageLayout = layout
+            dependencies.credentialStorageLayout = .isolatedForTests()
+            dependencies.makePipelineHistoryStore = { _ in store }
+            let appState = AppState(dependencies: dependencies)
+            precondition(appState.dismissedNoticesByNoteID == saved.dismissed, "dismissed notices stay dismissed")
+            precondition(appState.unchangedRetranscriptions == saved.unchanged, "the same-transcript notice shows")
+            precondition(appState.noticeDismissalsByNoteID == saved.conditionalDismissals, "conditional dismissals apply")
+            precondition(appState.unchangedMeetingSummaries == saved.unchangedSummaries, "the same-summary notice shows")
+        }
     }
 
     /// Offline, CloudKit fails the whole fetch without a per-part result;
