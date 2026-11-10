@@ -857,7 +857,8 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(browser.contains("return window.firstResponder is NSText"))
         // Every start says whether it opens its note.
         assert(!source.contains("opensNote: Bool = true"))
-        assert(ranges(of: "opensNote: true", in: source).count == 4)
+        // The fifth is a double-tap confirming a paused start (upstream #349).
+        assert(ranges(of: "opensNote: true", in: source).count == 5)
         assert(ranges(of: "opensNote: false", in: source).count == 2)
         assert(calendar.contains("if !startRecording("))
         assert(calendar.contains("shortcutSessionController.reset()"))
