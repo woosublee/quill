@@ -4,7 +4,7 @@ import UserNotifications
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     #if QUILL_DESIGN_SHOTS
-    let appState = AppState(dependencies: DesignSceneFixture.appStateDependencies)
+    let appState = AppState(dependencies: DesignSceneFixture.makeAppStateDependencies())
     #else
     let appState = AppState()
     #endif

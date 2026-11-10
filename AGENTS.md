@@ -26,6 +26,8 @@ otherwise.
   Keychain stay off. Build it with
   `make ARCH="$(uname -m)" BUILD_DIR="$HOME/Library/Caches/quill-shots-build" APP_NAME="Quill Shots" BUNDLE_ID=com.woosublee.quill.shots`,
   then run `open -n "$HOME/Library/Caches/quill-shots-build/Quill Shots.app" --args -QuillDesignScene noSelection -AppleLanguages '(ko)'`.
+  Quit the open scene (`pkill -x "Quill Shots"`) before launching the next:
+  every scene uses the same temporary folder and empties it at launch and quit.
 - `Packages/QuillNoteSyncCore/`: note sync record, merge, payload, CloudKit,
   and audio-part logic shared with the iPhone app (#634), and how the sync
   status reads (`NoteSyncStatusPresentation`): which problem shows first

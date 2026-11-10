@@ -54,9 +54,10 @@ enum DesignSceneFixture {
     /// window reads it, in case its view appears after the notification.
     private static var pendingBrowserState: BrowserState?
 
-    /// The scene's temporary dependencies. A shots build launched without a
-    /// known scene quits instead of starting as a full app.
-    static var appStateDependencies: AppStateDependencies {
+    /// Resets the scene's settings and folder and returns its temporary
+    /// dependencies; call it once, at launch. A shots build launched without
+    /// a known scene quits instead of starting as a full app.
+    static func makeAppStateDependencies() -> AppStateDependencies {
         guard let scene = active else {
             let names = Scene.allCases.map(\.rawValue).joined(separator: ", ")
             FileHandle.standardError.write(Data("Quill Shots needs -QuillDesignScene <name>: \(names)\n".utf8))
