@@ -4133,6 +4133,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             selectedMicrophoneDeviceID,
             forKey: selectedMicrophoneDeviceStorageKey
         )
+        // The notices saved with the notes, read with them, so a relaunch
+        // shows what was dismissed or unchanged at once (#824).
+        applyNoticeState(pipelineHistoryStore.noticeState())
         scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()
         self.precomputeMacros()
         transcriptionRetryWorkflow.onEvent = { [weak self] event in
@@ -14749,7 +14752,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let split = RecentlyDeletedPolicy.partition(rows)
         pipelineHistory = split.live
         recentlyDeletedNotes = split.deleted
-        let notices = pipelineHistoryStore.noticeState()
+        applyNoticeState(pipelineHistoryStore.noticeState())
+    }
+
+    /// The notices saved with the notes, at launch and on every reload.
+    private func applyNoticeState(_ notices: NoteNoticeState) {
         dismissedNoticesByNoteID = notices.dismissed
         if notices.unchanged != unchangedRetranscriptions { unchangedRetranscriptions = notices.unchanged }
         if notices.conditionalDismissals != noticeDismissalsByNoteID {
