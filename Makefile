@@ -105,6 +105,8 @@ RESOURCES = $(CONTENTS)/Resources
 LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings
 LOCALIZATION_INFO_DIR = Resources/Localization
 LOCALIZATION_BUILD_DIR = $(BUILD_DIR)/localization
+# Tests read the compiled strings from here, so a custom BUILD_DIR works (#823).
+export QUILL_LOCALIZATION_DIR = $(if $(filter /%,$(LOCALIZATION_BUILD_DIR)),$(LOCALIZATION_BUILD_DIR),$(CURDIR)/$(LOCALIZATION_BUILD_DIR))
 LOCALIZATION_STAMP = $(LOCALIZATION_BUILD_DIR)/.compiled
 TEST_BUILD_DIR = $(BUILD_DIR)/tests
 LOCAL_AI_INTEGRATION_MODEL_DIR ?= $(HOME)/Library/Application Support/Quill/LocalAI/Models

@@ -69,6 +69,8 @@ struct BuildMetadataTests {
             assertContains(makefile, "\n\(target):")
         }
         assertContains(makefile, "TEST_BUILD_DIR = $(BUILD_DIR)/tests")
+        // The localization tests read the strings from the build folder in use (#823).
+        assertContains(makefile, "export QUILL_LOCALIZATION_DIR = $(if $(filter /%,$(LOCALIZATION_BUILD_DIR)),$(LOCALIZATION_BUILD_DIR),$(CURDIR)/$(LOCALIZATION_BUILD_DIR))")
         assertContains(makefile, "print-app-version:")
         assertContains(makefile, "print-build-number:")
         assertContains(makefile, "print-build-tag:")
