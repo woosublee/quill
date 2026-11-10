@@ -69,6 +69,25 @@ struct BuildMetadataTests {
             assertContains(makefile, "\n\(target):")
         }
         assertContains(makefile, "TEST_BUILD_DIR = $(BUILD_DIR)/tests")
+        // A source removed from or moved between shared modules rebuilds them (#812):
+        // every module's library depends on the stamp of every module's sources.
+        assertContains(makefile, "@printf '%s\\n' $(SHARED_CORE_SOURCE_LIST) > \"$@.tmp\"")
+        let moduleNames = makefile.components(separatedBy: "\n")
+            .first { $0.hasPrefix("SHARED_CORE_MODULES = ") }!
+            .dropFirst("SHARED_CORE_MODULES = ".count)
+            .split(separator: " ")
+        let libraryRules = makefile.components(separatedBy: "\n")
+            .filter { $0.hasPrefix("$(SHARED_CORE_BUILD_DIR)/%/lib") }
+        precondition(libraryRules.count == moduleNames.count, "one library rule per shared module")
+        for rule in libraryRules {
+            precondition(rule.hasSuffix(" $(SHARED_CORE_SOURCES_STAMP)"), "\(rule) depends on the source list")
+        }
+        let sourceList = makefile.components(separatedBy: "\n")
+            .first { $0.hasPrefix("SHARED_CORE_SOURCE_LIST = ") }!
+        for rule in libraryRules {
+            let variable = rule.components(separatedBy: ": ")[1].split(separator: " ")[0]
+            precondition(sourceList.contains(variable), "\(variable) is in the source list")
+        }
         // The localization tests read the strings from the build folder in use (#823).
         assertContains(makefile, "export QUILL_LOCALIZATION_DIR = $(if $(filter /%,$(LOCALIZATION_BUILD_DIR)),$(LOCALIZATION_BUILD_DIR),$(CURDIR)/$(LOCALIZATION_BUILD_DIR))")
         assertContains(makefile, "print-app-version:")
