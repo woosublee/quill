@@ -508,6 +508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let customContextPromptLastModifiedStorageKey = "custom_context_prompt_last_modified"
     private let contextScreenshotMaxDimensionStorageKey = "context_screenshot_max_dimension"
     private let shortcutStartDelayStorageKey = "shortcut_start_delay"
+    private let doubleTapToToggleStorageKey = "double_tap_to_toggle_enabled"
     private let preserveClipboardStorageKey = "preserve_clipboard"
     private let keepDictationInClipboardHistoryStorageKey = "keep_dictation_in_clipboard_history"
     private let pressEnterVoiceCommandStorageKey = "press_enter_voice_command_enabled"
@@ -997,6 +998,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var shortcutStartDelay: TimeInterval {
         didSet {
             UserDefaults.standard.set(shortcutStartDelay, forKey: shortcutStartDelayStorageKey)
+        }
+    }
+
+    /// A quick second press of Hold to Talk keeps recording, as Tap to
+    /// Toggle does; pressing it again stops (upstream #349).
+    @Published var doubleTapToToggleEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(doubleTapToToggleEnabled, forKey: doubleTapToToggleStorageKey)
         }
     }
 
@@ -3405,6 +3414,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var pendingSelectionSnapshotTask: Task<AppSelectionSnapshot, Never>?
     private var pendingManualCommandInvocation = false
     private var pendingShortcutStartTask: Task<Void, Never>?
+    private var doubleTapTimeoutWorkItem: DispatchWorkItem?
     private var pendingShortcutStartMode: RecordingTriggerMode?
     private var realtimeService: RealtimeTranscriptionService?
     private var realtimeLanguageConfiguration: RealtimeTranscriptionLanguageConfiguration?
@@ -4082,6 +4092,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customSystemPromptLastModified = customSystemPromptLastModified
         self.customContextPromptLastModified = customContextPromptLastModified
         self.shortcutStartDelay = shortcutStartDelay
+        self.doubleTapToToggleEnabled = UserDefaults.standard.bool(forKey: doubleTapToToggleStorageKey)
         self.preserveClipboard = preserveClipboard
         self.keepDictationInClipboardHistory = keepDictationInClipboardHistory
         self.realtimeStreamingEnabled = realtimeStreamingEnabled
@@ -11345,9 +11356,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func handleShortcutEvent(_ event: ShortcutEvent) {
-        guard let action = shortcutSessionController.handle(event: event, isTranscribing: isTranscribing) else {
+        guard let action = shortcutSessionController.handle(
+            event: event,
+            isTranscribing: isTranscribing,
+            doubleTapToToggleEnabled: doubleTapToToggleEnabled
+        ) else {
             return
         }
+
+        performShortcutAction(action)
+    }
+
+    @MainActor
+    private func performShortcutAction(_ action: DictationShortcutAction) {
+        doubleTapTimeoutWorkItem?.cancel()
+        doubleTapTimeoutWorkItem = nil
 
         switch action {
         case .start(let mode):
@@ -11367,7 +11390,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 overlayManager.setRecordingTriggerMode(.toggle, animated: true)
             } else if pendingShortcutStartMode != nil {
                 pendingShortcutStartMode = .toggle
+                if pendingShortcutStartTask == nil {
+                    // A double tap paused this start; the second press confirms it.
+                    pendingShortcutStartMode = nil
+                    if !startRecording(triggerMode: .toggle, opensNote: true) {
+                        shortcutSessionController.reset()
+                    }
+                }
             }
+        case .awaitDoubleTap(let window):
+            // A tap shorter than the start delay must not record unless a
+            // second press confirms it, so pause the start instead of racing it.
+            pendingShortcutStartTask?.cancel()
+            pendingShortcutStartTask = nil
+
+            let workItem = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, let action = self.shortcutSessionController.handleDoubleTapTimeout() else { return }
+                    self.performShortcutAction(action)
+                }
+            }
+            doubleTapTimeoutWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + window, execute: workItem)
         }
     }
 

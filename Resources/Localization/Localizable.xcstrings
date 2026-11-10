@@ -22547,6 +22547,38 @@
           }
         }
       }
+    },
+    "Double-tap Hold to Talk to lock recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap Hold to Talk to lock recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 말하기를 두 번 눌러 녹음 고정"
+          }
+        }
+      }
+    },
+    "Keeps recording after you release, as if you had used Tap to Toggle. Press the shortcut again to stop. A single quick tap takes 0.3 seconds longer to stop.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps recording after you release, as if you had used Tap to Toggle. Press the shortcut again to stop. A single quick tap takes 0.3 seconds longer to stop."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손을 떼도 눌러서 전환을 쓴 것처럼 녹음이 계속돼요. 단축키를 한 번 더 누르면 멈춰요. 짧게 한 번만 누르면 멈추기까지 0.3초 더 걸려요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

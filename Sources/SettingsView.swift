@@ -4580,6 +4580,17 @@ struct ShortcutsSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Double-tap Hold to Talk to lock recording", isOn: $appState.doubleTapToToggleEnabled)
+                    .disabled(!appState.hasEnabledHoldShortcut)
+
+                Text("Keeps recording after you release, as if you had used Tap to Toggle. Press the shortcut again to stop. A single quick tap takes 0.3 seconds longer to stop.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
