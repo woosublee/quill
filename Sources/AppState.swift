@@ -1232,6 +1232,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var disableAutoPaste: Bool {
         didSet {
             UserDefaults.standard.set(disableAutoPaste, forKey: disableAutoPasteStorageKey)
+            updateInsertionAccessibilityPreparation()
         }
     }
 
@@ -11346,9 +11347,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         hotkeyManager.stop()
     }
 
+    /// Whether a new dictation keeps its starting field: only while it would
+    /// be pasted at all, so with Paste Automatically off no field is read.
+    private var capturesInsertionTarget: Bool {
+        originalFieldInsertionEnabled && !disableAutoPaste
+    }
+
     private func updateInsertionAccessibilityPreparation() {
         insertionAccessibilityCancellable = nil
-        guard shouldMonitorHotkeys, originalFieldInsertionEnabled else { return }
+        guard shouldMonitorHotkeys, capturesInsertionTarget else { return }
         insertionAccessibilityCancellable = NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didActivateApplicationNotification)
             .receive(on: DispatchQueue.main)
@@ -11359,7 +11366,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// A role query lets Electron apps expose their editor before the start
     /// snapshot, without reading any text.
     private func prepareForegroundApplicationForInsertion() {
-        guard shouldMonitorHotkeys, originalFieldInsertionEnabled, AXIsProcessTrusted(),
+        guard shouldMonitorHotkeys, capturesInsertionTarget, AXIsProcessTrusted(),
               let app = NSWorkspace.shared.frontmostApplication else { return }
         let processIdentifier = app.processIdentifier
         insertionAccessibilityQueue.async {
@@ -11461,7 +11468,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
             let workItem = DispatchWorkItem { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, let action = self.shortcutSessionController.handleDoubleTapTimeout() else { return }
+                    guard let self else { return }
+                    guard let action = self.shortcutSessionController.handleDoubleTapTimeout() else {
+                        // The session was reset meanwhile (Escape, a failed
+                        // start): a start it paused doesn't linger.
+                        if self.pendingShortcutStartTask == nil, self.pendingShortcutStartMode != nil {
+                            self.cancelPendingShortcutStart()
+                        }
+                        return
+                    }
                     self.performShortcutAction(action)
                 }
             }
@@ -11854,7 +11869,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         // A new start ends any earlier dictation's pending insertion.
         textInsertionTargetID = nil
-        let captureInsertionTarget = originalFieldInsertionEnabled
+        let captureInsertionTarget = capturesInsertionTarget
         pendingSelectionSnapshotTask = Task.detached(priority: .userInitiated) { [contextService] in
             contextService.collectSelectionSnapshot(captureInsertionTarget: captureInsertionTarget)
         }
@@ -12166,7 +12181,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else if let selectionSnapshotTask {
             resolvedSelectionSnapshot = await selectionSnapshotTask.value
         } else {
-            let captureInsertionTarget = originalFieldInsertionEnabled
+            let captureInsertionTarget = capturesInsertionTarget
             resolvedSelectionSnapshot = await Task.detached(priority: .userInitiated) { [contextService] in
                 contextService.collectSelectionSnapshot(captureInsertionTarget: captureInsertionTarget)
             }.value
@@ -12400,7 +12415,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 startRequestID: startRequestID,
                 triggerMode: triggerMode,
                 selectionSnapshot: pendingSelectionSnapshot ?? contextService.collectSelectionSnapshot(
-                    captureInsertionTarget: originalFieldInsertionEnabled
+                    captureInsertionTarget: capturesInsertionTarget
                 ),
                 manualCommandRequested: currentSessionIntent.isManualCommand,
                 onStarted: onStarted
