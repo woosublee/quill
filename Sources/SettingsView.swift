@@ -4695,6 +4695,16 @@ struct ShortcutsSettingsView: View {
             Divider()
                 .padding(.vertical, 2)
 
+            Toggle("Insert into the original field", isOn: $appState.originalFieldInsertionEnabled)
+                .disabled(appState.disableAutoPaste)
+
+            Text("Puts the dictation in the field where recording began, even after you switch apps. Applies to new dictations. Pasting or pressing Return may briefly bring the original app forward, then return you to where you were. If the field changed or can't be reached, use Paste Again.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .padding(.vertical, 2)
+
             Toggle("Preserve clipboard after paste", isOn: $appState.preserveClipboard)
 
             Text("Quill will temporarily place the transcript on your clipboard to paste it, then restore whatever was there before. If you copy something else before the restore happens, Quill leaves it alone.")

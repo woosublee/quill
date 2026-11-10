@@ -843,6 +843,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/ModelConfigurationTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AppName.swift Sources/ShortcutCore/DictationShortcutSessionController.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/ShortcutCore/ShortcutModels.swift Tests/ShortcutCoreTests.swift -o $(TEST_BUILD_DIR)/ShortcutCoreTests
 	@$(TEST_BUILD_DIR)/ShortcutCoreTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AppTextInsertionCore.swift Sources/OriginalFieldInsertionPreference.swift Tests/AppTextInsertionCoreTests.swift -o $(TEST_BUILD_DIR)/AppTextInsertionCoreTests
+	@$(TEST_BUILD_DIR)/AppTextInsertionCoreTests
 	@$(TEST_BUILD_DIR)/CalendarEventMatcherTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/CalendarRecordingReminderPlannerTests.swift -o $(TEST_BUILD_DIR)/CalendarRecordingReminderPlannerTests
 	@$(TEST_BUILD_DIR)/CalendarRecordingReminderPlannerTests

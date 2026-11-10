@@ -1156,6 +1156,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         Bundle.main.object(forInfoDictionaryKey: "GoogleCalendarOAuthClientSecret") as? String ?? ""
     }
 
+    /// Puts a dictation into the field where it started, even after
+    /// switching apps (upstream #340). Off by default.
+    @Published var originalFieldInsertionEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(originalFieldInsertionEnabled, forKey: OriginalFieldInsertionPreference.storageKey)
+            updateInsertionAccessibilityPreparation()
+        }
+    }
+
     @Published var preserveClipboard: Bool {
         didSet {
             UserDefaults.standard.set(preserveClipboard, forKey: preserveClipboardStorageKey)
@@ -3420,6 +3429,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var activeRecordingID: UUID?
     private let shortcutSessionController = DictationShortcutSessionController()
     private var activeRecordingTriggerMode: RecordingTriggerMode?
+    /// Original-field insertion (upstream #340): the field focused when the
+    /// recording started, whether that recording uses it, and the current
+    /// attempt. A newer start clears `textInsertionTargetID`, so an earlier
+    /// dictation's insertion steps no longer act.
+    private var activeTextInsertionTarget: AppTextInsertionTarget?
+    private var activeOriginalFieldInsertionEnabled = false
+    private var textInsertionTargetID: UUID?
+    private var textInsertionPlans: [UUID: TextInsertionPlan] = [:]
+    private var insertionAccessibilityCancellable: AnyCancellable?
+    private let insertionAccessibilityQueue = DispatchQueue(label: "Quill.insertion-accessibility", qos: .utility)
     private var currentSessionIntent: SessionIntent = .dictation
     private var pendingSelectionSnapshot: AppSelectionSnapshot?
     private var pendingSelectionSnapshotTask: Task<AppSelectionSnapshot, Never>?
@@ -4104,6 +4123,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customContextPromptLastModified = customContextPromptLastModified
         self.shortcutStartDelay = shortcutStartDelay
         self.doubleTapToToggleEnabled = UserDefaults.standard.bool(forKey: doubleTapToToggleStorageKey)
+        self.originalFieldInsertionEnabled = OriginalFieldInsertionPreference.load(from: .standard)
         self.preserveClipboard = preserveClipboard
         self.keepDictationInClipboardHistory = keepDictationInClipboardHistory
         self.realtimeStreamingEnabled = realtimeStreamingEnabled
@@ -7125,6 +7145,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func finishTranscriptionJob(_ id: UUID) {
+        textInsertionPlans.removeValue(forKey: id)
         if let noteID = activeTranscriptionJobs[id]?.liveNoteID {
             removeUnfinishedRecordingNote(id: noteID)
         }
@@ -11280,6 +11301,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func startHotkeyMonitoring() {
         shouldMonitorHotkeys = true
+        updateInsertionAccessibilityPreparation()
         hotkeyManager.onShortcutEvent = { [weak self] event in
             DispatchQueue.main.async {
                 self?.handleShortcutEvent(event)
@@ -11316,11 +11338,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func stopHotkeyMonitoring() {
         shouldMonitorHotkeys = false
+        insertionAccessibilityCancellable = nil
         hotkeyMonitoringErrorMessage = nil
         hotkeyManager.onShortcutEvent = nil
         hotkeyManager.onRecordingCancelShortcut = nil
         hotkeyManager.onCopyAgainShortcut = nil
         hotkeyManager.stop()
+    }
+
+    private func updateInsertionAccessibilityPreparation() {
+        insertionAccessibilityCancellable = nil
+        guard shouldMonitorHotkeys, originalFieldInsertionEnabled else { return }
+        insertionAccessibilityCancellable = NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.prepareForegroundApplicationForInsertion() }
+        prepareForegroundApplicationForInsertion()
+    }
+
+    /// A role query lets Electron apps expose their editor before the start
+    /// snapshot, without reading any text.
+    private func prepareForegroundApplicationForInsertion() {
+        guard shouldMonitorHotkeys, originalFieldInsertionEnabled, AXIsProcessTrusted(),
+              let app = NSWorkspace.shared.frontmostApplication else { return }
+        let processIdentifier = app.processIdentifier
+        insertionAccessibilityQueue.async {
+            AppTextInsertionTarget.prepareAccessibility(processIdentifier: processIdentifier)
+        }
     }
 
     func suspendHotkeyMonitoringForShortcutCapture() {
@@ -11808,8 +11852,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
 
+        // A new start ends any earlier dictation's pending insertion.
+        textInsertionTargetID = nil
+        let captureInsertionTarget = originalFieldInsertionEnabled
         pendingSelectionSnapshotTask = Task.detached(priority: .userInitiated) { [contextService] in
-            contextService.collectSelectionSnapshot()
+            contextService.collectSelectionSnapshot(captureInsertionTarget: captureInsertionTarget)
         }
 
         pendingShortcutStartTask = Task { [weak self] in
@@ -12077,6 +12124,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startedAt: CFAbsoluteTime? = nil
     ) async -> Bool {
         activeRecordingTriggerMode = triggerMode
+        textInsertionTargetID = nil
+        activeTextInsertionTarget = nil
+        activeOriginalFieldInsertionEnabled = false
         if !transcriptionEnabled {
             currentSessionIntent = .dictation
             overlayManager.setRecordingTriggerMode(triggerMode, animated: false)
@@ -12116,10 +12166,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else if let selectionSnapshotTask {
             resolvedSelectionSnapshot = await selectionSnapshotTask.value
         } else {
+            let captureInsertionTarget = originalFieldInsertionEnabled
             resolvedSelectionSnapshot = await Task.detached(priority: .userInitiated) { [contextService] in
-                contextService.collectSelectionSnapshot()
+                contextService.collectSelectionSnapshot(captureInsertionTarget: captureInsertionTarget)
             }.value
         }
+        // The insertion mode and target are fixed for this recording now, so
+        // changing the setting later doesn't redirect it.
+        activeOriginalFieldInsertionEnabled = resolvedSelectionSnapshot.usesOriginalFieldInsertion
+        activeTextInsertionTarget = activeOriginalFieldInsertionEnabled ? resolvedSelectionSnapshot.textInsertionTarget : nil
+        textInsertionTargetID = activeTextInsertionTarget?.identifier
         let manualCommandRequested = manualCommandRequested
             ?? hotkeyManager.currentPressedModifiers.contains(commandModeManualModifier.shortcutModifier)
         guard let resolvedIntent = resolveSessionIntent(
@@ -12343,7 +12399,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             prepareForMicrophonePermissionPrompt(
                 startRequestID: startRequestID,
                 triggerMode: triggerMode,
-                selectionSnapshot: pendingSelectionSnapshot ?? contextService.collectSelectionSnapshot(),
+                selectionSnapshot: pendingSelectionSnapshot ?? contextService.collectSelectionSnapshot(
+                    captureInsertionTarget: originalFieldInsertionEnabled
+                ),
                 manualCommandRequested: currentSessionIntent.isManualCommand,
                 onStarted: onStarted
             )
@@ -13547,7 +13605,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 completion: completion,
                 context: context,
                 completionStatusText: completionStatusText,
-                enterOnlyStatusText: "Pressed Enter"
+                enterOnlyStatusText: "Pressed Enter",
+                textInsertion: textInsertionPlans.removeValue(forKey: jobID)
             )
             finishTranscriptionJob(jobID, overlayID: overlayID)
         }
@@ -13559,7 +13618,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         completion: StoppedTranscriptionCompletionSummary,
         context: AppContext,
         completionStatusText: String,
-        enterOnlyStatusText: String
+        enterOnlyStatusText: String,
+        textInsertion: TextInsertionPlan? = nil
     ) {
         guard overlayTranscriptionID == overlayID else { return }
         lastContextSummary = context.contextSummary
@@ -13583,7 +13643,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             statusText = completion.shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
             dismissTranscribingOverlay()
             if completion.shouldPressEnterAfterPaste {
-                pressEnterWhenShortcutReleased()
+                if let textInsertion {
+                    if let target = textInsertion.target {
+                        pressEnterWhenShortcutReleased(target: target)
+                    } else {
+                        showInsertionStatus("Original field unavailable — Enter skipped")
+                    }
+                } else {
+                    pressEnterWhenShortcutReleased()
+                }
             }
         } else {
             // Pasted text ends as done, even when AI cleanup fell back to the
@@ -13591,6 +13659,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // transcript itself.
             dismissTranscribingOverlay()
             OverlayAccessibilityAnnouncer.announce(.done)
+            if let textInsertion, !disableAutoPaste {
+                insertTranscriptWhenShortcutReleased(
+                    completion.finalTranscript,
+                    target: textInsertion.target,
+                    shouldPressEnter: completion.shouldPressEnterAfterPaste
+                )
+                scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
+                return
+            }
             let pendingClipboardRestore = writeTranscriptToPasteboard(completion.finalTranscript)
             if !disableAutoPaste {
                 pasteAtCursorWhenShortcutReleased {
@@ -13655,6 +13732,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let inFlightContextTask = contextCaptureTask
         let contextGeneration = contextCaptureGeneration
         let jobID = currentRecordingLiveNoteID ?? activeRecordingID ?? UUID()
+        if activeOriginalFieldInsertionEnabled {
+            textInsertionPlans[jobID] = TextInsertionPlan(target: activeTextInsertionTarget)
+        }
+        activeOriginalFieldInsertionEnabled = false
+        activeTextInsertionTarget = nil
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
         let shouldTranscribe = shouldTranscribeActiveRecording
@@ -16198,28 +16280,266 @@ final class AppState: ObservableObject, @unchecked Sendable {
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
-    private func pasteAtCursor() {
+    // MARK: Original-field insertion (upstream #340)
+
+    /// Delivers using the start-time target; only a definite non-insertion
+    /// permits a fallback paste. An unconfirmed write leaves recovery to
+    /// Paste Again instead of risking a duplicate.
+    private func insertTranscriptWhenShortcutReleased(
+        _ transcript: String, target: AppTextInsertionTarget?, shouldPressEnter: Bool
+    ) {
+        performAfterShortcutReleased { [weak self] in
+            guard let self, target?.identifier == self.textInsertionTargetID else { return }
+            guard let target else {
+                self.showInsertionStatus("Original field unavailable — use Paste Again")
+                return
+            }
+            if target.isFocused {
+                var pendingRestore: PendingClipboardRestore?
+                let pasted: Bool
+                if !target.allowsTextCapture, target.isSupportedTextControl {
+                    if target.identifier == self.textInsertionTargetID, target.isFocused {
+                        pendingRestore = self.writeTranscriptToPasteboard(transcript)
+                        pasted = target.identifier == self.textInsertionTargetID && target.isFocused
+                        if pasted { self.pasteAtCursor(processIdentifier: target.processIdentifier) }
+                    } else {
+                        pasted = false
+                    }
+                } else {
+                    pasted = target.pasteIfUnchanged(
+                        restoringSelection: false,
+                        isCurrent: { target.identifier == self.textInsertionTargetID },
+                        preparePaste: { pendingRestore = self.writeTranscriptToPasteboard(transcript) },
+                        paste: { self.pasteAtCursor(processIdentifier: target.processIdentifier) }
+                    )
+                }
+                guard pasted else {
+                    self.restoreClipboardIfNeeded(pendingRestore)
+                    if target.identifier == self.textInsertionTargetID {
+                        self.showInsertionStatus("Original field changed or unavailable — use Paste Again")
+                    }
+                    return
+                }
+                if shouldPressEnter {
+                    self.pressEnterAfterPaste(target: target) { self.restoreClipboardIfNeeded(pendingRestore) }
+                } else {
+                    self.restoreClipboardIfNeeded(pendingRestore)
+                }
+                return
+            }
+            target.insert(
+                self.transcriptTextForInsertion(transcript),
+                isCurrent: { target.identifier == self.textInsertionTargetID }
+            ) { insertionResult in
+                guard target.identifier == self.textInsertionTargetID else { return }
+                switch insertionResult {
+                case .inserted:
+                    // Keep the transcript on the clipboard as a paste would.
+                    if !self.preserveClipboard || self.keepDictationInClipboardHistory {
+                        let pendingRestore = self.writeTranscriptToPasteboard(transcript)
+                        self.restoreClipboardIfNeeded(pendingRestore)
+                    }
+                    self.showInsertionStatus("Inserted in original field")
+                    if shouldPressEnter { self.pressEnterAfterPaste(target: target) }
+                case .notInserted:
+                    var pendingRestore: PendingClipboardRestore?
+                    self.performAtTarget(target, action: {
+                        target.pasteIfUnchanged(
+                            restoringSelection: true,
+                            isCurrent: { target.identifier == self.textInsertionTargetID },
+                            preparePaste: { pendingRestore = self.writeTranscriptToPasteboard(transcript) },
+                            paste: { self.pasteAtCursor(processIdentifier: target.processIdentifier) }
+                        )
+                    }) { pasted in
+                        guard pasted else {
+                            self.restoreClipboardIfNeeded(pendingRestore)
+                            if target.identifier == self.textInsertionTargetID {
+                                self.showInsertionStatus("Insertion unavailable — use Paste Again")
+                            }
+                            return
+                        }
+                        guard target.identifier == self.textInsertionTargetID else {
+                            self.restoreClipboardIfNeeded(pendingRestore)
+                            return
+                        }
+                        self.showInsertionStatus("Pasted in original field")
+                        if shouldPressEnter {
+                            self.pressEnterAfterPaste(target: target) { self.restoreClipboardIfNeeded(pendingRestore) }
+                        } else {
+                            self.restoreClipboardIfNeeded(pendingRestore)
+                        }
+                    }
+                case .unverified:
+                    // An uncertain write may already have inserted the text. Never paste it again.
+                    self.showInsertionStatus("Insertion unconfirmed — use Paste Again")
+                case .unavailable:
+                    self.showInsertionStatus("Original field changed or unavailable — use Paste Again")
+                }
+            }
+        }
+    }
+
+    private func showInsertionStatus(_ key: String) {
+        let status = localizedCatalogString(key)
+        statusText = status
+        scheduleReadyStatusReset(after: 3, matching: [status])
+    }
+
+    /// Activates the target only while input and destination focus still
+    /// belong to this attempt; a newer user action cancels both the delayed
+    /// step and the later focus restoration.
+    private func performAtTarget(
+        _ target: AppTextInsertionTarget, action: @escaping () -> Bool, completion: @escaping (Bool) -> Void
+    ) {
+        guard target.identifier == textInsertionTargetID,
+              let app = NSRunningApplication(processIdentifier: target.processIdentifier), !app.isTerminated else {
+            completion(false)
+            return
+        }
+        let inputBeforeActivation = Self.userInputEventCounts()
+        let targetAppElement = AXUIElementCreateApplication(target.processIdentifier)
+        let targetWindowBeforeActivation = accessibilityElement(
+            from: targetAppElement, attribute: kAXFocusedWindowAttribute as CFString
+        )
+        let targetFieldBeforeActivation = accessibilityElement(
+            from: targetAppElement, attribute: kAXFocusedUIElementAttribute as CFString
+        )
+        let previousApp = NSWorkspace.shared.frontmostApplication
+        let previousAppElement = previousApp.map { AXUIElementCreateApplication($0.processIdentifier) }
+        let previousWindow = previousAppElement.flatMap {
+            accessibilityElement(from: $0, attribute: kAXFocusedWindowAttribute as CFString)
+        }
+        let previousField = previousAppElement.flatMap {
+            accessibilityElement(from: $0, attribute: kAXFocusedUIElementAttribute as CFString)
+        }
+        let wasMinimized = target.isMinimized
+        if wasMinimized { target.setMinimized(false) }
+        guard target.identifier == textInsertionTargetID,
+              Self.userInputEventCounts() == inputBeforeActivation else {
+            completion(false)
+            return
+        }
+        app.activate(options: [.activateIgnoringOtherApps])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let windowNow = self.accessibilityElement(
+                from: targetAppElement, attribute: kAXFocusedWindowAttribute as CFString
+            )
+            let fieldNow = self.accessibilityElement(
+                from: targetAppElement, attribute: kAXFocusedUIElementAttribute as CFString
+            )
+            guard target.identifier == self.textInsertionTargetID,
+                  Self.userInputEventCounts() == inputBeforeActivation,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
+                  windowNow != nil,
+                  (Self.sameAccessibilityElement(windowNow, target.window)
+                    || Self.sameAccessibilityElement(windowNow, targetWindowBeforeActivation)),
+                  (Self.sameAccessibilityElement(fieldNow, target.element)
+                    || Self.sameAccessibilityElement(fieldNow, targetFieldBeforeActivation)) else {
+                completion(false)
+                return
+            }
+            guard target.focus(),
+                  target.identifier == self.textInsertionTargetID,
+                  Self.userInputEventCounts() == inputBeforeActivation,
+                  target.isFocused,
+                  (target.window == nil || Self.sameAccessibilityElement(
+                    self.accessibilityElement(from: targetAppElement, attribute: kAXFocusedWindowAttribute as CFString),
+                    target.window
+                  )) else {
+                completion(false)
+                return
+            }
+            let performed = action()
+            let focusedElementAfterAttempt = self.accessibilityElement(
+                from: targetAppElement, attribute: kAXFocusedUIElementAttribute as CFString
+            )
+            let focusedWindowAfterAttempt = self.accessibilityElement(
+                from: targetAppElement, attribute: kAXFocusedWindowAttribute as CFString
+            )
+            completion(performed)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                guard target.identifier == self.textInsertionTargetID,
+                      Self.userInputEventCounts() == inputBeforeActivation,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
+                      let focusedElementAfterAttempt, let focusedWindowAfterAttempt,
+                      Self.sameAccessibilityElement(
+                        self.accessibilityElement(from: targetAppElement, attribute: kAXFocusedUIElementAttribute as CFString),
+                        focusedElementAfterAttempt
+                      ),
+                      Self.sameAccessibilityElement(
+                        self.accessibilityElement(from: targetAppElement, attribute: kAXFocusedWindowAttribute as CFString),
+                        focusedWindowAfterAttempt
+                      ) else { return }
+                if wasMinimized { target.setMinimized(true) }
+                if let previousWindow { AXUIElementPerformAction(previousWindow, kAXRaiseAction as CFString) }
+                if let previousField {
+                    AXUIElementSetAttributeValue(previousField, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+                }
+                if previousApp?.processIdentifier != target.processIdentifier { previousApp?.activate() }
+            }
+        }
+    }
+
+    /// Compares AX identity, including a retained nil focus while a
+    /// background editor is blurred.
+    private static func sameAccessibilityElement(_ first: AXUIElement?, _ second: AXUIElement?) -> Bool {
+        guard let first, let second else { return first == nil && second == nil }
+        return CFEqual(first, second)
+    }
+
+    /// Samples only hardware event counters: no event contents, monitor, or
+    /// stored state.
+    private static func userInputEventCounts() -> [UInt32] {
+        let types: [CGEventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .flagsChanged, .scrollWheel]
+        return types.map { CGEventSource.counterForEventType(.hidSystemState, eventType: $0) }
+    }
+
+    /// Posts Cmd-V to a process, or to the session when nil; it doesn't
+    /// check which field receives it.
+    private func pasteAtCursor(processIdentifier: pid_t? = nil) {
         guard dependencies.postsKeyEvents else { return }
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
         keyDown?.flags = .maskCommand
-        keyDown?.post(tap: .cgSessionEventTap)
-
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
         keyUp?.flags = .maskCommand
-        keyUp?.post(tap: .cgSessionEventTap)
+        if let processIdentifier {
+            keyDown?.postToPid(processIdentifier)
+            keyUp?.postToPid(processIdentifier)
+        } else {
+            keyDown?.post(tap: .cgSessionEventTap)
+            keyUp?.post(tap: .cgSessionEventTap)
+        }
     }
 
-    private func pressEnter() {
+    /// Posts Return to a process, or to the session when nil; targeted
+    /// callers check the field and the attempt first.
+    private func pressEnter(processIdentifier: pid_t? = nil) {
         guard dependencies.postsKeyEvents else { return }
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)
-        keyDown?.post(tap: .cgSessionEventTap)
-
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
-        keyUp?.post(tap: .cgSessionEventTap)
+        if let processIdentifier {
+            keyDown?.postToPid(processIdentifier)
+            keyUp?.postToPid(processIdentifier)
+        } else {
+            keyDown?.post(tap: .cgSessionEventTap)
+            keyUp?.post(tap: .cgSessionEventTap)
+        }
+    }
+
+    /// The text a paste would write, with the same trailing space, for an
+    /// Accessibility insertion.
+    private func transcriptTextForInsertion(_ transcript: String) -> String {
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if transcript.last?.isWhitespace != true,
+           let last = trimmedTranscript.last,
+           ".!?".contains(last) {
+            return transcript + " "
+        }
+        return transcript
     }
 
     /// Writes the final transcript to the app's pasteboard (the system one,
@@ -16273,15 +16593,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let pasteboard = dependencies.pasteboard
         let snapshot = preserveClipboard ? PreservedPasteboardSnapshot(pasteboard: pasteboard) : nil
 
-        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let textToWrite: String
-        if transcript.last?.isWhitespace != true,
-           let last = trimmedTranscript.last,
-           ".!?".contains(last) {
-            textToWrite = transcript + " "
-        } else {
-            textToWrite = transcript
-        }
+        let textToWrite = transcriptTextForInsertion(transcript)
 
         writeDictationStringToPasteboard(textToWrite)
 
@@ -16335,16 +16647,74 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func pressEnterWhenShortcutReleased(completion: (() -> Void)? = nil) {
+    /// Waits for the shortcut's release; a targeted Enter checks its field
+    /// again when it's sent.
+    private func pressEnterWhenShortcutReleased(
+        target: AppTextInsertionTarget? = nil, completion: (() -> Void)? = nil
+    ) {
         performAfterShortcutReleased { [weak self] in
-            self?.pressEnter()
-            completion?()
+            if let target {
+                self?.pressEnterAtTarget(target, completion: completion)
+            } else {
+                self?.pressEnter()
+                completion?()
+            }
         }
     }
 
-    private func pressEnterAfterPaste(completion: (() -> Void)? = nil) {
+    /// Lets the paste land first; any newer input cancels a targeted Enter.
+    private func pressEnterAfterPaste(target: AppTextInsertionTarget? = nil, completion: (() -> Void)? = nil) {
+        let inputBeforeDelay = target.map { _ in Self.userInputEventCounts() }
+        let appBeforeDelay = NSWorkspace.shared.frontmostApplication?.processIdentifier
         DispatchQueue.main.asyncAfter(deadline: .now() + pressEnterAfterPasteDelay) { [weak self] in
-            self?.pressEnter()
+            if let target {
+                guard Self.userInputEventCounts() == inputBeforeDelay,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == appBeforeDelay else {
+                    if let self, target.identifier == self.textInsertionTargetID {
+                        self.showInsertionStatus("Original field is not focused — Enter skipped")
+                    }
+                    completion?()
+                    return
+                }
+                self?.pressEnterAtTarget(target, completion: completion)
+            } else {
+                self?.pressEnter()
+                completion?()
+            }
+        }
+    }
+
+    /// Sends Return only for the current target. Only a background field
+    /// whose text can be read is brought forward for it; otherwise Enter is
+    /// skipped.
+    private func pressEnterAtTarget(_ target: AppTextInsertionTarget, completion: (() -> Void)?) {
+        guard target.identifier == textInsertionTargetID else {
+            completion?()
+            return
+        }
+        if target.canSendEnter || (target.isFocused && target.isSupportedTextControl) {
+            pressEnter(processIdentifier: target.processIdentifier)
+            completion?()
+            return
+        }
+        guard target.allowsTextCapture,
+              NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier else {
+            showInsertionStatus("Original field is not focused — Enter skipped")
+            completion?()
+            return
+        }
+
+        performAtTarget(target, action: { [weak self] in
+            guard let self,
+                  target.identifier == self.textInsertionTargetID,
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier,
+                  target.canSendEnter else { return false }
+            self.pressEnter(processIdentifier: target.processIdentifier)
+            return true
+        }) { [weak self] sent in
+            if !sent, let self, target.identifier == self.textInsertionTargetID {
+                self.showInsertionStatus("Original field is not focused — Enter skipped")
+            }
             completion?()
         }
     }
@@ -16363,6 +16733,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.statusText = localizedCatalogString("Ready")
         }
     }
+}
+
+/// A dictation that uses original-field insertion, and the field focused
+/// when it started (nil when none could be kept). Held only while the
+/// dictation is transcribed; the field's text never enters requests or
+/// history.
+struct TextInsertionPlan {
+    let target: AppTextInsertionTarget?
 }
 
 private extension ShortcutBinding {

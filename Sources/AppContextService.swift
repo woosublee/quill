@@ -9,6 +9,10 @@ struct AppSelectionSnapshot {
     let bundleIdentifier: String?
     let windowTitle: String?
     let selectedText: String?
+    /// The field focused at the start, kept for original-field insertion
+    /// (upstream #340); nil when that setting is off.
+    var textInsertionTarget: AppTextInsertionTarget? = nil
+    var usesOriginalFieldInsertion = false
 }
 
 struct AppContext {
@@ -162,22 +166,31 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         return trimmedPrompt.isEmpty ? Self.defaultContextPrompt : trimmedPrompt
     }
 
-    func collectSelectionSnapshot() -> AppSelectionSnapshot {
+    /// Captures the insertion mode and its target together; with original-field
+    /// insertion off, the focused field isn't read.
+    func collectSelectionSnapshot(captureInsertionTarget: Bool = false) -> AppSelectionSnapshot {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
             return AppSelectionSnapshot(
                 appName: nil,
                 bundleIdentifier: nil,
                 windowTitle: nil,
-                selectedText: nil
+                selectedText: nil,
+                usesOriginalFieldInsertion: captureInsertionTarget
             )
         }
 
         let appElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
+        let textInsertionTarget = captureInsertionTarget ? AppTextInsertionTarget.capture(
+            from: appElement, processIdentifier: frontmostApp.processIdentifier
+        ) : nil
         return AppSelectionSnapshot(
             appName: frontmostApp.localizedName,
             bundleIdentifier: frontmostApp.bundleIdentifier,
             windowTitle: focusedWindowTitle(from: appElement) ?? frontmostApp.localizedName,
-            selectedText: rawSelectedText(from: appElement)
+            // A secure field yields no target, and its selection isn't read either.
+            selectedText: !captureInsertionTarget || textInsertionTarget != nil ? rawSelectedText(from: appElement) : nil,
+            textInsertionTarget: textInsertionTarget,
+            usesOriginalFieldInsertion: captureInsertionTarget
         )
     }
 
