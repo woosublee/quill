@@ -1223,10 +1223,12 @@ struct LocalizationResourceTests {
         language: String,
         root: URL
     ) throws -> String {
-        let url = root
-            .appendingPathComponent("build/localization")
+        let localizationRoot = ProcessInfo.processInfo.environment["QUILL_LOCALIZATION_DIR"].map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent("build/localization")
+        let url = localizationRoot
             .appendingPathComponent("\(language).lproj/Localizable.strings")
-        let dictionary = NSDictionary(contentsOf: url) as? [String: String] ?? [:]
+        guard let dictionary = NSDictionary(contentsOf: url) as? [String: String] else {
+            throw NSError(domain: "LocalizationResourceTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing compiled strings at \(url.path)"])
+        }
         return dictionary[key] ?? key
     }
 }

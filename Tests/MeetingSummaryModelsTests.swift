@@ -221,8 +221,8 @@ struct MeetingSummaryModelsTests {
     }
 
     private static func testFailedAttemptPresentationIncludesLocalizedLanguageDetails() throws {
-        let bundleURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("build/localization")
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let bundleURL = ProcessInfo.processInfo.environment["QUILL_LOCALIZATION_DIR"].map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent("build/localization")
         guard let bundle = Bundle(path: bundleURL.path) else {
             throw MeetingSummaryModelsTestFailure("Missing localization bundle")
         }
@@ -271,8 +271,8 @@ struct MeetingSummaryModelsTests {
     }
 
     private static func testFailedAttemptPresentationPlacesFailureReasonBeforeLanguage() throws {
-        let bundleURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("build/localization")
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let bundleURL = ProcessInfo.processInfo.environment["QUILL_LOCALIZATION_DIR"].map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent("build/localization")
         guard let bundle = Bundle(path: bundleURL.path) else {
             throw MeetingSummaryModelsTestFailure("Missing localization bundle")
         }

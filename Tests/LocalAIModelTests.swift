@@ -211,7 +211,7 @@ struct LocalAIModelTests {
 
     private static func compiledLocalizationBundle() throws -> Bundle {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let localizationRoot = root.appendingPathComponent("build/localization")
+        let localizationRoot = ProcessInfo.processInfo.environment["QUILL_LOCALIZATION_DIR"].map { URL(fileURLWithPath: $0) } ?? root.appendingPathComponent("build/localization")
         guard let bundle = Bundle(path: localizationRoot.path) else {
             throw NSError(
                 domain: "LocalAIModelTests",
