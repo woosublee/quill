@@ -24,6 +24,9 @@ struct ShortcutCoreTests {
         testLongHoldStopsImmediatelyWithDoubleTapEnabled()
         testToggleStartedSessionIgnoresHoldShortcut()
         testDoubleTapModifierChordThroughMatcher()
+        testShortcutPostProcessingPreferenceDefaultsToTheSwitch()
+        testShortcutPostProcessingPreferenceRoundTrips()
+        testShortcutPostProcessingOverrideFollowsTheStartingShortcut()
         print("ShortcutCoreTests passed")
     }
 
@@ -508,6 +511,74 @@ struct ShortcutCoreTests {
             .switchedToToggle,
         ])
         expectEqual(controller.activeMode, .toggle)
+    }
+
+    /// #347: an unset or unknown choice follows the Post-processing switch.
+    private static func testShortcutPostProcessingPreferenceDefaultsToTheSwitch() {
+        let suite = "ShortcutCoreTests.postProcessing.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        expectEqual(
+            ShortcutPostProcessingPreference.load(
+                from: defaults,
+                key: ShortcutPostProcessingPreference.holdStorageKey
+            ),
+            .inherit
+        )
+        defaults.set("preserveExactWording", forKey: ShortcutPostProcessingPreference.toggleStorageKey)
+        expectEqual(
+            ShortcutPostProcessingPreference.load(
+                from: defaults,
+                key: ShortcutPostProcessingPreference.toggleStorageKey
+            ),
+            .inherit
+        )
+    }
+
+    private static func testShortcutPostProcessingPreferenceRoundTrips() {
+        let suite = "ShortcutCoreTests.postProcessing.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        expect(
+            ShortcutPostProcessingPreference.holdStorageKey
+                != ShortcutPostProcessingPreference.toggleStorageKey,
+            "each shortcut keeps its own choice"
+        )
+        for mode in [RecordingTriggerMode.hold, .toggle] {
+            let key = ShortcutPostProcessingPreference.storageKey(for: mode)
+            for preference in ShortcutPostProcessingPreference.allCases {
+                preference.save(to: defaults, key: key)
+                expectEqual(ShortcutPostProcessingPreference.load(from: defaults, key: key), preference)
+            }
+        }
+    }
+
+    private static func testShortcutPostProcessingOverrideFollowsTheStartingShortcut() {
+        // A recording not started by a dictation shortcut follows the switch.
+        expectEqual(
+            ShortcutPostProcessingPreference.override(startedBy: nil, hold: .off, toggle: .on),
+            nil as Bool?
+        )
+        // Each shortcut uses its own choice.
+        expectEqual(
+            ShortcutPostProcessingPreference.override(startedBy: .hold, hold: .off, toggle: .on),
+            false as Bool?
+        )
+        expectEqual(
+            ShortcutPostProcessingPreference.override(startedBy: .toggle, hold: .off, toggle: .on),
+            true as Bool?
+        )
+        // Follow Post-processing leaves the switch in charge.
+        expectEqual(
+            ShortcutPostProcessingPreference.override(startedBy: .hold, hold: .inherit, toggle: .off),
+            nil as Bool?
+        )
+        expectEqual(
+            ShortcutPostProcessingPreference.override(startedBy: .toggle, hold: .on, toggle: .inherit),
+            nil as Bool?
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

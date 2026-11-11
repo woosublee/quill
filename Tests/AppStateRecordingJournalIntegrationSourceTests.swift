@@ -622,7 +622,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         let start = try body(startingWith: "private func startRecording(", in: source)
         let mcpStart = try body(startingWith: "func startRecordingFromMCP()", in: source)
 
-        assert(source.contains("private func startRecording(\n        triggerMode: RecordingTriggerMode,\n        opensNote: Bool,\n        onStarted: (@MainActor () -> Void)? = nil\n    ) -> Bool"))
+        assert(source.contains("private func startRecording(\n        triggerMode: RecordingTriggerMode,\n        opensNote: Bool,\n        onStarted: (@MainActor () -> Void)? = nil,\n        shortcut: RecordingTriggerMode? = nil\n    ) -> Bool"))
         assert(start.contains("guard physicalAudioStartLifecycle.isIdle else { return false }"))
         let admissionBegin = try requiredRange(
             of: "recordingStartAdmissionLifecycle.begin(startRequestID)",
@@ -859,6 +859,24 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(!source.contains("opensNote: Bool = true"))
         // The fifth is a double-tap confirming a paused start (upstream #349).
         assert(ranges(of: "opensNote: true", in: source).count == 5)
+        // Only the three dictation-shortcut starts pass their shortcut, so
+        // its post-processing choice applies (upstream #347); the menu,
+        // Note Browser, calendar, and MCP starts follow the switch.
+        assert(ranges(of: "opensNote: true, shortcut: ", in: source).count == 3)
+        assert(source.contains("startRecording(triggerMode: mode, opensNote: true, shortcut: mode)"))
+        assert(source.contains("startRecording(triggerMode: pendingMode, opensNote: true, shortcut: origin)"))
+        assert(source.contains("startRecording(triggerMode: .toggle, opensNote: true, shortcut: origin)"))
+        // The shortcut pressed first decides, even after a double tap.
+        assert(source.contains("pendingShortcutStartOrigin = mode"))
+        assert(ranges(of: "pendingShortcutStartOrigin ?? ", in: source).count == 2)
+        // "On" without a ready model follows the switch instead of failing.
+        assert(source.contains("if activeRecordingPostProcessingOverride == true,\n           !isAIProcessingChoiceReady(postProcessingBackendChoice, for: .postProcessing) {"))
+        // The recording's choice is what its transcript, recovery snapshot,
+        // and recovery placeholder use, and it ends with the recording.
+        assert(source.contains("usedPostProcessing: activeRecordingUsesPostProcessing\n        )\n        activeRecordingPostProcessingOverride = nil"))
+        assert(source.contains("postProcessingEnabled: shouldTranscribeActiveRecording && activeRecordingUsesPostProcessing,"))
+        assert(source.contains("usedPostProcessing: capturedSettings.usedPostProcessing,\n                    recordingStartedAt:"))
+        assert(!source.contains("shouldTranscribeActiveRecording && !disablePostProcessing"))
         assert(ranges(of: "opensNote: false", in: source).count == 2)
         assert(calendar.contains("if !startRecording("))
         assert(calendar.contains("shortcutSessionController.reset()"))

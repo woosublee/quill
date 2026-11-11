@@ -2911,6 +2911,12 @@ struct ModelsSettingsView: View {
                     Text("Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if appState.holdShortcutPostProcessingPreference == .on
+                        || appState.toggleShortcutPostProcessingPreference == .on {
+                        Text("A dictation shortcut set to On in Dictation Shortcuts still post-processes its recordings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if !transcriptionEnabledDraft {
@@ -4610,7 +4616,43 @@ struct ShortcutsSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Post-processing per shortcut")
+                    .font(.caption.weight(.semibold))
+
+                shortcutPostProcessingPicker(
+                    "Hold to Talk",
+                    selection: $appState.holdShortcutPostProcessingPreference
+                )
+                .disabled(!appState.hasEnabledHoldShortcut)
+
+                shortcutPostProcessingPicker(
+                    "Tap to Toggle",
+                    selection: $appState.toggleShortcutPostProcessingPreference
+                )
+                .disabled(!appState.hasEnabledToggleShortcut)
+
+                Text("Follow Post-processing uses the Post-processing switch. On also needs a Post-processing model that's ready to use. A recording keeps the choice of the shortcut you pressed first, even if it switches to Tap to Toggle. Recordings you start another way follow the switch. Voice macros and Edit Mode work either way.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private func shortcutPostProcessingPicker(
+        _ title: LocalizedStringKey,
+        selection: Binding<ShortcutPostProcessingPreference>
+    ) -> some View {
+        Picker(title, selection: selection) {
+            Text("Follow Post-processing").tag(ShortcutPostProcessingPreference.inherit)
+            Text("On").tag(ShortcutPostProcessingPreference.on)
+            Text("Off").tag(ShortcutPostProcessingPreference.off)
+        }
+        .pickerStyle(.menu)
     }
 
     private var dictationAudioSection: some View {

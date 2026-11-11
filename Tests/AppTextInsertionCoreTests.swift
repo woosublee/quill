@@ -711,7 +711,7 @@ struct AppTextInsertionCoreTests {
         let prepare = section("private func prepareRecordingStart(", length: 600)
         TestSupport.expect(prepare.contains("textInsertionTargetID = nil"), "a new start ends an earlier insertion")
         TestSupport.expect(prepare.contains("activeTextInsertionTarget = nil"), "and drops a stale target")
-        let schedule = section("private func scheduleShortcutStart(mode: RecordingTriggerMode) {", length: 1200)
+        let schedule = section("private func scheduleShortcutStart(mode: RecordingTriggerMode) {", length: 1600)
         TestSupport.expect(schedule.contains("textInsertionTargetID = nil"), "a delayed start ends it too")
         TestSupport.expect(
             schedule.contains("collectSelectionSnapshot(captureInsertionTarget: captureInsertionTarget)"),

@@ -443,6 +443,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var isImportedAudio: Bool
         /// The event a meeting reminder started this recording for.
         var calendarSnapshot: RecordingCalendarSnapshot?
+        /// Whether this job cleans up its transcript, when it decided so
+        /// itself (a dictation shortcut's choice, an import's snapshot);
+        /// `nil` follows the Settings switch.
+        var usesPostProcessing: Bool? = nil
     }
 
     private enum ActiveAudioInterruption {
@@ -1007,6 +1011,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             UserDefaults.standard.set(doubleTapToToggleEnabled, forKey: doubleTapToToggleStorageKey)
         }
+    }
+
+    /// Whether Hold to Talk recordings run post-processing: the Settings
+    /// switch, or always on or off (upstream #347).
+    @Published var holdShortcutPostProcessingPreference: ShortcutPostProcessingPreference {
+        didSet {
+            holdShortcutPostProcessingPreference.save(
+                to: .standard,
+                key: ShortcutPostProcessingPreference.holdStorageKey
+            )
+        }
+    }
+
+    /// Whether Tap to Toggle recordings run post-processing (upstream #347).
+    @Published var toggleShortcutPostProcessingPreference: ShortcutPostProcessingPreference {
+        didSet {
+            toggleShortcutPostProcessingPreference.save(
+                to: .standard,
+                key: ShortcutPostProcessingPreference.toggleStorageKey
+            )
+        }
+    }
+
+    /// The current recording's post-processing choice, fixed when it
+    /// started from a dictation shortcut; `nil` follows the Settings switch.
+    private var activeRecordingPostProcessingOverride: Bool?
+    /// The dictation shortcut a pending start began with (#347).
+    private var pendingShortcutStartOrigin: RecordingTriggerMode?
+
+    /// Whether the current recording runs post-processing.
+    private var activeRecordingUsesPostProcessing: Bool {
+        activeRecordingPostProcessingOverride ?? !disablePostProcessing
     }
 
     /// Stream audio to the transcription backend during recording via the
@@ -2893,9 +2929,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Each running cleanup's chunk progress, for the note's one bar (#697).
     @Published private(set) var postProcessingProgressByNoteID: [UUID: PostProcessingDisplayProgress] = [:]
 
-    /// What cleans up a new transcript, for how the one bar is split (#697).
-    var noteCleanupStage: NoteCleanupStage {
-        if disablePostProcessing { return .off }
+    /// What cleans up a note's new transcript, for how the one bar is split
+    /// (#697). A recording keeps the choice its shortcut made (#347).
+    func noteCleanupStage(noteID: UUID) -> NoteCleanupStage {
+        let job = activeTranscriptionJobs.values.first { ($0.liveNoteID ?? $0.id) == noteID }
+        guard job?.usesPostProcessing ?? !disablePostProcessing else { return .off }
         return postProcessingBackendChoice.isLocal ? .onDevice : .cloud
     }
     private var transcriptionRetryWorkflowItemIDs: Set<UUID> = []
@@ -4124,6 +4162,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customContextPromptLastModified = customContextPromptLastModified
         self.shortcutStartDelay = shortcutStartDelay
         self.doubleTapToToggleEnabled = UserDefaults.standard.bool(forKey: doubleTapToToggleStorageKey)
+        self.holdShortcutPostProcessingPreference = ShortcutPostProcessingPreference.load(
+            from: .standard,
+            key: ShortcutPostProcessingPreference.holdStorageKey
+        )
+        self.toggleShortcutPostProcessingPreference = ShortcutPostProcessingPreference.load(
+            from: .standard,
+            key: ShortcutPostProcessingPreference.toggleStorageKey
+        )
         self.originalFieldInsertionEnabled = OriginalFieldInsertionPreference.load(from: .standard)
         self.preserveClipboard = preserveClipboard
         self.keepDictationInClipboardHistory = keepDictationInClipboardHistory
@@ -8189,7 +8235,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ).isEmpty ? .defaultConfiguration : .transcriptionOverride
             ),
             processing: RecordingProcessingSnapshot(
-                postProcessingEnabled: shouldTranscribeActiveRecording && !disablePostProcessing,
+                postProcessingEnabled: shouldTranscribeActiveRecording && activeRecordingUsesPostProcessing,
                 preferredModelID: postProcessingModel,
                 // Recovery treats this as a cloud model ID; a local
                 // fallback is not recorded here.
@@ -9793,6 +9839,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.updateTranscriptionJob(jobID) {
                 $0.liveNoteID = noteID
                 $0.audioFileName = savedAudioFile.fileName
+                $0.usesPostProcessing = configuration.postProcessingEnabled
             }
             onNoteAdded?(noteID)
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
@@ -11455,7 +11502,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if pendingShortcutStartTask == nil {
                     // A double tap paused this start; the second press confirms it.
                     pendingShortcutStartMode = nil
-                    if !startRecording(triggerMode: .toggle, opensNote: true) {
+                    let origin = pendingShortcutStartOrigin ?? .toggle
+                    if !startRecording(triggerMode: .toggle, opensNote: true, shortcut: origin) {
                         shortcutSessionController.reset()
                     }
                 }
@@ -11857,11 +11905,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             commandModeManualModifier.shortcutModifier
         )
         pendingShortcutStartMode = mode
+        // The shortcut pressed first decides the post-processing choice,
+        // even if a double tap or an added modifier turns it into Tap to
+        // Toggle before the start (#347).
+        pendingShortcutStartOrigin = mode
         let delay = shortcutStartDelay
 
         guard delay > 0 else {
             pendingShortcutStartMode = nil
-            if !startRecording(triggerMode: mode, opensNote: true) {
+            if !startRecording(triggerMode: mode, opensNote: true, shortcut: mode) {
                 shortcutSessionController.reset()
             }
             return
@@ -11885,7 +11937,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 guard let self, let pendingMode = self.pendingShortcutStartMode else { return }
                 self.pendingShortcutStartTask = nil
                 self.pendingShortcutStartMode = nil
-                if !self.startRecording(triggerMode: pendingMode, opensNote: true) {
+                let origin = self.pendingShortcutStartOrigin ?? pendingMode
+                if !self.startRecording(triggerMode: pendingMode, opensNote: true, shortcut: origin) {
                     self.shortcutSessionController.reset()
                 }
             }
@@ -11901,6 +11954,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingManualCommandInvocation = false
         if resetMode {
             pendingShortcutStartMode = nil
+            pendingShortcutStartOrigin = nil
         }
     }
 
@@ -12016,7 +12070,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func startRecording(
         triggerMode: RecordingTriggerMode,
         opensNote: Bool,
-        onStarted: (@MainActor () -> Void)? = nil
+        onStarted: (@MainActor () -> Void)? = nil,
+        shortcut: RecordingTriggerMode? = nil
     ) -> Bool {
         guard requireAvailableHistoryForMutation() else { return false }
         guard !isRecording else { return false }
@@ -12030,6 +12085,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return false
         }
         commitSettingsDraftsBeforeRecordingStart()
+        activeRecordingPostProcessingOverride = ShortcutPostProcessingPreference.override(
+            startedBy: shortcut,
+            hold: holdShortcutPostProcessingPreference,
+            toggle: toggleShortcutPostProcessingPreference
+        )
+        // "On" needs what turning the switch on needs (an API key, or a
+        // ready local model); without it the recording follows the switch.
+        if activeRecordingPostProcessingOverride == true,
+           !isAIProcessingChoiceReady(postProcessingBackendChoice, for: .postProcessing) {
+            activeRecordingPostProcessingOverride = nil
+        }
         let t0 = CFAbsoluteTimeGetCurrent()
         os_log(.info, log: recordingLog, "startRecording() entered")
         // Once capture begins and the recording has its note, a recording a
@@ -13793,7 +13859,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             isImportedAudio: false,
             calendarSnapshot: recordingCalendarSnapshot
         )
-        updateTranscriptionJob(jobID) { $0.liveNoteID = liveNoteID }
+        updateTranscriptionJob(jobID) {
+            $0.liveNoteID = liveNoteID
+            $0.usesPostProcessing = activeRecordingUsesPostProcessing
+        }
         capturedContext = nil
         contextCaptureTask = nil
         lastRawTranscript = ""
@@ -13849,8 +13918,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             localTranscriptionModel: capturedLocalTranscriptionModel,
             transcriptionLanguage: capturedTranscriptionLanguage,
             usedContextCapture: !disableContextCapture,
-            usedPostProcessing: !disablePostProcessing
+            usedPostProcessing: activeRecordingUsesPostProcessing
         )
+        activeRecordingPostProcessingOverride = nil
         let capturedLiveTranscriber = liveTranscriber
         let capturedLiveTranscriptionSession = liveTranscriptionSession
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
@@ -14038,6 +14108,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     useLocalTranscription: capturedUseLocalTranscription,
                     localTranscriptionModelID: capturedSettings.historyLocalTranscriptionModelID,
                     transcriptionLanguageCode: capturedTranscriptionLanguage.code,
+                    usedPostProcessing: capturedSettings.usedPostProcessing,
                     recordingStartedAt: activeJob?.recordingStartedAt,
                     recordingEndedAt: activeJob?.recordingEndedAt,
                     postProcessingStatusOverride: capturedUseLocalTranscription
@@ -15242,6 +15313,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         useLocalTranscription: Bool,
         localTranscriptionModelID: String,
         transcriptionLanguageCode: String,
+        usedPostProcessing: Bool,
         recordingStartedAt: Date?,
         recordingEndedAt: Date?,
         postProcessingStatusOverride: String? = nil
@@ -15265,7 +15337,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             audioFileName: audioFileName,
             usedLocalTranscription: useLocalTranscription,
             usedContextCapture: !disableContextCapture,
-            usedPostProcessing: !disablePostProcessing,
+            usedPostProcessing: usedPostProcessing,
             transcriptionLanguageCode: transcriptionLanguageCode,
             localTranscriptionModelID: localTranscriptionModelID,
             contextAppName: context.appName,
