@@ -12,7 +12,7 @@ function upsert(c, name, type, value, scopes, web, desc) {
   v.setValueForMode(c.modes[0].modeId, value);
   v.scopes = scopes;
   v.setVariableCodeSyntax('WEB', `var(--${web})`);
-  if (desc) v.description = desc;
+  v.description = desc || '';
   return v;
 }
 const out = { color: 0, size: 0, text: 0, effect: 0 };
@@ -43,7 +43,7 @@ for (const { name, f, s } of specs) {
   ts.name = name; ts.fontName = f; ts.fontSize = px(s.fontSize);
   ts.lineHeight = { unit: 'PIXELS', value: px(s.lineHeight) };
   ts.letterSpacing = { unit: 'PIXELS', value: s.letterSpacing ? px(s.letterSpacing) : 0 };
-  if (s.paragraphSpacing) ts.paragraphSpacing = px(s.paragraphSpacing);
+  ts.paragraphSpacing = s.paragraphSpacing ? px(s.paragraphSpacing) : 0;
   ts.description = s.usage || '';
   out.text++;
 }

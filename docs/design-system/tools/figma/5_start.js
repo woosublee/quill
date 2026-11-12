@@ -1,5 +1,5 @@
 const T = await getJSON('tokens.json'); const V = await loadVars(); await loadDocFonts();
-const page = getPage('시작', 'Page 2');
+const page = await getPage('시작', 'Page 2');
 const b = board(page, '시작', 1440);
 const hero = box('V', { gap: 16, pad: 56, radius: 20, fill: varPaint(V.light['brand-ink']), width: 1296, name: 'cover' });
 add(hero, txt('Quill 디자인 시스템', { size: 56, weight: 700, lh: 64, fill: solid('#ffffff') }), txt('말로 쓰는 노트 앱. 화면은 조용하고, 녹음 중인 순간만 또렷해요.', { size: 20, lh: 28, fill: solid('#ffffff', 0.72), width: 1000 }),
@@ -20,8 +20,8 @@ cards('디자인 원칙', null, [
   ['5. 접근성 설정을 그대로 존중', '동작 줄이기·투명도 줄이기·대비 높이기·색 구분 없이 보기 각각에 대체 표현이 있어요.'],
 ], 3);
 cards('이 파일 보는 법', '왼쪽 페이지 목록에서 골라요.', [
-  ['색', '의미 색 55개. 카드 왼쪽이 라이트, 오른쪽이 다크예요.'],
-  ['글자', '역할별 글자 스타일 34개.'],
+  ['색', `의미 색 ${T.color.tokens.length}개. 카드 왼쪽이 라이트, 오른쪽이 다크예요.`],
+  ['글자', `역할별 글자 스타일 ${T.type.groups.reduce((n, g) => n + g.styles.length, 0)}개.`],
   ['간격 · 모양', '간격, 반경, 그림자, 불투명도, 크기, 폭 기준.'],
   ['컴포넌트', '원자 → 분자 → 유기체 → 화면 순서. 레포의 컴포넌트 미리보기를 그대로 옮긴 그림이에요.'],
 ], 4);
@@ -31,4 +31,4 @@ cards('알아 둘 점', null, [
   ['글꼴 대체', 'SF Pro와 SF Pro Rounded 자리에 Pretendard, SF Mono 자리에 Menlo를 썼어요. 글자 폭이 실제 앱과 조금 달라요.'],
   ['시스템 색은 근사값', T.meta.note],
 ], 2);
-return { page: page.id, board: b.id, h: Math.round(b.height) };
+return done({ page: page.id, board: b.id, h: Math.round(b.height) });

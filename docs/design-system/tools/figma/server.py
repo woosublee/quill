@@ -3,8 +3,9 @@
 Usage: python3 docs/design-system/tools/figma/server.py
 It listens on 127.0.0.1:8765 only. It serves this folder's scripts, the design
 system's tokens.json and components/, and out/ (layer data walk.html posts back,
-kept in a temporary folder and never committed). Every response allows any
-origin, so the Figma tab can read it; stop the server when you are done.
+kept in a temporary folder and never committed). Only the Figma editor's origin
+may read it from another site, and only its own pages may post. Stop the server
+when you are done.
 """
 import http.server
 import os
@@ -14,6 +15,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 DESIGN_SYSTEM = os.path.dirname(os.path.dirname(HERE))
 OUT = os.path.join(tempfile.gettempdir(), "quill-figma-out")
+OWN_ORIGIN = "http://127.0.0.1:8765"
+FIGMA_ORIGIN = "https://www.figma.com"
+MAX_BODY = 8 * 1024 * 1024
 os.makedirs(OUT, exist_ok=True)
 
 
@@ -28,10 +32,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return local if os.path.exists(local) else os.path.join(DESIGN_SYSTEM, relative)
 
     def end_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Private-Network", "true")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        if self.headers.get("Origin") == FIGMA_ORIGIN:
+            self.send_header("Access-Control-Allow-Origin", FIGMA_ORIGIN)
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Vary", "Origin")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -41,11 +46,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         match = re.fullmatch(r"/save/([A-Za-z0-9_.-]+\.json)", self.path)
+        length = int(self.headers.get("Content-Length", "0"))
+        if self.headers.get("Origin") != OWN_ORIGIN or length > MAX_BODY:
+            self.send_response(403)
+            self.end_headers()
+            return
         if not match:
             self.send_response(404)
             self.end_headers()
             return
-        length = int(self.headers.get("Content-Length", "0"))
         with open(os.path.join(OUT, match.group(1)), "wb") as f:
             f.write(self.rfile.read(length))
         self.send_response(200)

@@ -1,6 +1,6 @@
 const T = await getJSON('tokens.json'); const V = await loadVars(); await loadDocFonts();
 const effects = await figma.getLocalEffectStylesAsync();
-const page = getPage('간격 · 모양');
+const page = await getPage('간격 · 모양');
 const b = board(page, '간격 · 모양', 1440);
 heading(b, '간격 · 모양', '간격, 반경, 그림자, 불투명도, 크기 토큰이에요. 표에 없는 값은 새로 쓰지 않아요.');
 function table(parent, toks, draw) {
@@ -56,4 +56,4 @@ s = section(b, '크기', '컨트롤과 배치의 고정 크기예요. 플랫폼�
 table(s, T.size.tokens, null);
 s = section(b, '폭 기준', T.breakpoint.note || '');
 table(s, T.breakpoint.tokens, null);
-return { page: page.id, board: b.id, h: Math.round(b.height) };
+return done({ page: page.id, board: b.id, h: Math.round(b.height) });

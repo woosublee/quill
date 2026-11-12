@@ -1,6 +1,6 @@
 const T = await getJSON('tokens.json'); await loadDocFonts();
 const styles = await figma.getLocalTextStylesAsync();
-const page = getPage('글자');
+const page = await getPage('글자');
 const b = board(page, '글자', 1440);
 heading(b, '글자', '글꼴은 시스템 하나예요: SF Pro, 온보딩 큰 제목만 SF Rounded, 코드·타이머는 SF Mono. 크기는 역할 이름으로 골라요. 이 파일에서는 SF Pro 자리에 Pretendard, SF Mono 자리에 Menlo를 썼어요(Figma 브라우저에서 SF 글꼴이 그려지지 않아요). 값은 macOS 기준이고, iPhone은 Dynamic Type을 따라요.');
 const W = { 400: 'Regular', 500: 'Medium', 600: 'Semibold', 700: 'Bold' };
@@ -23,4 +23,4 @@ for (const g of T.type.groups) {
     add(row, meta, sample); list.appendChild(row); n++;
   }
 }
-return { page: page.id, board: b.id, rows: n, h: Math.round(b.height) };
+return done({ page: page.id, board: b.id, rows: n, h: Math.round(b.height) });

@@ -76,7 +76,8 @@ function svgItem(el, sel, pr) {
   const r = el.getBoundingClientRect(); if (!r.width || !r.height) return null;
   const win = el.ownerDocument.defaultView, cs = win.getComputedStyle(el), ss = sel.ownerDocument.defaultView.getComputedStyle(sel);
   const c = el.cloneNode(true);
-  const m = cs.color.match(/[\d.]+/g).map(Number); const hex = '#' + m.slice(0, 3).map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+  const unit = cs.color.startsWith('color(') ? 255 : 1; // color(srgb …) channels are 0–1
+  const m = cs.color.match(/[\d.]+/g).map(Number); const hex = '#' + m.slice(0, 3).map(v => Math.round(v * unit).toString(16).padStart(2, '0')).join('');
   let inner = c.innerHTML.replace(/currentColor/g, hex);
   const vb = el.getAttribute('viewBox') || `0 0 ${r.width} ${r.height}`; const vbw = +vb.split(/\s+/)[2];
   if (cs.transform.startsWith('matrix(-1')) inner = `<g transform="translate(${vbw},0) scale(-1,1)">${inner}</g>`;
@@ -119,7 +120,7 @@ function walk(el, sel, pr) {
   const cls = typeof el.className === 'string' ? el.className.trim() : '';
   const node = Object.assign({ t: 'box', x: R(er.left - pr.left), y: R(er.top - pr.top), w: R(er.width), h: R(er.height), cls: cls || tag, kids: [] }, v);
   if (el.classList.contains('q-donut')) { // conic progress ring
-    const acc = T.color.tokens.find(t => t.name === 'accent').value.light, rest = cs.getPropertyValue('--fill-selected') || 'rgba(0,0,0,0.08)';
+    const acc = T.color.tokens.find(t => t.name === 'accent').value.light;
     const w = er.width, c = w / 2, r = (w / 2 + 4.75) / 2, sw = w / 2 - 4.75, L = 2 * Math.PI * r;
     return { t: 'svg', x: node.x, y: node.y, w: node.w, h: node.h, color: acc, tok: 'accent', name: 'q-donut', comp: undefined,
       svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${w}" viewBox="0 0 ${w} ${w}" fill="none"><circle cx="${c}" cy="${c}" r="${r}" stroke="#000000" stroke-opacity="0.08" stroke-width="${sw}"/><circle cx="${c}" cy="${c}" r="${r}" stroke="${acc}" stroke-width="${sw}" stroke-dasharray="${L * 0.62} ${L}" transform="rotate(-90 ${c} ${c})"/></svg>` };
@@ -146,11 +147,11 @@ function tagComps(container) { // which elements become Figma components, and th
     else c.__comp = kids.length > 1 ? String(i + 1) : '';
   });
 }
+async function save(file, data) { const r = await fetch('save/' + file, { method: 'POST', body: JSON.stringify(data) }); if (!r.ok) throw new Error('save ' + file + ': ' + r.status); }
 const index = [];
 for (const { name } of header.components) {
   const preview = await (await fetch(`components/${name}/preview.html`)).text();
   const mk = preview.match(/<!-- @dsCard ([^>]*)-->/)[1];
-  const attr = k => { const m = mk.match(new RegExp(k + '="?([^" ]*(?: [^"=]*)*?)"?(?= \\w+=|\\s*$)')); return m ? m[1].trim() : null; };
   const group = (mk.match(/group="([^"]*)"/) || [])[1], subtitle = (mk.match(/subtitle="([^"]*)"/) || [])[1], width = +((mk.match(/width=(\d+)/) || [])[1] || 880);
   const body = preview.split('<body>')[1].split('</body>')[0];
   const frames = [];
@@ -165,14 +166,15 @@ for (const { name } of header.components) {
   const stage = f.contentDocument.querySelector('.q-stage'); if (stage) tagComps(stage);
   const root = walk(f.contentDocument.body, s.contentDocument.body, { left: 0, top: 0 });
   root.w = width; root.h = h;
-  const readme = await (await fetch(`components/${name}/README.md`)).text().catch(() => '');
+  const readmeResponse = await fetch(`components/${name}/README.md`);
+  const readme = readmeResponse.ok ? await readmeResponse.text() : '';
   let count = 0, comps = 0; (function c(n) { count++; if (n.comp !== undefined) comps++; (n.kids || []).forEach(c); })(root);
-  await fetch('save/' + name + '.json', { method: 'POST', body: JSON.stringify({ name, group, subtitle, width, height: h, readme, root }) });
+  await save(name + '.json', { name, group, subtitle, width, height: h, readme, root });
   index.push({ name, group, subtitle, width, height: h, nodes: count, comps });
   log(`${name}: ${count} nodes, ${comps} comps, ${width}x${h}`);
   frames.forEach(x => x.remove());
 }
-await fetch('save/index.json', { method: 'POST', body: JSON.stringify(index) });
+await save('index.json', index);
 log('DONE ' + index.length); document.title = 'walk done';
 } catch (e) { log('ERR ' + e.message + '\n' + e.stack); document.title = 'walk error'; }
 </script></body></html>

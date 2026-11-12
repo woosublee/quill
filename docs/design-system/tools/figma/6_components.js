@@ -1,7 +1,6 @@
-// window.quillArg = { group: '2 · 분자' } or { names: ['StatusBanner'] } limits a run; unset builds every group.
+// window.quillArg = { group: '2 · 분자' } builds one group; unset builds every group.
 const ARG = window.quillArg || {};
 const T = await getJSON('tokens.json'); const V = await loadVars(); await loadDocFonts();
-await Promise.all(['ExtraBold', 'Light'].map(st => figma.loadFontAsync({ family: 'Pretendard', style: st }).catch(() => null)));
 const index = await getJSON('out/index.json');
 const textStyles = await figma.getLocalTextStylesAsync(); const effectStyles = await figma.getLocalEffectStylesAsync();
 // text style lookup: kind|size|weight|ls -> style
@@ -44,7 +43,8 @@ function applyRadius(f, n) {
   const [a, b, c, d] = n.radius;
   if (a === b && b === c && c === d) {
     f.cornerRadius = a;
-    const t = n.radiusRaw === '999px' ? radiusTokens.find(r => r.name === 'radius-capsule') : radiusTokens.find(r => r.v === a && r.name !== 'radius-capsule');
+    // A circle written as 50% has no radius token, whatever its size.
+    const t = String(n.radiusRaw).includes('%') ? null : n.radiusRaw === '999px' ? radiusTokens.find(r => r.name === 'radius-capsule') : radiusTokens.find(r => r.v === a && r.name !== 'radius-capsule');
     if (t && V.size[t.name] && 'setBoundVariable' in f) for (const k of ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius']) f.setBoundVariable(k, V.size[t.name]);
   } else { f.topLeftRadius = a; f.topRightRadius = b; f.bottomRightRadius = c; f.bottomLeftRadius = d; }
 }
@@ -90,7 +90,7 @@ async function build(n, parent) {
       const c = parseColor(n.color);
       for (const d of s.findAll(x => 'fills' in x)) for (const prop of ['fills', 'strokes']) {
         const arr = d[prop]; if (!Array.isArray(arr) || !arr.length) continue;
-        d[prop] = arr.map(p => (p.type === 'SOLID' && near(p.color.r, c.r) && near(p.color.g, c.g) && near(p.color.b, c.b)) ? Object.assign(P(n.color, n.tok), n.tok ? {} : { opacity: c.a * (p.opacity ?? 1) }) : p);
+        d[prop] = arr.map(p => (p.type === 'SOLID' && near(p.color.r, c.r) && near(p.color.g, c.g) && near(p.color.b, c.b)) ? ((p.opacity ?? 1) < 1 ? { type: 'SOLID', color: p.color, opacity: c.a * p.opacity } : P(n.color, n.tok)) : p);
       }
       if (n.opacity !== undefined) s.opacity = n.opacity;
       node = s;
@@ -120,8 +120,8 @@ function rules(md) {
 const groups = [...new Set(index.map(i => i.group))].filter(g => !ARG.group || g === ARG.group);
 const result = [];
 for (const g of groups) {
-  const items = index.filter(i => i.group === g && (!ARG.names || ARG.names.includes(i.name)));
-  const page = getPage('컴포넌트 ' + g);
+  const items = index.filter(i => i.group === g);
+  const page = await getPage('컴포넌트 ' + g);
   const maxW = Math.max(...items.map(i => i.width));
   const b = board(page, '컴포넌트 ' + g, 144 + 340 + 56 + maxW);
   heading(b, g.replace(/^\d+ · /, ''), '레포 docs/design-system/components의 미리보기를 그대로 옮겼어요. 캡션이 붙은 상태 하나하나가 Figma 컴포넌트예요(에셋 패널에서 찾을 수 있어요). 레이어는 미리보기의 위치 그대로 놓여 있고, 색·반경·글자·그림자는 토큰에 연결돼 있어요.', 340 + 56 + maxW);
@@ -132,7 +132,8 @@ for (const g of groups) {
     add(meta, txt(it.name, { size: 20, weight: 600, lh: 25 }), txt(it.subtitle || '', { size: 13, lh: 18, fill: INK2(), width: 340 }), txt(rules(d.readme), { size: 11.5, lh: 17, fill: INK2(), width: 340 }));
     block.appendChild(meta); b.appendChild(block);
     build.pending = [];
-    const stage = await build(d.root, block);
+    let stage;
+    try { stage = await build(d.root, block); } catch (e) { stats.errors.push(`${it.name}: ` + String(e.message).slice(0, 120)); block.remove(); continue; }
     stage.name = it.name + ' · 미리보기'; stage.cornerRadius = 12; stage.clipsContent = true; stage.strokes = [LINE()]; stage.strokeWeight = 1; stage.strokeAlign = 'INSIDE';
     for (const [node, comp] of build.pending) {
       try {
@@ -146,4 +147,4 @@ for (const g of groups) {
 }
 const ORDER = ['시작', '색', '글자', '간격 · 모양', ...[...new Set(index.map(i => i.group))].map(g => '컴포넌트 ' + g)];
 ORDER.forEach((name, i) => { const p = figma.root.children.find(p => p.name === name); if (p) figma.root.insertChild(Math.min(i, figma.root.children.length - 1), p); });
-return { result, stats: { ...stats, errors: stats.errors.slice(0, 12), errorCount: stats.errors.length } };
+return done({ result, stats: { ...stats, errors: stats.errors.slice(0, 12), errorCount: stats.errors.length } });

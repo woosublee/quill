@@ -1,6 +1,6 @@
 // Shared helpers. console.js puts this file in front of each numbered script before running it in the Figma tab.
 const BASE = 'http://127.0.0.1:8765/';
-const getJSON = async n => (await fetch(BASE + n + '?' + Date.now())).json();
+const getJSON = async n => { const r = await fetch(BASE + n + '?' + Date.now()); if (!r.ok) throw new Error(n + ': ' + r.status); return r.json(); };
 function parseColor(s) {
   s = s.trim();
   let m;
@@ -89,14 +89,19 @@ function box(dir, o = {}) {
   return f;
 }
 function add(parent, ...kids) { for (const k of kids) parent.appendChild(k); return parent; }
-function getPage(name, reuse) {
+async function getPage(name, reuse) {
   let p = figma.root.children.find(p => p.name === name);
-  if (!p && reuse) { p = figma.root.children.find(p => p.name === reuse && p.children.length === 0); if (p) p.name = name; }
+  if (!p && reuse) { const r = figma.root.children.find(p => p.name === reuse); if (r) { await r.loadAsync(); if (r.children.length === 0) { r.name = name; p = r; } } }
   if (!p) { p = figma.createPage(); p.name = name; }
+  await p.loadAsync();
   return p;
 }
-function board(page, name, width) { // replaces a board this script made earlier (same name on same page)
-  const old = page.children.find(n => n.name === name && n.type === 'FRAME'); if (old) old.remove();
+// A new board replaces the ones an earlier run made (same name, same page). The old ones stay until
+// done() runs, so a script that throws halfway leaves the previous board in place.
+const STALE = [];
+function done(result) { for (const n of STALE.splice(0)) if (!n.removed) n.remove(); return result; }
+function board(page, name, width) {
+  STALE.push(...page.children.filter(n => n.name === name && n.type === 'FRAME'));
   const b = box('V', { name, pad: 72, gap: 48, fill: solid('#ffffff'), width });
   page.appendChild(b); b.x = 0; b.y = 0; return b;
 }
