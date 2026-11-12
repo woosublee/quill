@@ -16,7 +16,9 @@ concurrency:
 jobs:
   test-shards:
     name: ${{ matrix.name }}
-    runs-on: macos-latest
+    # The image macos-latest resolves to today, named so a label move can't
+    # change the toolchain under the tests. Bump all three jobs together.
+    runs-on: macos-26
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -54,7 +56,7 @@ jobs:
 
   localization:
     name: Localization bundle
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 25
 
     steps:
@@ -80,7 +82,7 @@ jobs:
 
   repository-validation:
     name: Repository validation
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 10
 
     steps:
