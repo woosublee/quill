@@ -12,6 +12,14 @@ struct CalendarEventMatcherTests {
         testExcludesInvalidEventIntervals()
         testInvalidRecordingIntervalReturnsNil()
         testExcludesTitlelessEvents()
+        testSuggestionShowsOnTitledNote()
+        testSuggestionHidesWhenTitleMatchesOrDismissed()
+        testSuggestionNeedsSuggestedState()
+        testLookupNeedsNoEventAndRecordingTime()
+        testRecentCandidatesStayInWindow()
+        testOpenCheckWaitsFiveMinutes()
+        testOpenCheckReplacesOnlyDeletedEvents()
+        testLookupRangeSpansRecordings()
         print("CalendarEventMatcherTests passed")
     }
 
@@ -115,6 +123,128 @@ struct CalendarEventMatcherTests {
             events: [event(id: "blank", title: "   ", start: 900, end: 1_700), event(id: "named", title: "Named", start: 1_100, end: 1_500)]
         )
         assert(matched?.id == "named")
+    }
+
+    // #832: a note with its own title still gets the suggestion.
+    private static func testSuggestionShowsOnTitledNote() {
+        let match = calendarMatch(title: " Weekly sync ", titleState: .suggested)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let applied = CalendarTitleSuggestion.appliedTitle(suggestedTitle: "Weekly sync", date: date)
+        let untitled = CalendarTitleSuggestion.suggestion(calendarMatch: match, customTitle: nil, date: date, isDismissed: false)
+        assert(untitled?.suggested == "Weekly sync")
+        assert(untitled?.applied == applied)
+        let titled = CalendarTitleSuggestion.suggestion(calendarMatch: match, customTitle: "Planning", date: date, isDismissed: false)
+        assert(titled?.suggested == "Weekly sync")
+    }
+
+    private static func testSuggestionHidesWhenTitleMatchesOrDismissed() {
+        let match = calendarMatch(title: "Weekly sync", titleState: .suggested)
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let applied = CalendarTitleSuggestion.appliedTitle(suggestedTitle: "Weekly sync", date: date)
+        assert(CalendarTitleSuggestion.suggestion(calendarMatch: match, customTitle: applied, date: date, isDismissed: false) == nil)
+        assert(CalendarTitleSuggestion.suggestion(calendarMatch: match, customTitle: " Weekly sync ", date: date, isDismissed: false) == nil)
+        assert(CalendarTitleSuggestion.suggestion(calendarMatch: match, customTitle: nil, date: date, isDismissed: true) == nil)
+    }
+
+    private static func testSuggestionNeedsSuggestedState() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        assert(CalendarTitleSuggestion.suggestion(calendarMatch: nil, customTitle: nil, date: date, isDismissed: false) == nil)
+        let applied = calendarMatch(title: "Weekly sync", titleState: .applied)
+        assert(CalendarTitleSuggestion.suggestion(calendarMatch: applied, customTitle: nil, date: date, isDismissed: false) == nil)
+        let blank = calendarMatch(title: "  ", titleState: .suggested)
+        assert(CalendarTitleSuggestion.suggestion(calendarMatch: blank, customTitle: nil, date: date, isDismissed: false) == nil)
+    }
+
+    private static func testLookupNeedsNoEventAndRecordingTime() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let end = Date(timeIntervalSince1970: 2_000)
+        assert(CalendarMatchLookup.needsLookup(calendarMatch: nil, recordingStartedAt: start, recordingEndedAt: end))
+        assert(!CalendarMatchLookup.needsLookup(
+            calendarMatch: calendarMatch(title: "Found", titleState: .suggested),
+            recordingStartedAt: start, recordingEndedAt: end
+        ))
+        assert(!CalendarMatchLookup.needsLookup(calendarMatch: nil, recordingStartedAt: nil, recordingEndedAt: end))
+        assert(!CalendarMatchLookup.needsLookup(calendarMatch: nil, recordingStartedAt: end, recordingEndedAt: start))
+    }
+
+    private static func testRecentCandidatesStayInWindow() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        let recent = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        let old = now.addingTimeInterval(-15 * 24 * 60 * 60)
+        assert(CalendarMatchLookup.isRecentCandidate(
+            calendarMatch: nil, recordingStartedAt: recent, recordingEndedAt: recent.addingTimeInterval(600), now: now
+        ))
+        assert(!CalendarMatchLookup.isRecentCandidate(
+            calendarMatch: nil, recordingStartedAt: old, recordingEndedAt: old.addingTimeInterval(600), now: now
+        ))
+        assert(CalendarMatchLookup.recentRange(now: now).start == now.addingTimeInterval(-CalendarMatchLookup.recentWindow))
+    }
+
+    private static func testOpenCheckWaitsFiveMinutes() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        let start = now.addingTimeInterval(-90 * 24 * 60 * 60)
+        let end = start.addingTimeInterval(600)
+        assert(CalendarMatchLookup.shouldCheckOnOpen(recordingStartedAt: start, recordingEndedAt: end, lastCheckedAt: nil, now: now))
+        assert(!CalendarMatchLookup.shouldCheckOnOpen(
+            recordingStartedAt: start, recordingEndedAt: end, lastCheckedAt: now.addingTimeInterval(-60), now: now
+        ))
+        assert(CalendarMatchLookup.shouldCheckOnOpen(
+            recordingStartedAt: start, recordingEndedAt: end,
+            lastCheckedAt: now.addingTimeInterval(-CalendarMatchLookup.noteOpenInterval), now: now
+        ))
+        assert(!CalendarMatchLookup.shouldCheckOnOpen(recordingStartedAt: nil, recordingEndedAt: end, lastCheckedAt: nil, now: now))
+    }
+
+    // #832: a deleted event gives way to the event now at that time, but
+    // only when its calendar was read in full.
+    private static func testOpenCheckReplacesOnlyDeletedEvents() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let end = Date(timeIntervalSince1970: 2_000)
+        let saved = calendarMatch(title: "Old", titleState: .applied)
+        let replacement = event(id: "new", title: "New", start: 1_000, end: 2_000)
+        let stillThere = event(id: "event", title: "Old", start: 1_000, end: 2_000)
+        func check(_ saved: CalendarEventMatch?, _ events: [CalendarEvent], read: Set<String> = ["calendar"]) -> String? {
+            CalendarMatchLookup.eventToSuggest(
+                saved: saved, events: events, readCalendarIDs: read,
+                recordingStartedAt: start, recordingEndedAt: end
+            )?.id
+        }
+        assert(check(nil, [replacement]) == "new", "a note with no event gets one")
+        assert(check(saved, [stillThere, replacement]) == nil, "an event still there stays")
+        assert(check(saved, [replacement]) == "new", "a deleted event gives way")
+        assert(check(saved, []) == nil, "with nothing else, the saved event stays")
+        assert(check(saved, [replacement], read: []) == nil, "an unread calendar says nothing")
+        let mergedCopy = CalendarEvent(
+            id: "google-copy", calendarID: "google", title: "Old",
+            start: saved.start, end: saved.end, isAllDay: false, attendees: []
+        )
+        assert(check(saved, [mergedCopy, replacement]) == nil, "the same meeting in another calendar is still there")
+        let chosen = CalendarEventMatch(
+            calendarID: "calendar", eventID: "event", title: "Old",
+            start: saved.start, end: saved.end, matchSource: .importSelection, titleState: .suggested
+        )
+        assert(check(chosen, [replacement]) == nil, "an event the person chose stays")
+    }
+
+    private static func testLookupRangeSpansRecordings() {
+        let a = (start: Date(timeIntervalSince1970: 5_000), end: Date(timeIntervalSince1970: 6_000))
+        let b = (start: Date(timeIntervalSince1970: 1_000), end: Date(timeIntervalSince1970: 2_000))
+        let range = CalendarMatchLookup.lookupRange(for: [a, b])
+        assert(range?.start == b.start)
+        assert(range?.end == a.end)
+        assert(CalendarMatchLookup.lookupRange(for: []) == nil, "nothing to match reads nothing")
+    }
+
+    private static func calendarMatch(title: String, titleState: CalendarTitleState) -> CalendarEventMatch {
+        CalendarEventMatch(
+            calendarID: "calendar",
+            eventID: "event",
+            title: title,
+            start: Date(timeIntervalSince1970: 1_000),
+            end: Date(timeIntervalSince1970: 2_000),
+            matchSource: .overlapSuggestion,
+            titleState: titleState
+        )
     }
 
     private static func event(id: String, calendarID: String = "calendar", title: String, start: TimeInterval, end: TimeInterval, isAllDay: Bool = false) -> CalendarEvent {

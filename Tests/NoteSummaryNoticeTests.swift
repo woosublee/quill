@@ -8,6 +8,7 @@ import QuillNoteSyncCore
 @main
 struct NoteSummaryNoticeTests {
     static func main() {
+        testCalendarTitleSuggestionDismissal()
         precondition(NoteSummaryNotice.allCases.map(\.rawValue) == [
             "unchanged", "failure", "stale", "unverifiedEvidence", "featureDisabled", "modelUnavailable"
         ])
@@ -79,5 +80,27 @@ struct NoteSummaryNoticeTests {
             )
         }
         print("NoteSummaryNoticeTests passed")
+    }
+
+    // #832: closing a calendar suggestion syncs for that event and title,
+    // so another event, or the same one renamed, suggests again.
+    private static func testCalendarTitleSuggestionDismissal() {
+        let notice = NoteNoticeDismissals.Notice.calendarTitleSuggestion(
+            calendarID: "calendar", eventID: "event", title: "Weekly sync"
+        )
+        precondition(notice.key == "calendar.titleSuggestion")
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        guard let dismissed = NoteNoticeDismissals().dismissing(notice, at: at) else {
+            preconditionFailure("closing the suggestion records it")
+        }
+        precondition(dismissed.isDismissed(notice))
+        precondition(!dismissed.isDismissed(.calendarTitleSuggestion(
+            calendarID: "calendar", eventID: "other", title: "Weekly sync"
+        )), "another event suggests again")
+        precondition(!dismissed.isDismissed(.calendarTitleSuggestion(
+            calendarID: "calendar", eventID: "event", title: "Weekly sync (moved)"
+        )), "a renamed event suggests again")
+        let decoded = NoteNoticeDismissals.decode(dismissed.value)
+        precondition(decoded.isDismissed(notice), "the dismissal survives its synced value")
     }
 }

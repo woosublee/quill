@@ -52,6 +52,8 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
     public static let summaryFeatureDisabled = summaryPrefix + "featureDisabled"
     /// "Summary model is unavailable.", shown only on a device without one.
     public static let summaryModelUnavailable = summaryPrefix + "modelUnavailable"
+    /// The calendar title suggestion above the note (#832).
+    public static let calendarTitleSuggestion = "calendar.titleSuggestion"
 
     // MARK: Conditions, alike on every device
 
@@ -64,6 +66,13 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
     /// creation) stays dismissed for that moment.
     public static func condition(date: Date) -> String {
         String(Int64((date.timeIntervalSince1970 * 1000).rounded()))
+    }
+
+    /// A calendar suggestion stays dismissed for that event and title, so
+    /// another event, or the same one renamed, can suggest again.
+    public static func condition(calendarID: String, eventID: String, title: String) -> String {
+        let identity = [calendarID, eventID, title].joined(separator: "\n")
+        return SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: The notices that sync, alike on every device
@@ -89,6 +98,8 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
         /// "Summary model is unavailable.", for the summary's time, shown
         /// like `summaryFeatureDisabled`.
         case summaryModelUnavailable(generatedAt: Date)
+        /// The calendar title suggestion, for the suggested event (#832).
+        case calendarTitleSuggestion(calendarID: String, eventID: String, title: String)
 
         public var key: String {
             switch self {
@@ -98,6 +109,7 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
             case .summaryUnverifiedEvidence: NoteNoticeDismissals.summaryUnverifiedEvidence
             case .summaryFeatureDisabled: NoteNoticeDismissals.summaryFeatureDisabled
             case .summaryModelUnavailable: NoteNoticeDismissals.summaryModelUnavailable
+            case .calendarTitleSuggestion: NoteNoticeDismissals.calendarTitleSuggestion
             }
         }
 
@@ -108,6 +120,8 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
                  .summaryFeatureDisabled(let date), .summaryModelUnavailable(let date):
                 NoteNoticeDismissals.condition(date: date)
             case .summaryStale(let fingerprint): fingerprint
+            case .calendarTitleSuggestion(let calendarID, let eventID, let title):
+                NoteNoticeDismissals.condition(calendarID: calendarID, eventID: eventID, title: title)
             }
         }
     }

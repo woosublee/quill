@@ -422,6 +422,51 @@ struct PipelineHistoryItem: Identifiable, Codable {
         )
     }
 
+    /// The note linked to `calendarMatch`, everything else unchanged.
+    func withCalendarMatch(_ calendarMatch: CalendarEventMatch?) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: intent,
+            selectedText: selectedText,
+            capturedSelection: capturedSelection,
+            id: id,
+            timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            rawTranscript: rawTranscript,
+            postProcessedTranscript: postProcessedTranscript,
+            postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: systemPrompt,
+            contextSummary: contextSummary,
+            contextSystemPrompt: contextSystemPrompt,
+            contextPrompt: contextPrompt,
+            contextScreenshotDataURL: contextScreenshotDataURL,
+            contextScreenshotStatus: contextScreenshotStatus,
+            postProcessingStatus: postProcessingStatus,
+            aiProcessingOutcome: aiProcessingOutcome,
+            debugStatus: debugStatus,
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: audioFileName,
+            usedLocalTranscription: usedLocalTranscription,
+            usedContextCapture: usedContextCapture,
+            usedPostProcessing: usedPostProcessing,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            spokenLanguageCode: spokenLanguageCode,
+            spokenLanguageResolution: spokenLanguageResolution,
+            meetingSummaryAttempt: meetingSummaryAttempt,
+            localTranscriptionModelID: localTranscriptionModelID,
+            transcriptFileName: transcriptFileName,
+            contextAppName: contextAppName,
+            contextBundleIdentifier: contextBundleIdentifier,
+            contextWindowTitle: contextWindowTitle,
+            customTitle: customTitle,
+            meetingSummaryJSON: meetingSummaryJSON,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
+        )
+    }
+
     func withSpokenLanguage(
         _ spokenLanguage: SpokenLanguageResolution
     ) -> PipelineHistoryItem {

@@ -2288,6 +2288,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let work = DispatchWorkItem { [weak self] in
                 Task { @MainActor in
                     self?.refreshAppleCalendarAuthorization()
+                    // An event added after the meeting reaches its note soon.
+                    self?.lookUpRecentCalendarMatches(minimumInterval: CalendarMatchLookup.calendarChangeInterval)
                 }
             }
             self.appleCalendarChangeDebounce = work
@@ -2300,6 +2302,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         googleCalendarConnection.selectedCalendarIDs = calendarIDs
         Self.saveStringSet(calendarIDs, forKey: googleCalendarSelectedIDsStorageKey)
         scheduleCalendarRecordingReminderRefresh()
+        // Newly chosen calendars are read now, not after the 15 minutes.
+        lookUpRecentCalendarMatches(minimumInterval: 0)
     }
 
     @MainActor
@@ -2307,6 +2311,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         appleCalendarSelectedIDs = calendarIDs
         Self.saveStringSet(calendarIDs, forKey: Self.appleCalendarSelectedIDsStorageKey)
         scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)
+        lookUpRecentCalendarMatches(minimumInterval: 0)
     }
 
     @MainActor
@@ -2625,12 +2630,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) {
         do {
             try pipelineHistoryStore.dismissNotice(notice.key, condition: notice.condition, id: noteID)
-            if let updated = (noticeDismissalsByNoteID[noteID] ?? NoteNoticeDismissals())
-                .dismissing(notice, at: Date()) {
-                noticeDismissalsByNoteID[noteID] = updated
-            }
+            rememberNoticeDismissal(notice, noteID: noteID)
         } catch {
             fallback()
+        }
+    }
+
+    @MainActor
+    private func rememberNoticeDismissal(_ notice: NoteNoticeDismissals.Notice, noteID: UUID) {
+        if let updated = (noticeDismissalsByNoteID[noteID] ?? NoteNoticeDismissals())
+            .dismissing(notice, at: Date()) {
+            noticeDismissalsByNoteID[noteID] = updated
         }
     }
 
@@ -6032,6 +6042,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         observeAppleCalendarChanges()
         observeNetworkReturn()
         refreshAppleCalendarAuthorization()
+        observeAppActivationForCalendarMatches()
+        lookUpRecentCalendarMatches()
     }
 
     @MainActor
@@ -6183,6 +6195,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             googleCalendarConnection.accountEmail = accountEmail
             markGoogleCalendarHealthy(feature: .calendarList)
             scheduleCalendarRecordingReminderRefresh()
+            lookUpRecentCalendarMatches()
         } catch {
             if Self.isGoogleCalendarReconnectError(error) {
                 markGoogleCalendarNeedsReconnect(
@@ -8569,6 +8582,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         applyHistoryWorkflowState(
             historyWorkflow.synchronize(activeStore: pipelineHistoryStore)
         )
+    }
+
+    /// Like `requireAvailableHistoryForMutation`, for work the person
+    /// didn't start (#832): a rejection shows no error.
+    @MainActor
+    private func historyAcceptsBackgroundMutation() -> Bool {
+        synchronizeHistoryPersistenceState()
+        if case .accepted = HistoryWorkflowAdmission.mutation(state: historyWorkflow.state) {
+            return true
+        }
+        return false
     }
 
     @MainActor
@@ -15363,6 +15387,273 @@ final class AppState: ObservableObject, @unchecked Sendable {
             recordingStartedAt: recordingStartedAt,
             recordingEndedAt: recordingEndedAt
         )
+    }
+
+    // MARK: Calendar events found after the recording (#832)
+
+    /// The note is still being recorded or transcribed: the stop path
+    /// decides its event, so a later lookup leaves it alone.
+    /// Work that saves the note from a copy read before it finished would
+    /// write the event back out, so those notes wait too.
+    @MainActor
+    private func isNoteBusyForCalendarLookup(_ noteID: UUID) -> Bool {
+        activeTranscriptionJobs[noteID] != nil
+            || activeTranscriptionJobs.values.contains { $0.liveNoteID == noteID }
+            || retryingItemIDs.contains(noteID)
+            || postProcessingNoteIDs.contains(noteID)
+            || meetingSummaryGeneratingNoteIDs.contains(noteID)
+    }
+
+    /// Matches recent notes that have no event against events a calendar
+    /// refresh already read, and saves each one found as a suggestion.
+    @MainActor
+    func attachCalendarMatchesToRecentNotes(from events: [CalendarEvent], now: Date = Date()) {
+        guard !events.isEmpty else { return }
+        let googleAccount = googleCalendarConnection.accountEmail
+        for item in pipelineHistory where CalendarMatchLookup.isRecentCandidate(
+            calendarMatch: item.calendarMatch,
+            recordingStartedAt: item.recordingStartedAt,
+            recordingEndedAt: item.recordingEndedAt,
+            now: now
+        ) {
+            guard let start = item.recordingStartedAt, let end = item.recordingEndedAt,
+                  let event = CalendarEventMatcher.bestMatch(
+                    recordingStartedAt: start,
+                    recordingEndedAt: end,
+                    events: events
+                  ) else { continue }
+            attachCalendarMatchIfMissing(
+                noteID: item.id,
+                match: event.match(
+                    accountID: event.provider == .apple ? Self.appleCalendarAccountID : googleAccount,
+                    source: .overlapSuggestion,
+                    titleState: .suggested
+                )
+            )
+        }
+    }
+
+    /// When recent notes were last looked up.
+    @MainActor private var recentCalendarMatchLookupAt: Date?
+    @MainActor private var recentCalendarMatchTask: Task<Void, Never>?
+    /// A lookup asked for while one ran; it runs when that one ends, so new
+    /// calendars or a calendar change aren't missed.
+    @MainActor private var recentCalendarMatchLookupPending = false
+    private var appActivationObserver: NSObjectProtocol?
+
+    /// Looks up the events of recent notes that have none (#832), apart
+    /// from meeting reminders: on launch and when Quill comes forward (at
+    /// most every 15 minutes), when Apple Calendar changes (at most every
+    /// minute), and when calendars are chosen (at once). Nothing is read
+    /// when no recent note lacks an event, and only the span of those
+    /// recordings is read.
+    @MainActor
+    func lookUpRecentCalendarMatches(
+        minimumInterval: TimeInterval = CalendarMatchLookup.refreshInterval,
+        now: Date = Date()
+    ) {
+        guard hasSelectedCalendarSource else { return }
+        guard recentCalendarMatchTask == nil else {
+            recentCalendarMatchLookupPending = true
+            return
+        }
+        if let last = recentCalendarMatchLookupAt, now.timeIntervalSince(last) < minimumInterval {
+            return
+        }
+        let recordings = pipelineHistory.compactMap { item -> (start: Date, end: Date)? in
+            guard CalendarMatchLookup.isRecentCandidate(
+                calendarMatch: item.calendarMatch,
+                recordingStartedAt: item.recordingStartedAt,
+                recordingEndedAt: item.recordingEndedAt,
+                now: now
+            ), !isNoteBusyForCalendarLookup(item.id),
+                  let start = item.recordingStartedAt, let end = item.recordingEndedAt else { return nil }
+            return (start, end)
+        }
+        guard let range = CalendarMatchLookup.lookupRange(for: recordings) else { return }
+        recentCalendarMatchLookupAt = now
+        recentCalendarMatchTask = Task { [weak self] in
+            guard let self else { return }
+            let read = await self.readCalendarEventsForMatching(from: range.start, to: range.end)
+            await MainActor.run {
+                // A calendar that wasn't read could hold a better event.
+                if read.isComplete {
+                    self.attachCalendarMatchesToRecentNotes(from: read.events, now: now)
+                }
+                self.recentCalendarMatchTask = nil
+                if self.recentCalendarMatchLookupPending {
+                    self.recentCalendarMatchLookupPending = false
+                    self.lookUpRecentCalendarMatches(minimumInterval: 0)
+                }
+            }
+        }
+    }
+
+    /// Every chosen calendar's events in the span, for matching notes
+    /// (#832), without changing the calendar's status. `readCalendarIDs`
+    /// holds the calendars read in full; `isComplete` is true when that is
+    /// every chosen one.
+    private func readCalendarEventsForMatching(
+        from start: Date,
+        to end: Date
+    ) async -> (events: [CalendarEvent], readCalendarIDs: Set<String>, isComplete: Bool) {
+        let (appleIDs, googleIDs) = await MainActor.run {
+            (readableAppleCalendarIDs, googleCalendarConnection.selectedCalendarIDs)
+        }
+        let googleFetch = await googleCalendarEventFetch(from: start, to: end, reportsHealth: false)
+        let (apple, appleReadIDs): ([CalendarEvent]?, Set<String>) = appleIDs.isEmpty
+            ? (nil, [])
+            : await MainActor.run {
+                (
+                    appleCalendarService.events(calendarIDs: appleIDs, from: start, to: end),
+                    appleCalendarService.existingCalendarIDs(appleIDs)
+                )
+            }
+        let events = (try? CalendarEventCollection.combine(
+            google: googleFetch.result,
+            apple: apple,
+            toleratesGoogleFailure: true
+        )) ?? []
+        var readIDs = appleReadIDs
+        var googleRead = googleFetch.result == nil
+        if case .success? = googleFetch.result, !googleFetch.hadPartialFailure {
+            readIDs.formUnion(googleIDs)
+            googleRead = true
+        }
+        return (events, readIDs, googleRead && appleReadIDs == appleIDs)
+    }
+
+    @MainActor
+    private func observeAppActivationForCalendarMatches() {
+        guard appActivationObserver == nil else { return }
+        appActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.lookUpRecentCalendarMatches() }
+        }
+    }
+
+    /// When opening a note last looked up its event, by note, on this Mac.
+    @MainActor private var calendarLookupOnOpenAt: [UUID: Date] = [:]
+
+    /// Opening a note checks its event against the calendar (#832), at
+    /// most every 5 minutes per note, whatever its age: a note with no event
+    /// gets one, and a note whose suggested event was deleted gets the event
+    /// now at that time. Nothing changes the calendar's status.
+    @MainActor
+    func lookUpCalendarMatchOnOpen(noteID: UUID, now: Date = Date()) {
+        guard hasSelectedCalendarSource,
+              let item = pipelineHistory.first(where: { $0.id == noteID }),
+              CalendarMatchLookup.shouldCheckOnOpen(
+                recordingStartedAt: item.recordingStartedAt,
+                recordingEndedAt: item.recordingEndedAt,
+                lastCheckedAt: calendarLookupOnOpenAt[noteID],
+                now: now
+              ),
+              !isNoteBusyForCalendarLookup(noteID),
+              let start = item.recordingStartedAt, let end = item.recordingEndedAt else { return }
+        calendarLookupOnOpenAt = calendarLookupOnOpenAt.filter {
+            now.timeIntervalSince($0.value) < CalendarMatchLookup.noteOpenInterval
+        }
+        calendarLookupOnOpenAt[noteID] = now
+        let saved = item.calendarMatch
+        let googleAccount = googleCalendarConnection.accountEmail
+        Task { [weak self] in
+            guard let self else { return }
+            let read = await self.readCalendarEventsForMatching(from: start, to: end)
+            // With a calendar unread, a better event or the saved one could
+            // be in it: leave the note as it is.
+            guard read.isComplete, let event = CalendarMatchLookup.eventToSuggest(
+                saved: saved,
+                events: read.events,
+                readCalendarIDs: read.readCalendarIDs,
+                recordingStartedAt: start,
+                recordingEndedAt: end
+            ) else { return }
+            let match = event.match(
+                accountID: event.provider == .apple ? Self.appleCalendarAccountID : googleAccount,
+                source: .overlapSuggestion,
+                titleState: .suggested
+            )
+            await MainActor.run { self.replaceCalendarMatch(noteID: noteID, saved: saved, with: match) }
+        }
+    }
+
+    /// Saves `match` as the note's suggested event in place of `saved`,
+    /// unless the note's event changed meanwhile or it is busy. A title the
+    /// deleted event gave the note stays its title.
+    @MainActor
+    private func replaceCalendarMatch(noteID: UUID, saved: CalendarEventMatch?, with match: CalendarEventMatch) {
+        guard let index = pipelineHistory.firstIndex(where: { $0.id == noteID }),
+              pipelineHistory[index].calendarMatch == saved else { return }
+        guard saved != nil else {
+            attachCalendarMatchIfMissing(noteID: noteID, match: match)
+            return
+        }
+        guard historyAcceptsBackgroundMutation(), !isNoteBusyForCalendarLookup(noteID) else { return }
+        let item = pipelineHistory[index]
+        let keptTitle = item.customTitle ?? saved?.appliedTitle
+        let updated = item.withCustomTitle(keptTitle).withCalendarMatch(match)
+        do {
+            try pipelineHistoryStore.update(updated)
+            pipelineHistory[index] = updated
+        } catch {
+            os_log(.error, log: calendarLog, "Calendar match could not be saved: %{public}@", error.localizedDescription)
+        }
+    }
+
+    /// Saves `match` on the note unless it got an event meanwhile, from this
+    /// Mac or another device, or is being recorded or transcribed.
+    @MainActor
+    private func attachCalendarMatchIfMissing(noteID: UUID, match: CalendarEventMatch) {
+        guard historyAcceptsBackgroundMutation(),
+              let index = pipelineHistory.firstIndex(where: { $0.id == noteID }),
+              pipelineHistory[index].calendarMatch == nil,
+              !isNoteBusyForCalendarLookup(noteID) else { return }
+        let updated = pipelineHistory[index].withCalendarMatch(match)
+        do {
+            try pipelineHistoryStore.update(updated)
+            pipelineHistory[index] = updated
+        } catch {
+            os_log(.error, log: calendarLog, "Calendar match could not be saved: %{public}@", error.localizedDescription)
+        }
+    }
+
+    /// The calendar title suggestion, as every device dismisses it.
+    static func syncedCalendarTitleSuggestion(_ match: CalendarEventMatch) -> NoteNoticeDismissals.Notice {
+        .calendarTitleSuggestion(calendarID: match.calendarID, eventID: match.eventID, title: match.title)
+    }
+
+    /// The person closed this note's calendar suggestion, on any device.
+    func isCalendarTitleSuggestionDismissed(_ item: PipelineHistoryItem) -> Bool {
+        guard let match = item.calendarMatch else { return false }
+        return noticeDismissalsByNoteID[item.id]?.isDismissed(Self.syncedCalendarTitleSuggestion(match)) == true
+    }
+
+    /// Closes the note's calendar suggestion on every device, for this
+    /// event (#832). If the store can't save it, it stays closed on this Mac
+    /// until the app quits.
+    @MainActor
+    func dismissCalendarTitleSuggestion(_ item: PipelineHistoryItem) {
+        guard let match = item.calendarMatch else { return }
+        let notice = Self.syncedCalendarTitleSuggestion(match)
+        dismissConditionalNotice(notice, noteID: item.id) {
+            rememberNoticeDismissal(notice, noteID: item.id)
+        }
+    }
+
+    /// Applies the suggestion: saves the title and closes the suggestion,
+    /// so editing the title later doesn't bring it back (#832). The event
+    /// stays suggested, so clearing the title goes back to the date title.
+    @MainActor
+    func applyCalendarTitleSuggestion(_ item: PipelineHistoryItem, title: String) {
+        updateHistoryItemTitle(id: item.id, title: title)
+        // Only once the title is saved, or the row would go with nothing kept.
+        guard pipelineHistory.first(where: { $0.id == item.id })?.customTitle
+                == NoteTitleResolver.normalizedCustomTitle(title) else { return }
+        dismissCalendarTitleSuggestion(item)
     }
 
     @MainActor
