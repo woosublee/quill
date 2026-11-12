@@ -235,6 +235,12 @@ final class NoteSyncCoordinator {
     private var uploadWaitingText: Set<UUID> = []
     private var uploadWaitingAudio: Set<UUID> = []
     private var uploadDone: Int { uploadTotal - uploadWaitingText.union(uploadWaitingAudio).count }
+    /// The first upload is running, whatever the line shows: its progress
+    /// is counted while notes that couldn't sync show first (#815), or a
+    /// notice (offline, an account to look at) does. It ends once nothing
+    /// is left to send, or when the account changes or iCloud data is
+    /// deleted.
+    private var isFirstUploadRunning = false
 
     private(set) var status: NoteSyncStatus = .starting {
         didSet {
@@ -317,6 +323,7 @@ final class NoteSyncCoordinator {
         engine.enqueueSaves(ids.filter { !savesAfterCheck.contains($0) })
         uploadWaitingAudio = Set(notes.filter { $0.manifest == nil && usableAudio($0) != nil }.map(\.id))
         status = ids.isEmpty ? .starting : .uploading(done: 0, total: ids.count)
+        isFirstUploadRunning = !ids.isEmpty
         print("[NoteSync] Queued \(ids.count) notes for the first upload")
         checkAudioSoon(ids, verifyMarked: true, snapshots: notes)
     }
@@ -567,7 +574,7 @@ final class NoteSyncCoordinator {
         let checked = notes.map(\.id).filter { !recheck.contains($0) }
         releaseHeldNotes(checked.filter(savesAfterCheck.contains))
         if !unmarked.isEmpty {
-            if case .uploading = status {
+            if isFirstUploadRunning {
                 uploadWaitingAudio.formUnion(unmarked.filter { usableAudio($0) != nil })
             }
             print("[NoteSync] Cleared \(unmarked.count) audio markers iCloud couldn't back")
@@ -708,10 +715,38 @@ final class NoteSyncCoordinator {
         return audioToDelete(of: id, audio, wasSending: wasSending)
     }
 
+    /// During the first upload, notes that couldn't sync show ahead of its
+    /// progress, the order both apps use (`NoteSyncLine`); the progress
+    /// shows again once they go up.
     private func reportUploadProgress() {
-        if case .uploading = status {
-            status = .uploading(done: uploadDone, total: uploadTotal)
+        guard isFirstUploadRunning else { return }
+        // A notice (a full iCloud, an account, offline) stays until it clears.
+        switch status {
+        case .uploading, .paused(.notesFailed): break
+        default: return
         }
+        status = firstUploadLine
+    }
+
+    /// The first upload's line: notes that couldn't sync, else its progress.
+    /// Failed notes stay shown while a retry of theirs is in flight, so the
+    /// line doesn't flip back and forth at every retry.
+    private var firstUploadLine: NoteSyncStatus {
+        let failing = failingNotes
+        if failing.count > 0 {
+            return .paused(.notesFailed(count: failing.count, willRetry: failing.willRetry))
+        }
+        if case .paused(.notesFailed) = status,
+           !saveRetries.unconfirmed.isEmpty || !audioSaveRetries.unconfirmed.isEmpty {
+            return status
+        }
+        return .uploading(done: uploadDone, total: uploadTotal)
+    }
+
+    /// After a notice clears: the first upload's line while it still runs,
+    /// else starting, until the next fetch settles the status.
+    private func showUploadOrStarting() {
+        status = isFirstUploadRunning && uploadDone < uploadTotal ? firstUploadLine : .starting
     }
 
     func handleLocalChanges(_ changes: [PipelineHistoryChange]) {
@@ -764,7 +799,8 @@ final class NoteSyncCoordinator {
                 if drop.lookUp, !sent.isEmpty { keyedLookUp[id] = sent }
             }
         }
-        if !deletes.isEmpty || !audioDeletes.isEmpty { reportUploadProgress() }
+        // An edit tries a failing note again from the start, so the line may change.
+        reportUploadProgress()
         if !saves.isEmpty {
             enqueueNoteSaves(saves)
             queueAudioUploads(for: saves)
@@ -843,6 +879,7 @@ final class NoteSyncCoordinator {
         let id = part.noteID
         audioSaveRetries.forget(part)
         guard !isStopped else { return }
+        reportUploadProgress()
         switch store.noteExists(id: id) {
         case false?:
             // Deleted here while the part was in flight.
@@ -902,6 +939,8 @@ final class NoteSyncCoordinator {
     /// A full iCloud outranks an account to look at, which outranks being
     /// offline (`NoteSyncProblem`, shared with the iPhone, #283).
     private func setFailureStatus(quotaCount: Int, account: Bool, offline: Bool) {
+        // A note given up shows at once, ahead of the first upload's progress.
+        reportUploadProgress()
         guard let problem = NoteSyncProblem.mostUrgent(
             storageFull: quotaCount > 0, accountNeedsAttention: account, offline: offline
         ) else { return }
@@ -938,7 +977,7 @@ final class NoteSyncCoordinator {
     private func accountWorks() {
         guard !isStopped else { return }
         if case .paused(.accountNeedsAttention) = status {
-            status = uploadDone < uploadTotal ? .uploading(done: uploadDone, total: uploadTotal) : .starting
+            showUploadOrStarting()
         }
     }
 
@@ -1395,8 +1434,13 @@ final class NoteSyncCoordinator {
         if case .paused(.accountNeedsAttention) = status, busy { return }
         // Offline stays shown until the network comes back.
         if isOffline, case .paused(.offline) = status { return }
-        if case .uploading = status, uploadDone < uploadTotal, busy { return }
+        if isFirstUploadRunning, uploadDone < uploadTotal, busy {
+            // Back online: the upload's line again.
+            if case .paused(.offline) = status { showUploadOrStarting() } else { reportUploadProgress() }
+            return
+        }
         if !busy {
+            isFirstUploadRunning = false
             let failing = failingNotes
             status = failing.count == 0
                 ? .upToDate(time)
@@ -1498,7 +1542,7 @@ final class NoteSyncCoordinator {
             showOffline()
         } else if case .paused(.offline) = status {
             // The fetch that follows settles the status.
-            status = .starting
+            showUploadOrStarting()
         }
     }
 
@@ -1512,6 +1556,7 @@ final class NoteSyncCoordinator {
 
     func handleAccountChange(signedOut: Bool) {
         // Paused first, so sync stays stopped even if clearing fails.
+        isFirstUploadRunning = false
         status = .paused(signedOut ? .signedOut : .accountChanged)
         // Markers stay: signing back into the same account finds the audio
         // there, and turning sync on checks them against iCloud.
@@ -1520,6 +1565,7 @@ final class NoteSyncCoordinator {
     }
 
     func handleZoneDeleted() {
+        isFirstUploadRunning = false
         status = .paused(.deletedElsewhere)
         store.clearChangeTags(forgettingAudio: true)
         print("[NoteSync] Paused: iCloud data was deleted from another Mac")
