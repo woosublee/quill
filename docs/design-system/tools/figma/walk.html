@@ -1,0 +1,178 @@
+<!doctype html><html><head><meta charset="utf-8"><title>walk</title></head><body><pre id="log">working…</pre>
+<script type="module">
+const log = s => { document.getElementById('log').textContent += '\n' + s; };
+try {
+const T = await (await fetch('tokens.json')).json();
+const bundleCss = await (await fetch('components/bundle.css')).text();
+const header = JSON.parse((await (await fetch('components/bundle.js')).text()).match(/@ds-bundle: (.*) \*\//)[1]);
+function tokensCss(sentinel) {
+  const out = [];
+  T.color.tokens.forEach((t, i) => out.push(`--${t.name}: ${sentinel ? `rgb(${i + 1}, 77, 177)` : t.value.light};`));
+  for (const fam of ['spacing', 'radius', 'shadow', 'opacity', 'size']) for (const t of T[fam].tokens) out.push(`--${t.name}: ${typeof t.value === 'string' ? t.value : t.value.light};`);
+  out.push('--font-sans: "Pretendard", -apple-system, sans-serif;', '--font-rounded: "Pretendard", -apple-system, sans-serif;', '--font-mono: "Menlo", monospace;');
+  return `:root { ${out.join(' ')} }\n`;
+}
+const SENT = /^rgba?\((\d+), 77, 177(?:, [\d.]+)?\)$/;
+const tok = s => { const m = s && s.match(SENT); return m ? T.color.tokens[+m[1] - 1].name : null; };
+const R = n => Math.round(n * 100) / 100;
+const CLEAR = 'rgba(0, 0, 0, 0)';
+const SH = /(rgba?\([^)]+\)|color\([^)]+\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(-?[\d.]+)px(\s+inset)?/g;
+function shadows(cs, ss) {
+  if (!cs || cs === 'none') return [];
+  const a = [...cs.matchAll(SH)], b = [...(ss || '').matchAll(SH)];
+  return a.map((m, i) => ({ color: m[1], tok: b[i] ? tok(b[i][1]) : null, x: +m[2], y: +m[3], blur: +m[4], spread: +m[5], inset: !!m[6] }));
+}
+function visual(cs, ss, w, h) {
+  const o = {};
+  if (cs.backgroundColor !== CLEAR) { o.bg = cs.backgroundColor; o.bgTok = tok(ss.backgroundColor); }
+  if (cs.backgroundImage !== 'none') o.bgImg = cs.backgroundImage;
+  const rad = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius'].map(k => { const v = cs[k].split(' ')[0]; return v.endsWith('%') ? parseFloat(v) / 100 * Math.min(w, h) : parseFloat(v); });
+  if (rad.some(v => v > 0)) { o.radius = rad.map(v => R(Math.min(v, Math.max(w, h)))); o.radiusRaw = cs.borderTopLeftRadius; }
+  const bw = ['Top', 'Right', 'Bottom', 'Left'].map(s => cs['border' + s + 'Style'] === 'none' ? 0 : parseFloat(cs['border' + s + 'Width']));
+  if (bw.some(v => v > 0)) { const s = ['Top', 'Right', 'Bottom', 'Left'][bw.findIndex(v => v > 0)]; o.border = { w: bw, color: cs['border' + s + 'Color'], tok: tok(ss['border' + s + 'Color']) }; }
+  const sh = shadows(cs.boxShadow, ss.boxShadow); const eff = [];
+  for (const s of sh) {
+    if (s.blur === 0 && s.x === 0 && s.y === 0 && s.spread > 0) { if (!o.ring) o.ring = { color: s.color, tok: s.tok, w: s.spread, align: s.inset ? 'INSIDE' : 'OUTSIDE' }; }
+    else eff.push(s);
+  }
+  if (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && !o.ring) o.ring = { color: cs.outlineColor, tok: tok(ss.outlineColor), w: parseFloat(cs.outlineWidth), align: parseFloat(cs.outlineOffset) < 0 ? 'INSIDE' : 'OUTSIDE' };
+  if (eff.length) o.shadows = eff;
+  const bf = (cs.backdropFilter || cs.webkitBackdropFilter || '').match(/blur\(([\d.]+)px\)/); if (bf) o.blur = +bf[1];
+  if (+cs.opacity < 1) o.opacity = +cs.opacity;
+  if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') o.clip = true;
+  return o;
+}
+const isVisual = o => o.bg || o.bgImg || o.border || o.ring || o.shadows || o.blur || o.opacity !== undefined;
+function textItem(node, el, sel, pr) {
+  const raw = node.textContent; if (!raw.trim()) return null;
+  const doc = el.ownerDocument, range = doc.createRange();
+  const cs = doc.defaultView.getComputedStyle(el), ss = sel.ownerDocument.defaultView.getComputedStyle(sel);
+  range.selectNodeContents(node);
+  const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0); if (!rects.length) return null;
+  const br = range.getBoundingClientRect();
+  // explicit line breaks: walk characters, break where the line top changes
+  let chars = '', lastTop = null, pendingSpace = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (/\s/.test(ch)) { pendingSpace = chars.length > 0; continue; }
+    range.setStart(node, i); range.setEnd(node, i + 1);
+    const r = range.getClientRects()[0]; const top = r ? Math.round(r.top) : lastTop;
+    if (lastTop !== null && top !== null && Math.abs(top - lastTop) > 2) { chars += '\n'; pendingSpace = false; }
+    if (pendingSpace) { chars += ' '; pendingSpace = false; }
+    chars += ch; if (top !== null) lastTop = top;
+  }
+  const lines = chars.split('\n').length;
+  const o = { t: 'text', x: R(br.left - pr.left), y: R(br.top - pr.top), w: R(br.width), h: R(br.height), chars, lines,
+    kind: /Menlo|monospace/i.test(cs.fontFamily.split(',')[0]) ? 'mono' : 'sans', size: parseFloat(cs.fontSize), weight: +cs.fontWeight,
+    color: cs.color, tok: tok(ss.color) };
+  if (cs.letterSpacing !== 'normal' && parseFloat(cs.letterSpacing)) o.ls = parseFloat(cs.letterSpacing);
+  if (cs.lineHeight !== 'normal') o.lh = parseFloat(cs.lineHeight);
+  if (cs.textTransform === 'uppercase') o.upper = true;
+  if (lines > 1 && (cs.textAlign === 'center' || cs.textAlign === 'right' || cs.textAlign === 'end')) o.align = cs.textAlign === 'center' ? 'CENTER' : 'RIGHT';
+  if (cs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 0.5) { const er = el.getBoundingClientRect(); o.trunc = true; o.x = R(er.left - pr.left + parseFloat(cs.paddingLeft)); o.w = R(el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)); o.chars = chars.replace(/\n/g, ' '); }
+  return o;
+}
+function svgItem(el, sel, pr) {
+  const r = el.getBoundingClientRect(); if (!r.width || !r.height) return null;
+  const win = el.ownerDocument.defaultView, cs = win.getComputedStyle(el), ss = sel.ownerDocument.defaultView.getComputedStyle(sel);
+  const c = el.cloneNode(true);
+  const m = cs.color.match(/[\d.]+/g).map(Number); const hex = '#' + m.slice(0, 3).map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+  let inner = c.innerHTML.replace(/currentColor/g, hex);
+  const vb = el.getAttribute('viewBox') || `0 0 ${r.width} ${r.height}`; const vbw = +vb.split(/\s+/)[2];
+  if (cs.transform.startsWith('matrix(-1')) inner = `<g transform="translate(${vbw},0) scale(-1,1)">${inner}</g>`;
+  const attrs = ['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'].filter(a => el.hasAttribute(a)).map(a => `${a}="${el.getAttribute(a).replace(/currentColor/g, hex)}"`).join(' ');
+  const o = { t: 'svg', x: R(r.left - pr.left), y: R(r.top - pr.top), w: R(r.width), h: R(r.height), color: cs.color, tok: tok(ss.color),
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${R(r.width)}" height="${R(r.height)}" viewBox="${vb}" ${attrs}>${inner}</svg>` };
+  if (+cs.opacity < 1) o.opacity = (o.opacity ?? 1) * +cs.opacity;
+  return o;
+}
+function pseudo(el, sel, which, er) {
+  const win = el.ownerDocument.defaultView, cs = win.getComputedStyle(el, which), ss = sel.ownerDocument.defaultView.getComputedStyle(sel, which);
+  if (!cs.content || cs.content === 'none' || cs.content === 'normal') return null;
+  const pcs = win.getComputedStyle(el);
+  let w = parseFloat(cs.width), h = parseFloat(cs.height);
+  const bwid = ['Top', 'Right', 'Bottom', 'Left'].map(s => parseFloat(cs['border' + s + 'Width']) || 0);
+  if (cs.boxSizing !== 'border-box') { w += bwid[1] + bwid[3]; h += bwid[0] + bwid[2]; }
+  const pb = { l: parseFloat(pcs.borderLeftWidth) || 0, t: parseFloat(pcs.borderTopWidth) || 0 };
+  let x, y;
+  if (cs.position === 'absolute') { x = pb.l + parseFloat(cs.left); y = pb.t + parseFloat(cs.top); if (isNaN(w)) w = er.width - parseFloat(cs.left) - parseFloat(cs.right); if (isNaN(h)) h = er.height - parseFloat(cs.top) - parseFloat(cs.bottom); }
+  else { x = (er.width - w) / 2; y = (er.height - h) / 2; }
+  if (!(w > 0 && h > 0)) return null;
+  if (cs.transform && cs.transform !== 'none' && bwid.some(v => v > 0)) { // rotated border = check mark
+    const bx = er.width, by = er.height;
+    return { t: 'svg', x: 0, y: 0, w: R(bx), h: R(by), color: cs.borderBottomColor, tok: null, name: 'check',
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${R(bx)}" height="${R(by)}" viewBox="0 0 16 16" fill="none"><path d="M4.3 8.3 7 11l4.8-5.6" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>` };
+  }
+  const v = visual(cs, ss, w, h); delete v.clip;
+  return Object.assign({ t: 'box', x: R(x), y: R(y), w: R(w), h: R(h), cls: which.replace(/:/g, ''), kids: [] }, v);
+}
+function walk(el, sel, pr) {
+  const win = el.ownerDocument.defaultView, cs = win.getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'svg') return svgItem(el, sel, pr);
+  const er = el.getBoundingClientRect();
+  if (tag === 'img') { if (!er.width) return null; const ss = sel.ownerDocument.defaultView.getComputedStyle(sel); return Object.assign({ t: 'img', x: R(er.left - pr.left), y: R(er.top - pr.top), w: R(er.width), h: R(er.height), src: el.src }, (({ radius, ring }) => ({ radius, ring }))(visual(cs, ss, er.width, er.height))); }
+  if (tag === 'br' || tag === 'style' || tag === 'script') return null;
+  const ss = sel.ownerDocument.defaultView.getComputedStyle(sel);
+  const v = visual(cs, ss, er.width, er.height);
+  const cls = typeof el.className === 'string' ? el.className.trim() : '';
+  const node = Object.assign({ t: 'box', x: R(er.left - pr.left), y: R(er.top - pr.top), w: R(er.width), h: R(er.height), cls: cls || tag, kids: [] }, v);
+  if (el.classList.contains('q-donut')) { // conic progress ring
+    const acc = T.color.tokens.find(t => t.name === 'accent').value.light, rest = cs.getPropertyValue('--fill-selected') || 'rgba(0,0,0,0.08)';
+    const w = er.width, c = w / 2, r = (w / 2 + 4.75) / 2, sw = w / 2 - 4.75, L = 2 * Math.PI * r;
+    return { t: 'svg', x: node.x, y: node.y, w: node.w, h: node.h, color: acc, tok: 'accent', name: 'q-donut', comp: undefined,
+      svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${w}" viewBox="0 0 ${w} ${w}" fill="none"><circle cx="${c}" cy="${c}" r="${r}" stroke="#000000" stroke-opacity="0.08" stroke-width="${sw}"/><circle cx="${c}" cy="${c}" r="${r}" stroke="${acc}" stroke-width="${sw}" stroke-dasharray="${L * 0.62} ${L}" transform="rotate(-90 ${c} ${c})"/></svg>` };
+  }
+  const b = pseudo(el, sel, '::before', er); if (b) node.kids.push(b);
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const c = el.childNodes[i], sc = sel.childNodes[i];
+    const k = c.nodeType === 3 ? textItem(c, el, sel, er) : c.nodeType === 1 ? walk(c, sc, er) : null;
+    if (k) { if (c.nodeType === 1 && c.__comp !== undefined) k.comp = c.__comp; node.kids.push(k); }
+  }
+  const a = pseudo(el, sel, '::after', er); if (a) node.kids.push(a);
+  if (!isVisual(v) && !(v.clip && node.kids.length)) {
+    if (node.kids.length === 0) return (er.width > 0 && er.height > 0 && el.__comp !== undefined) ? node : null;
+    if (node.kids.length === 1 && node.kids[0].comp === undefined) { const k = node.kids[0]; k.x = R(k.x + node.x); k.y = R(k.y + node.y); if (!k.name && k.t !== 'box') k.name = cls || undefined; return k; }
+  }
+  return node;
+}
+function tagComps(container) { // which elements become Figma components, and their variant names
+  const kids = [...container.children].filter(c => !c.classList.contains('q-cap'));
+  kids.forEach((c, i) => {
+    const cap = c.querySelector(':scope > .q-cap');
+    if (cap) { const body = [...c.children].filter(x => x !== cap); if (body.length === 1) body[0].__comp = cap.textContent.trim(); else c.__comp = cap.textContent.trim(); }
+    else if (c.querySelector('.q-cap')) tagComps(c);
+    else c.__comp = kids.length > 1 ? String(i + 1) : '';
+  });
+}
+const index = [];
+for (const { name } of header.components) {
+  const preview = await (await fetch(`components/${name}/preview.html`)).text();
+  const mk = preview.match(/<!-- @dsCard ([^>]*)-->/)[1];
+  const attr = k => { const m = mk.match(new RegExp(k + '="?([^" ]*(?: [^"=]*)*?)"?(?= \\w+=|\\s*$)')); return m ? m[1].trim() : null; };
+  const group = (mk.match(/group="([^"]*)"/) || [])[1], subtitle = (mk.match(/subtitle="([^"]*)"/) || [])[1], width = +((mk.match(/width=(\d+)/) || [])[1] || 880);
+  const body = preview.split('<body>')[1].split('</body>')[0];
+  const frames = [];
+  for (const sentinel of [false, true]) {
+    const f = document.createElement('iframe'); f.style.cssText = `width:${width}px;height:40px;border:0;display:block`;
+    f.srcdoc = `<!doctype html><html data-theme="light"><head><meta charset="utf-8"><style>${tokensCss(sentinel)}${bundleCss}</style></head><body>${body}</body></html>`;
+    document.body.appendChild(f); await new Promise(r => f.onload = r); await f.contentDocument.fonts.ready; frames.push(f);
+  }
+  const [f, s] = frames; await new Promise(r => setTimeout(r, 60));
+  const h = Math.max(f.contentDocument.documentElement.scrollHeight, f.contentDocument.body.scrollHeight);
+  f.style.height = s.style.height = h + 'px'; await new Promise(r => setTimeout(r, 30));
+  const stage = f.contentDocument.querySelector('.q-stage'); if (stage) tagComps(stage);
+  const root = walk(f.contentDocument.body, s.contentDocument.body, { left: 0, top: 0 });
+  root.w = width; root.h = h;
+  const readme = await (await fetch(`components/${name}/README.md`)).text().catch(() => '');
+  let count = 0, comps = 0; (function c(n) { count++; if (n.comp !== undefined) comps++; (n.kids || []).forEach(c); })(root);
+  await fetch('save/' + name + '.json', { method: 'POST', body: JSON.stringify({ name, group, subtitle, width, height: h, readme, root }) });
+  index.push({ name, group, subtitle, width, height: h, nodes: count, comps });
+  log(`${name}: ${count} nodes, ${comps} comps, ${width}x${h}`);
+  frames.forEach(x => x.remove());
+}
+await fetch('save/index.json', { method: 'POST', body: JSON.stringify(index) });
+log('DONE ' + index.length); document.title = 'walk done';
+} catch (e) { log('ERR ' + e.message + '\n' + e.stack); document.title = 'walk error'; }
+</script></body></html>

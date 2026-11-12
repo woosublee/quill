@@ -16,7 +16,7 @@
 | `components/bundle.js` | 컴포넌트 순서만 정하는 머리 줄(원자 → 분자 → 유기체 → 화면) |
 | `components/Cover/preview.html` | 아티팩트 표지 |
 | `design-system.json`, `assets/` | 아티팩트 색인과 에셋 설명(앱 아이콘 원본은 `Resources/`) |
-| `tools/` | 생성·미리보기 스크립트 |
+| `tools/` | 생성·미리보기 스크립트, Figma 사본을 만드는 `tools/figma/` |
 
 ## 컴포넌트 고치기
 
@@ -56,6 +56,10 @@ open /tmp/quill-design-system.html
 ```
 
 모든 컴포넌트를 묶음 순서대로 한 페이지에 보여 주고, 위쪽 체크박스로 다크 테마를 확인할 수 있습니다. 결과 파일은 커밋하지 않습니다.
+
+## Figma 사본
+
+같은 내용을 Figma 파일로도 볼 수 있습니다. `tools/figma/`의 스크립트가 토큰을 변수와 스타일로, 미리보기를 컴포넌트로 내보냅니다. 방향은 이 폴더에서 Figma 한쪽이고, 토큰이나 미리보기를 고친 뒤 다시 돌립니다. 방법은 `tools/figma/README.md`에 있습니다.
 
 ## 실제 앱과 맞추기
 
