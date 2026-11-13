@@ -309,16 +309,25 @@ final class NoteSyncController: ObservableObject {
         }
     }
 
-    /// Notes whose audio is in iCloud but not on this Mac, for the turn-off
-    /// confirmation: deleting from iCloud loses that audio. Nil when note
-    /// history can't be opened, so they can't be counted.
-    var notesWithAudioOnlyInICloud: Int? {
-        guard let store else { return 0 }
+    /// Notes whose audio is in iCloud but not on this Mac (a missing or empty
+    /// file), newest first, with each marker's size. Nil when note history
+    /// can't be opened; empty before a store is attached.
+    var recordingsOnlyInICloud: [NoteAudioOnlyInICloud]? {
+        guard let store else { return [] }
         guard store.isReadyForSync else { return nil }
-        return store.audioSyncSnapshots().filter { note in
+        return store.audioSyncSnapshots().compactMap { note in
             // An empty file here is no copy of the audio.
-            note.manifest != nil && (NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)?.bytes ?? 0) == 0
-        }.count
+            guard let manifest = note.manifest,
+                  (NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)?.bytes ?? 0) == 0 else { return nil }
+            return NoteAudioOnlyInICloud(id: note.id, bytes: Int64(manifest.bytes))
+        }
+    }
+
+    /// How many recordings are only in iCloud, for the turn-off confirmation:
+    /// deleting from iCloud loses that audio. Nil when note history can't be
+    /// opened, so they can't be counted.
+    var notesWithAudioOnlyInICloud: Int? {
+        recordingsOnlyInICloud?.count
     }
 
     /// Returns why sync stayed off, or nil once it is on. The status from

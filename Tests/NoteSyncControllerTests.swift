@@ -91,8 +91,8 @@ struct NoteSyncControllerTests {
         }
         let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 1, partSize: 50_000_000, parts: 1)
         store.manifests[uploaded] = manifest
-        store.manifests[elsewhere] = manifest
-        store.manifests[empty] = manifest
+        store.manifests[elsewhere] = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 700, partSize: 50_000_000, parts: 1)
+        store.manifests[empty] = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 900, partSize: 50_000_000, parts: 1)
         let controller = NoteSyncController(
             defaults: UserDefaults(suiteName: "quill-controller-audio-\(UUID().uuidString)")!,
             unavailableReason: nil,
@@ -106,6 +106,11 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         precondition(controller.uploadAudioByteCount == 300, "only audio that will upload")
         precondition(controller.notesWithAudioOnlyInICloud == 2, "an empty file here is no copy")
+        precondition(
+            Set(controller.recordingsOnlyInICloud ?? []) == [NoteAudioOnlyInICloud(id: elsewhere, bytes: 700), NoteAudioOnlyInICloud(id: empty, bytes: 900)],
+            "each recording that is only in iCloud, with its marker's size"
+        )
+        precondition(controller.recordingsOnlyInICloud?.count == 2, "uploaded and here are absent")
     }
 
     final class FakeStore: NoteSyncLocalStore {
@@ -904,8 +909,10 @@ struct NoteSyncControllerTests {
         store.isReadyForSync = false
         controller.attach(store: store)
         precondition(controller.notesWithAudioOnlyInICloud == nil, "the turn-off dialog says it can't check")
+        precondition(controller.recordingsOnlyInICloud == nil)
         let (unattached, _, _, _) = make()
         precondition(unattached.notesWithAudioOnlyInICloud == 0, "not attached yet: nothing to warn about")
+        precondition(unattached.recordingsOnlyInICloud == [], "not attached yet: nothing listed")
     }
 
     /// Settings reopened during a Turn Off and Delete: another press waits

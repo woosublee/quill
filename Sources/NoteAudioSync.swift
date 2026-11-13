@@ -9,6 +9,13 @@ struct NoteAudioSyncSnapshot: Equatable, Sendable {
     let uploadKey: String?
 }
 
+/// A note whose recording is in iCloud and not on this Mac.
+struct NoteAudioOnlyInICloud: Equatable, Hashable, Sendable {
+    let id: UUID
+    /// The marker's byte count.
+    let bytes: Int64
+}
+
 /// What the offload pass needs of a note, read for every note at once.
 /// `lastUsedAt` stays on this Mac.
 struct NoteAudioOffloadSnapshot: Equatable, Sendable {
