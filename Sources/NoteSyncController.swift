@@ -8,8 +8,9 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// schedules regular fetches, and fetches once.
     func start()
     func fetchNow()
-    /// Fetches now and returns once what changed is applied here: false
-    /// when the engine isn't running or the fetch failed.
+    /// Fetches now and returns once what it fetched is applied here: false
+    /// when the engine isn't running or the fetch failed. True doesn't
+    /// mean iCloud was asked (#562).
     func fetchChangesAndWait() async -> Bool
     /// Fetches, then sends what is waiting, and returns when both finished.
     func syncNow() async
@@ -562,9 +563,10 @@ final class NoteSyncController: ObservableObject {
         engine?.fetchNow()
     }
 
-    /// Fetches now and waits for it: Download, Then Delete reads which
-    /// recordings are only in iCloud right after. False without sync
-    /// running or when the fetch failed.
+    /// Asks the engine to fetch and waits for it: Download, Then Delete
+    /// reads which recordings are only in iCloud right after. False without
+    /// sync running or when the fetch failed. True doesn't mean iCloud was
+    /// asked (#562): only changes the engine knew of are sure to be here.
     func fetchChangesAndWait() async -> Bool {
         guard let engine else { return false }
         return await engine.fetchChangesAndWait()

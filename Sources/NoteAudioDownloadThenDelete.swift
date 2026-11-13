@@ -4,15 +4,18 @@ import QuillNoteSyncCore
 
 /// Turn Off and Delete from iCloud, keeping every recording: downloads the
 /// recordings that are only in iCloud, one at a time, and runs the delete
-/// only once none is left, as read straight after a fetch from iCloud. One
-/// runs at a time.
+/// only once none is left, as read straight after asking the sync engine
+/// to fetch. That fetch may not reach the server (#562): a recording
+/// another device made iCloud-only can be missed when this Mac never
+/// heard of the change (#839). One runs at a time.
 @MainActor
 final class NoteAudioDownloadThenDelete: ObservableObject {
     struct Work {
         /// Read again before every download and before the delete. Nil: can't be read.
         var recordingsOnlyInICloud: @MainActor () -> [NoteAudioOnlyInICloud]?
-        /// Fetches what changed in iCloud and returns once it is applied
+        /// Asks sync to fetch and returns once what it fetched is applied
         /// here; false with sync not running or when the fetch failed.
+        /// True doesn't mean iCloud was asked (#562, #839).
         var refresh: @MainActor () async -> Bool
         var freeBytes: @MainActor () -> Int64?
         /// True once the recording is on this Mac.

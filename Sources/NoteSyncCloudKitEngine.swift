@@ -476,8 +476,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
     }
 
-    /// The fetch Sync Now starts with, on its own and awaited. Fetched
-    /// changes are applied before `fetchChanges` returns.
+    /// The fetch Sync Now starts with, on its own and awaited. Changes it
+    /// fetches are applied before `fetchChanges` returns, but, as with Sync
+    /// Now, it reaches the server only when the engine knows of a change
+    /// (#562): true doesn't mean iCloud was asked.
     func fetchChangesAndWait() async -> Bool {
         guard let engine = activeEngine() else { return false }
         do {
