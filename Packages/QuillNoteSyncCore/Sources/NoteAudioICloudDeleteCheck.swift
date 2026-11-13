@@ -2,6 +2,15 @@ import Foundation
 
 /// Before deleting everything from iCloud: is every recording iCloud holds
 /// on this device? Pure; each app does the reads.
+///
+/// For each note with parts in iCloud (not being deleted here):
+/// 1. A recording file here: held. This rests on a note's recording never
+///    changing once set, so the file here is the one the parts are of.
+/// 2. This device's marker, with every one of the note's parts under its
+///    key: downloaded, without reading the server's note.
+/// 3. Otherwise the server's note is read: no note or no marker holds
+///    nothing to keep, a marker equal to this device's (after the merge) is
+///    downloaded, and anything else can't be sure.
 public enum NoteAudioICloudDeleteCheck {
     /// What the server's copy of a note says of its recording.
     public enum ServerNote: Equatable, Sendable {
@@ -99,8 +108,10 @@ public enum NoteAudioICloudDeleteCheck {
                     result[id] = .held
                     continue
                 }
+                // Parts under any other key may be a recording this device
+                // doesn't know of: the server decides.
                 if let marker = note.marker,
-                   keys.contains(NoteAudioPartID.key(sha256: marker.sha256)) {
+                   keys == [NoteAudioPartID.key(sha256: marker.sha256)] {
                     result[id] = .download
                     continue
                 }

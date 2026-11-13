@@ -19,6 +19,8 @@ struct NoteAudioICloudDeleteCheckTests {
         testANoteBeingDeletedHereIsNeverRead()
         testOneDoubtStopsEverything()
         testSeveralNotesDownloadTogether()
+        testPartsUnderAnotherKeyTooAreRead()
+        testAServerMarkerMustMatchWhole()
         print("NoteAudioICloudDeleteCheckTests passed")
     }
 
@@ -141,5 +143,33 @@ struct NoteAudioICloudDeleteCheckTests {
         let server: [UUID: Check.ServerNote] = [b: .marker(marker("d"))]
         precondition(Check.notesToRead(parts: p, device: device, deletingHere: []) == [b])
         precondition(Check.verdict(parts: p, serverNotes: server, device: device, deletingHere: []) == .download([a, b]))
+    }
+
+    /// The device's marker skips the read only when every part of the note
+    /// is under its key.
+    static func testPartsUnderAnotherKeyTooAreRead() {
+        let id = UUID()
+        let a = marker("a"), b = marker("b")
+        let p = parts(id, a) + parts(id, b)
+        let device = [id: Check.DeviceNote(hasLocalAudio: false, marker: b)]
+        precondition(Check.notesToRead(parts: p, device: device, deletingHere: []) == [id])
+        precondition(Check.verdict(parts: p, serverNotes: [:], device: device, deletingHere: []) == .cannotBeSure)
+        precondition(Check.verdict(parts: p, serverNotes: [id: .marker(b)], device: device, deletingHere: []) == .download([id]))
+        precondition(Check.verdict(parts: p, serverNotes: [id: .marker(a)], device: device, deletingHere: []) == .cannotBeSure)
+    }
+
+    /// iCloud's marker must equal the device's whole, not only its hash.
+    static func testAServerMarkerMustMatchWhole() {
+        let id = UUID()
+        let held = marker("b")
+        let p = parts(id, marker("a"))
+        let device = [id: Check.DeviceNote(hasLocalAudio: false, marker: held)]
+        let others = [
+            NoteAudioManifest(sha256: held.sha256, bytes: held.bytes, partSize: held.partSize, parts: held.parts + 1),
+            NoteAudioManifest(sha256: held.sha256, bytes: held.bytes, partSize: held.partSize * 2, parts: held.parts),
+        ]
+        for other in others {
+            precondition(Check.verdict(parts: p, serverNotes: [id: .marker(other)], device: device, deletingHere: []) == .cannotBeSure)
+        }
     }
 }
