@@ -142,6 +142,7 @@ struct NoteSyncCoordinatorTests {
         try await testConfirmingLeavesOutNotesWithAudioInFlight()
         try await testConfirmingLeavesOutWhatChangedWhileWaiting()
         try await testConfirmingNeedsICloudsNoteToNameTheRecording()
+        try await testConfirmingReadsICloudsNoteWithATimeLimit()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -284,7 +285,10 @@ struct NoteSyncCoordinatorTests {
         var notesInCloud: [UUID: NoteAudioInICloud] = [:]
         /// Thrown by the note read alone.
         var notesInCloudError: Error?
-        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+        /// Whether each note read asked for a time limit.
+        var noteReadTimeLimits: [Bool] = []
+        func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud] {
+            noteReadTimeLimits.append(timeLimited)
             if let lookupError { throw lookupError }
             if let notesInCloudError { throw notesInCloudError }
             return Dictionary(uniqueKeysWithValues: ids.map { ($0, notesInCloud[$0] ?? .noNote) })
@@ -2651,5 +2655,25 @@ struct NoteSyncCoordinatorTests {
             precondition(store.uploadKeys.isEmpty, name)
             precondition(engine.saves.isEmpty && engine.audioSaves.isEmpty && engine.audioDeletes.isEmpty, "\(name): nothing queued")
         }
+    }
+
+    /// The hourly pass reads iCloud's note with a time limit, so a stalled
+    /// read can't hold up later passes; one that times out confirms
+    /// nothing.
+    @MainActor
+    static func testConfirmingReadsICloudsNoteWithATimeLimit() async throws {
+        let (coordinator, store, engine, dir, id) = try lostMarkedNote()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        engine.iCloud = Set(parts(id, 1, "b.wav"))
+        engine.notesInCloud[id] = .marker(manifest("b.wav"))
+        let confirmed = await coordinator.confirmAudioInICloud([id])
+        precondition(confirmed == [id], "\(confirmed)")
+        precondition(engine.noteReadTimeLimits == [true], "\(engine.noteReadTimeLimits)")
+
+        engine.notesInCloudError = URLError(.timedOut)
+        let timedOut = await coordinator.confirmAudioInICloud([id])
+        await coordinator.lastAudioCheck?.value
+        precondition(timedOut.isEmpty, "a read that timed out confirms nothing")
+        precondition(store.manifests[id] == manifest("b.wav") && engine.saves.isEmpty, "nothing is written")
     }
 }

@@ -116,7 +116,8 @@ protocol NoteSyncEngineClient: AnyObject {
     /// Every part in iCloud, with when it was saved there.
     func allAudioParts() async throws -> [NoteAudioPartInICloud]
     /// What iCloud's copy of each of these notes says of its audio.
-    func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud]
+    /// `timeLimited` keeps a stalled request from holding up its caller.
+    func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud]
 }
 
 /// What iCloud's copy of a note says of its audio.
@@ -492,7 +493,9 @@ final class NoteSyncCoordinator {
     /// A note with no marker, with audio in flight, or being checked is left out.
     /// A missing part starts the existing repair (`handleAudioMissing`) and the
     /// note is left out. iCloud's note naming no marker or another one leaves
-    /// the note out and starts nothing. A thrown error leaves every note out.
+    /// the note out and starts nothing. A thrown error, or a note read that
+    /// timed out, leaves every note out. The rule is
+    /// `NoteAudioOffloadPolicy.isConfirmedInICloud`.
     /// Nothing else changes: removing this Mac's copy of a recording relies
     /// on the answer, so a note that changed while iCloud answered is left
     /// out too.
@@ -513,7 +516,8 @@ final class NoteSyncCoordinator {
         let notesInICloud: [UUID: NoteAudioInICloud]
         do {
             found = try await engine.existingAudioParts(asked.flatMap { parts($0.key, $0.value) })
-            notesInICloud = try await engine.audioOfNotesInICloud(Set(asked.keys))
+            // Time-limited: a stalled read would hold up every later pass.
+            notesInICloud = try await engine.audioOfNotesInICloud(Set(asked.keys), timeLimited: true)
         } catch {
             print("[NoteSync] Couldn't confirm audio in iCloud")
             return []
@@ -523,9 +527,14 @@ final class NoteSyncCoordinator {
         var confirmed: Set<UUID> = []
         for (id, manifest) in asked {
             guard !unsettledNow.contains(id), store.audioManifest(id: id) == manifest else { continue }
-            if !parts(id, manifest).allSatisfy(found.contains) {
+            let partsPresent = parts(id, manifest).allSatisfy(found.contains)
+            if !partsPresent {
                 handleAudioMissing(noteID: id)
-            } else if notesInICloud[id] == .marker(manifest) {
+                continue
+            }
+            var serverMarker: NoteAudioManifest?
+            if case .marker(let marker)? = notesInICloud[id] { serverMarker = marker }
+            if NoteAudioOffloadPolicy.isConfirmedInICloud(local: manifest, partsPresent: partsPresent, serverMarker: serverMarker) {
                 confirmed.insert(id)
             }
         }
@@ -1351,7 +1360,7 @@ final class NoteSyncCoordinator {
         guard !candidates.isEmpty else { return true }
         let notes: [UUID: NoteAudioInICloud]
         do {
-            notes = try await engine.audioOfNotesInICloud(Set(candidates.map(\.noteID)))
+            notes = try await engine.audioOfNotesInICloud(Set(candidates.map(\.noteID)), timeLimited: false)
         } catch {
             print("[NoteSync] Couldn't look for leftover audio")
             return false

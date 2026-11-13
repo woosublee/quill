@@ -21,6 +21,9 @@ struct NoteAudioICloudDeleteCheckTests {
         testSeveralNotesDownloadTogether()
         testPartsUnderAnotherKeyTooAreRead()
         testAServerMarkerMustMatchWhole()
+        testARecentlyDeletedNoteWithItsFileHereIsRead()
+        testARecentlyDeletedNoteWithItsFileHereIsHeldOnceRead()
+        testARecentlyDeletedNoteHereThatCantBeReadCantBeSure()
         print("NoteAudioICloudDeleteCheckTests passed")
     }
 
@@ -171,5 +174,42 @@ struct NoteAudioICloudDeleteCheckTests {
         for other in others {
             precondition(Check.verdict(parts: p, serverNotes: [id: .marker(other)], device: device, deletingHere: []) == .cannotBeSure)
         }
+    }
+
+    /// A note in Recently Deleted here, with its file here, is read: the
+    /// app merges iCloud's copy, so a restore made elsewhere comes here
+    /// before the delete. A live note with its file here still isn't.
+    static func testARecentlyDeletedNoteWithItsFileHereIsRead() {
+        let deleted = UUID(), live = UUID()
+        let p = parts(deleted, marker("a")) + parts(live, marker("b"))
+        let device = [
+            deleted: Check.DeviceNote(hasLocalAudio: true, marker: marker("a"), isRecentlyDeleted: true),
+            live: Check.DeviceNote(hasLocalAudio: true, marker: marker("b")),
+        ]
+        precondition(Check.notesToRead(parts: p, device: device, deletingHere: []) == [deleted])
+        precondition(Check.DeviceNote(hasLocalAudio: true, marker: nil).isRecentlyDeleted == false, "live by default")
+    }
+
+    /// Whatever iCloud's copy says, the file is here: held.
+    static func testARecentlyDeletedNoteWithItsFileHereIsHeldOnceRead() {
+        let id = UUID()
+        let p = parts(id, marker("a"))
+        let device = [id: Check.DeviceNote(hasLocalAudio: true, marker: marker("a"), isRecentlyDeleted: true)]
+        let answers: [Check.ServerNote] = [.noNote, .noMarker, .marker(marker("a")), .marker(marker("b"))]
+        for answer in answers {
+            precondition(
+                Check.verdict(parts: p, serverNotes: [id: answer], device: device, deletingHere: []) == .safeToDelete,
+                "\(answer)"
+            )
+        }
+    }
+
+    /// Unread or unreadable: the restore may not have come here.
+    static func testARecentlyDeletedNoteHereThatCantBeReadCantBeSure() {
+        let id = UUID()
+        let p = parts(id, marker("a"))
+        let device = [id: Check.DeviceNote(hasLocalAudio: true, marker: nil, isRecentlyDeleted: true)]
+        precondition(Check.verdict(parts: p, serverNotes: [:], device: device, deletingHere: []) == .cannotBeSure)
+        precondition(Check.verdict(parts: p, serverNotes: [id: .unreadable], device: device, deletingHere: []) == .cannotBeSure)
     }
 }

@@ -45,6 +45,8 @@ struct AppStateNoteSyncTests {
         try await testOffloadKeepsAFileWhoseSizeIsNotTheMarkers()
         try await testOffloadSkipsANoteWithARecordingJournal()
         try await testOffloadSkipsAnIDTwoRowsShare()
+        testOffloadChoosesWhoGoesNext()
+        try await testOffloadSkipsNotesICloudDidNotConfirmForADay()
         testOffloadRetentionOverrideIsForDevelopmentOnly()
         try await testDownloadThenDeleteBringsEveryRecordingHereFirst()
         try await testDownloadThenDeleteWithTooLittleSpaceDeletesNothing()
@@ -105,7 +107,7 @@ struct AppStateNoteSyncTests {
         /// The marker iCloud's copy of each note names; unlisted notes
         /// aren't in iCloud.
         var markersInICloud: [UUID: NoteAudioManifest] = [:]
-        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+        func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud] {
             Dictionary(uniqueKeysWithValues: ids.map { ($0, markersInICloud[$0].map(NoteAudioInICloud.marker) ?? .noNote) })
         }
         func cancelAudioSaves(noteID: UUID) {}
@@ -855,11 +857,18 @@ struct AppStateNoteSyncTests {
         await fixture.appState.noteAudioOffloadCheck?.value
     }
 
+    /// Waits, two seconds at most, until `condition` turns false.
     @MainActor
-    static func waitForAudioCheck(_ fixture: Fixture) async throws {
-        for _ in 0..<400 where fixture.engine.audioChecks.isEmpty {
+    static func waitWhile(_ condition: @MainActor () -> Bool) async throws {
+        for _ in 0..<400 {
+            guard condition() else { return }
             try await Task.sleep(for: .milliseconds(5))
         }
+    }
+
+    @MainActor
+    static func waitForAudioCheck(_ fixture: Fixture) async throws {
+        try await waitWhile { fixture.engine.audioChecks.isEmpty }
         precondition(!fixture.engine.audioChecks.isEmpty, "iCloud was asked")
     }
 
@@ -930,6 +939,68 @@ struct AppStateNoteSyncTests {
         precondition(changes.isEmpty && fixture.engine.saves.isEmpty, "nothing is reported or sent")
         let current = fixture.appState.pipelineHistory.first { $0.id == note.id }!
         precondition(fixture.appState.noteAudioState(for: current) == .downloadable, "\(fixture.appState.noteAudioState(for: current))")
+    }
+
+    /// The least recently used first, at most five; a note asked about and
+    /// not confirmed waits a day; a wait ends early for a note no longer a
+    /// candidate, and a wait dated ahead of the clock is over.
+    static func testOffloadChoosesWhoGoesNext() {
+        let ids = (0..<7).map { _ in UUID() }
+        let now = t0 + 30 * day
+        let candidates = ids.enumerated().map { (id: $0.element, lastUsed: t0 + Double($0.offset) * day) }
+        let wait = NoteAudioOffload.unconfirmedWait
+        precondition(wait == day && NoteAudioOffload.maxPerPass == 5)
+
+        var next = NoteAudioOffload.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now)
+        precondition(next.ask == Array(ids.prefix(5)) && next.waiting.isEmpty, "\(next)")
+
+        let gone = UUID()
+        let waiting = [ids[0]: now, ids[1]: now - wait + 1, ids[2]: now - wait, ids[3]: now + 60, gone: now]
+        next = NoteAudioOffload.notesToAsk(candidates: candidates, waiting: waiting, now: now)
+        precondition(next.ask == [ids[2], ids[3], ids[4], ids[5], ids[6]], "\(next)")
+        precondition(next.waiting == [ids[0]: now, ids[1]: now - wait + 1], "only waits still running, for candidates: \(next.waiting)")
+    }
+
+    /// Six old recordings; iCloud never confirms the five oldest (its notes
+    /// can't be read, say). They don't hold the pass up: the next pass asks
+    /// about the sixth and removes it, and the five are asked again a day
+    /// later, when one confirmed since is removed as usual.
+    @MainActor
+    static func testOffloadSkipsNotesICloudDidNotConfirmForADay() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let notes = (0..<6).map { _ in makeRecordedItem() }
+        let fixture = try makeFixture(items: notes)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var urls: [UUID: URL] = [:]
+        for (index, note) in notes.enumerated() {
+            urls[note.id] = try addRecording(fixture, note)
+            fixture.appState.markNoteAudioUsed(note.id, now: t0 + Double(index) * day)
+        }
+        let unconfirmed = Array(notes.prefix(5))
+        for note in unconfirmed { fixture.engine.markersInICloud[note.id] = nil }
+        let sixth = notes[5]
+        let now = t0 + 30 * day
+
+        await offload(fixture, now: now)
+        precondition(fixture.engine.audioChecks == [Set(unconfirmed.map(\.id))], "\(fixture.engine.audioChecks)")
+        precondition(urls.values.allSatisfy(exists), "nothing confirmed: every file stays")
+
+        await offload(fixture, now: now)
+        precondition(fixture.engine.audioChecks.last == [sixth.id], "\(fixture.engine.audioChecks)")
+        precondition(!exists(urls[sixth.id]!), "the sixth is removed")
+        precondition(unconfirmed.allSatisfy { exists(urls[$0.id]!) })
+
+        await offload(fixture, now: now + 23 * 60 * 60)
+        precondition(fixture.engine.audioChecks.count == 2, "still waiting: \(fixture.engine.audioChecks)")
+
+        let confirmedLater = unconfirmed[0]
+        fixture.engine.markersInICloud[confirmedLater.id] = fixture.store.audioManifest(id: confirmedLater.id)
+        await offload(fixture, now: now + day)
+        precondition(fixture.engine.audioChecks.count == 3, "\(fixture.engine.audioChecks)")
+        precondition(fixture.engine.audioChecks.last == Set(unconfirmed.map(\.id)), "a day later the five are asked again")
+        precondition(!exists(urls[confirmedLater.id]!), "confirmed now: removed as usual")
+        precondition(unconfirmed.dropFirst().allSatisfy { exists(urls[$0.id]!) })
     }
 
     @MainActor
@@ -1285,7 +1356,7 @@ struct AppStateNoteSyncTests {
     @MainActor
     static func waitUntilDownloading(_ runner: NoteAudioDownloadThenDelete) async throws {
         func downloading() -> Bool { if case .downloading = runner.phase { return true }; return false }
-        for _ in 0..<400 where !downloading() { try await Task.sleep(for: .milliseconds(5)) }
+        try await waitWhile { !downloading() }
         precondition(downloading(), "a download started")
     }
 
@@ -1366,7 +1437,7 @@ struct AppStateNoteSyncTests {
             let files = (try? FileManager.default.contentsOfDirectory(at: setup.downloadsDirectory, includingPropertiesForKeys: nil)) ?? []
             return files.filter { $0.pathExtension == "partial" }
         }
-        for _ in 0..<400 where partials().isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        try await waitWhile { partials().isEmpty }
         precondition(!partials().isEmpty, "the download writes a partial file while it waits")
         runner.cancel()
         let outcome = await running.value
@@ -1407,10 +1478,10 @@ struct AppStateNoteSyncTests {
         // with no engine.
         let first = fixture.engine.coordinator
         first?.onNeedsFullRefetch?()
-        for _ in 0..<400 where fixture.engine.coordinator === first { try await Task.sleep(for: .milliseconds(5)) }
+        try await waitWhile { fixture.engine.coordinator === first }
         precondition(fixture.engine.coordinator !== first, "sync started over once")
         fixture.engine.coordinator?.onNeedsFullRefetch?()
-        for _ in 0..<400 where controller.isEngineRunning { try await Task.sleep(for: .milliseconds(5)) }
+        try await waitWhile { controller.isEngineRunning }
         precondition(controller.status == .paused(.couldNotSaveHere) && controller.isEnabled, "\(controller.status)")
         precondition(!controller.isEngineRunning, "no engine runs")
         await settleAudio(fixture)
@@ -1613,7 +1684,7 @@ struct AppStateNoteSyncTests {
         fixture.engine.holdsPartListing = true
         let runner = setup.runner
         let running = Task { @MainActor in await runner.run() }
-        for _ in 0..<400 where fixture.engine.partListings == listingsBefore { try await Task.sleep(for: .milliseconds(5)) }
+        try await waitWhile { fixture.engine.partListings == listingsBefore }
         precondition(fixture.engine.partListings > listingsBefore, "iCloud's list is being read")
         precondition(runner.phase == .checking)
         await offload(fixture, now: t0 + 30 * day)

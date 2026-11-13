@@ -31,6 +31,7 @@ struct NoteAudioOffloadPolicyTests {
         testFallbackDates()
         testFutureDateBlocks()
         testCopyKeys()
+        testConfirmedOnlyWithEveryPartAndTheSameMarker()
         print("NoteAudioOffloadPolicyTests passed")
     }
 
@@ -88,5 +89,22 @@ struct NoteAudioOffloadPolicyTests {
         precondition(NoteAudioOffloadCopy.toggleKey == "Optimize Storage")
         precondition(NoteAudioOffloadCopy.detailKey == "Recordings you haven't used for a week are removed from this device and kept in iCloud. You can download them again.")
         precondition(NoteAudioOffloadCopy.needsSyncKey == "Turn on iCloud sync to use this.")
+    }
+
+    static func testConfirmedOnlyWithEveryPartAndTheSameMarker() {
+        let local = NoteAudioManifest(sha256: String(repeating: "a", count: 64), bytes: 150, partSize: 100, parts: 2)
+        func confirmed(_ parts: Bool, _ server: NoteAudioManifest?) -> Bool {
+            NoteAudioOffloadPolicy.isConfirmedInICloud(local: local, partsPresent: parts, serverMarker: server)
+        }
+        precondition(confirmed(true, local), "every part, and iCloud's note names the same marker")
+        precondition(!confirmed(false, local), "a part missing")
+        precondition(!confirmed(true, nil), "iCloud's note names no marker, or can't be read")
+        let others = [
+            NoteAudioManifest(sha256: String(repeating: "b", count: 64), bytes: 150, partSize: 100, parts: 2),
+            NoteAudioManifest(sha256: local.sha256, bytes: 151, partSize: 100, parts: 2),
+            NoteAudioManifest(sha256: local.sha256, bytes: 150, partSize: 200, parts: 2),
+            NoteAudioManifest(sha256: local.sha256, bytes: 150, partSize: 100, parts: 3),
+        ]
+        for other in others { precondition(!confirmed(true, other), "another marker: \(other)") }
     }
 }

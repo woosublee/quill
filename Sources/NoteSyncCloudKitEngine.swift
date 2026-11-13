@@ -393,9 +393,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
     }
 
-    func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+    func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud] {
         var notes: [UUID: NoteAudioInICloud] = [:]
-        for (id, result) in try await noteRecordsInICloud(ids, timeLimited: false) {
+        for (id, result) in try await noteRecordsInICloud(ids, timeLimited: timeLimited) {
             switch result {
             case .success(let record?):
                 notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))

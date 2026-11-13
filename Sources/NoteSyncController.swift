@@ -188,17 +188,19 @@ final class NoteSyncController: ObservableObject {
 
     /// Asks iCloud which recordings it holds, right before Download, Then
     /// Delete deletes, and merges the note records this Mac lacked, as a fetch
-    /// would (#839). `.cannotBeSure` whenever sync isn't running or is paused,
-    /// a read failed or gave a record this Mac can't read, another account is
-    /// signed in, or sync stopped or began turning off meanwhile.
+    /// would (#839). `.cannotBeSure` whenever sync isn't running or is paused
+    /// in a way that stops it or puts the account in doubt
+    /// (`canCheckRecordingsInICloud`), a read failed or gave a record this Mac
+    /// can't read, another account is signed in, or sync stopped or began
+    /// turning off meanwhile.
     func checkRecordingsInICloudBeforeDelete() async -> NoteAudioICloudDeleteCheck.Verdict {
-        guard canConfirmAudioInICloud, let engine, let coordinator, let store, store.isReadyForSync else {
+        guard canCheckRecordingsInICloud, let engine, let coordinator, let store, store.isReadyForSync else {
             return .cannotBeSure
         }
         // The engine may have stopped, sync paused, or a turn-off or delete
         // from iCloud begun, at any await below.
         func stillRunning() -> Bool {
-            canConfirmAudioInICloud && self.engine === engine && self.coordinator === coordinator
+            canCheckRecordingsInICloud && self.engine === engine && self.coordinator === coordinator
                 && self.store === store && store.isReadyForSync
         }
         // What iCloud answered counts only in the account sync uses: an
@@ -251,11 +253,14 @@ final class NoteSyncController: ObservableObject {
         // A record this Mac can't read decides nothing, even once merged.
         guard !serverNotes.values.contains(.unreadable) else { return .cannotBeSure }
         guard await inSyncAccount() else { return .cannotBeSure }
-        // A note purged here while iCloud answered must not come back.
+        // A note purged here while iCloud answered must not come back, nor
+        // one that was here at the listing and is gone now (deleted here, or
+        // by a fetch, meanwhile).
         let deletingNow = coordinator.noteDeletesOwed
         let found = copies.values.compactMap { copy -> NoteSyncFetched? in
-            if case .found(let fetched) = copy, !deletingNow.contains(fetched.noteID) { return fetched }
-            return nil
+            guard case .found(let fetched) = copy, !deletingNow.contains(fetched.noteID) else { return nil }
+            if device[fetched.noteID] != nil, store.noteExists(id: fetched.noteID) != true { return nil }
+            return fetched
         }
         if !found.isEmpty {
             let change = coordinator.handleFetched(found, deletions: [])
@@ -275,10 +280,26 @@ final class NoteSyncController: ObservableObject {
     private func notesOnThisMac(_ ids: Set<UUID>, in store: NoteSyncLocalStore) -> [UUID: NoteAudioICloudDeleteCheck.DeviceNote]? {
         // An empty file here is no copy of the audio, as in `recordingsOnlyInICloud`.
         func hasAudio(_ audio: NoteSyncLocalAudio?) -> Bool { (audio?.bytes ?? 0) > 0 }
+        // Read only for a note whose recording is here, where the rule uses
+        // it. A record that can't be read counts as deleted: iCloud's copy
+        // is read then, and a failed read can't be sure.
+        func isRecentlyDeleted(_ id: UUID) -> Bool {
+            guard let record = store.syncRecord(id: id) else { return true }
+            return record.deletedAt != nil
+        }
+        func deviceNote(_ id: UUID, audio: NoteSyncLocalAudio?, marker: NoteAudioManifest?) -> NoteAudioICloudDeleteCheck.DeviceNote {
+            let hasLocalAudio = hasAudio(audio)
+            return NoteAudioICloudDeleteCheck.DeviceNote(
+                hasLocalAudio: hasLocalAudio,
+                marker: marker,
+                isRecentlyDeleted: hasLocalAudio && isRecentlyDeleted(id)
+            )
+        }
         var device: [UUID: NoteAudioICloudDeleteCheck.DeviceNote] = [:]
         for note in store.audioSyncSnapshots() where ids.contains(note.id) {
-            device[note.id] = NoteAudioICloudDeleteCheck.DeviceNote(
-                hasLocalAudio: hasAudio(NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)),
+            device[note.id] = deviceNote(
+                note.id,
+                audio: NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL),
                 marker: note.manifest
             )
         }
@@ -289,8 +310,9 @@ final class NoteSyncController: ObservableObject {
             case false?:
                 continue
             case true?:
-                device[id] = NoteAudioICloudDeleteCheck.DeviceNote(
-                    hasLocalAudio: hasAudio(store.localAudioFile(id: id, resolve: localAudioURL)),
+                device[id] = deviceNote(
+                    id,
+                    audio: store.localAudioFile(id: id, resolve: localAudioURL),
                     marker: store.audioManifest(id: id)
                 )
             }
@@ -304,6 +326,39 @@ final class NoteSyncController: ObservableObject {
         switch status {
         case .off, .paused: return false
         case .starting, .uploading, .upToDate: return true
+        }
+    }
+
+    /// Whether Download, Then Delete may ask iCloud before deleting: sync on
+    /// with its engine running, not turning on or off, and not deleting from
+    /// iCloud. Unlike `canConfirmAudioInICloud`, some pauses still let it ask,
+    /// since the engine runs and iCloud can be read.
+    var canCheckRecordingsInICloud: Bool {
+        guard isEnabled, !isTurningOn, !isDeletingFromICloud, turnOffInProgress == nil, engine != nil else { return false }
+        switch status {
+        case .off: return false
+        case .starting, .uploading, .upToDate: return true
+        case .paused(let reason):
+            switch reason {
+            // Reads fail on their own while offline, and the check can't be sure then.
+            case .offline: return true
+            // A full iCloud stops uploads only; reads still answer.
+            case .quotaExceeded: return true
+            // Some notes failed to go up; the rest of sync goes on.
+            case .notesFailed: return true
+            // iCloud wants the account looked at: what it answers is in doubt.
+            case .accountNeedsAttention: return false
+            // Another account: iCloud's answer isn't about these notes.
+            case .accountChanged: return false
+            // No account to ask.
+            case .signedOut: return false
+            // Sync stopped: the zone was deleted on another device.
+            case .deletedElsewhere: return false
+            // Sync stopped: notes from iCloud couldn't be saved here.
+            case .couldNotSaveHere: return false
+            // Note history can't be read, so nothing can be merged here.
+            case .historyUnavailable: return false
+            }
         }
     }
 

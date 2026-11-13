@@ -43,7 +43,9 @@ otherwise.
   Catalog, and keeps what a notice's button does. It also decides which
   recording Optimize Storage may remove from a device's own storage
   (`NoteAudioOffloadPolicy`: seven days unused on that device, a transcribed
-  note whose parts iCloud holds, sync on) and
+  note whose parts iCloud holds, sync on), when iCloud confirms it
+  (`isConfirmedInICloud`: every part there and iCloud's note naming the same
+  marker), and
   holds the switch's copy keys (`NoteAudioOffloadCopy`). The setting, the
   last-used date, the hourly pass, and removing the file stay in `Sources/`.
   It also holds what Turn Off and Delete from iCloud says when recordings

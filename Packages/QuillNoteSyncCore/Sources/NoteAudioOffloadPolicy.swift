@@ -63,6 +63,17 @@ public enum NoteAudioOffloadPolicy {
         let unusedFor = now.timeIntervalSince(lastUsed(note))
         return unusedFor >= retention
     }
+
+    /// True when iCloud backs this device's recording: every part the local
+    /// marker names is there (`partsPresent`), and iCloud's note names that
+    /// same marker. Parts alone may be an upload whose note never went up.
+    public static func isConfirmedInICloud(
+        local: NoteAudioManifest,
+        partsPresent: Bool,
+        serverMarker: NoteAudioManifest?
+    ) -> Bool {
+        partsPresent && serverMarker == local
+    }
 }
 
 /// Copy keys for the Optimize Storage setting; each app translates them

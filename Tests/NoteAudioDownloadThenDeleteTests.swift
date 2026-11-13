@@ -36,6 +36,7 @@ struct NoteAudioDownloadThenDeleteTests {
         await testTheCheckRunsOncePerEmptyList()
         await testAFailedDownloadNeverAsksICloud()
         await testTooLittleSpaceNeverAsksICloud()
+        await testARecordingICloudNamesAgainAfterItsDownloadFails()
         testFreeBytesOfARealFolderIsPositive()
         print("NoteAudioDownloadThenDeleteTests passed")
     }
@@ -537,6 +538,23 @@ struct NoteAudioDownloadThenDeleteTests {
         precondition(outcome == .deleted)
         precondition(fake.confirms == 1)
         precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "confirm", "delete"], "\(fake.log)")
+    }
+
+    /// iCloud names the same recording after its download, and it is
+    /// listed again: it isn't downloaded twice, and nothing is deleted.
+    @MainActor
+    static func testARecordingICloudNamesAgainAfterItsDownloadFails() async {
+        let fake = Fake()
+        fake.verdicts = [.download([a]), .download([a])]
+        fake.onConfirm = { _ in
+            if fake.list?.contains(where: { $0.id == a }) == false { fake.list?.append(.init(id: a, bytes: 100)) }
+        }
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .downloadFailed, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm", "download a", "refresh", "confirm"], "\(fake.log)")
+        precondition(fake.confirms == 2 && fake.list?.map(\.id) == [a])
+        precondition(runner.notice == .downloadFailed)
     }
 
     @MainActor

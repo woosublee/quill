@@ -8,6 +8,9 @@ enum NoteAudioOffload {
     static let isOnKey = "NoteAudioOptimizeStorage"
     /// At most this many recordings are asked about, and removed, per pass.
     static let maxPerPass = 5
+    /// A note iCloud didn't confirm (its note unreadable there, say) isn't
+    /// asked about again for this long, so it can't hold up the others.
+    static let unconfirmedWait: TimeInterval = 24 * 60 * 60
     /// The bundle a development build runs as (`make run`).
     static let developmentBundleIdentifier = "com.woosublee.quill.dev"
     static let retentionArgument = "-QuillAudioOffloadRetentionSeconds"
@@ -34,6 +37,30 @@ enum NoteAudioOffload {
             recordingEndedAt: snapshot.recordingEndedAt,
             createdAt: snapshot.createdAt
         )
+    }
+
+    /// Who a pass asks iCloud about: the candidates used longest ago, at
+    /// most `maxPerPass`, leaving out a note asked about and not confirmed
+    /// less than `unconfirmedWait` ago. `waiting` (when each such note was
+    /// asked) comes back holding only the waits still running for notes
+    /// still candidates; a wait dated ahead of the clock is over.
+    static func notesToAsk(
+        candidates: [(id: UUID, lastUsed: Date)],
+        waiting: [UUID: Date],
+        now: Date
+    ) -> (ask: [UUID], waiting: [UUID: Date]) {
+        var stillWaiting: [UUID: Date] = [:]
+        for candidate in candidates {
+            guard let since = waiting[candidate.id] else { continue }
+            let elapsed = now.timeIntervalSince(since)
+            if elapsed >= 0, elapsed < unconfirmedWait { stillWaiting[candidate.id] = since }
+        }
+        let ask = candidates
+            .filter { stillWaiting[$0.id] == nil }
+            .sorted { $0.lastUsed < $1.lastUsed }
+            .prefix(maxPerPass)
+            .map(\.id)
+        return (Array(ask), stillWaiting)
     }
 
     /// Two names with the same key may name the same file: the Mac's disk

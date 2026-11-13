@@ -6,6 +6,9 @@ import Foundation
 /// For each note with parts in iCloud (not being deleted here):
 /// 1. A recording file here: held. This rests on a note's recording never
 ///    changing once set, so the file here is the one the parts are of.
+///    A note in Recently Deleted here is read all the same, so that each app
+///    merges iCloud's copy and a restore made elsewhere reaches this device
+///    before the delete; it is held unless that read fails.
 /// 2. This device's marker, with every one of the note's parts under its
 ///    key: downloaded, without reading the server's note.
 /// 3. Otherwise the server's note is read: no note or no marker holds
@@ -26,10 +29,13 @@ public enum NoteAudioICloudDeleteCheck {
         /// A non-empty recording file is on this device.
         public var hasLocalAudio: Bool
         public var marker: NoteAudioManifest?
+        /// The note is in Recently Deleted on this device.
+        public var isRecentlyDeleted: Bool
 
-        public init(hasLocalAudio: Bool, marker: NoteAudioManifest?) {
+        public init(hasLocalAudio: Bool, marker: NoteAudioManifest?, isRecentlyDeleted: Bool = false) {
             self.hasLocalAudio = hasLocalAudio
             self.marker = marker
+            self.isRecentlyDeleted = isRecentlyDeleted
         }
     }
 
@@ -45,6 +51,8 @@ public enum NoteAudioICloudDeleteCheck {
         case held
         case download
         case needsRead
+        /// The file is here; the read is only for the merge.
+        case heldAfterRead
     }
 
     /// The notes whose server record must be read before `verdict`.
@@ -54,7 +62,7 @@ public enum NoteAudioICloudDeleteCheck {
         deletingHere: Set<UUID>
     ) -> Set<UUID> {
         Set(states(parts: parts, device: device, deletingHere: deletingHere).compactMap {
-            $0.value == .needsRead ? $0.key : nil
+            $0.value == .needsRead || $0.value == .heldAfterRead ? $0.key : nil
         })
     }
 
@@ -72,6 +80,13 @@ public enum NoteAudioICloudDeleteCheck {
                 break
             case .download:
                 downloads.insert(id)
+            case .heldAfterRead:
+                switch serverNotes[id] {
+                case .none, .unreadable:
+                    doubt = true
+                case .noNote, .noMarker, .marker:
+                    break
+                }
             case .needsRead:
                 switch serverNotes[id] {
                 case .none, .unreadable:
@@ -105,7 +120,7 @@ public enum NoteAudioICloudDeleteCheck {
         for (id, keys) in keysByNote {
             if let note = device[id] {
                 if note.hasLocalAudio {
-                    result[id] = .held
+                    result[id] = note.isRecentlyDeleted ? .heldAfterRead : .held
                     continue
                 }
                 // Parts under any other key may be a recording this device

@@ -14979,6 +14979,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// The iCloud check of an Optimize Storage pass; one runs at a time.
     private(set) var noteAudioOffloadCheck: Task<Void, Never>?
+    /// Notes a pass asked iCloud about that it didn't confirm, and when:
+    /// left out of the passes for `NoteAudioOffload.unconfirmedWait`. In
+    /// memory only.
+    private var noteAudioOffloadUnconfirmed: [UUID: Date] = [:]
 
     /// Notes whose audio player is on screen (the note window, or a run in
     /// Settings), counted per view. A player reads the file: its waveform
@@ -15047,15 +15051,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
         synchronizeHistoryPersistenceState()
         guard HistoryWorkflowAdmission.mutation(state: historyWorkflow.state) == .accepted else { return }
         let retention = NoteAudioOffload.retention
-        let asked = noteAudioOffloadCandidates(now: now, retention: retention)
-            .sorted { $0.lastUsed < $1.lastUsed }
-            .prefix(NoteAudioOffload.maxPerPass)
+        let candidates = noteAudioOffloadCandidates(now: now, retention: retention)
+        // A note iCloud didn't confirm waits, so it can't hold up the rest.
+        let next = NoteAudioOffload.notesToAsk(
+            candidates: candidates.map { (id: $0.id, lastUsed: $0.lastUsed) },
+            waiting: noteAudioOffloadUnconfirmed,
+            now: now
+        )
+        noteAudioOffloadUnconfirmed = next.waiting
+        let candidatesByID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, $0) })
+        let asked = next.ask.compactMap { candidatesByID[$0] }
         guard !asked.isEmpty else { return }
         let filesAsked = Dictionary(uniqueKeysWithValues: asked.map { ($0.id, $0.file) })
         noteAudioOffloadCheck = Task { @MainActor [weak self] in
             let confirmed = await controller.confirmAudioInICloud(asked.map(\.id))
             guard let self else { return }
             self.noteAudioOffloadCheck = nil
+            for candidate in asked {
+                self.noteAudioOffloadUnconfirmed[candidate.id] = confirmed.contains(candidate.id) ? nil : now
+            }
             // iCloud's answer holds only now: everything below runs without
             // waiting, from state read again.
             guard !confirmed.isEmpty, NoteAudioOffload.isOn, !self.noteAudioDownloadThenDelete.isRunning,

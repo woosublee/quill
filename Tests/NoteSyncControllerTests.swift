@@ -83,6 +83,10 @@ struct NoteSyncControllerTests {
         try testANoteDeletedHereDuringTheReadIsNotBroughtBack()
         try testAnotherAccountCantBeSureAndMergesNothing()
         try testCheckingWhilePausedCantBeSure()
+        try testCheckingWhileStorageIsFullOrNotesFailedAnswers()
+        try testCheckingWhilePausedForTheAccountOrAStopCantBeSure()
+        try testANoteGoneHereDuringTheReadIsNotBroughtBack()
+        try testANoteDeletedHereAndRestoredElsewhereIsLiveAfterTheCheck()
         print("NoteSyncControllerTests passed")
     }
 
@@ -211,7 +215,7 @@ struct NoteSyncControllerTests {
         /// The marker iCloud's copy of each note names; unlisted notes
         /// aren't in iCloud.
         var markersInICloud: [UUID: NoteAudioManifest] = [:]
-        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+        func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud] {
             Dictionary(uniqueKeysWithValues: ids.map { ($0, markersInICloud[$0].map(NoteAudioInICloud.marker) ?? .noNote) })
         }
         func cancelAudioSaves(noteID: UUID) {}
@@ -1829,7 +1833,8 @@ struct NoteSyncControllerTests {
         }
     }
 
-    /// Sync paused, before or during the check: it can't be sure.
+    /// Sync paused because the account needs attention, before or during
+    /// the check: it can't be sure.
     @MainActor
     static func testCheckingWhilePausedCantBeSure() throws {
         for during in [false, true] {
@@ -1839,12 +1844,146 @@ struct NoteSyncControllerTests {
             let marker = checkMarker("4b")
             let id = try addNote(store, dir: dir, file: "a.wav", marker: marker, bytes: 10)
             engine.allParts = partsInICloud(id, marker)
-            let pause: @MainActor () -> Void = { engine.coordinator?.handleAudioSendFailures([.network]) }
+            let pause: @MainActor () -> Void = { engine.coordinator?.handleAudioSendFailures([.accountNeedsAttention]) }
             if during { engine.whileLookingUpAudio = { pause() } } else { pause() }
             if !during {
                 guard case .paused = controller.status else { preconditionFailure("\(controller.status)") }
             }
             precondition(runDeleteCheck(controller) == .cannotBeSure, "during: \(during)")
         }
+    }
+
+    /// Paused while the engine runs and iCloud still answers (offline, iCloud
+    /// storage full, notes that failed to go up): the check gives a real
+    /// verdict, before or during the listing.
+    @MainActor
+    static func testCheckingWhileStorageIsFullOrNotesFailedAnswers() throws {
+        let pauses: [(String, @MainActor (NoteSyncCoordinator?, UUID) -> Void)] = [
+            ("storage full", { coordinator, failing in
+                let part = NoteAudioPartID.parts(of: failing, sha256: String(repeating: "ef", count: 32), count: 1)[0]
+                coordinator?.handleAudioSendFailures([.quotaExceeded(part)])
+            }),
+            ("notes failed", { coordinator, failing in
+                for _ in 0..<4 { coordinator?.handleSendFailures([.other(noteID: failing)]) }
+                coordinator?.handleFetchFinished(pending: 0)
+            }),
+            ("offline", { coordinator, _ in coordinator?.handleAudioSendFailures([.network]) }),
+        ]
+        for (name, pause) in pauses {
+            for during in [false, true] {
+                let label = "\(name), during: \(during)"
+                let dir = try checkDirectory()
+                defer { try? FileManager.default.removeItem(at: dir) }
+                let (controller, store, engine) = makeDeleteCheck(dir)
+                let here = checkMarker("5c"), elsewhere = checkMarker("6d")
+                let a = try addNote(store, dir: dir, file: "a.wav", marker: here, bytes: 10)
+                let b = try addNote(store, dir: dir, file: "b.wav", marker: elsewhere, bytes: nil)
+                let failing = try addNote(store, dir: dir, file: "c.wav", marker: nil, bytes: nil)
+                engine.allParts = partsInICloud(a, here) + partsInICloud(b, elsewhere)
+                if during {
+                    engine.whileLookingUpAudio = { pause(engine.coordinator, failing) }
+                } else {
+                    pause(engine.coordinator, failing)
+                    guard case .paused = controller.status else { preconditionFailure("\(label): \(controller.status)") }
+                }
+                let verdict = runDeleteCheck(controller)
+                guard case .paused = controller.status else { preconditionFailure("\(label): \(controller.status)") }
+                precondition(verdict == .download([b]), "\(label): \(String(describing: verdict))")
+            }
+        }
+    }
+
+    /// Every pause that means sync stopped, or the account is in doubt:
+    /// iCloud isn't listed, and the check can't be sure.
+    @MainActor
+    static func testCheckingWhilePausedForTheAccountOrAStopCantBeSure() throws {
+        let pauses: [(String, NoteSyncPauseReason, @MainActor (NoteSyncCoordinator?) -> Void)] = [
+            ("account needs attention", .accountNeedsAttention, { $0?.handleAudioSendFailures([.accountNeedsAttention]) }),
+            ("deleted elsewhere", .deletedElsewhere, { $0?.handleZoneDeleted() }),
+            ("account changed", .accountChanged, { $0?.handleAccountChange(signedOut: false) }),
+            ("signed out", .signedOut, { $0?.handleAccountChange(signedOut: true) }),
+        ]
+        for (name, reason, pause) in pauses {
+            let dir = try checkDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let (controller, store, engine) = makeDeleteCheck(dir)
+            let marker = checkMarker("7e")
+            let id = try addNote(store, dir: dir, file: "a.wav", marker: marker, bytes: 10)
+            engine.allParts = partsInICloud(id, marker)
+            pause(engine.coordinator)
+            precondition(controller.status == .paused(reason), "\(name): \(controller.status)")
+            engine.partListings = 0
+            precondition(runDeleteCheck(controller) == .cannotBeSure, name)
+            precondition(engine.partListings == 0, "\(name): iCloud isn't listed")
+        }
+
+        // Paused with no engine: history that can't be opened, and notes
+        // that couldn't be saved here.
+        let (unready, unreadyStore, _, _) = make(enabled: true)
+        unreadyStore.isReadyForSync = false
+        unready.attach(store: unreadyStore)
+        precondition(unready.status == .paused(.historyUnavailable))
+        precondition(runDeleteCheck(unready) == .cannotBeSure, "history unavailable")
+        let (failing, failingStore, failingEngine, _) = make(enabled: true)
+        failing.attach(store: failingStore)
+        failingEngine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        failingEngine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(failing.status == .paused(.couldNotSaveHere))
+        precondition(runDeleteCheck(failing) == .cannotBeSure, "couldn't save here")
+    }
+
+    /// A note here when iCloud was listed, deleted here (or by a fetch)
+    /// while its note was read: iCloud's copy doesn't bring it back.
+    @MainActor
+    static func testANoteGoneHereDuringTheReadIsNotBroughtBack() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        var changed: [UUID] = []
+        controller.onRemoteChange = { changed += $0.changed }
+        let marker = checkMarker("8f")
+        let id = try addNote(store, dir: dir, file: "gone.wav", marker: nil, bytes: nil)
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "gone.wav", marker: marker))
+        engine.whileReadingNotes = {
+            store.ids.removeAll { $0 == id }
+            store.records[id] = nil
+            store.manifests[id] = nil
+        }
+        let verdict = runDeleteCheck(controller)
+        precondition(engine.copyRequests == [[id]])
+        precondition(store.syncRecord(id: id) == nil && !store.ids.contains(id), "not brought back")
+        precondition(!changed.contains(id))
+        precondition(verdict == .cannotBeSure, "\(String(describing: verdict))")
+    }
+
+    /// A note in Recently Deleted here, with its recording here, that
+    /// another device restored: the check reads it, and the note is live
+    /// here before anything is deleted.
+    @MainActor
+    static func testANoteDeletedHereAndRestoredElsewhereIsLiveAfterTheCheck() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let marker = checkMarker("9a")
+        let id = try addNote(store, dir: dir, file: "kept.wav", marker: marker, bytes: 10)
+        store.records[id] = checkRecord(id, file: "kept.wav", marker: marker, deletedAt: clock)
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "kept.wav", marker: marker))
+        let verdict = runDeleteCheck(controller)
+        precondition(engine.copyRequests == [[id]], "read, though its recording is here")
+        precondition(store.syncRecord(id: id)?.deletedAt == nil, "restored here")
+        precondition(verdict == .safeToDelete, "\(String(describing: verdict))")
+
+        // Its read failing: the restore may not have come here.
+        let (other, otherStore, otherEngine) = makeDeleteCheck(dir)
+        let second = try addNote(otherStore, dir: dir, file: "kept2.wav", marker: marker, bytes: 10)
+        otherStore.records[second] = checkRecord(second, file: "kept2.wav", marker: marker, deletedAt: clock)
+        otherEngine.allParts = partsInICloud(second, marker)
+        otherEngine.copies[second] = .failed
+        precondition(runDeleteCheck(other) == .cannotBeSure)
+        precondition(otherStore.syncRecord(id: second)?.deletedAt != nil)
     }
 }
