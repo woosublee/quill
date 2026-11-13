@@ -188,17 +188,26 @@ final class NoteSyncController: ObservableObject {
 
     /// Asks iCloud which recordings it holds, right before Download, Then
     /// Delete deletes, and merges the note records this Mac lacked, as a fetch
-    /// would (#839). `.cannotBeSure` whenever sync isn't running, a read
-    /// failed, or sync stopped or began turning off meanwhile.
+    /// would (#839). `.cannotBeSure` whenever sync isn't running or is paused,
+    /// a read failed or gave a record this Mac can't read, another account is
+    /// signed in, or sync stopped or began turning off meanwhile.
     func checkRecordingsInICloudBeforeDelete() async -> NoteAudioICloudDeleteCheck.Verdict {
-        guard isEnabled, let engine, let coordinator, let store, store.isReadyForSync,
-              !isDeletingFromICloud, turnOffInProgress == nil else { return .cannotBeSure }
-        // The engine may have stopped, or a turn-off or delete from iCloud
-        // begun, at any await below.
+        guard canConfirmAudioInICloud, let engine, let coordinator, let store, store.isReadyForSync else {
+            return .cannotBeSure
+        }
+        // The engine may have stopped, sync paused, or a turn-off or delete
+        // from iCloud begun, at any await below.
         func stillRunning() -> Bool {
-            isEnabled && self.engine === engine && self.coordinator === coordinator
+            canConfirmAudioInICloud && self.engine === engine && self.coordinator === coordinator
                 && self.store === store && store.isReadyForSync
-                && !isDeletingFromICloud && turnOffInProgress == nil
+        }
+        // What iCloud answered counts only in the account sync uses: an
+        // account switched before the engine reported it holds none of these
+        // notes, or other ones. Asked after the last read, before any merge.
+        func inSyncAccount() async -> Bool {
+            let synced = defaults.string(forKey: Self.syncAccountKey)
+            let current = await accountID()
+            return synced != nil && current != nil && synced == current && stillRunning()
         }
         let parts: [NoteAudioPartID]
         do {
@@ -213,7 +222,10 @@ final class NoteSyncController: ObservableObject {
         let deletingHere = coordinator.noteDeletesOwed
         let toRead = NoteAudioICloudDeleteCheck.notesToRead(parts: parts, device: device, deletingHere: deletingHere)
         if toRead.isEmpty {
-            return NoteAudioICloudDeleteCheck.verdict(parts: parts, serverNotes: [:], device: device, deletingHere: deletingHere)
+            guard await inSyncAccount() else { return .cannotBeSure }
+            return NoteAudioICloudDeleteCheck.verdict(
+                parts: parts, serverNotes: [:], device: device, deletingHere: coordinator.noteDeletesOwed
+            )
         }
         let copies: [UUID: NoteCopyInICloud]
         do {
@@ -223,16 +235,6 @@ final class NoteSyncController: ObservableObject {
             return .cannotBeSure
         }
         guard stillRunning() else { return .cannotBeSure }
-        let found = copies.values.compactMap { copy -> NoteSyncFetched? in
-            if case .found(let fetched) = copy { return fetched }
-            return nil
-        }
-        if !found.isEmpty {
-            let change = coordinator.handleFetched(found, deletions: [])
-            if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
-            // A record the store couldn't save may have stopped sync.
-            guard stillRunning() else { return .cannotBeSure }
-        }
         let serverNotes = copies.mapValues { copy -> NoteAudioICloudDeleteCheck.ServerNote in
             switch copy {
             case .noNote: return .noNote
@@ -246,13 +248,20 @@ final class NoteSyncController: ObservableObject {
                 }
             }
         }
-        // A note missing from iCloud counts only in the account sync uses:
-        // an account switched before the engine reported it holds none of
-        // these notes.
-        if serverNotes.values.contains(.noNote) {
-            let synced = defaults.string(forKey: Self.syncAccountKey)
-            let current = await accountID()
-            guard synced != nil, current != nil, synced == current, stillRunning() else { return .cannotBeSure }
+        // A record this Mac can't read decides nothing, even once merged.
+        guard !serverNotes.values.contains(.unreadable) else { return .cannotBeSure }
+        guard await inSyncAccount() else { return .cannotBeSure }
+        // A note purged here while iCloud answered must not come back.
+        let deletingNow = coordinator.noteDeletesOwed
+        let found = copies.values.compactMap { copy -> NoteSyncFetched? in
+            if case .found(let fetched) = copy, !deletingNow.contains(fetched.noteID) { return fetched }
+            return nil
+        }
+        if !found.isEmpty {
+            let change = coordinator.handleFetched(found, deletions: [])
+            if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
+            // A record the store couldn't save may have stopped sync.
+            guard stillRunning() else { return .cannotBeSure }
         }
         // Read again: the merge may have brought notes and markers here.
         guard let merged = notesOnThisMac(listed, in: store) else { return .cannotBeSure }

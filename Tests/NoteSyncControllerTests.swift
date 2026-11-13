@@ -79,6 +79,10 @@ struct NoteSyncControllerTests {
         try testARecordThatCantBeReadCantBeSure()
         try testNoNoteInAnotherAccountCantBeSure()
         try testCheckingWithoutAnEngineOrWhileTurningOffCantBeSure()
+        try testANewerRecordWithAMarkerCantBeSure()
+        try testANoteDeletedHereDuringTheReadIsNotBroughtBack()
+        try testAnotherAccountCantBeSureAndMergesNothing()
+        try testCheckingWhilePausedCantBeSure()
         print("NoteSyncControllerTests passed")
     }
 
@@ -156,9 +160,12 @@ struct NoteSyncControllerTests {
         func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? { nil }
         var manifests: [UUID: NoteAudioManifest] = [:]
         func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
-        func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { manifests[id] = manifest }
-        func audioUploadKey(id: UUID) -> String? { nil }
-        func setAudioUploadKey(_ key: String?, id: UUID) throws {}
+        func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { audioWrites.append(id); manifests[id] = manifest }
+        var uploadKeys: [UUID: String] = [:]
+        /// Every note `setAudioManifest` or `setAudioUploadKey` was called for.
+        var audioWrites: [UUID] = []
+        func audioUploadKey(id: UUID) -> String? { uploadKeys[id] }
+        func setAudioUploadKey(_ key: String?, id: UUID) throws { audioWrites.append(id); uploadKeys[id] = key }
         func takeClearedAudioUploadKeys() -> [UUID: String] { [:] }
     }
 
@@ -225,8 +232,11 @@ struct NoteSyncControllerTests {
         var copies: [UUID: NoteCopyInICloud] = [:]
         var copiesError: Error?
         var copyRequests: [Set<UUID>] = []
+        /// Runs while iCloud is being asked for notes, before it answers.
+        var whileReadingNotes: (@MainActor () async -> Void)?
         func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] {
             copyRequests.append(ids)
+            await whileReadingNotes?()
             if let copiesError { throw copiesError }
             return copies.filter { ids.contains($0.key) }
         }
@@ -1549,6 +1559,22 @@ struct NoteSyncControllerTests {
         precondition(runDeleteCheck(controller) == .safeToDelete)
         precondition(store.manifests == manifests && store.ids.map { store.audioUploadKey(id: $0) } == keys)
         precondition(store.records == records)
+        precondition(store.audioWrites.isEmpty)
+
+        // A run that merges a record: only the merged note's marker changes,
+        // as the merge sets it, and no upload key is written.
+        let third = checkMarker("c3")
+        let c = try addNote(store, dir: dir, file: "c.wav", marker: nil, bytes: nil)
+        engine.allParts += partsInICloud(c, third)
+        engine.copies[c] = try found(checkRecord(c, file: "c.wav", marker: third))
+        let before = store.manifests
+        let keysBefore = store.uploadKeys
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .download([c]), "\(String(describing: verdict))")
+        var expected = before
+        expected[c] = third
+        precondition(store.manifests == expected, "only the merged note's marker changed")
+        precondition(store.uploadKeys == keysBefore && store.audioWrites.isEmpty, "no marker or upload key written")
     }
 
     /// A marker this Mac never fetched is merged, and its recording is then
@@ -1728,5 +1754,88 @@ struct NoteSyncControllerTests {
         engine.whileLookingUpAudio = { _ = await controller.turnOff(deleteFromICloud: false) }
         precondition(runDeleteCheck(controller) == .cannotBeSure)
         precondition(engine.copyRequests.isEmpty && !controller.isEnabled)
+    }
+
+    /// A record from a newer build carrying a marker decides nothing, even
+    /// once merged: the check can't be sure.
+    @MainActor
+    static func testANewerRecordWithAMarkerCantBeSure() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let marker = checkMarker("1e")
+        let id = try addNote(store, dir: dir, file: "x.wav", marker: nil, bytes: nil)
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "x.wav", marker: marker, schemaVersion: NoteSyncRecord.schemaVersion + 1))
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .cannotBeSure, "\(String(describing: verdict))")
+    }
+
+    /// A note purged here while iCloud was being read doesn't come back,
+    /// and its recording counts as being deleted here.
+    @MainActor
+    static func testANoteDeletedHereDuringTheReadIsNotBroughtBack() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        var changed: [UUID] = []
+        controller.onRemoteChange = { changed += $0.changed }
+        let marker = checkMarker("2f")
+        let id = UUID()
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "purged.wav", marker: marker))
+        engine.whileReadingNotes = { engine.deletes = [id] }
+        let verdict = runDeleteCheck(controller)
+        precondition(engine.copyRequests == [[id]])
+        precondition(store.syncRecord(id: id) == nil && !changed.contains(id), "not brought back")
+        precondition(verdict == .safeToDelete, "\(String(describing: verdict))")
+    }
+
+    /// Signed in to another account than sync runs in (or one that can't be
+    /// read): nothing is merged and nothing is safe, even with nothing listed.
+    @MainActor
+    static func testAnotherAccountCantBeSureAndMergesNothing() throws {
+        for account in ["account-b", nil] as [String?] {
+            let name = String(describing: account)
+            let dir = try checkDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let emptyLog = CallLog()
+            let (empty, _, emptyEngine) = makeDeleteCheck(dir, log: emptyLog)
+            emptyLog.account = account
+            emptyEngine.allParts = []
+            precondition(runDeleteCheck(empty) == .cannotBeSure, name)
+
+            let log = CallLog()
+            let (controller, store, engine) = makeDeleteCheck(dir, log: log)
+            log.account = account
+            var changes = 0
+            controller.onRemoteChange = { _ in changes += 1 }
+            let marker = checkMarker("3a")
+            let id = UUID()
+            engine.allParts = partsInICloud(id, marker)
+            engine.copies[id] = try found(checkRecord(id, file: "n.wav", marker: marker))
+            precondition(runDeleteCheck(controller) == .cannotBeSure, name)
+            precondition(store.syncRecord(id: id) == nil && store.ids.isEmpty && changes == 0, name)
+        }
+    }
+
+    /// Sync paused, before or during the check: it can't be sure.
+    @MainActor
+    static func testCheckingWhilePausedCantBeSure() throws {
+        for during in [false, true] {
+            let dir = try checkDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let (controller, store, engine) = makeDeleteCheck(dir)
+            let marker = checkMarker("4b")
+            let id = try addNote(store, dir: dir, file: "a.wav", marker: marker, bytes: 10)
+            engine.allParts = partsInICloud(id, marker)
+            let pause: @MainActor () -> Void = { engine.coordinator?.handleAudioSendFailures([.network]) }
+            if during { engine.whileLookingUpAudio = { pause() } } else { pause() }
+            if !during {
+                guard case .paused = controller.status else { preconditionFailure("\(controller.status)") }
+            }
+            precondition(runDeleteCheck(controller) == .cannotBeSure, "during: \(during)")
+        }
     }
 }
