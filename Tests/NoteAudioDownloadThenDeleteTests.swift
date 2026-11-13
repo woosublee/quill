@@ -27,6 +27,15 @@ struct NoteAudioDownloadThenDeleteTests {
         await testASecondRunWhileOneRunsStartsNothing()
         await testPhaseCountsDownloads()
         await testANewRunClearsTheOldNotice()
+        await testTheDeleteWaitsForICloudsAnswer()
+        await testARecordingICloudNamesIsDownloadedBeforeTheDelete()
+        await testAnUnsureAnswerDeletesNothing()
+        await testARecordingICloudNamesThatIsntListedDeletesNothing()
+        await testSafeWithARecordingListedMeanwhileDownloadsIt()
+        await testCancelDuringTheICloudCheckDeletesNothing()
+        await testTheCheckRunsOncePerEmptyList()
+        await testAFailedDownloadNeverAsksICloud()
+        await testTooLittleSpaceNeverAsksICloud()
         testFreeBytesOfARealFolderIsPositive()
         print("NoteAudioDownloadThenDeleteTests passed")
     }
@@ -34,7 +43,9 @@ struct NoteAudioDownloadThenDeleteTests {
     static let a = UUID(uuidString: "00000000-0000-0000-0000-00000000000A")!
     static let b = UUID(uuidString: "00000000-0000-0000-0000-00000000000B")!
     static let c = UUID(uuidString: "00000000-0000-0000-0000-00000000000C")!
-    static let names: [UUID: String] = [a: "a", b: "b", c: "c"]
+    static let x = UUID(uuidString: "00000000-0000-0000-0000-0000000000F1")!
+    static let y = UUID(uuidString: "00000000-0000-0000-0000-0000000000F2")!
+    static let names: [UUID: String] = [a: "a", b: "b", c: "c", x: "x", y: "y"]
     static let room = NoteAudioICloudDeletePolicy.workingRoom
 
     /// Holds a mutable list and logs what the runner does, in order.
@@ -58,6 +69,11 @@ struct NoteAudioDownloadThenDeleteTests {
         var onRefresh: ((Int) -> Void)?
         var onDelete: (() -> Void)?
         var deleteResult = true
+        /// What each check with iCloud returns, in order; once used up, `.safeToDelete`.
+        var verdicts: [NoteAudioICloudDeleteCheck.Verdict] = []
+        var confirms = 0
+        /// Runs during a check with iCloud, with the 1-based check number.
+        var onConfirm: ((Int) -> Void)?
         /// While set, a download waits for `release`.
         var holdDownloads = false
         var waiting: CheckedContinuation<Bool, Never>?
@@ -80,6 +96,12 @@ struct NoteAudioDownloadThenDeleteTests {
                     self.refreshes += 1
                     self.onRefresh?(self.refreshes)
                     return self.refreshResults.isEmpty ? true : self.refreshResults.removeFirst()
+                },
+                confirmWithICloud: {
+                    self.log.append("confirm")
+                    self.confirms += 1
+                    self.onConfirm?(self.confirms)
+                    return self.verdicts.isEmpty ? .safeToDelete : self.verdicts.removeFirst()
                 },
                 freeBytes: { self.freeAsked += 1; return self.free },
                 download: { id in
@@ -124,7 +146,7 @@ struct NoteAudioDownloadThenDeleteTests {
         precondition(outcome == .deleted)
         // The delete follows a fetch straight away: every awaited call the
         // runner makes (fetch, download, delete) is in the log.
-        precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "delete"], "\(fake.log)")
+        precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "confirm", "delete"], "\(fake.log)")
         precondition(runner.notice == nil)
         precondition(runner.phase == .idle && !runner.isRunning)
     }
@@ -141,7 +163,7 @@ struct NoteAudioDownloadThenDeleteTests {
         precondition(outcome == .syncPaused, "\(outcome)")
         precondition(runner.notice == .syncPaused, "the notice stays until dismissed")
         precondition(fake.log.isEmpty, "nothing fetched, downloaded, or deleted: \(fake.log)")
-        precondition(fake.refreshes == 0 && fake.freeAsked == 0)
+        precondition(fake.refreshes == 0 && fake.freeAsked == 0 && fake.confirms == 0)
         precondition(runner.phase == .idle && !runner.isRunning)
         runner.dismissNotice()
         precondition(runner.notice == nil)
@@ -210,7 +232,7 @@ struct NoteAudioDownloadThenDeleteTests {
         let runner = NoteAudioDownloadThenDelete(work: fake.work())
         let outcome = await runner.run()
         precondition(outcome == .deleted, "\(outcome)")
-        precondition(fake.log == ["refresh", "download a", "refresh", "download b", "refresh", "delete"], "\(fake.log)")
+        precondition(fake.log == ["refresh", "download a", "refresh", "download b", "refresh", "confirm", "delete"], "\(fake.log)")
     }
 
     @MainActor
@@ -274,7 +296,7 @@ struct NoteAudioDownloadThenDeleteTests {
         let outcome = await runner.run()
         cancellable.cancel()
         precondition(outcome == .deleted)
-        precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "delete"], "\(fake.log)")
+        precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "confirm", "delete"], "\(fake.log)")
         precondition(totals.contains(3), "\(totals)")
     }
 
@@ -350,7 +372,7 @@ struct NoteAudioDownloadThenDeleteTests {
         let runner = NoteAudioDownloadThenDelete(work: fake.work())
         let outcome = await runner.run()
         precondition(outcome == .deleted)
-        precondition(fake.log == ["refresh", "delete"], "\(fake.log)")
+        precondition(fake.log == ["refresh", "confirm", "delete"], "\(fake.log)")
         precondition(fake.freeAsked == 0)
     }
 
@@ -381,7 +403,7 @@ struct NoteAudioDownloadThenDeleteTests {
         fake.release(true)
         let outcome = await first.value
         precondition(outcome == .deleted)
-        precondition(fake.log == ["refresh", "download a", "refresh", "delete"], "\(fake.log)")
+        precondition(fake.log == ["refresh", "download a", "refresh", "confirm", "delete"], "\(fake.log)")
     }
 
     @MainActor
@@ -423,6 +445,120 @@ struct NoteAudioDownloadThenDeleteTests {
         precondition(runner.notice == .deleteFailed)
         runner.dismissNotice()
         precondition(runner.notice == nil)
+    }
+
+    /// The delete runs only after iCloud's own list was asked (#839).
+    @MainActor
+    static func testTheDeleteWaitsForICloudsAnswer() async {
+        let fake = Fake()
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        fake.onConfirm = { _ in precondition(runner.phase == .checking) }
+        let outcome = await runner.run()
+        precondition(outcome == .deleted, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm", "delete"], "\(fake.log)")
+    }
+
+    /// iCloud holds a recording this Mac didn't know was there: the check
+    /// merges it into the list, and it is downloaded before the delete.
+    @MainActor
+    static func testARecordingICloudNamesIsDownloadedBeforeTheDelete() async {
+        let fake = Fake()
+        fake.verdicts = [.download([x])]
+        fake.onConfirm = { count in
+            if count == 1 { fake.list?.append(.init(id: x, bytes: 100)) }
+        }
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .deleted, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm", "download x", "refresh", "confirm", "delete"], "\(fake.log)")
+        precondition(runner.notice == nil)
+    }
+
+    @MainActor
+    static func testAnUnsureAnswerDeletesNothing() async {
+        let fake = Fake()
+        fake.verdicts = [.cannotBeSure]
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .cannotCheck, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm"], "\(fake.log)")
+        precondition(runner.notice == .cannotCheck)
+        precondition(runner.phase == .idle && !runner.isRunning)
+    }
+
+    /// iCloud names a recording the list doesn't hold: there is nothing to
+    /// download it with, so nothing is deleted.
+    @MainActor
+    static func testARecordingICloudNamesThatIsntListedDeletesNothing() async {
+        let fake = Fake()
+        fake.verdicts = [.download([x])]
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .cannotCheck, "\(outcome)")
+        precondition(!fake.log.contains("delete"), "\(fake.log)")
+        precondition(runner.notice == .cannotCheck)
+    }
+
+    /// iCloud says it's safe, but a recording became iCloud-only during the
+    /// check: it is downloaded, and iCloud is asked again.
+    @MainActor
+    static func testSafeWithARecordingListedMeanwhileDownloadsIt() async {
+        let fake = Fake()
+        fake.onConfirm = { count in
+            if count == 1 { fake.list?.append(.init(id: y, bytes: 100)) }
+        }
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .deleted, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm", "download y", "refresh", "confirm", "delete"], "\(fake.log)")
+    }
+
+    @MainActor
+    static func testCancelDuringTheICloudCheckDeletesNothing() async {
+        let fake = Fake()
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        fake.onConfirm = { _ in
+            precondition(runner.phase == .checking)
+            runner.cancel()
+        }
+        let outcome = await runner.run()
+        precondition(outcome == .cancelled, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm"], "\(fake.log)")
+        precondition(runner.notice == nil)
+        precondition(runner.phase == .idle && !runner.isRunning)
+    }
+
+    @MainActor
+    static func testTheCheckRunsOncePerEmptyList() async {
+        let fake = Fake()
+        fake.ids([a, b, c])
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .deleted)
+        precondition(fake.confirms == 1)
+        precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "confirm", "delete"], "\(fake.log)")
+    }
+
+    @MainActor
+    static func testAFailedDownloadNeverAsksICloud() async {
+        let fake = Fake()
+        fake.ids([a])
+        fake.results[a] = false
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .downloadFailed)
+        precondition(fake.confirms == 0 && !fake.log.contains("confirm"), "\(fake.log)")
+    }
+
+    @MainActor
+    static func testTooLittleSpaceNeverAsksICloud() async {
+        let fake = Fake()
+        fake.ids([a], bytes: 600)
+        fake.free = 600 + room - 1
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .notEnoughSpace(shortBy: 1), "\(outcome)")
+        precondition(fake.confirms == 0 && !fake.log.contains("confirm"), "\(fake.log)")
     }
 
     /// A real folder reads as some free space. What a missing path reads

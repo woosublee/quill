@@ -20,6 +20,9 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         /// here; false with sync not running or when the fetch failed.
         /// True doesn't mean iCloud was asked (#562, #839).
         var refresh: @MainActor () async -> Bool
+        /// Asks iCloud itself which recordings it holds and merges what this Mac
+        /// lacked (#839). Called only when the list read after a fetch is empty.
+        var confirmWithICloud: @MainActor () async -> NoteAudioICloudDeleteCheck.Verdict
         var freeBytes: @MainActor () -> Int64?
         /// True once the recording is on this Mac.
         var download: @MainActor (UUID) async -> Bool
@@ -77,19 +80,39 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         // True when the next list read follows a fetch: what this Mac has
         // fetched may miss a recording another device just made iCloud-only.
         var fetchFirst = true
-        while true {
+        gathering: while true {
             if fetchFirst {
                 phase = .checking
                 let fetched = await work.refresh()
                 if cancelRequested { return finish(.cancelled) }
                 if !fetched { return finish(.downloadFailed) }
             }
-            guard let listed = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
+            guard var listed = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
             if listed.isEmpty {
-                // Only an empty list read straight after a fetch deletes.
-                if fetchFirst { break }
-                fetchFirst = true
-                continue
+                // Only an empty list read straight after a fetch asks iCloud.
+                guard fetchFirst else {
+                    fetchFirst = true
+                    continue
+                }
+                // Still `.checking`, set for the fetch just done.
+                let verdict = await work.confirmWithICloud()
+                if cancelRequested { return finish(.cancelled) }
+                guard let after = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
+                switch verdict {
+                case .cannotBeSure:
+                    return finish(.cannotCheck)
+                case .safeToDelete:
+                    // The delete follows with no await in between: nothing
+                    // can become iCloud-only after this read.
+                    if after.isEmpty { break gathering }
+                case .download(let ids):
+                    // Each recording iCloud names must be listed to be downloaded.
+                    let listedIDs = Set(after.map(\.id))
+                    guard !after.isEmpty, ids.isSubset(of: listedIDs) else {
+                        return finish(.cannotCheck)
+                    }
+                }
+                listed = after
             }
             fetchFirst = false
             let summary = NoteAudioICloudOnlySummary(markerBytes: listed.map(\.bytes))
