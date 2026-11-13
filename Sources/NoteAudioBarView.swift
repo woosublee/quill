@@ -20,6 +20,9 @@ struct NoteAudioBar: View {
         case .local:
             if let url = appState.noteBrowserStoredAudioURL(for: item) {
                 NoteAudioPlayerView(audioURL: url, onPlay: { appState.markNoteAudioUsed(item.id) })
+                    // Optimize Storage leaves a recording on screen alone.
+                    .onAppear { appState.noteAudioPlayerAppeared(item.id) }
+                    .onDisappear { appState.noteAudioPlayerDisappeared(item.id) }
             }
         case let state:
             // One view whether or not it downloads, so starting or stopping

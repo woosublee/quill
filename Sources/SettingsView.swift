@@ -5411,6 +5411,9 @@ struct RunLogEntryView: View {
                     if let audioFileName = item.audioFileName {
                         let audioURL = appState.storageLayout.audioDirectory.appendingPathComponent(audioFileName)
                         AudioPlayerView(audioURL: audioURL)
+                            // Optimize Storage leaves a recording on screen alone.
+                            .onAppear { appState.noteAudioPlayerAppeared(item.id) }
+                            .onDisappear { appState.noteAudioPlayerDisappeared(item.id) }
                     } else {
                         HStack(spacing: 6) {
                             Image(systemName: "waveform.slash")

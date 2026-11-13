@@ -29,6 +29,18 @@ struct AppStateNoteSyncTests {
         try await testDownloadStampsOnlyWhenTheAudioArrives()
         try await testRetranscriptionStampsOnlyWhenItFinishes()
         try await testFirstTranscriptionStampsOnlyWhenItFinishes()
+        try await testOffloadWaitsForTheSetting()
+        try await testOffloadWaitsForSyncToRun()
+        try await testOffloadRemovesOnlyTheFile()
+        try await testOffloadKeepsWhatICloudDoesNotConfirm()
+        try await testOffloadAsksForTheLeastRecentlyUsedFive()
+        try await testOffloadKeepsANoteUsedWhileICloudAnswers()
+        try await testOffloadKeepsANoteBusyWhileICloudAnswers()
+        try await testOffloadSkipsARecentlyDownloadedRecording()
+        try await testOffloadFallsBackToWhenTheRecordingEnded()
+        try await testOffloadRunsOneAtATime()
+        try await testOffloadSkipsBusyAndSharedRecordings()
+        testOffloadRetentionOverrideIsForDevelopmentOnly()
         print("AppStateNoteSyncTests passed")
     }
 
@@ -45,7 +57,16 @@ struct AppStateNoteSyncTests {
         func pendingAudioDeletes() -> [NoteAudioPartID] { [] }
         func pendingNoteDeletes() -> [UUID] { [] }
         func pendingChangeCount() -> Int { 0 }
-        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
+        /// The audio parts iCloud holds, the notes each check asked about,
+        /// and whether a check waits before answering.
+        var partsInICloud: Set<NoteAudioPartID> = []
+        var audioChecks: [Set<UUID>] = []
+        var holdsAudioChecks = false
+        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
+            audioChecks.append(Set(parts.map(\.noteID)))
+            while holdsAudioChecks { try await Task.sleep(for: .milliseconds(5)) }
+            return partsInICloud.intersection(parts)
+        }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func allAudioParts() async throws -> [NoteAudioPartInICloud] { [] }
         func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] { [:] }
@@ -77,10 +98,11 @@ struct AppStateNoteSyncTests {
         let appState: AppState
     }
 
-    static func makeItem(id: UUID = UUID(), title: String = "Synthetic", transcriptFile: String? = nil, audioFile: String? = nil) -> PipelineHistoryItem {
+    static func makeItem(id: UUID = UUID(), title: String = "Synthetic", transcriptFile: String? = nil, audioFile: String? = nil, recordingEndedAt: Date? = nil) -> PipelineHistoryItem {
         PipelineHistoryItem(
             id: id,
             timestamp: t0,
+            recordingEndedAt: recordingEndedAt,
             rawTranscript: "synthetic raw",
             postProcessedTranscript: "synthetic edited",
             postProcessingPrompt: nil,
@@ -711,5 +733,322 @@ struct AppStateNoteSyncTests {
         let transcribed = try await importAndWait("working.wav")
         precondition(transcribed.rawTranscript == "Synthetic imported transcript.", "\(transcribed.postProcessingStatus)")
         precondition((fixture.store.audioLastUsedAt(id: transcribed.id) ?? .distantPast) >= start, "a finished transcription stamps")
+    }
+
+    // MARK: - Optimize Storage
+
+    static let day: TimeInterval = 24 * 60 * 60
+
+    /// Turns Optimize Storage on or off; the returned closure puts the
+    /// setting back.
+    static func setOptimizeStorage(_ isOn: Bool) -> () -> Void {
+        let saved = UserDefaults.standard.object(forKey: NoteAudioOffload.isOnKey)
+        UserDefaults.standard.set(isOn, forKey: NoteAudioOffload.isOnKey)
+        return {
+            if let saved {
+                UserDefaults.standard.set(saved, forKey: NoteAudioOffload.isOnKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: NoteAudioOffload.isOnKey)
+            }
+        }
+    }
+
+    /// A transcribed note with an audio file name, for the offload tests.
+    static func makeRecordedItem(recordingEndedAt: Date? = nil) -> PipelineHistoryItem {
+        makeItem(audioFile: "\(UUID().uuidString).wav", recordingEndedAt: recordingEndedAt)
+    }
+
+    /// Puts the note's recording here and its marker in the store; with
+    /// `inICloud`, iCloud holds every part.
+    @MainActor
+    @discardableResult
+    static func addRecording(_ fixture: Fixture, _ note: PipelineHistoryItem, inICloud: Bool = true) throws -> URL {
+        guard let url = fixture.appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("synthetic-\(note.id.uuidString)".utf8).write(to: url)
+        let manifest = NoteAudioManifest(sha256: try NoteAudioParts.sha256(of: url), bytes: 45, partSize: 50_000_000, parts: 1)
+        try fixture.store.setAudioManifest(manifest, id: note.id)
+        if inICloud {
+            fixture.engine.partsInICloud.formUnion(NoteAudioPartID.parts(of: note.id, sha256: manifest.sha256, count: 1))
+        }
+        return url
+    }
+
+    /// Runs a pass and waits for its iCloud check.
+    @MainActor
+    static func offload(_ fixture: Fixture, now: Date) async {
+        fixture.appState.removeUnusedNoteAudio(now: now)
+        await fixture.appState.noteAudioOffloadCheck?.value
+    }
+
+    @MainActor
+    static func waitForAudioCheck(_ fixture: Fixture) async throws {
+        for _ in 0..<400 where fixture.engine.audioChecks.isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        precondition(!fixture.engine.audioChecks.isEmpty, "iCloud was asked")
+    }
+
+    static func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    @MainActor
+    static func testOffloadWaitsForTheSetting() async throws {
+        let restore = setOptimizeStorage(false)
+        defer { restore() }
+        let note = makeRecordedItem()
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let url = try addRecording(fixture, note)
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks.isEmpty, "the setting is off: iCloud isn't asked")
+        precondition(exists(url))
+    }
+
+    @MainActor
+    static func testOffloadWaitsForSyncToRun() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let note = makeRecordedItem()
+        let off = try makeFixture(items: [note], syncOn: false)
+        defer { try? FileManager.default.removeItem(at: off.root) }
+        let offURL = try addRecording(off, note)
+        await offload(off, now: t0 + 30 * day)
+        precondition(off.engine.audioChecks.isEmpty && exists(offURL), "sync off: nothing is asked or removed")
+
+        let paused = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: paused.root) }
+        let pausedURL = try addRecording(paused, note)
+        paused.engine.coordinator?.handleAudioSendFailures([.network])
+        guard case .paused = paused.appState.noteSyncController?.status else { preconditionFailure("sync is paused") }
+        await offload(paused, now: t0 + 30 * day)
+        precondition(paused.engine.audioChecks.isEmpty && exists(pausedURL), "sync paused: nothing is asked or removed")
+    }
+
+    /// Only the file goes: the note's audio name, marker, upload key,
+    /// clocks, and iCloud fields stay, nothing is reported as changed, and
+    /// the note offers the download.
+    @MainActor
+    static func testOffloadRemovesOnlyTheFile() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let note = makeRecordedItem()
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let url = try addRecording(fixture, note)
+        try fixture.store.setAudioUploadKey("synthetic-upload-key", id: note.id)
+        try fixture.store.setSyncSystemFields(Data([7, 7]), id: note.id)
+        let record = fixture.store.syncRecord(id: note.id)
+        let manifest = fixture.store.audioManifest(id: note.id)
+        precondition(record != nil && manifest != nil)
+        let reported = fixture.store.onChange
+        var changes: [PipelineHistoryChange] = []
+        fixture.store.onChange = { changes += $0; reported?($0) }
+        fixture.engine.saves = []
+
+        await offload(fixture, now: t0 + 7 * day)
+        precondition(fixture.engine.audioChecks == [[note.id]])
+        precondition(!exists(url), "the recording is removed from this Mac")
+        precondition(fixture.store.loadAllHistory().first?.audioFileName == note.audioFileName, "the audio name stays")
+        precondition(fixture.store.audioManifest(id: note.id) == manifest, "the marker stays")
+        precondition(fixture.store.audioUploadKey(id: note.id) == "synthetic-upload-key", "the upload key stays")
+        precondition(fixture.store.syncRecord(id: note.id) == record, "the record and its clock stay")
+        precondition(fixture.store.syncSystemFields(id: note.id) == Data([7, 7]), "the iCloud fields stay")
+        precondition(changes.isEmpty && fixture.engine.saves.isEmpty, "nothing is reported or sent")
+        let current = fixture.appState.pipelineHistory.first { $0.id == note.id }!
+        precondition(fixture.appState.noteAudioState(for: current) == .downloadable, "\(fixture.appState.noteAudioState(for: current))")
+    }
+
+    @MainActor
+    static func testOffloadKeepsWhatICloudDoesNotConfirm() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let note = makeRecordedItem()
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let url = try addRecording(fixture, note, inICloud: false)
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks == [[note.id]], "iCloud was asked")
+        precondition(exists(url), "a part iCloud doesn't hold keeps the file")
+    }
+
+    @MainActor
+    static func testOffloadAsksForTheLeastRecentlyUsedFive() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let notes = (0..<8).map { _ in makeRecordedItem() }
+        let fixture = try makeFixture(items: notes)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var urls: [UUID: URL] = [:]
+        for (index, note) in notes.enumerated() {
+            urls[note.id] = try addRecording(fixture, note)
+            // Used one day apart; the first one longest ago.
+            fixture.appState.markNoteAudioUsed(note.id, now: t0 + Double(index) * day)
+        }
+        await offload(fixture, now: t0 + 30 * day)
+        let oldest = Set(notes.prefix(5).map(\.id))
+        precondition(fixture.engine.audioChecks == [oldest], "the five used longest ago are asked for")
+        for note in notes {
+            precondition(exists(urls[note.id]!) != oldest.contains(note.id), "the other three wait")
+        }
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks.last == Set(notes.suffix(3).map(\.id)), "the next pass takes them")
+        precondition(urls.values.allSatisfy { !exists($0) })
+    }
+
+    @MainActor
+    static func testOffloadKeepsANoteUsedWhileICloudAnswers() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let played = makeRecordedItem(), other = makeRecordedItem()
+        let fixture = try makeFixture(items: [played, other])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let playedURL = try addRecording(fixture, played)
+        let otherURL = try addRecording(fixture, other)
+        let now = t0 + 30 * day
+        fixture.engine.holdsAudioChecks = true
+        fixture.appState.removeUnusedNoteAudio(now: now)
+        try await waitForAudioCheck(fixture)
+        fixture.appState.markNoteAudioUsed(played.id, now: now)
+        fixture.engine.holdsAudioChecks = false
+        await fixture.appState.noteAudioOffloadCheck?.value
+        precondition(fixture.engine.audioChecks == [[played.id, other.id]])
+        precondition(exists(playedURL), "played while iCloud answered: it stays")
+        precondition(!exists(otherURL))
+    }
+
+    @MainActor
+    static func testOffloadKeepsANoteBusyWhileICloudAnswers() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let opened = makeRecordedItem(), exported = makeRecordedItem(), other = makeRecordedItem()
+        let fixture = try makeFixture(items: [opened, exported, other])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let openedURL = try addRecording(fixture, opened)
+        let exportedURL = try addRecording(fixture, exported)
+        let otherURL = try addRecording(fixture, other)
+        fixture.engine.holdsAudioChecks = true
+        fixture.appState.removeUnusedNoteAudio(now: t0 + 30 * day)
+        try await waitForAudioCheck(fixture)
+        fixture.appState.noteAudioPlayerAppeared(opened.id)
+        fixture.appState.noteAudioExportChanged(exported.id, isRunning: true)
+        fixture.engine.holdsAudioChecks = false
+        await fixture.appState.noteAudioOffloadCheck?.value
+        precondition(fixture.engine.audioChecks == [[opened.id, exported.id, other.id]])
+        precondition(exists(openedURL), "its player came on screen meanwhile: it stays")
+        precondition(exists(exportedURL), "Save Files started meanwhile: it stays")
+        precondition(!exists(otherURL))
+    }
+
+    @MainActor
+    static func testOffloadSkipsARecentlyDownloadedRecording() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let note = makeRecordedItem(recordingEndedAt: t0)
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let url = try addRecording(fixture, note)
+        let now = t0 + 90 * day
+        fixture.appState.markNoteAudioUsed(note.id, now: now - 60 * 60)
+        await offload(fixture, now: now)
+        precondition(fixture.engine.audioChecks.isEmpty, "downloaded an hour ago: not asked for")
+        precondition(exists(url))
+    }
+
+    /// With no last-used date, the time the recording ended counts.
+    @MainActor
+    static func testOffloadFallsBackToWhenTheRecordingEnded() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let now = t0 + 30 * day
+        let weekOld = makeRecordedItem(recordingEndedAt: now - 7 * day)
+        let older = makeRecordedItem(recordingEndedAt: now - 20 * day)
+        let recent = makeRecordedItem(recordingEndedAt: now - 7 * day + 60)
+        let fixture = try makeFixture(items: [weekOld, older, recent])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        for note in [weekOld, older, recent] { try addRecording(fixture, note) }
+        await offload(fixture, now: now)
+        precondition(fixture.engine.audioChecks == [[weekOld.id, older.id]], "\(fixture.engine.audioChecks)")
+    }
+
+    @MainActor
+    static func testOffloadRunsOneAtATime() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let note = makeRecordedItem()
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let url = try addRecording(fixture, note)
+        fixture.engine.holdsAudioChecks = true
+        fixture.appState.removeUnusedNoteAudio(now: t0 + 30 * day)
+        let first = fixture.appState.noteAudioOffloadCheck
+        try await waitForAudioCheck(fixture)
+        fixture.appState.removeUnusedNoteAudio(now: t0 + 30 * day)
+        precondition(fixture.appState.noteAudioOffloadCheck == first, "the second call starts nothing")
+        fixture.engine.holdsAudioChecks = false
+        await first?.value
+        precondition(fixture.engine.audioChecks.count == 1, "one check at a time")
+        precondition(!exists(url))
+    }
+
+    /// Busy before the pass, or a file another note also names: not asked for.
+    @MainActor
+    static func testOffloadSkipsBusyAndSharedRecordings() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let shared = "\(UUID().uuidString).wav"
+        let first = makeItem(audioFile: shared), second = makeItem(audioFile: shared)
+        let played = makeRecordedItem(), saved = makeRecordedItem(), resuming = makeRecordedItem()
+        let fixture = try makeFixture(items: [first, second, played, saved, resuming])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let sharedURL = try addRecording(fixture, first)
+        try addRecording(fixture, second)
+        for note in [played, saved, resuming] { try addRecording(fixture, note) }
+        let appState = fixture.appState
+        appState.noteAudioPlayerAppeared(played.id)
+        appState.noteAudioPlayerAppeared(played.id)
+        appState.noteAudioPlayerDisappeared(played.id)
+        appState.noteAudioExportChanged(saved.id, isRunning: true)
+        // A saved cloud job, even one that can't be read, resumes from the file.
+        let jobs = fixture.layout.cloudTranscriptionJobsDirectory
+        try FileManager.default.createDirectory(at: jobs, withIntermediateDirectories: true)
+        try Data("{".utf8).write(to: jobs.appendingPathComponent("\(resuming.id.uuidString).json"))
+        precondition(appState.isNoteAudioBusy(played.id), "one of its two players is still on screen")
+        precondition(appState.isNoteAudioBusy(saved.id) && appState.isNoteAudioBusy(resuming.id))
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks.isEmpty, "\(fixture.engine.audioChecks)")
+        precondition(exists(sharedURL))
+
+        appState.noteAudioPlayerDisappeared(played.id)
+        appState.noteAudioExportChanged(saved.id, isRunning: false)
+        precondition(!appState.isNoteAudioBusy(played.id) && !appState.isNoteAudioBusy(saved.id))
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks == [[played.id, saved.id]], "\(fixture.engine.audioChecks)")
+    }
+
+    /// The shortened period is for a development build's manual check only.
+    static func testOffloadRetentionOverrideIsForDevelopmentOnly() {
+        let week = NoteAudioOffloadPolicy.retention
+        let arguments = ["Quill", NoteAudioOffload.retentionArgument, "60"]
+        precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: arguments) == 60)
+        precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill", arguments: arguments) == week, "never in the released app")
+        precondition(NoteAudioOffload.retention(bundleIdentifier: nil, arguments: arguments) == week)
+        precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: ["Quill"]) == week)
+        for bad in ["0", "-5", "nan", "inf", "soon"] {
+            precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: ["Quill", NoteAudioOffload.retentionArgument, bad]) == week, bad)
+        }
+        // The policy's `now`, moved so its week means the shorter period.
+        let now = t0 + 30 * day
+        precondition(NoteAudioOffload.policyNow(now, retention: week) == now)
+        let note = NoteAudioOffloadPolicy.Note(
+            hasMarker: true, hasTranscript: true, hasLocalAudio: true, isBusy: false,
+            isRecentlyDeleted: false, hasUnrecoveredPieces: false,
+            lastUsedAt: now - 61, recordingEndedAt: nil, createdAt: t0
+        )
+        precondition(NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)))
+        var recent = note
+        recent.lastUsedAt = now - 59
+        precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)))
+        recent.lastUsedAt = now + day
+        precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)), "a date ahead never counts")
     }
 }

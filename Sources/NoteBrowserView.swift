@@ -3051,7 +3051,8 @@ private struct NoteDetailView: View {
                     return appState.noteAudioState(for: item).unavailableMessage
                         ?? localizedCatalogString("Couldn't download this audio. Try again.")
                 },
-                cancelDownload: { appState.cancelNoteAudioDownload(for: item) }
+                cancelDownload: { appState.cancelNoteAudioDownload(for: item) },
+                onSaveRunning: { appState.noteAudioExportChanged(item.id, isRunning: $0) }
             )
         }
         .sheet(item: $retryChoiceRequest) { request in
