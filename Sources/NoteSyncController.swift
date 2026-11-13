@@ -584,6 +584,10 @@ final class NoteSyncController: ObservableObject {
         engine as? NoteAudioPartFetching
     }
 
+    /// False while sync is off, or paused with no engine (notes it couldn't
+    /// save here, history that can't be opened): nothing downloads then.
+    var isEngineRunning: Bool { engine != nil }
+
     /// Sync Now in Settings: changes that failed are tried again, and sync
     /// paused for notes it couldn't save here starts over. A press while it
     /// runs does nothing.

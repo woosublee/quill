@@ -51,6 +51,7 @@ struct AppStateNoteSyncTests {
         try await testDownloadThenDeleteStopsWhenADownloadFails()
         try await testDownloadThenDeleteCancelKeepsSyncOn()
         try await testDownloadThenDeleteWithAFailedFetchDeletesNothing()
+        try await testDownloadThenDeleteWhileSyncPausedWithNoEngineDeletesNothing()
         try await testSyncStoppingMidRunDeletesNothing()
         try await testOffloadWaitsWhileDownloadThenDeleteRuns()
         try await testOffloadKeepsFilesWhenDownloadThenDeleteStartsWhileICloudAnswers()
@@ -1364,6 +1365,44 @@ struct AppStateNoteSyncTests {
         precondition(!exists(audioURL(fixture, note)), "nothing was downloaded")
         precondition(fixture.appState.noteSyncController?.isEnabled == true, "sync stays on")
         precondition(fixture.store.audioManifest(id: note.id) == setup.manifest, "the marker stays")
+    }
+
+    /// Sync paused for notes it couldn't save here runs no engine, so
+    /// nothing can download (#838): the run says sync is paused, fetches
+    /// and deletes nothing, and keeps the marker and sync on.
+    @MainActor
+    static func testDownloadThenDeleteWhileSyncPausedWithNoEngineDeletesNothing() async throws {
+        let note = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [note], onlyInICloud: [note])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        guard let controller = fixture.appState.noteSyncController else { preconditionFailure("no sync") }
+        // A note that can't be saved here starts sync over (on the main
+        // queue, after this returns); a second one soon after pauses it
+        // with no engine.
+        let first = fixture.engine.coordinator
+        first?.onNeedsFullRefetch?()
+        for _ in 0..<400 where fixture.engine.coordinator === first { try await Task.sleep(for: .milliseconds(5)) }
+        precondition(fixture.engine.coordinator !== first, "sync started over once")
+        fixture.engine.coordinator?.onNeedsFullRefetch?()
+        for _ in 0..<400 where controller.isEngineRunning { try await Task.sleep(for: .milliseconds(5)) }
+        precondition(controller.status == .paused(.couldNotSaveHere) && controller.isEnabled, "\(controller.status)")
+        precondition(!controller.isEngineRunning, "no engine runs")
+        await settleAudio(fixture)
+        let fetchesBefore = fixture.engine.awaitedFetches
+        // Starting over checks the markers against iCloud; the run itself
+        // must change none.
+        let markerBefore = fixture.store.audioManifest(id: note.id)
+        let namesBefore = Dictionary(uniqueKeysWithValues: fixture.store.loadAllHistory().map { ($0.id, $0.audioFileName) })
+        let outcome = await setup.runner.run()
+        precondition(outcome == .syncPaused, "\(outcome)")
+        precondition(setup.runner.notice == .syncPaused)
+        precondition(fixture.engine.awaitedFetches == fetchesBefore, "nothing was fetched")
+        precondition(!exists(audioURL(fixture, note)), "nothing was downloaded")
+        precondition(controller.isEnabled, "sync stays on")
+        precondition(fixture.store.audioManifest(id: note.id) == markerBefore, "the marker stays")
+        let names = Dictionary(uniqueKeysWithValues: fixture.store.loadAllHistory().map { ($0.id, $0.audioFileName) })
+        precondition(names == namesBefore && names[note.id] == note.audioFileName, "the audio names stay")
     }
 
     /// Sync stopping cancels every download (`onEngineStop`): the run

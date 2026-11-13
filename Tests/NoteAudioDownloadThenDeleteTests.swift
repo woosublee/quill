@@ -7,6 +7,7 @@ struct NoteAudioDownloadThenDeleteTests {
     @MainActor
     static func main() async throws {
         await testDownloadsEveryRecordingThenDeletes()
+        await testSyncPausedWithNothingToDownloadWithDeletesNothing()
         await testTooLittleSpaceDownloadsAndDeletesNothing()
         await testAFailedDownloadStopsEverything()
         await testADownloadThatLeavesTheRecordingInICloudFails()
@@ -40,6 +41,8 @@ struct NoteAudioDownloadThenDeleteTests {
     @MainActor
     final class Fake {
         var list: [NoteAudioOnlyInICloud]? = []
+        /// Whether recordings can be fetched from iCloud now.
+        var canDownload = true
         var free: Int64? = Int64.max
         var freeAsked = 0
         var log: [String] = []
@@ -70,6 +73,7 @@ struct NoteAudioDownloadThenDeleteTests {
 
         func work() -> NoteAudioDownloadThenDelete.Work {
             .init(
+                canDownload: { self.canDownload },
                 recordingsOnlyInICloud: { self.list },
                 refresh: {
                     self.log.append("refresh")
@@ -123,6 +127,24 @@ struct NoteAudioDownloadThenDeleteTests {
         precondition(fake.log == ["refresh", "download a", "download b", "download c", "refresh", "delete"], "\(fake.log)")
         precondition(runner.notice == nil)
         precondition(runner.phase == .idle && !runner.isRunning)
+    }
+
+    /// Sync paused with nothing running to download with (#838): the run
+    /// says so, without fetching, downloading, or deleting anything.
+    @MainActor
+    static func testSyncPausedWithNothingToDownloadWithDeletesNothing() async {
+        let fake = Fake()
+        fake.ids([a, b])
+        fake.canDownload = false
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run()
+        precondition(outcome == .syncPaused, "\(outcome)")
+        precondition(runner.notice == .syncPaused, "the notice stays until dismissed")
+        precondition(fake.log.isEmpty, "nothing fetched, downloaded, or deleted: \(fake.log)")
+        precondition(fake.refreshes == 0 && fake.freeAsked == 0)
+        precondition(runner.phase == .idle && !runner.isRunning)
+        runner.dismissNotice()
+        precondition(runner.notice == nil)
     }
 
     @MainActor

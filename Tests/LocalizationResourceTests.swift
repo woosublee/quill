@@ -622,6 +622,8 @@ struct LocalizationResourceTests {
             NoteAudioICloudDeleteCopy.downloadFailedTitleKey,
             NoteAudioICloudDeleteCopy.downloadFailedMessageKey,
             NoteAudioICloudDeleteCopy.cannotCheckMessageKey,
+            NoteAudioICloudDeleteCopy.syncPausedTitleKey,
+            NoteAudioICloudDeleteCopy.syncPausedMessageKey,
         ]
         let missing = keys.filter { key in
             let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]

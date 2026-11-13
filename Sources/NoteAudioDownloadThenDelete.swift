@@ -11,6 +11,9 @@ import QuillNoteSyncCore
 @MainActor
 final class NoteAudioDownloadThenDelete: ObservableObject {
     struct Work {
+        /// False when recordings can't be fetched from iCloud now: sync is
+        /// paused with no engine to download with (#838).
+        var canDownload: @MainActor () -> Bool
         /// Read again before every download and before the delete. Nil: can't be read.
         var recordingsOnlyInICloud: @MainActor () -> [NoteAudioOnlyInICloud]?
         /// Asks sync to fetch and returns once what it fetched is applied
@@ -41,13 +44,15 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         case notEnoughSpace(shortBy: Int64)
         case downloadFailed
         case cannotCheck
+        /// Sync is paused with nothing to download with; nothing was tried.
+        case syncPaused
         case cancelled
         case alreadyRunning
     }
 
     @Published private(set) var phase: Phase = .idle
     /// The last run's outcome when it needs saying: `.deleteFailed`,
-    /// `.notEnoughSpace`, `.downloadFailed`, `.cannotCheck`. Stays until dismissed,
+    /// `.notEnoughSpace`, `.downloadFailed`, `.cannotCheck`, `.syncPaused`. Stays until dismissed,
     /// so it shows even if Settings was closed meanwhile.
     @Published private(set) var notice: Outcome?
     @Published private(set) var isRunning = false
@@ -65,6 +70,7 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         isRunning = true
         cancelRequested = false
         notice = nil
+        guard work.canDownload() else { return finish(.syncPaused) }
 
         var tried = Set<UUID>()
         var done = 0
@@ -133,7 +139,7 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         phase = .idle
         isRunning = false
         switch outcome {
-        case .deleteFailed, .notEnoughSpace, .downloadFailed, .cannotCheck:
+        case .deleteFailed, .notEnoughSpace, .downloadFailed, .cannotCheck, .syncPaused:
             notice = outcome
         case .deleted, .cancelled, .alreadyRunning:
             break

@@ -300,7 +300,7 @@ private struct NoteSyncSettingsCard: View {
         Binding(
             get: {
                 switch downloadThenDelete.notice {
-                case .notEnoughSpace?, .downloadFailed?, .cannotCheck?:
+                case .notEnoughSpace?, .downloadFailed?, .cannotCheck?, .syncPaused?:
                     return true
                 default:
                     return false
@@ -311,10 +311,14 @@ private struct NoteSyncSettingsCard: View {
     }
 
     private var downloadThenDeleteNoticeTitle: String {
-        if case .notEnoughSpace? = downloadThenDelete.notice {
+        switch downloadThenDelete.notice {
+        case .notEnoughSpace?:
             return localizedCatalogString(NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey)
+        case .syncPaused?:
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.syncPausedTitleKey)
+        default:
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.downloadFailedTitleKey)
         }
-        return localizedCatalogString(NoteAudioICloudDeleteCopy.downloadFailedTitleKey)
     }
 
     private var downloadThenDeleteNoticeMessage: String {
@@ -323,6 +327,8 @@ private struct NoteSyncSettingsCard: View {
             return localizedCatalogFormat(NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey, sizeText(shortBy))
         case .cannotCheck?:
             return localizedCatalogString(NoteAudioICloudDeleteCopy.cannotCheckMessageKey)
+        case .syncPaused?:
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.syncPausedMessageKey)
         default:
             return localizedCatalogString(NoteAudioICloudDeleteCopy.downloadFailedMessageKey)
         }

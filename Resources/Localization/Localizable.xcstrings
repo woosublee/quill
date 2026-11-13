@@ -22755,6 +22755,38 @@
           }
         }
       }
+    },
+    "Can't download recordings while sync is paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't download recordings while sync is paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화가 일시 중지된 동안에는 녹음을 받을 수 없어요"
+          }
+        }
+      }
+    },
+    "Nothing was deleted from iCloud. Check the sync status above, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was deleted from iCloud. Check the sync status above, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에서는 아무것도 지우지 않았어요. 위의 동기화 상태를 확인한 뒤 다시 시도해 주세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
