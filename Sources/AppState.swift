@@ -3376,6 +3376,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // or finds the iCloud data deleted elsewhere.
         onMissingPart: { [weak self] id in self?.noteSyncController?.audioMissing(noteID: id) }
     )
+    /// Free space where recordings are kept; tests replace it.
+    @MainActor lazy var noteAudioFreeBytes: () -> Int64? = { [root = storageLayout.rootDirectory] in
+        NoteAudioDownloadThenDelete.freeBytes(at: root)
+    }
+    /// Turn Off and Delete from iCloud, after downloading every recording
+    /// that is only in iCloud.
+    @MainActor private(set) lazy var noteAudioDownloadThenDelete = NoteAudioDownloadThenDelete(work: .init(
+        recordingsOnlyInICloud: { [weak self] in self?.noteSyncController?.recordingsOnlyInICloud },
+        freeBytes: { [weak self] in self?.noteAudioFreeBytes() },
+        download: { [weak self] id in await self?.downloadNoteAudio(noteID: id) ?? false },
+        cancelDownload: { [weak self] id in self?.noteAudioDownloader.cancel(noteID: id) },
+        deleteFromICloud: { [weak self] in await self?.noteSyncController?.turnOff(deleteFromICloud: true) ?? false }
+    ))
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
     @MainActor private let cloudTranscriptionHistoryCoordinator =
@@ -10010,6 +10023,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         try? pipelineHistoryStore.setAudioLastUsedAt(now, id: id)
     }
 
+    /// Downloads the recording of a note in the list or in Recently Deleted.
+    /// False when the note isn't in either or the download didn't finish.
+    @MainActor
+    func downloadNoteAudio(noteID: UUID) async -> Bool {
+        guard let item = pipelineHistory.first(where: { $0.id == noteID })
+            ?? recentlyDeletedNotes.first(where: { $0.id == noteID }) else { return false }
+        return await downloadNoteAudio(for: item) != nil
+    }
+
     @MainActor
     func cancelNoteAudioDownload(for item: PipelineHistoryItem) {
         noteAudioDownloader.cancel(noteID: item.id)
@@ -15012,7 +15034,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// the file until the next pass, an hour later.
     @MainActor
     func removeUnusedNoteAudio(now: Date = Date()) {
-        guard NoteAudioOffload.isOn,
+        // Downloading every recording before deleting from iCloud: none is
+        // removed meanwhile.
+        guard !noteAudioDownloadThenDelete.isRunning, NoteAudioOffload.isOn,
               let controller = noteSyncController, controller.canConfirmAudioInICloud,
               noteAudioOffloadCheck == nil else { return }
         synchronizeHistoryPersistenceState()
@@ -15029,7 +15053,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.noteAudioOffloadCheck = nil
             // iCloud's answer holds only now: everything below runs without
             // waiting, from state read again.
-            guard !confirmed.isEmpty, NoteAudioOffload.isOn,
+            guard !confirmed.isEmpty, NoteAudioOffload.isOn, !self.noteAudioDownloadThenDelete.isRunning,
                   self.noteSyncController === controller, controller.canConfirmAudioInICloud else { return }
             self.synchronizeHistoryPersistenceState()
             guard HistoryWorkflowAdmission.mutation(state: self.historyWorkflow.state) == .accepted else { return }

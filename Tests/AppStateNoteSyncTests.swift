@@ -46,6 +46,14 @@ struct AppStateNoteSyncTests {
         try await testOffloadSkipsANoteWithARecordingJournal()
         try await testOffloadSkipsAnIDTwoRowsShare()
         testOffloadRetentionOverrideIsForDevelopmentOnly()
+        try await testDownloadThenDeleteBringsEveryRecordingHereFirst()
+        try await testDownloadThenDeleteWithTooLittleSpaceDeletesNothing()
+        try await testDownloadThenDeleteStopsWhenADownloadFails()
+        try await testDownloadThenDeleteCancelKeepsSyncOn()
+        try await testSyncStoppingMidRunDeletesNothing()
+        try await testOffloadWaitsWhileDownloadThenDeleteRuns()
+        try await testOffloadKeepsFilesWhenDownloadThenDeleteStartsWhileICloudAnswers()
+        try await testDownloadByIDOfAnUnknownNoteIsFalse()
         print("AppStateNoteSyncTests passed")
     }
 
@@ -124,11 +132,14 @@ struct AppStateNoteSyncTests {
     }
 
     /// `deleted`: notes put in Recently Deleted at these times before launch.
+    /// `resolvesLocalAudio`: sync finds the recordings in `audio/`, as the
+    /// app does; otherwise it finds none.
     @MainActor
     static func makeFixture(
         items: [PipelineHistoryItem],
         deleted: [UUID: Date] = [:],
         syncOn: Bool = true,
+        resolvesLocalAudio: Bool = false,
         signedInAccount: String = "synthetic-account",
         retryDependencies: @escaping @Sendable () -> CloudTranscriptionDependencies = { .live }
     ) throws -> Fixture {
@@ -150,8 +161,13 @@ struct AppStateNoteSyncTests {
         dependencies.credentialStorageLayout = .isolatedForTests()
         dependencies.makePipelineHistoryStore = { _ in store }
         dependencies.makeRetryCloudTranscriptionDependencies = retryDependencies
+        let localAudioURL: (String) -> URL? = resolvesLocalAudio ? { fileName in
+            guard let url = NoteAssetStore(storageLayout: layout).storedAudioURL(fileName: fileName),
+                  FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return url
+        } : { _ in nil }
         dependencies.makeNoteSyncController = { _ in
-            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, accountID: { signedInAccount }, makeEngine: { events in
+            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, accountID: { signedInAccount }, localAudioURL: localAudioURL, makeEngine: { events in
                 engine.events = events
                 return engine
             })
@@ -1192,5 +1208,203 @@ struct AppStateNoteSyncTests {
         precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)))
         recent.lastUsedAt = now + day
         precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)), "a date ahead never counts")
+    }
+
+    // MARK: Download, then Turn Off and Delete from iCloud
+
+    /// Recordings only in iCloud: a marker for synthetic bytes and no file
+    /// here. Downloads go through `fetcher`; free space is plenty.
+    struct DownloadThenDeleteFixture {
+        let fixture: Fixture
+        let fetcher: StampFetcher
+        let bytes: Data
+        let manifest: NoteAudioManifest
+        var downloadsDirectory: URL { fixture.root.appendingPathComponent("downloads", isDirectory: true) }
+        @MainActor var runner: NoteAudioDownloadThenDelete { fixture.appState.noteAudioDownloadThenDelete }
+    }
+
+    @MainActor
+    static func makeDownloadThenDeleteFixture(
+        items: [PipelineHistoryItem],
+        onlyInICloud: [PipelineHistoryItem],
+        deleted: [UUID: Date] = [:]
+    ) throws -> DownloadThenDeleteFixture {
+        let fixture = try makeFixture(items: items, deleted: deleted, resolvesLocalAudio: true)
+        let bytes = Data("synthetic-recording-only-in-icloud".utf8)
+        let source = fixture.root.appendingPathComponent("source.wav")
+        try bytes.write(to: source)
+        let manifest = NoteAudioManifest(sha256: try NoteAudioParts.sha256(of: source), bytes: Int64(bytes.count), partSize: 50_000_000, parts: 1)
+        try FileManager.default.removeItem(at: source)
+        for note in onlyInICloud { try fixture.store.setAudioManifest(manifest, id: note.id) }
+        let fetcher = StampFetcher(dir: fixture.root)
+        fetcher.mode = .serve(bytes)
+        let appState = fixture.appState
+        appState.noteAudioDownloader = NoteAudioDownloader(
+            downloadsDirectory: fixture.root.appendingPathComponent("downloads", isDirectory: true),
+            fetcher: { fetcher },
+            isSyncOn: { true }
+        )
+        appState.noteAudioFreeBytes = { 1 << 40 }
+        return DownloadThenDeleteFixture(fixture: fixture, fetcher: fetcher, bytes: bytes, manifest: manifest)
+    }
+
+    @MainActor
+    static func waitUntilDownloading(_ runner: NoteAudioDownloadThenDelete) async throws {
+        func downloading() -> Bool { if case .downloading = runner.phase { return true }; return false }
+        for _ in 0..<400 where !downloading() { try await Task.sleep(for: .milliseconds(5)) }
+        precondition(downloading(), "a download started")
+    }
+
+    /// Sync finds the recordings here: its launch check must end before a
+    /// recording is added, or it reads the new file without its marker and
+    /// holds the note back from the pass until the next sync.
+    @MainActor
+    static func settleAudio(_ fixture: Fixture) async {
+        await fixture.engine.coordinator?.lastAudioCheck?.value
+    }
+
+    @MainActor
+    static func audioURL(_ fixture: Fixture, _ note: PipelineHistoryItem) -> URL {
+        guard let url = fixture.appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
+        return url
+    }
+
+    @MainActor
+    static func testDownloadThenDeleteBringsEveryRecordingHereFirst() async throws {
+        let listed = makeRecordedItem(), deleted = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(
+            items: [listed, deleted], onlyInICloud: [listed, deleted], deleted: [deleted.id: t0]
+        )
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        precondition(fixture.appState.recentlyDeletedNotes.contains { $0.id == deleted.id }, "one note is in Recently Deleted")
+        let start = Date()
+        let outcome = await setup.runner.run()
+        precondition(outcome == .deleted, "\(outcome)")
+        for note in [listed, deleted] {
+            precondition((try? Data(contentsOf: audioURL(fixture, note))) == setup.bytes, "the recording is here")
+            precondition((fixture.store.audioLastUsedAt(id: note.id) ?? .distantPast) >= start, "the download stamps the note")
+        }
+        precondition(fixture.appState.noteSyncController?.isEnabled == false, "sync is off")
+        let names = Dictionary(uniqueKeysWithValues: fixture.store.loadAllHistory().map { ($0.id, $0.audioFileName) })
+        precondition(names[listed.id] == listed.audioFileName && names[deleted.id] == deleted.audioFileName, "the audio names stay")
+    }
+
+    @MainActor
+    static func testDownloadThenDeleteWithTooLittleSpaceDeletesNothing() async throws {
+        let first = makeRecordedItem(), second = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [first, second], onlyInICloud: [first, second])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.appState.noteAudioFreeBytes = { 0 }
+        let outcome = await setup.runner.run()
+        guard case .notEnoughSpace = outcome else { preconditionFailure("\(outcome)") }
+        precondition(!exists(audioURL(fixture, first)) && !exists(audioURL(fixture, second)), "nothing was downloaded")
+        precondition(fixture.appState.noteSyncController?.isEnabled == true, "sync stays on")
+        precondition(fixture.store.audioManifest(id: first.id) == setup.manifest && fixture.store.audioManifest(id: second.id) == setup.manifest)
+    }
+
+    @MainActor
+    static func testDownloadThenDeleteStopsWhenADownloadFails() async throws {
+        let first = makeRecordedItem(), second = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [first, second], onlyInICloud: [first, second])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        setup.fetcher.mode = .offline
+        let outcome = await setup.runner.run()
+        precondition(outcome == .downloadFailed, "\(outcome)")
+        precondition(fixture.appState.noteSyncController?.isEnabled == true, "sync stays on")
+        precondition(fixture.store.audioManifest(id: first.id) == setup.manifest && fixture.store.audioManifest(id: second.id) == setup.manifest)
+    }
+
+    @MainActor
+    static func testDownloadThenDeleteCancelKeepsSyncOn() async throws {
+        let note = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [note], onlyInICloud: [note])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        setup.fetcher.mode = .waitForCancel
+        let runner = setup.runner
+        let running = Task { @MainActor in await runner.run() }
+        try await waitUntilDownloading(runner)
+        runner.cancel()
+        let outcome = await running.value
+        precondition(outcome == .cancelled, "\(outcome)")
+        precondition(fixture.appState.noteSyncController?.isEnabled == true, "sync stays on")
+        let left = (try? FileManager.default.contentsOfDirectory(at: setup.downloadsDirectory, includingPropertiesForKeys: nil)) ?? []
+        precondition(!left.contains { $0.pathExtension == "partial" }, "no partial download is left")
+    }
+
+    /// Sync stopping cancels every download (`onEngineStop`): the run
+    /// stops as a failed download, and nothing is deleted.
+    @MainActor
+    static func testSyncStoppingMidRunDeletesNothing() async throws {
+        let note = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [note], onlyInICloud: [note])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        setup.fetcher.mode = .waitForCancel
+        let runner = setup.runner
+        let running = Task { @MainActor in await runner.run() }
+        try await waitUntilDownloading(runner)
+        fixture.appState.noteAudioDownloader.cancelAll()
+        let outcome = await running.value
+        precondition(outcome == .downloadFailed, "\(outcome)")
+        precondition(fixture.store.audioManifest(id: note.id) == setup.manifest, "the marker stays")
+    }
+
+    @MainActor
+    static func testOffloadWaitsWhileDownloadThenDeleteRuns() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let old = makeRecordedItem(), onlyInICloud = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [old, onlyInICloud], onlyInICloud: [onlyInICloud])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        await settleAudio(fixture)
+        let url = try addRecording(fixture, old)
+        setup.fetcher.mode = .waitForCancel
+        let runner = setup.runner
+        let running = Task { @MainActor in await runner.run() }
+        try await waitUntilDownloading(runner)
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks.isEmpty, "the pass waits: iCloud isn't asked")
+        precondition(exists(url), "the recording stays")
+        runner.cancel()
+        _ = await running.value
+    }
+
+    @MainActor
+    static func testOffloadKeepsFilesWhenDownloadThenDeleteStartsWhileICloudAnswers() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let old = makeRecordedItem(), onlyInICloud = makeRecordedItem()
+        let setup = try makeDownloadThenDeleteFixture(items: [old, onlyInICloud], onlyInICloud: [onlyInICloud])
+        let fixture = setup.fixture
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        await settleAudio(fixture)
+        let url = try addRecording(fixture, old)
+        fixture.engine.holdsAudioChecks = true
+        fixture.appState.removeUnusedNoteAudio(now: t0 + 30 * day)
+        try await waitForAudioCheck(fixture)
+        setup.fetcher.mode = .waitForCancel
+        let runner = setup.runner
+        let running = Task { @MainActor in await runner.run() }
+        try await waitUntilDownloading(runner)
+        fixture.engine.holdsAudioChecks = false
+        await fixture.appState.noteAudioOffloadCheck?.value
+        precondition(fixture.engine.audioChecks == [[old.id]], "\(fixture.engine.audioChecks)")
+        precondition(exists(url), "started while iCloud answered: the recording stays")
+        runner.cancel()
+        _ = await running.value
+    }
+
+    @MainActor
+    static func testDownloadByIDOfAnUnknownNoteIsFalse() async throws {
+        let note = makeRecordedItem()
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let downloaded = await fixture.appState.downloadNoteAudio(noteID: UUID())
+        precondition(!downloaded)
     }
 }
