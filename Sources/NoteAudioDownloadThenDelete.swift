@@ -4,10 +4,11 @@ import QuillNoteSyncCore
 
 /// Turn Off and Delete from iCloud, keeping every recording: downloads the
 /// recordings that are only in iCloud, one at a time, and runs the delete
-/// only once none is left, as read straight after asking the sync engine
-/// to fetch. That fetch may not reach the server (#562): a recording
-/// another device made iCloud-only can be missed when this Mac never
-/// heard of the change (#839). One runs at a time.
+/// only once none is left. A fetch is the cheap first step, but it may not
+/// reach the server (#562), so an empty list read after it isn't enough:
+/// iCloud's own list is the gate (`confirmWithICloud`, #839). The delete
+/// runs only when that answers safe and the list read after it is still
+/// empty, with no await in between. One runs at a time.
 @MainActor
 final class NoteAudioDownloadThenDelete: ObservableObject {
     struct Work {
@@ -18,7 +19,8 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         var recordingsOnlyInICloud: @MainActor () -> [NoteAudioOnlyInICloud]?
         /// Asks sync to fetch and returns once what it fetched is applied
         /// here; false with sync not running or when the fetch failed.
-        /// True doesn't mean iCloud was asked (#562, #839).
+        /// True doesn't mean iCloud was asked (#562): `confirmWithICloud`
+        /// asks before the delete.
         var refresh: @MainActor () async -> Bool
         /// Asks iCloud itself which recordings it holds and merges what this Mac
         /// lacked (#839). Called only when the list read after a fetch is empty.
@@ -102,8 +104,8 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
                 case .cannotBeSure:
                     return finish(.cannotCheck)
                 case .safeToDelete:
-                    // The delete follows with no await in between: nothing
-                    // can become iCloud-only after this read.
+                    // The only way out to the delete, which follows this
+                    // read with no await in between.
                     if after.isEmpty { break gathering }
                 case .download(let ids):
                     // Each recording iCloud names must be listed to be downloaded.

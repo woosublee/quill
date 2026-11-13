@@ -50,7 +50,10 @@ otherwise.
   are only in iCloud (`NoteAudioICloudOnlySummary`,
   `NoteAudioICloudDeleteCopy`) and whether there is room to download them
   first (`NoteAudioICloudDeletePolicy`); the list, the downloads, the disk
-  query, and the delete stay in `Sources/`.
+  query, and the delete stay in `Sources/`. It also decides what must be on
+  a device before everything is deleted from iCloud
+  (`NoteAudioICloudDeleteCheck`, #839); the reads and the merge stay in
+  `Sources/`.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution

@@ -671,6 +671,8 @@ final class NoteSyncController: ObservableObject {
     /// reads which recordings are only in iCloud right after. False without
     /// sync running or when the fetch failed. True doesn't mean iCloud was
     /// asked (#562): only changes the engine knew of are sure to be here.
+    /// That makes it the cheap first step; before deleting,
+    /// `checkRecordingsInICloudBeforeDelete` asks the server (#839).
     func fetchChangesAndWait() async -> Bool {
         guard let engine else { return false }
         return await engine.fetchChangesAndWait()

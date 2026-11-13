@@ -487,7 +487,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// The fetch Sync Now starts with, on its own and awaited. Changes it
     /// fetches are applied before `fetchChanges` returns, but, as with Sync
     /// Now, it reaches the server only when the engine knows of a change
-    /// (#562): true doesn't mean iCloud was asked.
+    /// (#562): true doesn't mean iCloud was asked. Download, Then Delete
+    /// uses it as a cheap first step and asks the server before deleting
+    /// (`checkRecordingsInICloudBeforeDelete`, #839).
     func fetchChangesAndWait() async -> Bool {
         guard let engine = activeEngine() else { return false }
         do {
