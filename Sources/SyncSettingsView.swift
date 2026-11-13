@@ -198,7 +198,7 @@ private struct NoteSyncSettingsCard: View {
             }
             .toggleStyle(.switch)
             .labelsHidden()
-            .disabled(!controller.isEnabled)
+            .disabled(!controller.isEnabled || isTurningOff || controller.isTurningOn)
         }
     }
 

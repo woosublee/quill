@@ -15036,6 +15036,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             var removed = false
             for candidate in self.noteAudioOffloadCandidates(now: now, retention: retention)
             where confirmed.contains(candidate.id) && filesAsked[candidate.id] == candidate.file {
+                // The candidates read the file and its marker again: the
+                // file asked about, still the size the marker names.
                 // A failed removal is tried again next pass.
                 guard (try? FileManager.default.removeItem(at: candidate.url)) != nil else { continue }
                 removed = true
@@ -15060,14 +15062,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let policyNow = NoteAudioOffload.policyNow(now, retention: retention)
         let snapshots = pipelineHistoryStore.audioOffloadSnapshots()
         var namedBy: [String: Int] = [:]
+        var rowsByID: [UUID: Int] = [:]
         for snapshot in snapshots {
-            if let name = snapshot.audioFileName { namedBy[name, default: 0] += 1 }
+            if let name = snapshot.audioFileName { namedBy[NoteAudioOffload.sameFileKey(name), default: 0] += 1 }
+            rowsByID[snapshot.id, default: 0] += 1
         }
         return snapshots.compactMap { snapshot in
+            // An id two rows share stays: which row iCloud's answer is for
+            // isn't known.
+            guard rowsByID[snapshot.id] == 1 else { return nil }
             // A file another note also names stays.
-            guard let name = snapshot.audioFileName, namedBy[name] == 1,
+            guard let name = snapshot.audioFileName, namedBy[NoteAudioOffload.sameFileKey(name)] == 1,
                   let url = noteAssetStore.storedAudioURL(fileName: name),
-                  let file = NoteAudioOffload.LocalFile(at: url) else { return nil }
+                  let file = NoteAudioOffload.LocalFile(at: url),
+                  // The file here must be the size its marker names.
+                  let manifest = snapshot.manifest, file.matches(manifest),
+                  // Launch recovery and Recover Again read and write this
+                  // file while the recording's journal is here.
+                  !FileManager.default.fileExists(
+                      atPath: recordingJournalStore.recordingDirectory(recordingID: snapshot.id).path
+                  ) else { return nil }
             // The busy check reads job files, so it runs last.
             var note = NoteAudioOffload.policyNote(snapshot, hasLocalAudio: true, isBusy: false)
             guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: policyNow) else { return nil }

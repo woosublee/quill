@@ -2,6 +2,7 @@ import CloudKit
 import Foundation
 import QuillAudioFormatCore
 import QuillNoteSyncCore
+import SQLite3
 
 #if !QUILL_GROUPED_TEST_RUNNER
 @main
@@ -40,6 +41,10 @@ struct AppStateNoteSyncTests {
         try await testOffloadFallsBackToWhenTheRecordingEnded()
         try await testOffloadRunsOneAtATime()
         try await testOffloadSkipsBusyAndSharedRecordings()
+        try await testOffloadSkipsAFileNamedInAnotherCaseOrForm()
+        try await testOffloadKeepsAFileWhoseSizeIsNotTheMarkers()
+        try await testOffloadSkipsANoteWithARecordingJournal()
+        try await testOffloadSkipsAnIDTwoRowsShare()
         testOffloadRetentionOverrideIsForDevelopmentOnly()
         print("AppStateNoteSyncTests passed")
     }
@@ -611,12 +616,23 @@ struct AppStateNoteSyncTests {
         }
     }
 
+    /// Transcribes with the synthetic cloud provider and no cleanup; the
+    /// returned closure puts the settings back.
     @MainActor
-    static func useSyntheticCloudTranscription(_ appState: AppState) {
+    static func useSyntheticCloudTranscription(_ appState: AppState) -> @MainActor () -> Void {
+        let key = appState.transcriptionAPIKey, url = appState.transcriptionAPIURL
+        let choice = appState.currentNoteBrowserTranscriptionChoice
+        let disablesPostProcessing = appState.disablePostProcessing
         appState.transcriptionAPIKey = "synthetic-key"
         appState.transcriptionAPIURL = "https://provider.example/v1"
         appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "whisper-large-v3"))
         appState.disablePostProcessing = true
+        return {
+            appState.disablePostProcessing = disablesPostProcessing
+            appState.setNoteBrowserTranscriptionChoice(choice)
+            appState.transcriptionAPIURL = url
+            appState.transcriptionAPIKey = key
+        }
     }
 
     @MainActor
@@ -641,7 +657,8 @@ struct AppStateNoteSyncTests {
         guard let audioURL = appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
         try FileManager.default.createDirectory(at: audioURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data([0]).write(to: audioURL)
-        useSyntheticCloudTranscription(appState)
+        let restoreSettings = useSyntheticCloudTranscription(appState)
+        defer { restoreSettings() }
         func current() -> PipelineHistoryItem { appState.pipelineHistory.first { $0.id == note.id }! }
         func stamp() -> Date? { fixture.store.audioLastUsedAt(id: note.id) }
 
@@ -703,7 +720,8 @@ struct AppStateNoteSyncTests {
         let fixture = try makeFixture(items: [])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let appState = fixture.appState
-        useSyntheticCloudTranscription(appState)
+        let restoreSettings = useSyntheticCloudTranscription(appState)
+        defer { restoreSettings() }
         var wav = try CanonicalPCM16WAV.header(dataByteCount: 8)
         wav.append(Data([1, 0, 1, 0, 2, 0, 2, 0]))
 
@@ -764,14 +782,21 @@ struct AppStateNoteSyncTests {
     @discardableResult
     static func addRecording(_ fixture: Fixture, _ note: PipelineHistoryItem, inICloud: Bool = true) throws -> URL {
         guard let url = fixture.appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("synthetic-\(note.id.uuidString)".utf8).write(to: url)
-        let manifest = NoteAudioManifest(sha256: try NoteAudioParts.sha256(of: url), bytes: 45, partSize: 50_000_000, parts: 1)
+        let manifest = try writeRecording(of: note, to: url)
         try fixture.store.setAudioManifest(manifest, id: note.id)
         if inICloud {
             fixture.engine.partsInICloud.formUnion(NoteAudioPartID.parts(of: note.id, sha256: manifest.sha256, count: 1))
         }
         return url
+    }
+
+    /// Writes the note's synthetic recording and returns the marker that
+    /// names it, its size included.
+    static func writeRecording(of note: PipelineHistoryItem, to url: URL) throws -> NoteAudioManifest {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let data = Data("synthetic-\(note.id.uuidString)".utf8)
+        try data.write(to: url)
+        return NoteAudioManifest(sha256: try NoteAudioParts.sha256(of: url), bytes: Int64(data.count), partSize: 50_000_000, parts: 1)
     }
 
     /// Runs a pass and waits for its iCloud check.
@@ -1023,6 +1048,123 @@ struct AppStateNoteSyncTests {
         precondition(!appState.isNoteAudioBusy(played.id) && !appState.isNoteAudioBusy(saved.id))
         await offload(fixture, now: t0 + 30 * day)
         precondition(fixture.engine.audioChecks == [[played.id, saved.id]], "\(fixture.engine.audioChecks)")
+    }
+
+    /// Another note names the same file in another case or Unicode form,
+    /// which the Mac's disk usually doesn't tell apart: neither is asked
+    /// for, and the file stays.
+    @MainActor
+    static func testOffloadSkipsAFileNamedInAnotherCaseOrForm() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let base = UUID().uuidString
+        let upper = makeItem(audioFile: "\(base).WAV"), lower = makeItem(audioFile: "\(base.lowercased()).wav")
+        let composed = makeItem(audioFile: "\(base)-\u{E9}.wav"), decomposed = makeItem(audioFile: "\(base)-e\u{301}.wav")
+        let other = makeRecordedItem()
+        let fixture = try makeFixture(items: [upper, lower, composed, decomposed, other])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        var urls: [URL] = []
+        for (named, alsoNaming) in [(upper, lower), (composed, decomposed)] {
+            urls.append(try addRecording(fixture, named))
+            guard let manifest = fixture.store.audioManifest(id: named.id) else { preconditionFailure("no marker") }
+            try fixture.store.setAudioManifest(manifest, id: alsoNaming.id)
+            fixture.engine.partsInICloud.formUnion(NoteAudioPartID.parts(of: alsoNaming.id, sha256: manifest.sha256, count: 1))
+        }
+        let otherURL = try addRecording(fixture, other)
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks == [[other.id]], "\(fixture.engine.audioChecks)")
+        precondition(urls.allSatisfy(exists) && !exists(otherURL))
+    }
+
+    /// The file here must be the size its marker names: one that isn't is
+    /// never asked for, and one whose size changes while iCloud answers
+    /// stays.
+    @MainActor
+    static func testOffloadKeepsAFileWhoseSizeIsNotTheMarkers() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let differs = makeRecordedItem(), grows = makeRecordedItem(), other = makeRecordedItem()
+        let fixture = try makeFixture(items: [differs, grows, other])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let differsURL = try addRecording(fixture, differs)
+        guard let marked = fixture.store.audioManifest(id: differs.id) else { preconditionFailure("no marker") }
+        try fixture.store.setAudioManifest(
+            NoteAudioManifest(sha256: marked.sha256, bytes: marked.bytes + 1, partSize: marked.partSize, parts: marked.parts),
+            id: differs.id
+        )
+        let growsURL = try addRecording(fixture, grows)
+        let otherURL = try addRecording(fixture, other)
+        fixture.engine.holdsAudioChecks = true
+        fixture.appState.removeUnusedNoteAudio(now: t0 + 30 * day)
+        try await waitForAudioCheck(fixture)
+        let handle = try FileHandle(forWritingTo: growsURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0]))
+        try handle.close()
+        fixture.engine.holdsAudioChecks = false
+        await fixture.appState.noteAudioOffloadCheck?.value
+        precondition(fixture.engine.audioChecks == [[grows.id, other.id]], "a size the marker doesn't name: not asked for")
+        precondition(exists(differsURL), "its size isn't the marker's: it stays")
+        precondition(exists(growsURL), "its size changed while iCloud answered: it stays")
+        precondition(!exists(otherURL))
+    }
+
+    /// A note whose recording journal is still here: launch recovery reads
+    /// the recording's file while the journal is around, so it stays.
+    @MainActor
+    static func testOffloadSkipsANoteWithARecordingJournal() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let journaled = makeRecordedItem(), other = makeRecordedItem()
+        let fixture = try makeFixture(items: [journaled, other])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let journaledURL = try addRecording(fixture, journaled)
+        let otherURL = try addRecording(fixture, other)
+        let journal = RecordingJournalStore(audioDirectory: fixture.layout.audioDirectory)
+            .recordingDirectory(recordingID: journaled.id)
+        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks == [[other.id]], "\(fixture.engine.audioChecks)")
+        precondition(exists(journaledURL) && !exists(otherURL))
+    }
+
+    /// Gives the row naming `file` the id of the row naming `idOf`, so two
+    /// rows share an id. The store never writes that; a damaged one could.
+    static func shareID(storeURL: URL, rowNaming file: String, withRowNaming idOf: String) {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(storeURL.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            preconditionFailure("the synthetic store doesn't open")
+        }
+        defer { sqlite3_close(db) }
+        let sql = "UPDATE ZPIPELINEHISTORYENTRY SET ZID = (SELECT ZID FROM ZPIPELINEHISTORYENTRY WHERE ZAUDIOFILENAME = '\(idOf)') WHERE ZAUDIOFILENAME = '\(file)'"
+        precondition(sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK && sqlite3_changes(db) == 1, "the row takes the other's id")
+    }
+
+    /// Two rows that share an id, made after launch (a launch with such
+    /// rows stops earlier, in the cloud transcription reconcile): the pass
+    /// runs on (it runs hourly and at launch) and asks for neither.
+    @MainActor
+    static func testOffloadSkipsAnIDTwoRowsShare() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let first = makeRecordedItem(), second = makeRecordedItem(), other = makeRecordedItem()
+        let fixture = try makeFixture(items: [first, other])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let firstURL = try addRecording(fixture, first)
+        let otherURL = try addRecording(fixture, other)
+        // Written through a second store, so the app's store reads the new
+        // row from disk.
+        guard let secondURL = fixture.appState.storedAudioURL(for: second) else { preconditionFailure("no audio path") }
+        let secondManifest = try writeRecording(of: second, to: secondURL)
+        let writer = PipelineHistoryStore(storeURL: fixture.layout.historyStoreURL)
+        _ = try writer.append(second, maxCount: Int.max)
+        try writer.setAudioManifest(secondManifest, id: second.id)
+        shareID(storeURL: fixture.layout.historyStoreURL, rowNaming: second.audioFileName!, withRowNaming: first.audioFileName!)
+        fixture.engine.partsInICloud.formUnion(NoteAudioPartID.parts(of: first.id, sha256: secondManifest.sha256, count: 1))
+        precondition(fixture.store.audioOffloadSnapshots().filter { $0.id == first.id && $0.manifest != nil }.count == 2, "two marked rows share the id")
+        await offload(fixture, now: t0 + 30 * day)
+        precondition(fixture.engine.audioChecks == [[other.id]], "\(fixture.engine.audioChecks)")
+        precondition(exists(firstURL) && exists(secondURL) && !exists(otherURL))
     }
 
     /// The shortened period is for a development build's manual check only.

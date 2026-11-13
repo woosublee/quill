@@ -137,6 +137,7 @@ struct NoteSyncCoordinatorTests {
         try testAudioInICloudIsReadFromThePayload()
         try await testConfirmedAudioHasEveryPartInICloud()
         try await testConfirmingAMissingPartStartsTheRepair()
+        try await testConfirmingAMissingPartResendsTheFileHere()
         try await testConfirmingWithoutICloudConfirmsNothing()
         try await testConfirmingLeavesOutNotesWithAudioInFlight()
         try await testConfirmingLeavesOutWhatChangedWhileWaiting()
@@ -2518,6 +2519,31 @@ struct NoteSyncCoordinatorTests {
         await coordinator.lastAudioCheck?.value
         precondition(store.manifests[id] == nil, "a marker iCloud can't back is cleared")
         precondition(engine.saves.contains(id), "the cleared marker goes up")
+    }
+
+    /// The recording is on this Mac and iCloud lacks a part: the note isn't
+    /// confirmed, the repair sends the missing part again from the file
+    /// here, and the file stays.
+    @MainActor
+    static func testConfirmingAMissingPartResendsTheFileHere() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 60_000_000])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        store.manifests[id] = manifest(bytes: 60_000_000, parts: 2)
+        engine.iCloud = [parts(id, 2)[0]]
+        let file = dir.appendingPathComponent("a.wav")
+        let before = try FileManager.default.attributesOfItem(atPath: file.path)
+        let confirmed = await coordinator.confirmAudioInICloud([id])
+        precondition(confirmed.isEmpty, "a missing part isn't confirmed")
+        await coordinator.lastAudioCheck?.value
+        precondition(store.manifests[id] == nil, "a marker iCloud can't back is cleared")
+        precondition(engine.audioSaves == [parts(id, 2)[1]], "the missing part goes up again from the file here: \(engine.audioSaves)")
+        precondition(store.uploadKeys[id] == sha("a.wav"))
+        precondition(engine.saves.contains(id), "the cleared marker goes up")
+        let after = try FileManager.default.attributesOfItem(atPath: file.path)
+        precondition(after[.size] as? NSNumber == before[.size] as? NSNumber
+            && after[.systemFileNumber] as? NSNumber == before[.systemFileNumber] as? NSNumber
+            && after[.modificationDate] as? Date == before[.modificationDate] as? Date, "the file here is untouched")
     }
 
     /// A lookup that fails, or a sync stopped while iCloud answered,

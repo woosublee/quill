@@ -36,6 +36,14 @@ enum NoteAudioOffload {
         )
     }
 
+    /// Two names with the same key may name the same file: the Mac's disk
+    /// usually ignores case and Unicode form, and names come from synced
+    /// records.
+    static func sameFileKey(_ fileName: String) -> String {
+        fileName.folding(options: .caseInsensitive, locale: nil)
+            .precomposedStringWithCanonicalMapping
+    }
+
     /// The file the pass may remove: a plain, non-empty file (not a link),
     /// identified so a file put in its place meanwhile isn't taken for it.
     struct LocalFile: Equatable {
@@ -50,6 +58,12 @@ enum NoteAudioOffload {
                   let fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else { return nil }
             self.fileNumber = fileNumber
             self.size = size
+        }
+
+        /// The file is the size the marker names. Any other size is a file
+        /// iCloud's copy may not stand for, so it stays.
+        func matches(_ manifest: NoteAudioManifest) -> Bool {
+            manifest.bytes > 0 && size == UInt64(manifest.bytes)
         }
     }
 

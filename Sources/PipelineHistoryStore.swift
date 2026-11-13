@@ -795,9 +795,9 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
-    /// When this Mac last used the note's recording (played it, exported it,
-    /// transcribed it again). Kept on this Mac only: it never syncs, sits in
-    /// no field-clock group, and writing it reports no change.
+    /// When this Mac last used the note's recording (transcribed it,
+    /// downloaded it, or played it). Kept on this Mac only: it never syncs,
+    /// sits in no field-clock group, and writing it reports no change.
     func audioLastUsedAt(id: UUID) -> Date? {
         var date: Date?
         container.viewContext.performAndWait {
