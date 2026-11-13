@@ -486,10 +486,13 @@ final class NoteSyncCoordinator {
         }
     }
 
-    /// The notes among `ids` whose marker iCloud backs with every part, asked now.
+    /// The notes among `ids` whose marker iCloud backs with every part, and
+    /// whose note in iCloud names that same marker, asked now (#839): parts
+    /// alone may be an upload whose note never went up.
     /// A note with no marker, with audio in flight, or being checked is left out.
     /// A missing part starts the existing repair (`handleAudioMissing`) and the
-    /// note is left out. A thrown error leaves every note out.
+    /// note is left out. iCloud's note naming no marker or another one leaves
+    /// the note out and starts nothing. A thrown error leaves every note out.
     /// Nothing else changes: removing this Mac's copy of a recording relies
     /// on the answer, so a note that changed while iCloud answered is left
     /// out too.
@@ -507,8 +510,10 @@ final class NoteSyncCoordinator {
             NoteAudioPartID.parts(of: id, sha256: manifest.sha256, count: manifest.parts)
         }
         let found: Set<NoteAudioPartID>
+        let notesInICloud: [UUID: NoteAudioInICloud]
         do {
             found = try await engine.existingAudioParts(asked.flatMap { parts($0.key, $0.value) })
+            notesInICloud = try await engine.audioOfNotesInICloud(Set(asked.keys))
         } catch {
             print("[NoteSync] Couldn't confirm audio in iCloud")
             return []
@@ -518,10 +523,10 @@ final class NoteSyncCoordinator {
         var confirmed: Set<UUID> = []
         for (id, manifest) in asked {
             guard !unsettledNow.contains(id), store.audioManifest(id: id) == manifest else { continue }
-            if parts(id, manifest).allSatisfy(found.contains) {
-                confirmed.insert(id)
-            } else {
+            if !parts(id, manifest).allSatisfy(found.contains) {
                 handleAudioMissing(noteID: id)
+            } else if notesInICloud[id] == .marker(manifest) {
+                confirmed.insert(id)
             }
         }
         return confirmed

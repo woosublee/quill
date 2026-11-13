@@ -208,7 +208,12 @@ struct NoteSyncControllerTests {
             if let partListingError { throw partListingError }
             return allParts
         }
-        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] { [:] }
+        /// The marker iCloud's copy of each note names; unlisted notes
+        /// aren't in iCloud.
+        var markersInICloud: [UUID: NoteAudioManifest] = [:]
+        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+            Dictionary(uniqueKeysWithValues: ids.map { ($0, markersInICloud[$0].map(NoteAudioInICloud.marker) ?? .noNote) })
+        }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
         func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
@@ -1335,6 +1340,7 @@ struct NoteSyncControllerTests {
         let (id, parts) = markedNote(store)
         controller.attach(store: store)
         engine()?.audioInICloud = Set(parts)
+        engine()?.markersInICloud[id] = store.manifests[id]
         precondition(controller.canConfirmAudioInICloud)
         var confirmed: Set<UUID> = []
         precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
@@ -1377,6 +1383,7 @@ struct NoteSyncControllerTests {
             controller.attach(store: store)
             let running = engine()
             running?.audioInICloud = Set(parts)
+            running?.markersInICloud[id] = store.manifests[id]
             pause(running?.coordinator, store)
             guard case .paused = controller.status else { preconditionFailure("\(name): \(controller.status)") }
             precondition(!controller.canConfirmAudioInICloud, name)
@@ -1410,6 +1417,7 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         let running = engine()
         running?.audioInICloud = Set(parts)
+        running?.markersInICloud[id] = store.manifests[id]
         var canConfirm = true
         var confirmed: Set<UUID> = [id]
         running?.whileDeleting = {
@@ -1439,6 +1447,7 @@ struct NoteSyncControllerTests {
             controller.attach(store: store)
             let running = engine()
             running?.audioInICloud = Set(parts)
+            running?.markersInICloud[id] = store.manifests[id]
             running?.whileLookingUpAudio = { await change(controller, running) }
             var confirmed: Set<UUID> = [id]
             precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })

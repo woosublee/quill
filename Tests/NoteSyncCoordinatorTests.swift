@@ -141,6 +141,7 @@ struct NoteSyncCoordinatorTests {
         try await testConfirmingWithoutICloudConfirmsNothing()
         try await testConfirmingLeavesOutNotesWithAudioInFlight()
         try await testConfirmingLeavesOutWhatChangedWhileWaiting()
+        try await testConfirmingNeedsICloudsNoteToNameTheRecording()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -281,8 +282,11 @@ struct NoteSyncCoordinatorTests {
         /// What iCloud's copy of each note says of its audio; unlisted
         /// notes aren't in iCloud.
         var notesInCloud: [UUID: NoteAudioInICloud] = [:]
+        /// Thrown by the note read alone.
+        var notesInCloudError: Error?
         func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
             if let lookupError { throw lookupError }
+            if let notesInCloudError { throw notesInCloudError }
             return Dictionary(uniqueKeysWithValues: ids.map { ($0, notesInCloud[$0] ?? .noNote) })
         }
         /// What CKSyncEngine does when a part is saved.
@@ -2497,6 +2501,7 @@ struct NoteSyncCoordinatorTests {
         store.manifests[backed] = manifest("b.wav", bytes: 60_000_000, parts: 2)
         store.manifests[empty] = manifest("d.wav", bytes: 0, parts: 0)
         engine.iCloud = Set(parts(backed, 2, "b.wav") + parts(unmarked, 1, "c.wav"))
+        engine.notesInCloud[backed] = .marker(manifest("b.wav", bytes: 60_000_000, parts: 2))
         let manifestsBefore = store.manifests
         let confirmed = await coordinator.confirmAudioInICloud([backed, unmarked, empty])
         await coordinator.lastAudioCheck?.value
@@ -2605,6 +2610,7 @@ struct NoteSyncCoordinatorTests {
         for (id, file) in [(remarked, "b.wav"), (sending, "c.wav"), (steady, "d.wav")] {
             store.manifests[id] = manifest(file)
             engine.iCloud.formUnion(parts(id, 1, file))
+            engine.notesInCloud[id] = .marker(manifest(file))
         }
         engine.onLookup = {
             store.manifests[remarked] = manifest("e.wav")
@@ -2614,5 +2620,36 @@ struct NoteSyncCoordinatorTests {
         await coordinator.lastAudioCheck?.value
         precondition(confirmed == [steady], "\(confirmed)")
         precondition(store.manifests[remarked] == manifest("e.wav"), "a changed marker isn't repaired on the old answer")
+    }
+
+    /// Every part in iCloud isn't enough: iCloud's note must name the
+    /// recording, with the marker here. Anything else, or a read that
+    /// fails, confirms nothing, repairs nothing, and writes nothing.
+    @MainActor
+    static func testConfirmingNeedsICloudsNoteToNameTheRecording() async throws {
+        let answers: [(String, NoteAudioInICloud?)] = [
+            ("no marker", .noMarker),
+            ("no note", .noNote),
+            ("unreadable", .unreadable),
+            ("another marker", .marker(manifest("e.wav"))),
+            ("same hash, other parts", .marker(manifest("b.wav", bytes: 60_000_000, parts: 2))),
+            ("the read failed", nil),
+        ]
+        for (name, answer) in answers {
+            let (coordinator, store, engine, dir, id) = try lostMarkedNote()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            engine.iCloud = Set(parts(id, 1, "b.wav"))
+            if let answer {
+                engine.notesInCloud[id] = answer
+            } else {
+                engine.notesInCloudError = URLError(.timedOut)
+            }
+            let confirmed = await coordinator.confirmAudioInICloud([id])
+            await coordinator.lastAudioCheck?.value
+            precondition(confirmed.isEmpty, name)
+            precondition(store.manifests[id] == manifest("b.wav"), "\(name): no marker cleared")
+            precondition(store.uploadKeys.isEmpty, name)
+            precondition(engine.saves.isEmpty && engine.audioSaves.isEmpty && engine.audioDeletes.isEmpty, "\(name): nothing queued")
+        }
     }
 }

@@ -102,7 +102,12 @@ struct AppStateNoteSyncTests {
             if let partListingError { throw partListingError }
             return allParts
         }
-        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] { [:] }
+        /// The marker iCloud's copy of each note names; unlisted notes
+        /// aren't in iCloud.
+        var markersInICloud: [UUID: NoteAudioManifest] = [:]
+        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+            Dictionary(uniqueKeysWithValues: ids.map { ($0, markersInICloud[$0].map(NoteAudioInICloud.marker) ?? .noNote) })
+        }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
         func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
@@ -820,7 +825,7 @@ struct AppStateNoteSyncTests {
     }
 
     /// Puts the note's recording here and its marker in the store; with
-    /// `inICloud`, iCloud holds every part.
+    /// `inICloud`, iCloud holds every part and its note names the marker.
     @MainActor
     @discardableResult
     static func addRecording(_ fixture: Fixture, _ note: PipelineHistoryItem, inICloud: Bool = true) throws -> URL {
@@ -829,6 +834,7 @@ struct AppStateNoteSyncTests {
         try fixture.store.setAudioManifest(manifest, id: note.id)
         if inICloud {
             fixture.engine.partsInICloud.formUnion(NoteAudioPartID.parts(of: note.id, sha256: manifest.sha256, count: 1))
+            fixture.engine.markersInICloud[note.id] = manifest
         }
         return url
     }
@@ -1112,6 +1118,7 @@ struct AppStateNoteSyncTests {
             guard let manifest = fixture.store.audioManifest(id: named.id) else { preconditionFailure("no marker") }
             try fixture.store.setAudioManifest(manifest, id: alsoNaming.id)
             fixture.engine.partsInICloud.formUnion(NoteAudioPartID.parts(of: alsoNaming.id, sha256: manifest.sha256, count: 1))
+            fixture.engine.markersInICloud[alsoNaming.id] = manifest
         }
         let otherURL = try addRecording(fixture, other)
         await offload(fixture, now: t0 + 30 * day)
