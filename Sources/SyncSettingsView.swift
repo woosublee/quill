@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import QuillDesignTokens
+import QuillNoteSyncCore
 
 /// Settings › iCloud Sync: one switch, the sync status, and what stays on
 /// this Mac. Turning sync on asks first, with the number of notes to upload.
@@ -27,6 +28,7 @@ struct SyncSettingsView: View {
 }
 
 private struct NoteSyncSettingsCard: View {
+    @EnvironmentObject var appState: AppState
     @ObservedObject var controller: NoteSyncController
     @State private var isConfirmingTurnOn = false
     @State private var isConfirmingTurnOff = false
@@ -36,6 +38,7 @@ private struct NoteSyncSettingsCard: View {
     @State private var noteCount = 0
     @State private var audioBytes: Int64 = 0
     @State private var audioOnlyInICloud: Int? = 0
+    @AppStorage(NoteAudioOffload.isOnKey) private var optimizesStorage = false
 
     private var switchBinding: Binding<Bool> {
         Binding(
@@ -92,6 +95,8 @@ private struct NoteSyncSettingsCard: View {
             }
 
             statusDetail
+
+            optimizeStorageRow
 
             // What goes to iCloud is said once, when turning on.
             if !controller.isEnabled, controller.unavailableReason == nil {
@@ -170,6 +175,41 @@ private struct NoteSyncSettingsCard: View {
                 Text("Check your internet connection and try again. Sync is still on.")
             }
         }
+    }
+
+    /// Optimize Storage: off by default, needs sync on. Turning sync off keeps
+    /// the stored choice; the pass just stops. Turning it on runs one pass so
+    /// the first effect doesn't wait for the hourly one.
+    private var optimizeStorageRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(localizedCatalogString(NoteAudioOffloadCopy.toggleKey))
+                    .font(.body.weight(.semibold))
+                Text(localizedCatalogString(controller.isEnabled
+                    ? NoteAudioOffloadCopy.detailKey
+                    : NoteAudioOffloadCopy.needsSyncKey))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Toggle(isOn: optimizeStorageBinding) {
+                Text(localizedCatalogString(NoteAudioOffloadCopy.toggleKey))
+            }
+            .toggleStyle(.switch)
+            .labelsHidden()
+            .disabled(!controller.isEnabled)
+        }
+    }
+
+    private var optimizeStorageBinding: Binding<Bool> {
+        Binding(
+            get: { optimizesStorage },
+            set: { wantsOn in
+                optimizesStorage = wantsOn
+                if wantsOn { appState.removeUnusedNoteAudio() }
+            }
+        )
     }
 
     private var isShowingTurnOnFailure: Binding<Bool> {
