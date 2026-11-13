@@ -336,8 +336,18 @@ struct SettingsLocalizationTests {
             "Download Audio": "오디오 받기",
             "Stop Download": "받기 중지",
             "The recording is downloaded from iCloud before it's saved.": "녹음 파일을 iCloud에서 받은 뒤 저장해요.",
-            "1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": "노트 1개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요.",
-            "%lld notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": "노트 %lld개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요.",
+            NoteAudioICloudDeleteCopy.titleOneFormatKey: "녹음 1개(약 %@)가 iCloud에만 있어요",
+            NoteAudioICloudDeleteCopy.titleManyFormatKey: "녹음 %lld개(약 %@)가 iCloud에만 있어요",
+            NoteAudioICloudDeleteCopy.messageKey: "iCloud에서 지우면 이 기기에서는 다시 받을 수 없어요. 먼저 받아 두면 이 기기에 남아요. 전사문과 요약은 어느 쪽이든 그대로 남아요.",
+            NoteAudioICloudDeleteCopy.downloadThenDeleteKey: "받은 뒤 지우기",
+            NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey: "녹음 없이 지우기",
+            NoteAudioICloudDeleteCopy.progressFormatKey: "iCloud에서 녹음 받는 중 · %lld/%lld",
+            NoteAudioICloudDeleteCopy.progressDetailKey: "녹음을 모두 이 기기에 받기 전에는 iCloud에서 아무것도 지우지 않아요.",
+            NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey: "녹음을 받을 공간이 부족해요",
+            NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey: "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요.",
+            NoteAudioICloudDeleteCopy.downloadFailedTitleKey: "녹음을 모두 받지 못했어요",
+            NoteAudioICloudDeleteCopy.downloadFailedMessageKey: "iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요.",
+            NoteAudioICloudDeleteCopy.cannotCheckMessageKey: "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요. 동기화는 그대로 켜져 있어요.",
             "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
             "Check your iCloud account in System Settings, then try again.": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요.",
             "Notes can't sync right now. If history recovery is running, try again after it finishes.": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요.",
@@ -446,7 +456,14 @@ struct SettingsLocalizationTests {
         assert(view.contains("Text(\"Keeps your notes the same on your devices with this iCloud account.\")"))
         assert(view.contains("await controller.syncNow()"))
         assert(view.contains(".help(\"Sync Now\")"))
-        assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
+        assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                deleteFromICloudPressed()"))
+        // Recordings only in iCloud: a second prompt offers to download them
+        // first (the default), or to delete without them, as before.
+        assert(view.contains("NoteAudioICloudDeleteCopy.downloadThenDeleteKey"))
+        assert(view.contains(".keyboardShortcut(.defaultAction)"))
+        assert(view.contains("noteAudioDownloadThenDelete.run()"))
+        assert(view.contains("Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {\n                turnOff(deleteFromICloud: true)\n            }"))
+        assert(!view.contains("notes have audio in iCloud that isn't on this Mac"))
         assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))
         // The confirmations say how much audio goes up, and what deleting
         // from iCloud would lose.

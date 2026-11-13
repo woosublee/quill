@@ -15,7 +15,10 @@ struct SyncSettingsView: View {
                     .font(.largeTitle.bold())
 
                 if let controller = appState.noteSyncController {
-                    NoteSyncSettingsCard(controller: controller)
+                    NoteSyncSettingsCard(
+                        controller: controller,
+                        downloadThenDelete: appState.noteAudioDownloadThenDelete
+                    )
                 }
             }
             .padding(24)
@@ -30,6 +33,7 @@ struct SyncSettingsView: View {
 private struct NoteSyncSettingsCard: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var controller: NoteSyncController
+    @ObservedObject var downloadThenDelete: NoteAudioDownloadThenDelete
     @State private var isConfirmingTurnOn = false
     @State private var isConfirmingTurnOff = false
     @State private var isTurningOff = false
@@ -37,7 +41,9 @@ private struct NoteSyncSettingsCard: View {
     @State private var turnOnFailure: NoteSyncTurnOnFailure?
     @State private var noteCount = 0
     @State private var audioBytes: Int64 = 0
-    @State private var audioOnlyInICloud: Int? = 0
+    /// Read when the switch is flipped off; nil when it can't be checked.
+    @State private var audioOnlyInICloud: [NoteAudioOnlyInICloud]? = []
+    @State private var isAskingAboutRecordings = false
     @AppStorage(NoteAudioOffload.isOnKey) private var optimizesStorage = false
 
     private var switchBinding: Binding<Bool> {
@@ -49,7 +55,7 @@ private struct NoteSyncSettingsCard: View {
                     audioBytes = controller.uploadAudioByteCount
                     isConfirmingTurnOn = true
                 } else {
-                    audioOnlyInICloud = controller.notesWithAudioOnlyInICloud
+                    audioOnlyInICloud = controller.recordingsOnlyInICloud
                     isConfirmingTurnOff = true
                 }
             }
@@ -91,10 +97,13 @@ private struct NoteSyncSettingsCard: View {
                 }
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .disabled(controller.unavailableReason != nil || isTurningOff || controller.isTurningOn)
+                .disabled(controller.unavailableReason != nil || isTurningOff || controller.isTurningOn
+                    || downloadThenDelete.isRunning)
             }
 
             statusDetail
+
+            downloadThenDeleteRow
 
             optimizeStorageRow
 
@@ -141,12 +150,35 @@ private struct NoteSyncSettingsCard: View {
                 turnOff(deleteFromICloud: false)
             }
             Button("Turn Off and Delete from iCloud", role: .destructive) {
-                turnOff(deleteFromICloud: true)
+                deleteFromICloudPressed()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other devices. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every device, and each device keeps its notes.") + audioOnlyInICloudText
         }
+        .alert(recordingsOnlyInICloudTitle, isPresented: $isAskingAboutRecordings) {
+            Button(localizedCatalogString(NoteAudioICloudDeleteCopy.downloadThenDeleteKey)) {
+                Task { @MainActor in await appState.noteAudioDownloadThenDelete.run() }
+            }
+            .keyboardShortcut(.defaultAction)
+            Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {
+                turnOff(deleteFromICloud: true)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(localizedCatalogString(NoteAudioICloudDeleteCopy.messageKey))
+        }
+        .alert(downloadThenDeleteNoticeTitle, isPresented: isShowingDownloadThenDeleteNotice) {
+            Button("OK", role: .cancel) {
+                downloadThenDelete.dismissNotice()
+            }
+        } message: {
+            Text(downloadThenDeleteNoticeMessage)
+        }
+        // A failed delete says why in the alert below, as a plain Turn Off
+        // and Delete does; a notice left while Settings was closed shows here.
+        .onAppear { showDeleteFailure(downloadThenDelete.notice) }
+        .onChange(of: downloadThenDelete.notice) { showDeleteFailure($0) }
         .alert("Couldn't turn on iCloud sync", isPresented: isShowingTurnOnFailure) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -198,8 +230,99 @@ private struct NoteSyncSettingsCard: View {
             }
             .toggleStyle(.switch)
             .labelsHidden()
-            .disabled(!controller.isEnabled || isTurningOff || controller.isTurningOn)
+            .disabled(!controller.isEnabled || isTurningOff || controller.isTurningOn
+                || downloadThenDelete.isRunning)
         }
+    }
+
+    /// Download, Then Delete running: how far it got, and Cancel until the
+    /// delete begins.
+    @ViewBuilder
+    private var downloadThenDeleteRow: some View {
+        switch downloadThenDelete.phase {
+        case .idle:
+            EmptyView()
+        case .downloading(let done, let total, let current):
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(localizedCatalogFormat(NoteAudioICloudDeleteCopy.progressFormatKey, done + 1, total))
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    downloadThenDelete.cancel()
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
+            DownloadThenDeleteProgressBar(
+                feed: appState.noteAudioDownloader.progressFeed,
+                done: done,
+                total: total,
+                current: current
+            )
+            Text(localizedCatalogString(NoteAudioICloudDeleteCopy.progressDetailKey))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .deleting:
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel(Text("Turn Off and Delete from iCloud"))
+        }
+    }
+
+    private var recordingsOnlyInICloudTitle: String {
+        let summary = NoteAudioICloudOnlySummary(markerBytes: (audioOnlyInICloud ?? []).map(\.bytes))
+        let size = sizeText(summary.bytes)
+        let key = NoteAudioICloudDeleteCopy.titleFormatKey(count: summary.count)
+        return summary.count == 1
+            ? localizedCatalogFormat(key, size)
+            : localizedCatalogFormat(key, summary.count, size)
+    }
+
+    private var isShowingDownloadThenDeleteNotice: Binding<Bool> {
+        Binding(
+            get: {
+                switch downloadThenDelete.notice {
+                case .notEnoughSpace?, .downloadFailed?, .cannotCheck?:
+                    return true
+                default:
+                    return false
+                }
+            },
+            set: { if !$0 { downloadThenDelete.dismissNotice() } }
+        )
+    }
+
+    private var downloadThenDeleteNoticeTitle: String {
+        if case .notEnoughSpace? = downloadThenDelete.notice {
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey)
+        }
+        return localizedCatalogString(NoteAudioICloudDeleteCopy.downloadFailedTitleKey)
+    }
+
+    private var downloadThenDeleteNoticeMessage: String {
+        switch downloadThenDelete.notice {
+        case .notEnoughSpace(let shortBy)?:
+            return localizedCatalogFormat(NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey, sizeText(shortBy))
+        case .cannotCheck?:
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.cannotCheckMessageKey)
+        default:
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.downloadFailedMessageKey)
+        }
+    }
+
+    private func showDeleteFailure(_ notice: NoteAudioDownloadThenDelete.Outcome?) {
+        guard notice == .deleteFailed else { return }
+        downloadThenDelete.dismissNotice()
+        turnOffFailed = true
+    }
+
+    private func sizeText(_ bytes: Int64) -> String {
+        NoteAudioICloudDeletePolicy.sizeText(
+            bytes: bytes,
+            locale: Locale(identifier: preferredLocalizedStringLanguage())
+        )
     }
 
     private var optimizeStorageBinding: Binding<Bool> {
@@ -237,16 +360,9 @@ private struct NoteSyncSettingsCard: View {
     }
 
     private var audioOnlyInICloudText: Text {
-        switch audioOnlyInICloud {
-        case nil:
-            return Text("\n\n") + Text("Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac.")
-        case 0?:
-            return Text("")
-        case 1?:
-            return Text("\n\n") + Text("1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
-        case let count?:
-            return Text("\n\n") + Text("\(count) notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
-        }
+        // Recordings only in iCloud are asked about after the button is pressed.
+        guard audioOnlyInICloud == nil else { return Text("") }
+        return Text("\n\n") + Text("Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac.")
     }
 
     /// Sync Now shows while sync runs, not after it stopped.
@@ -257,6 +373,20 @@ private struct NoteSyncSettingsCard: View {
             return false
         default:
             return true
+        }
+    }
+
+    /// With recordings only in iCloud, asks whether to download them first;
+    /// otherwise deletes as before.
+    private func deleteFromICloudPressed() {
+        guard let recordings = audioOnlyInICloud, !recordings.isEmpty else {
+            turnOff(deleteFromICloud: true)
+            return
+        }
+        // The dialog is still closing; an alert presented in the same turn
+        // can be dropped.
+        DispatchQueue.main.async {
+            isAskingAboutRecordings = true
         }
     }
 
@@ -413,5 +543,18 @@ private struct NoteSyncSettingsCard: View {
                 EmptyView()
             }
         }
+    }
+}
+
+/// The download bar on its own, so the card doesn't redraw with every part.
+private struct DownloadThenDeleteProgressBar: View {
+    @ObservedObject var feed: NoteAudioDownloadProgress
+    let done: Int
+    let total: Int
+    let current: UUID
+
+    var body: some View {
+        let fraction = (Double(done) + (feed.values[current] ?? 0)) / Double(max(total, 1))
+        ProgressView(value: min(max(fraction, 0), 1))
     }
 }

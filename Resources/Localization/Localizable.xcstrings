@@ -21268,38 +21268,6 @@
         }
       }
     },
-    "1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트 1개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요."
-          }
-        }
-      }
-    },
-    "%lld notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트 %lld개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요."
-          }
-        }
-      }
-    },
     "Keeps your notes the same on your devices with this iCloud account.": {
       "localizations": {
         "en": {
@@ -22592,6 +22560,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "iCloud 동기화를 켜야 쓸 수 있어요."
+          }
+        }
+      }
+    },
+    "1 recording (about %@) is only in iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 recording (about %@) is only in iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 1개(약 %@)가 iCloud에만 있어요"
+          }
+        }
+      }
+    },
+    "%lld recordings (about %@) are only in iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld recordings (about %@) are only in iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 %lld개(약 %@)가 iCloud에만 있어요"
+          }
+        }
+      }
+    },
+    "After they're deleted from iCloud, this device can't get them. Download them first to keep them here. Transcripts and summaries stay either way.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After they're deleted from iCloud, this device can't get them. Download them first to keep them here. Transcripts and summaries stay either way."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에서 지우면 이 기기에서는 다시 받을 수 없어요. 먼저 받아 두면 이 기기에 남아요. 전사문과 요약은 어느 쪽이든 그대로 남아요."
+          }
+        }
+      }
+    },
+    "Download, Then Delete": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download, Then Delete"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받은 뒤 지우기"
+          }
+        }
+      }
+    },
+    "Delete Without Recordings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Without Recordings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 없이 지우기"
+          }
+        }
+      }
+    },
+    "Downloading recordings from iCloud · %lld of %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading recordings from iCloud · %lld of %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에서 녹음 받는 중 · %lld/%lld"
+          }
+        }
+      }
+    },
+    "Nothing is deleted from iCloud until every recording is on this device.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is deleted from iCloud until every recording is on this device."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 모두 이 기기에 받기 전에는 iCloud에서 아무것도 지우지 않아요."
+          }
+        }
+      }
+    },
+    "Not enough space to download the recordings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough space to download the recordings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 받을 공간이 부족해요"
+          }
+        }
+      }
+    },
+    "Free up %@ more on this device, then try again. Nothing was deleted from iCloud, and sync is still on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free up %@ more on this device, then try again. Nothing was deleted from iCloud, and sync is still on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요."
+          }
+        }
+      }
+    },
+    "Couldn't download every recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't download every recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 모두 받지 못했어요"
+          }
+        }
+      }
+    },
+    "Nothing was deleted from iCloud, and sync is still on. Recordings already downloaded stay on this device. Check your internet connection and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was deleted from iCloud, and sync is still on. Recordings already downloaded stay on this device. Check your internet connection and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요."
+          }
+        }
+      }
+    },
+    "Quill couldn't check which recordings are only in iCloud, so nothing was deleted. Sync is still on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't check which recordings are only in iCloud, so nothing was deleted. Sync is still on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요. 동기화는 그대로 켜져 있어요."
           }
         }
       }

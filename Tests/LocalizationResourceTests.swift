@@ -46,6 +46,7 @@ struct LocalizationResourceTests {
         try testSharedComparisonKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
         try testSharedAudioOffloadKeysAreInTheCatalog(strings)
+        try testSharedICloudDeleteKeysAreInTheCatalog(strings)
         try testSharedEmptyStateKeysAreInTheCatalog(strings)
         try testSharedTranscriptNoticeKeysAreInTheCatalog(strings)
         try testSharedMetaTagKeysAreInTheCatalog(strings)
@@ -604,6 +605,33 @@ struct LocalizationResourceTests {
         }
         guard missing.isEmpty else {
             throw TestFailure("Shared Optimize Storage keys missing from the catalog: \(missing)")
+        }
+    }
+
+    private static func testSharedICloudDeleteKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = [
+            NoteAudioICloudDeleteCopy.titleOneFormatKey,
+            NoteAudioICloudDeleteCopy.titleManyFormatKey,
+            NoteAudioICloudDeleteCopy.messageKey,
+            NoteAudioICloudDeleteCopy.downloadThenDeleteKey,
+            NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey,
+            NoteAudioICloudDeleteCopy.progressFormatKey,
+            NoteAudioICloudDeleteCopy.progressDetailKey,
+            NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey,
+            NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey,
+            NoteAudioICloudDeleteCopy.downloadFailedTitleKey,
+            NoteAudioICloudDeleteCopy.downloadFailedMessageKey,
+            NoteAudioICloudDeleteCopy.cannotCheckMessageKey,
+        ]
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }
+        guard missing.isEmpty else {
+            throw TestFailure("Shared Turn Off and Delete keys missing from the catalog: \(missing)")
         }
     }
 

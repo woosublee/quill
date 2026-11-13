@@ -46,6 +46,11 @@ otherwise.
   note whose parts iCloud holds, sync on) and
   holds the switch's copy keys (`NoteAudioOffloadCopy`). The setting, the
   last-used date, the hourly pass, and removing the file stay in `Sources/`.
+  It also holds what Turn Off and Delete from iCloud says when recordings
+  are only in iCloud (`NoteAudioICloudOnlySummary`,
+  `NoteAudioICloudDeleteCopy`) and whether there is room to download them
+  first (`NoteAudioICloudDeletePolicy`); the list, the downloads, the disk
+  query, and the delete stay in `Sources/`.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
