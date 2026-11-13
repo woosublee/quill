@@ -135,6 +135,11 @@ struct NoteSyncCoordinatorTests {
         testFailedWriteIsTriedAgain()
         await testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted()
         try testAudioInICloudIsReadFromThePayload()
+        try await testConfirmedAudioHasEveryPartInICloud()
+        try await testConfirmingAMissingPartStartsTheRepair()
+        try await testConfirmingWithoutICloudConfirmsNothing()
+        try await testConfirmingLeavesOutNotesWithAudioInFlight()
+        try await testConfirmingLeavesOutWhatChangedWhileWaiting()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -241,9 +246,15 @@ struct NoteSyncCoordinatorTests {
         var lookupError: Error?
         var onLookup: (() -> Void)?
         var lookups = 0
+        /// Runs while iCloud is being asked, before it answers.
+        var whileLookingUp: (@MainActor () async -> Void)?
+        /// Every part asked about, in order.
+        var askedParts: [NoteAudioPartID] = []
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
             lookups += 1
+            askedParts += parts
             onLookup?()
+            await whileLookingUp?()
             if let lookupError { throw lookupError }
             return iCloud.intersection(parts)
         }
@@ -2471,5 +2482,111 @@ struct NoteSyncCoordinatorTests {
         works = true
         coordinator.handleFetchFinished(pending: 0)
         precondition(writes == 2, "\(writes)")
+    }
+
+    /// A marked note whose every part iCloud holds is confirmed, and
+    /// nothing is written; a note without a marker, or with an empty one,
+    /// isn't asked about.
+    @MainActor
+    static func testConfirmedAudioHasEveryPartInICloud() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backed = noteWithAudio(store, "b.wav"), unmarked = noteWithAudio(store, "c.wav")
+        let empty = noteWithAudio(store, "d.wav")
+        store.manifests[backed] = manifest("b.wav", bytes: 60_000_000, parts: 2)
+        store.manifests[empty] = manifest("d.wav", bytes: 0, parts: 0)
+        engine.iCloud = Set(parts(backed, 2, "b.wav") + parts(unmarked, 1, "c.wav"))
+        let manifestsBefore = store.manifests
+        let confirmed = await coordinator.confirmAudioInICloud([backed, unmarked, empty])
+        await coordinator.lastAudioCheck?.value
+        precondition(confirmed == [backed], "\(confirmed)")
+        precondition(engine.askedParts == parts(backed, 2, "b.wav"), "only the marked note's parts are asked about")
+        precondition(store.manifests == manifestsBefore && store.uploadKeys.isEmpty, "nothing is written")
+        precondition(engine.saves.isEmpty && engine.audioSaves.isEmpty && engine.audioDeletes.isEmpty)
+    }
+
+    /// A part iCloud doesn't hold: the note isn't confirmed, and the marker
+    /// is checked as a download finding it missing would check it.
+    @MainActor
+    static func testConfirmingAMissingPartStartsTheRepair() async throws {
+        let (coordinator, store, engine, dir, id) = try lostMarkedNote()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.manifests[id] = manifest("b.wav", bytes: 60_000_000, parts: 2)
+        engine.iCloud = [parts(id, 2, "b.wav")[0]]
+        let confirmed = await coordinator.confirmAudioInICloud([id])
+        precondition(confirmed.isEmpty)
+        await coordinator.lastAudioCheck?.value
+        precondition(store.manifests[id] == nil, "a marker iCloud can't back is cleared")
+        precondition(engine.saves.contains(id), "the cleared marker goes up")
+    }
+
+    /// A lookup that fails, or a sync stopped while iCloud answered,
+    /// confirms nothing and changes nothing.
+    @MainActor
+    static func testConfirmingWithoutICloudConfirmsNothing() async throws {
+        let (coordinator, store, engine, dir, id) = try lostMarkedNote()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        engine.iCloud = Set(parts(id, 1, "b.wav"))
+        engine.lookupError = URLError(.notConnectedToInternet)
+        let failed = await coordinator.confirmAudioInICloud([id])
+        await coordinator.lastAudioCheck?.value
+        precondition(failed.isEmpty && engine.lookups == 1)
+        precondition(store.manifests[id] == manifest("b.wav") && engine.saves.isEmpty, "nothing is written")
+
+        engine.lookupError = nil
+        engine.onLookup = { coordinator.stop() }
+        let stopped = await coordinator.confirmAudioInICloud([id])
+        await coordinator.lastAudioCheck?.value
+        precondition(stopped.isEmpty, "a sync stopped while waiting confirms nothing")
+        precondition(store.manifests[id] == manifest("b.wav") && engine.saves.isEmpty)
+    }
+
+    /// Audio still going up, waiting to be deleted, or being checked isn't
+    /// settled: it is left out and iCloud isn't asked about it.
+    @MainActor
+    static func testConfirmingLeavesOutNotesWithAudioInFlight() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sending = noteWithAudio(store, "b.wav"), deleting = noteWithAudio(store, "c.wav")
+        let checking = noteWithAudio(store, "d.wav")
+        for (id, file) in [(sending, "b.wav"), (deleting, "c.wav"), (checking, "d.wav")] {
+            store.manifests[id] = manifest(file)
+            engine.iCloud.formUnion(parts(id, 1, file))
+        }
+        engine.pendingAudio = parts(sending, 1, "b.wav")
+        engine.audioDeletes = parts(deleting, 1, "c.wav")
+        var confirmed: Set<UUID> = [checking]
+        engine.whileLookingUp = {
+            engine.whileLookingUp = nil
+            confirmed = await coordinator.confirmAudioInICloud([checking])
+        }
+        coordinator.handleAudioMissing(noteID: checking)
+        await coordinator.lastAudioCheck?.value
+        precondition(confirmed.isEmpty && engine.lookups == 1, "a note being checked is left out")
+        engine.askedParts = []
+        let others = await coordinator.confirmAudioInICloud([sending, deleting])
+        precondition(others.isEmpty && engine.askedParts.isEmpty)
+    }
+
+    /// A note whose marker changed, or whose audio started going up, while
+    /// iCloud answered isn't confirmed on the old answer.
+    @MainActor
+    static func testConfirmingLeavesOutWhatChangedWhileWaiting() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let remarked = noteWithAudio(store, "b.wav"), sending = noteWithAudio(store, "c.wav")
+        let steady = noteWithAudio(store, "d.wav")
+        for (id, file) in [(remarked, "b.wav"), (sending, "c.wav"), (steady, "d.wav")] {
+            store.manifests[id] = manifest(file)
+            engine.iCloud.formUnion(parts(id, 1, file))
+        }
+        engine.onLookup = {
+            store.manifests[remarked] = manifest("e.wav")
+            engine.pendingAudio = parts(sending, 1, "c.wav")
+        }
+        let confirmed = await coordinator.confirmAudioInICloud([remarked, sending, steady])
+        await coordinator.lastAudioCheck?.value
+        precondition(confirmed == [steady], "\(confirmed)")
+        precondition(store.manifests[remarked] == manifest("e.wav"), "a changed marker isn't repaired on the old answer")
     }
 }

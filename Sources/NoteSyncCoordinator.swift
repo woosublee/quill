@@ -486,6 +486,59 @@ final class NoteSyncCoordinator {
         }
     }
 
+    /// The notes among `ids` whose marker iCloud backs with every part, asked now.
+    /// A note with no marker, with audio in flight, or being checked is left out.
+    /// A missing part starts the existing repair (`handleAudioMissing`) and the
+    /// note is left out. A thrown error leaves every note out.
+    /// Nothing else changes: removing this Mac's copy of a recording relies
+    /// on the answer, so a note that changed while iCloud answered is left
+    /// out too.
+    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID> {
+        guard !isStopped else { return [] }
+        let unsettled = notesWithUnsettledAudio()
+        var asked: [UUID: NoteAudioManifest] = [:]
+        for id in Set(ids) where !unsettled.contains(id) {
+            // An empty recording has no part to confirm.
+            guard let manifest = store.audioManifest(id: id), manifest.parts > 0 else { continue }
+            asked[id] = manifest
+        }
+        guard !asked.isEmpty else { return [] }
+        func parts(_ id: UUID, _ manifest: NoteAudioManifest) -> [NoteAudioPartID] {
+            NoteAudioPartID.parts(of: id, sha256: manifest.sha256, count: manifest.parts)
+        }
+        let found: Set<NoteAudioPartID>
+        do {
+            found = try await engine.existingAudioParts(asked.flatMap { parts($0.key, $0.value) })
+        } catch {
+            print("[NoteSync] Couldn't confirm audio in iCloud")
+            return []
+        }
+        guard !isStopped else { return [] }
+        let unsettledNow = notesWithUnsettledAudio()
+        var confirmed: Set<UUID> = []
+        for (id, manifest) in asked {
+            guard !unsettledNow.contains(id), store.audioManifest(id: id) == manifest else { continue }
+            if parts(id, manifest).allSatisfy(found.contains) {
+                confirmed.insert(id)
+            } else {
+                handleAudioMissing(noteID: id)
+            }
+        }
+        return confirmed
+    }
+
+    /// Notes whose audio isn't settled: parts going up or waiting to be
+    /// deleted, the note waiting to be deleted, or a check running or owed.
+    private func notesWithUnsettledAudio() -> Set<UUID> {
+        notesWithAudioInFlight()
+            .union(engine.pendingAudioDeletes().map(\.noteID))
+            .union(audioDeleteRetries.waiting.map(\.noteID))
+            .union(engine.pendingNoteDeletes())
+            .union(audioChecking)
+            .union(audioToCheck)
+            .union(savesAfterCheck)
+    }
+
     /// Held notes go up now, with whatever marker remains.
     private func releaseHeldNotes(_ ids: [UUID]) {
         guard !ids.isEmpty, !isStopped else { return }

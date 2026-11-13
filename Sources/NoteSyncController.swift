@@ -181,6 +181,27 @@ final class NoteSyncController: ObservableObject {
         return checks
     }
 
+    /// False while sync is off, turning on or off, deleting from iCloud, or paused.
+    var canConfirmAudioInICloud: Bool {
+        guard isEnabled, !isTurningOn, !isDeletingFromICloud, turnOffInProgress == nil, engine != nil else { return false }
+        switch status {
+        case .off, .paused: return false
+        case .starting, .uploading, .upToDate: return true
+        }
+    }
+
+    /// Empty whenever `canConfirmAudioInICloud` is false, or it became false while waiting.
+    /// The notes among `ids` whose marked recording iCloud holds every part
+    /// of, asked now (see `NoteSyncCoordinator.confirmAudioInICloud`).
+    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID> {
+        guard canConfirmAudioInICloud, let engine, let coordinator else { return [] }
+        let confirmed = await coordinator.confirmAudioInICloud(ids)
+        // The engine may have stopped, or sync paused or begun turning off
+        // or deleting, meanwhile.
+        guard canConfirmAudioInICloud, self.engine === engine, self.coordinator === coordinator else { return [] }
+        return confirmed
+    }
+
     /// The engine stopped (sync turned off, or stopped by itself): audio
     /// downloads stop with it, since sync off means no talking to iCloud.
     var onEngineStop: (() -> Void)?

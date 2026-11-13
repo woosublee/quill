@@ -62,6 +62,11 @@ struct NoteSyncControllerTests {
         testTurningOnDropsChangesLeftFromAnEarlierSync()
         testFullUploadStillSendsKeptDeletes()
         testStartingOverKeepsDeletesWaitingInTheEngine()
+        testConfirmingAudioAsksICloudWhileSyncRuns()
+        testConfirmingAudioAsksNothingWhileSyncIsOff()
+        testConfirmingAudioAsksNothingWhilePaused()
+        testConfirmingAudioAsksNothingWhileDeletingFromICloud()
+        testConfirmingAudioConfirmsNothingWhenSyncChangesWhileWaiting()
         print("NoteSyncControllerTests passed")
     }
 
@@ -147,7 +152,16 @@ struct NoteSyncControllerTests {
         func pendingNoteDeletes() -> [UUID] { deletes }
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
-        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
+        /// Audio parts iCloud holds, and how often it was asked.
+        var audioInICloud: Set<NoteAudioPartID> = []
+        var audioLookups = 0
+        /// Runs while iCloud is being asked about audio, before it answers.
+        var whileLookingUpAudio: (@MainActor () async -> Void)?
+        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
+            audioLookups += 1
+            await whileLookingUpAudio?()
+            return audioInICloud.intersection(parts)
+        }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         var partListings = 0
         var partListingError: Error?
@@ -1252,5 +1266,131 @@ struct NoteSyncControllerTests {
         drainMainQueue()
         precondition(engines.count == 2 && engines.last?.deletes == [gone], "sent by the new engine")
         precondition(saved == NoteSyncFailedChanges(deletes: [gone]), "kept until confirmed: \(String(describing: saved))")
+    }
+
+    /// A synced note with a marker, for confirming its audio.
+    @MainActor
+    static func markedNote(_ store: FakeStore) -> (UUID, [NoteAudioPartID]) {
+        let id = store.ids[0]
+        let sha = String(repeating: "cd", count: 32)
+        store.manifests[id] = NoteAudioManifest(sha256: sha, bytes: 10, partSize: 50_000_000, parts: 1)
+        return (id, NoteAudioPartID.parts(of: id, sha256: sha, count: 1))
+    }
+
+    @MainActor
+    static func testConfirmingAudioAsksICloudWhileSyncRuns() {
+        let (controller, store, engine, _) = make(enabled: true)
+        let (id, parts) = markedNote(store)
+        controller.attach(store: store)
+        engine()?.audioInICloud = Set(parts)
+        precondition(controller.canConfirmAudioInICloud)
+        var confirmed: Set<UUID> = []
+        precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
+        precondition(confirmed == [id] && engine()?.audioLookups == 1)
+    }
+
+    @MainActor
+    static func testConfirmingAudioAsksNothingWhileSyncIsOff() {
+        let (controller, store, engine, _) = make()
+        let (id, _) = markedNote(store)
+        controller.attach(store: store)
+        precondition(!controller.canConfirmAudioInICloud)
+        var confirmed: Set<UUID> = [id]
+        precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
+        precondition(confirmed.isEmpty && engine() == nil)
+    }
+
+    /// Every pause, including ones where iCloud could still answer, asks
+    /// nothing.
+    @MainActor
+    static func testConfirmingAudioAsksNothingWhilePaused() {
+        let pauses: [(String, @MainActor (NoteSyncCoordinator?, FakeStore) -> Void)] = [
+            ("offline", { coordinator, _ in coordinator?.handleAudioSendFailures([.network]) }),
+            ("storage full", { coordinator, store in
+                let part = NoteAudioPartID.parts(of: store.ids[1], sha256: String(repeating: "ef", count: 32), count: 1)[0]
+                coordinator?.handleAudioSendFailures([.quotaExceeded(part)])
+            }),
+            ("account", { coordinator, _ in coordinator?.handleAudioSendFailures([.accountNeedsAttention]) }),
+            ("notes failed", { coordinator, store in
+                for _ in 0..<4 { coordinator?.handleSendFailures([.other(noteID: store.ids[1])]) }
+                coordinator?.handleFetchFinished(pending: 0)
+            }),
+            ("deleted elsewhere", { coordinator, _ in coordinator?.handleZoneDeleted() }),
+            ("account changed", { coordinator, _ in coordinator?.handleAccountChange(signedOut: false) }),
+            ("signed out", { coordinator, _ in coordinator?.handleAccountChange(signedOut: true) }),
+        ]
+        for (name, pause) in pauses {
+            let (controller, store, engine, _) = make(enabled: true)
+            let (id, parts) = markedNote(store)
+            controller.attach(store: store)
+            let running = engine()
+            running?.audioInICloud = Set(parts)
+            pause(running?.coordinator, store)
+            guard case .paused = controller.status else { preconditionFailure("\(name): \(controller.status)") }
+            precondition(!controller.canConfirmAudioInICloud, name)
+            var confirmed: Set<UUID> = [id]
+            precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
+            precondition(confirmed.isEmpty && running?.audioLookups == 0, name)
+        }
+
+        // Paused with no engine: history that can't be opened, and notes
+        // that couldn't be saved here.
+        let (unready, unreadyStore, _, _) = make(enabled: true)
+        unreadyStore.isReadyForSync = false
+        unready.attach(store: unreadyStore)
+        precondition(unready.status == .paused(.historyUnavailable) && !unready.canConfirmAudioInICloud)
+        let (failing, failingStore, failingEngine, _) = make(enabled: true)
+        failing.attach(store: failingStore)
+        failingEngine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        failingEngine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(failing.status == .paused(.couldNotSaveHere) && !failing.canConfirmAudioInICloud)
+        var confirmed: Set<UUID> = [failingStore.ids[0]]
+        precondition(expectation { confirmed = await failing.confirmAudioInICloud([failingStore.ids[0]]) })
+        precondition(confirmed.isEmpty)
+    }
+
+    @MainActor
+    static func testConfirmingAudioAsksNothingWhileDeletingFromICloud() {
+        let (controller, store, engine, _) = make(enabled: true)
+        let (id, parts) = markedNote(store)
+        controller.attach(store: store)
+        let running = engine()
+        running?.audioInICloud = Set(parts)
+        var canConfirm = true
+        var confirmed: Set<UUID> = [id]
+        running?.whileDeleting = {
+            canConfirm = controller.canConfirmAudioInICloud
+            confirmed = await controller.confirmAudioInICloud([id])
+        }
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(!canConfirm && confirmed.isEmpty && running?.audioLookups == 0)
+    }
+
+    /// Sync pausing, turning off, or its engine being replaced while iCloud
+    /// answers: nothing is confirmed on that answer.
+    @MainActor
+    static func testConfirmingAudioConfirmsNothingWhenSyncChangesWhileWaiting() {
+        let changes: [(String, @MainActor (NoteSyncController, FakeEngine?) async -> Void)] = [
+            ("paused", { _, running in running?.coordinator?.handleAudioSendFailures([.network]) }),
+            ("turned off", { controller, _ in _ = await controller.turnOff(deleteFromICloud: false) }),
+            ("replaced", { controller, _ in
+                let replacement = FakeStore()
+                replacement.ids = [UUID()]
+                controller.attach(store: replacement)
+            }),
+        ]
+        for (name, change) in changes {
+            let (controller, store, engine, _) = make(enabled: true)
+            let (id, parts) = markedNote(store)
+            controller.attach(store: store)
+            let running = engine()
+            running?.audioInICloud = Set(parts)
+            running?.whileLookingUpAudio = { await change(controller, running) }
+            var confirmed: Set<UUID> = [id]
+            precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
+            precondition(running?.audioLookups == 1 && confirmed.isEmpty, name)
+        }
     }
 }
