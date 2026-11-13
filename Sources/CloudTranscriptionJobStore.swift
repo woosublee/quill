@@ -393,9 +393,13 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
         audioRoot: URL
     ) -> CloudTranscriptionReconciliation {
         lock.withCloudTranscriptionJobLock {
-            let historyByID = Dictionary(uniqueKeysWithValues: history.map {
-                ($0.id, $0)
-            })
+            // A duplicate note id must not trap at launch (#837). The first
+            // row wins, as in TranscriptionRetryWorkflow, which resumes these
+            // jobs against the same history.
+            let historyByID = Dictionary(
+                history.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             var resumable: [CloudTranscriptionJobRecord] = []
             var waitingForRetry: [CloudTranscriptionJobRecord] = []
             var invalid: [UUID] = []
