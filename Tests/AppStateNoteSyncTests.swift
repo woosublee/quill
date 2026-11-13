@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import QuillAudioFormatCore
 import QuillNoteSyncCore
 
 #if !QUILL_GROUPED_TEST_RUNNER
@@ -24,6 +25,10 @@ struct AppStateNoteSyncTests {
         try await testOlderLiveCopyDoesNotHoldBackTheDelete()
         try await testPurgeRunsAtOnceWhenSyncIsOff()
         try await testSavedNoticesShowAtLaunch()
+        try await testMarkingANoteThatIsGoneDoesNothing()
+        try await testDownloadStampsOnlyWhenTheAudioArrives()
+        try await testRetranscriptionStampsOnlyWhenItFinishes()
+        try await testFirstTranscriptionStampsOnlyWhenItFinishes()
         print("AppStateNoteSyncTests passed")
     }
 
@@ -97,7 +102,8 @@ struct AppStateNoteSyncTests {
         items: [PipelineHistoryItem],
         deleted: [UUID: Date] = [:],
         syncOn: Bool = true,
-        signedInAccount: String = "synthetic-account"
+        signedInAccount: String = "synthetic-account",
+        retryDependencies: @escaping @Sendable () -> CloudTranscriptionDependencies = { .live }
     ) throws -> Fixture {
         let syncAccount = "synthetic-account"
         let root = FileManager.default.temporaryDirectory
@@ -116,6 +122,7 @@ struct AppStateNoteSyncTests {
         dependencies.storageLayout = layout
         dependencies.credentialStorageLayout = .isolatedForTests()
         dependencies.makePipelineHistoryStore = { _ in store }
+        dependencies.makeRetryCloudTranscriptionDependencies = retryDependencies
         dependencies.makeNoteSyncController = { _ in
             NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, accountID: { signedInAccount }, makeEngine: { events in
                 engine.events = events
@@ -464,5 +471,245 @@ struct AppStateNoteSyncTests {
             preconditionFailure("launch calls are missing")
         }
         precondition(syncStart.lowerBound < purgeStart.lowerBound)
+    }
+
+    // MARK: - When this Mac last used a recording
+
+    /// Stamping a note that is gone (deleted for good meanwhile) does
+    /// nothing; stamping one that is here keeps the date on this Mac only.
+    @MainActor
+    static func testMarkingANoteThatIsGoneDoesNothing() async throws {
+        let note = makeItem(audioFile: "\(UUID().uuidString).wav")
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.appState.markNoteAudioUsed(UUID(), now: t0)
+        precondition(fixture.store.audioLastUsedAt(id: note.id) == nil, "another note isn't stamped")
+        fixture.appState.markNoteAudioUsed(note.id, now: t0)
+        precondition(fixture.store.audioLastUsedAt(id: note.id) == t0)
+        precondition(fixture.engine.saves.isEmpty, "the date isn't sent to iCloud")
+    }
+
+    /// Serves one synthetic audio part, fails offline, or waits until the
+    /// download is cancelled.
+    final class StampFetcher: NoteAudioPartFetching, @unchecked Sendable {
+        enum Mode { case serve(Data), offline, waitForCancel }
+        var mode: Mode = .offline
+        let dir: URL
+        init(dir: URL) { self.dir = dir }
+        func fetchAudioPart(_ part: NoteAudioPartID, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+            switch mode {
+            case .offline:
+                throw NoteAudioFetchError.offline
+            case .waitForCancel:
+                try await Task.sleep(for: .seconds(30))
+                throw NoteAudioFetchError.failed
+            case .serve(let data):
+                let url = dir.appendingPathComponent("served-\(UUID().uuidString)")
+                try data.write(to: url)
+                progress(1)
+                return url
+            }
+        }
+    }
+
+    /// A download stamps the note once the audio is here; one that fails
+    /// or is cancelled doesn't.
+    @MainActor
+    static func testDownloadStampsOnlyWhenTheAudioArrives() async throws {
+        let note = makeItem(audioFile: "\(UUID().uuidString).wav")
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let appState = fixture.appState
+        let bytes = Data((0..<10).map { UInt8($0) })
+        let source = fixture.root.appendingPathComponent("source.wav")
+        try bytes.write(to: source)
+        let manifest = NoteAudioManifest(sha256: try NoteAudioParts.sha256(of: source), bytes: 10, partSize: 50_000_000, parts: 1)
+        try fixture.store.setAudioManifest(manifest, id: note.id)
+        let fetcher = StampFetcher(dir: fixture.root)
+        appState.noteAudioDownloader = NoteAudioDownloader(
+            downloadsDirectory: fixture.root.appendingPathComponent("downloads", isDirectory: true),
+            fetcher: { fetcher },
+            isSyncOn: { true }
+        )
+
+        fetcher.mode = .offline
+        let offline = await appState.downloadNoteAudio(for: note)
+        precondition(offline == nil)
+        precondition(fixture.store.audioLastUsedAt(id: note.id) == nil, "a failed download doesn't stamp")
+
+        fetcher.mode = .waitForCancel
+        let cancelled = Task { @MainActor in await appState.downloadNoteAudio(for: note) }
+        for _ in 0..<200 where !appState.noteAudioDownloader.downloadingNotes.contains(note.id) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        precondition(appState.noteAudioDownloader.downloadingNotes.contains(note.id), "the download started")
+        appState.cancelNoteAudioDownload(for: note)
+        let stopped = await cancelled.value
+        precondition(stopped == nil)
+        precondition(fixture.store.audioLastUsedAt(id: note.id) == nil, "a cancelled download doesn't stamp")
+
+        fetcher.mode = .serve(bytes)
+        let start = Date()
+        let downloaded = await appState.downloadNoteAudio(for: note)
+        precondition(downloaded != nil)
+        precondition((fixture.store.audioLastUsedAt(id: note.id) ?? .distantPast) >= start, "a finished download stamps")
+    }
+
+    /// What the synthetic cloud transcription answers.
+    final class StampUpload: @unchecked Sendable {
+        enum Mode { case answer(String), fail, waitForCancel }
+        private let lock = NSLock()
+        private var _mode: Mode = .fail
+        var mode: Mode {
+            get { lock.withLock { _mode } }
+            set { lock.withLock { _mode = newValue } }
+        }
+
+        func dependencies() -> CloudTranscriptionDependencies {
+            CloudTranscriptionDependencies(
+                encodedUploadCeilingBytes: 20_000_000,
+                upload: { [self] request, _ in
+                    switch mode {
+                    case .fail:
+                        throw URLError(.cannotConnectToHost)
+                    case .waitForCancel:
+                        try await Task.sleep(for: .seconds(30))
+                        throw URLError(.cannotConnectToHost)
+                    case .answer(let text):
+                        let data = try JSONSerialization.data(withJSONObject: ["text": text])
+                        return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                    }
+                },
+                checkpointStore: InMemoryCloudTranscriptionCheckpointStore(),
+                progress: { _ in },
+                temporaryRoot: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("quill-stamp-upload-\(UUID().uuidString)", isDirectory: true),
+                sleep: { _ in }
+            )
+        }
+    }
+
+    @MainActor
+    static func useSyntheticCloudTranscription(_ appState: AppState) {
+        appState.transcriptionAPIKey = "synthetic-key"
+        appState.transcriptionAPIURL = "https://provider.example/v1"
+        appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "whisper-large-v3"))
+        appState.disablePostProcessing = true
+    }
+
+    @MainActor
+    static func waitUntilRetryEnds(_ appState: AppState, noteID: UUID) async throws {
+        for _ in 0..<500 {
+            if !appState.retryingItemIDs.contains(noteID) { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        preconditionFailure("the retranscription didn't end")
+    }
+
+    /// Retranscribing stamps the note when it finishes: saved directly,
+    /// saved because the result is the same, or waiting to be compared (and
+    /// again when chosen). A failed or stopped one doesn't.
+    @MainActor
+    static func testRetranscriptionStampsOnlyWhenItFinishes() async throws {
+        let note = makeItem(audioFile: "\(UUID().uuidString).mp3")
+        let upload = StampUpload()
+        let fixture = try makeFixture(items: [note], retryDependencies: { upload.dependencies() })
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let appState = fixture.appState
+        guard let audioURL = appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
+        try FileManager.default.createDirectory(at: audioURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0]).write(to: audioURL)
+        useSyntheticCloudTranscription(appState)
+        func current() -> PipelineHistoryItem { appState.pipelineHistory.first { $0.id == note.id }! }
+        func stamp() -> Date? { fixture.store.audioLastUsedAt(id: note.id) }
+
+        upload.mode = .fail
+        appState.retryTranscription(item: current())
+        precondition(appState.retryingItemIDs.contains(note.id), "the retry started")
+        try await waitUntilRetryEnds(appState, noteID: note.id)
+        precondition(stamp() == nil, "a failed retranscription doesn't stamp")
+
+        upload.mode = .waitForCancel
+        appState.retryTranscription(item: current())
+        for _ in 0..<200 where !appState.canCancelTranscriptionRetry(current()) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        appState.cancelTranscriptionRetry(item: current())
+        try await waitUntilRetryEnds(appState, noteID: note.id)
+        precondition(stamp() == nil, "a stopped retranscription doesn't stamp")
+
+        // The same text, compared first: saved directly as unchanged.
+        try fixture.store.setAudioLastUsedAt(.distantPast, id: note.id)
+        upload.mode = .answer(current().displayedTranscript)
+        var start = Date()
+        appState.retryTranscription(item: current(), choice: nil, comparesFirst: true)
+        try await waitUntilRetryEnds(appState, noteID: note.id)
+        precondition(appState.transcriptionCandidates[note.id] == nil, "nothing to compare")
+        precondition((stamp() ?? .distantPast) >= start, "an unchanged result stamps")
+
+        // A new text waits to be compared, and is chosen.
+        try fixture.store.setAudioLastUsedAt(.distantPast, id: note.id)
+        upload.mode = .answer("Synthetic new transcript.")
+        start = Date()
+        appState.retryTranscription(item: current(), choice: nil, comparesFirst: true)
+        try await waitUntilRetryEnds(appState, noteID: note.id)
+        precondition(appState.transcriptionCandidates[note.id] != nil, "the new text waits")
+        precondition((stamp() ?? .distantPast) >= start, "a result waiting to be compared stamps")
+        try fixture.store.setAudioLastUsedAt(.distantPast, id: note.id)
+        start = Date()
+        precondition(appState.acceptTranscriptionCandidate(noteID: note.id) == .saved)
+        precondition((stamp() ?? .distantPast) >= start, "choosing the new text stamps")
+
+        // Saved directly.
+        try fixture.store.setAudioLastUsedAt(.distantPast, id: note.id)
+        upload.mode = .answer("Synthetic third transcript.")
+        start = Date()
+        appState.retryTranscription(item: current())
+        try await waitUntilRetryEnds(appState, noteID: note.id)
+        precondition(current().postProcessedTranscript == "Synthetic third transcript.")
+        precondition((stamp() ?? .distantPast) >= start, "a saved retranscription stamps")
+    }
+
+    /// The first transcription of an imported recording stamps the note
+    /// when it finishes; one that fails doesn't.
+    @MainActor
+    static func testFirstTranscriptionStampsOnlyWhenItFinishes() async throws {
+        let upload = StampUpload()
+        let original = AppState.audioImportCloudTranscriptionDependenciesFactory
+        AppState.audioImportCloudTranscriptionDependenciesFactory = { upload.dependencies() }
+        defer { AppState.audioImportCloudTranscriptionDependenciesFactory = original }
+        let fixture = try makeFixture(items: [])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let appState = fixture.appState
+        useSyntheticCloudTranscription(appState)
+        var wav = try CanonicalPCM16WAV.header(dataByteCount: 8)
+        wav.append(Data([1, 0, 1, 0, 2, 0, 2, 0]))
+
+        func importAndWait(_ name: String) async throws -> PipelineHistoryItem {
+            let source = fixture.root.appendingPathComponent(name)
+            try wav.write(to: source)
+            let known = Set(appState.pipelineHistory.map(\.id))
+            appState.importAudioFile(source, choice: .apiStandard(modelID: "whisper-large-v3"))
+            for _ in 0..<1000 {
+                if !appState.isTranscribing,
+                   let note = appState.pipelineHistory.first(where: { !known.contains($0.id) }),
+                   note.postProcessingStatus != PipelineHistoryItem.cloudTranscribingStatus {
+                    return note
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            preconditionFailure("the import didn't finish")
+        }
+
+        upload.mode = .fail
+        let failed = try await importAndWait("failing.wav")
+        precondition(failed.rawTranscript.isEmpty, "the transcription failed")
+        precondition(fixture.store.audioLastUsedAt(id: failed.id) == nil, "a failed transcription doesn't stamp")
+
+        upload.mode = .answer("Synthetic imported transcript.")
+        let start = Date()
+        let transcribed = try await importAndWait("working.wav")
+        precondition(transcribed.rawTranscript == "Synthetic imported transcript.", "\(transcribed.postProcessingStatus)")
+        precondition((fixture.store.audioLastUsedAt(id: transcribed.id) ?? .distantPast) >= start, "a finished transcription stamps")
     }
 }

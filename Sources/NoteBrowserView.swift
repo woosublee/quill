@@ -4581,6 +4581,8 @@ private struct SummaryIssueViewAction {
 
 struct NoteAudioPlayerView: View {
     let audioURL: URL
+    /// Runs each time the player actually starts.
+    let onPlay: @MainActor () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var player: AVAudioPlayer?
@@ -4811,7 +4813,7 @@ struct NoteAudioPlayerView: View {
 
     private func play() {
         guard let p = preparedPlayer() else { return }
-        p.play()
+        if p.play() { onPlay() }
         isPlaying = true
         startProgressTimer()
     }

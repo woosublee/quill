@@ -6363,6 +6363,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .completed(let noteID, let outcome):
             switch outcome {
             case .succeeded(let completion), .fallback(let completion):
+                // Also a result that was the same, or one just chosen.
+                markNoteAudioUsed(noteID)
                 if completion.transcriptUnchanged,
                    let item = pipelineHistory.first(where: { $0.id == noteID }) {
                     setUnchangedRetranscription(
@@ -6399,7 +6401,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .stale:
                 markStoppedCloudTranscriptions(among: [noteID])
 
-            case .cancelled, .candidateReady:
+            case .candidateReady:
+                // The new transcript is made; it waits to be compared.
+                markNoteAudioUsed(noteID)
+
+            case .cancelled:
                 break
             }
         }
@@ -9836,7 +9842,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         spokenLanguage: transcription.spokenLanguage,
                         customVocabularyOverride: configuration.customVocabulary,
                         customSystemPromptOverride: configuration.customSystemPrompt,
-                        aiProcessingOutcome: result.aiProcessingOutcome
+                        aiProcessingOutcome: result.aiProcessingOutcome,
+                        transcriptionFinished: true
                     )
                     self.completeCloudTranscriptionHistory(
                         historyID: noteID,
@@ -9976,7 +9983,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // The note as it is now: the view's copy may predate a sync. A note
         // in Recently Deleted isn't listed, and keeps the copy it has.
         let item = pipelineHistory.first { $0.id == item.id } ?? item
-        if let local = noteBrowserStoredAudioURL(for: item) { return local }
+        if let local = noteBrowserStoredAudioURL(for: item) {
+            markNoteAudioUsed(item.id)
+            return local
+        }
         guard let destination = storedAudioURL(for: item),
               let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
         guard let url = await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination) else {
@@ -9987,7 +9997,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
+        markNoteAudioUsed(item.id)
         return url
+    }
+
+    /// This Mac used the note's recording: transcribed it, downloaded it,
+    /// or played it. The date stays on this Mac. A failed write is ignored:
+    /// a missed stamp only means the recording may be removed a little
+    /// earlier, and a note that is gone has nothing to stamp.
+    @MainActor
+    func markNoteAudioUsed(_ id: UUID, now: Date = Date()) {
+        try? pipelineHistoryStore.setAudioLastUsedAt(now, id: id)
     }
 
     @MainActor
@@ -13461,7 +13481,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customVocabularyOverride: settings.customVocabulary,
                 customSystemPromptOverride: settings.customSystemPrompt,
                 calendarMatch: calendarMatch,
-                aiProcessingOutcome: completion.aiProcessingOutcome
+                aiProcessingOutcome: completion.aiProcessingOutcome,
+                transcriptionFinished: true
             )
             completeCloudTranscriptionHistory(
                 historyID: historyID,
@@ -15386,7 +15407,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabularyOverride: String? = nil,
         customSystemPromptOverride: String? = nil,
         calendarMatch: CalendarEventMatch? = nil,
-        aiProcessingOutcome: AIProcessingOutcome = .succeeded
+        aiProcessingOutcome: AIProcessingOutcome = .succeeded,
+        transcriptionFinished: Bool = false
     ) -> Bool {
         guard !isHistoryRecoveryOperationInProgress else { return false }
         let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
@@ -15472,6 +15494,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             updatePipelineHistoryItem(entry)
             historySaved = true
+            if transcriptionFinished, audioFileName != nil {
+                markNoteAudioUsed(entryID)
+            }
             if let journalRecordingID {
                 completePromotedRecordingJournal(
                     recordingID: journalRecordingID
