@@ -476,6 +476,18 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
     }
 
+    /// The fetch Sync Now starts with, on its own and awaited. Fetched
+    /// changes are applied before `fetchChanges` returns.
+    func fetchChangesAndWait() async -> Bool {
+        guard let engine = activeEngine() else { return false }
+        do {
+            try await engine.fetchChanges()
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Overlapping calls are coalesced: a fetch already running is enough.
     func fetchNow() {
         guard let engine = activeEngine() else { return }

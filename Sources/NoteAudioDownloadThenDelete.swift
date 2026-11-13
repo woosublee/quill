@@ -4,12 +4,16 @@ import QuillNoteSyncCore
 
 /// Turn Off and Delete from iCloud, keeping every recording: downloads the
 /// recordings that are only in iCloud, one at a time, and runs the delete
-/// only once none is left. One runs at a time.
+/// only once none is left, as read straight after a fetch from iCloud. One
+/// runs at a time.
 @MainActor
 final class NoteAudioDownloadThenDelete: ObservableObject {
     struct Work {
         /// Read again before every download and before the delete. Nil: can't be read.
         var recordingsOnlyInICloud: @MainActor () -> [NoteAudioOnlyInICloud]?
+        /// Fetches what changed in iCloud and returns once it is applied
+        /// here; false with sync not running or when the fetch failed.
+        var refresh: @MainActor () async -> Bool
         var freeBytes: @MainActor () -> Int64?
         /// True once the recording is on this Mac.
         var download: @MainActor (UUID) async -> Bool
@@ -20,6 +24,8 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
 
     enum Phase: Equatable {
         case idle
+        /// Fetching from iCloud: first, and each time the list went empty.
+        case checking
         /// `done` finished; `total` is `done` plus what is still only in iCloud.
         case downloading(done: Int, total: Int, current: UUID)
         case deleting
@@ -41,10 +47,9 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
     /// `.notEnoughSpace`, `.downloadFailed`, `.cannotCheck`. Stays until dismissed,
     /// so it shows even if Settings was closed meanwhile.
     @Published private(set) var notice: Outcome?
-    var isRunning: Bool { running }
+    @Published private(set) var isRunning = false
 
     private let work: Work
-    private var running = false
     private var cancelRequested = false
 
     init(work: Work) {
@@ -53,16 +58,31 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
 
     @discardableResult
     func run() async -> Outcome {
-        guard !running else { return .alreadyRunning }
-        running = true
+        guard !isRunning else { return .alreadyRunning }
+        isRunning = true
         cancelRequested = false
         notice = nil
 
         var tried = Set<UUID>()
         var done = 0
+        // True when the next list read follows a fetch: what this Mac has
+        // fetched may miss a recording another device just made iCloud-only.
+        var fetchFirst = true
         while true {
+            if fetchFirst {
+                phase = .checking
+                let fetched = await work.refresh()
+                if cancelRequested { return finish(.cancelled) }
+                if !fetched { return finish(.downloadFailed) }
+            }
             guard let listed = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
-            if listed.isEmpty { break }
+            if listed.isEmpty {
+                // Only an empty list read straight after a fetch deletes.
+                if fetchFirst { break }
+                fetchFirst = true
+                continue
+            }
+            fetchFirst = false
             let summary = NoteAudioICloudOnlySummary(markerBytes: listed.map(\.bytes))
             if case .short(let by) = NoteAudioICloudDeletePolicy.space(
                 neededBytes: summary.bytes, freeBytes: work.freeBytes()
@@ -81,17 +101,25 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
             done += 1
         }
 
+        // A backstop: every await above already checks for Cancel.
         if cancelRequested { return finish(.cancelled) }
         phase = .deleting
         let deleted = await work.deleteFromICloud()
         return finish(deleted ? .deleted : .deleteFailed)
     }
 
-    /// Stops the current download. Does nothing once the delete began.
+    /// Stops the run: the current download stops, and a fetch running ends
+    /// the run when it returns. Does nothing once the delete began.
     func cancel() {
-        guard case .downloading(_, _, let current) = phase else { return }
-        cancelRequested = true
-        work.cancelDownload(current)
+        switch phase {
+        case .checking:
+            cancelRequested = true
+        case .downloading(_, _, let current):
+            cancelRequested = true
+            work.cancelDownload(current)
+        case .idle, .deleting:
+            return
+        }
     }
 
     func dismissNotice() {
@@ -100,7 +128,7 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
 
     private func finish(_ outcome: Outcome) -> Outcome {
         phase = .idle
-        running = false
+        isRunning = false
         switch outcome {
         case .deleteFailed, .notEnoughSpace, .downloadFailed, .cannotCheck:
             notice = outcome

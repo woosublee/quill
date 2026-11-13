@@ -22692,18 +22692,18 @@
         }
       }
     },
-    "Free up %@ more on this device, then try again. Nothing was deleted from iCloud, and sync is still on.": {
+    "Free up %@ more on this device, then try again. Nothing was deleted from iCloud.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Free up %@ more on this device, then try again. Nothing was deleted from iCloud, and sync is still on."
+            "value": "Free up %@ more on this device, then try again. Nothing was deleted from iCloud."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요."
+            "value": "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았어요."
           }
         }
       }
@@ -22724,34 +22724,34 @@
         }
       }
     },
-    "Nothing was deleted from iCloud, and sync is still on. Recordings already downloaded stay on this device. Check your internet connection and try again.": {
+    "Nothing was deleted from iCloud. Recordings already downloaded stay on this device. Check your internet connection and try again.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing was deleted from iCloud, and sync is still on. Recordings already downloaded stay on this device. Check your internet connection and try again."
+            "value": "Nothing was deleted from iCloud. Recordings already downloaded stay on this device. Check your internet connection and try again."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요."
+            "value": "iCloud에서는 아무것도 지우지 않았어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요."
           }
         }
       }
     },
-    "Quill couldn't check which recordings are only in iCloud, so nothing was deleted. Sync is still on.": {
+    "Quill couldn't check which recordings are only in iCloud, so nothing was deleted.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quill couldn't check which recordings are only in iCloud, so nothing was deleted. Sync is still on."
+            "value": "Quill couldn't check which recordings are only in iCloud, so nothing was deleted."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요. 동기화는 그대로 켜져 있어요."
+            "value": "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요."
           }
         }
       }

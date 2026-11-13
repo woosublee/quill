@@ -182,6 +182,7 @@ struct NoteSyncControllerTests {
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
+        func fetchChangesAndWait() async -> Bool { true }
         var syncsNow = 0
         /// Runs while the sync is still in progress, before it returns.
         var whileSyncing: (@MainActor () async -> Void)?

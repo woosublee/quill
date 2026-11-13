@@ -41,7 +41,9 @@ private struct NoteSyncSettingsCard: View {
     @State private var turnOnFailure: NoteSyncTurnOnFailure?
     @State private var noteCount = 0
     @State private var audioBytes: Int64 = 0
-    /// Read when the switch is flipped off; nil when it can't be checked.
+    /// Read when the switch is flipped off, for the dialog's message, and
+    /// again when Turn Off and Delete from iCloud is pressed, for the
+    /// prompt. Nil when it can't be checked.
     @State private var audioOnlyInICloud: [NoteAudioOnlyInICloud]? = []
     @State private var isAskingAboutRecordings = false
     @AppStorage(NoteAudioOffload.isOnKey) private var optimizesStorage = false
@@ -158,7 +160,7 @@ private struct NoteSyncSettingsCard: View {
         }
         .alert(recordingsOnlyInICloudTitle, isPresented: $isAskingAboutRecordings) {
             Button(localizedCatalogString(NoteAudioICloudDeleteCopy.downloadThenDeleteKey)) {
-                Task { @MainActor in await appState.noteAudioDownloadThenDelete.run() }
+                Task { @MainActor in await downloadThenDelete.run() }
             }
             .keyboardShortcut(.defaultAction)
             Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {
@@ -264,6 +266,19 @@ private struct NoteSyncSettingsCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        case .checking:
+            // Fetching from iCloud before the list is read; Cancel still works.
+            HStack(alignment: .center, spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel(Text("Turn Off and Delete from iCloud"))
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    downloadThenDelete.cancel()
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
         case .deleting:
             ProgressView()
                 .controlSize(.small)
@@ -272,7 +287,8 @@ private struct NoteSyncSettingsCard: View {
     }
 
     private var recordingsOnlyInICloudTitle: String {
-        let summary = NoteAudioICloudOnlySummary(markerBytes: (audioOnlyInICloud ?? []).map(\.bytes))
+        guard let recordings = audioOnlyInICloud, !recordings.isEmpty else { return "" }
+        let summary = NoteAudioICloudOnlySummary(markerBytes: recordings.map(\.bytes))
         let size = sizeText(summary.bytes)
         let key = NoteAudioICloudDeleteCopy.titleFormatKey(count: summary.count)
         return summary.count == 1
@@ -377,8 +393,10 @@ private struct NoteSyncSettingsCard: View {
     }
 
     /// With recordings only in iCloud, asks whether to download them first;
-    /// otherwise deletes as before.
+    /// otherwise deletes as before. Read again here: the storage pass may
+    /// have made a recording iCloud-only while the dialog was open.
     private func deleteFromICloudPressed() {
+        audioOnlyInICloud = controller.recordingsOnlyInICloud
         guard let recordings = audioOnlyInICloud, !recordings.isEmpty else {
             turnOff(deleteFromICloud: true)
             return

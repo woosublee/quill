@@ -344,10 +344,10 @@ struct SettingsLocalizationTests {
             NoteAudioICloudDeleteCopy.progressFormatKey: "iCloud에서 녹음 받는 중 · %lld/%lld",
             NoteAudioICloudDeleteCopy.progressDetailKey: "녹음을 모두 이 기기에 받기 전에는 iCloud에서 아무것도 지우지 않아요.",
             NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey: "녹음을 받을 공간이 부족해요",
-            NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey: "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요.",
+            NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey: "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았어요.",
             NoteAudioICloudDeleteCopy.downloadFailedTitleKey: "녹음을 모두 받지 못했어요",
-            NoteAudioICloudDeleteCopy.downloadFailedMessageKey: "iCloud에서는 아무것도 지우지 않았고, 동기화는 그대로 켜져 있어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요.",
-            NoteAudioICloudDeleteCopy.cannotCheckMessageKey: "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요. 동기화는 그대로 켜져 있어요.",
+            NoteAudioICloudDeleteCopy.downloadFailedMessageKey: "iCloud에서는 아무것도 지우지 않았어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요.",
+            NoteAudioICloudDeleteCopy.cannotCheckMessageKey: "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요.",
             "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
             "Check your iCloud account in System Settings, then try again.": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요.",
             "Notes can't sync right now. If history recovery is running, try again after it finishes.": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요.",
@@ -460,8 +460,10 @@ struct SettingsLocalizationTests {
         // Recordings only in iCloud: a second prompt offers to download them
         // first (the default), or to delete without them, as before.
         assert(view.contains("NoteAudioICloudDeleteCopy.downloadThenDeleteKey"))
-        assert(view.contains(".keyboardShortcut(.defaultAction)"))
-        assert(view.contains("noteAudioDownloadThenDelete.run()"))
+        assert(view.contains("Button(localizedCatalogString(NoteAudioICloudDeleteCopy.downloadThenDeleteKey)) {\n                Task { @MainActor in await downloadThenDelete.run() }\n            }\n            .keyboardShortcut(.defaultAction)"))
+        // The prompt reads the list again when the button is pressed, and
+        // decides from that fresh read.
+        assert(view.contains("private func deleteFromICloudPressed() {\n        audioOnlyInICloud = controller.recordingsOnlyInICloud\n        guard let recordings = audioOnlyInICloud, !recordings.isEmpty else {\n            turnOff(deleteFromICloud: true)"))
         assert(view.contains("Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {\n                turnOff(deleteFromICloud: true)\n            }"))
         assert(!view.contains("notes have audio in iCloud that isn't on this Mac"))
         assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))

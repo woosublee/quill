@@ -3384,6 +3384,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// that is only in iCloud.
     @MainActor private(set) lazy var noteAudioDownloadThenDelete = NoteAudioDownloadThenDelete(work: .init(
         recordingsOnlyInICloud: { [weak self] in self?.noteSyncController?.recordingsOnlyInICloud },
+        refresh: { [weak self] in await self?.noteSyncController?.fetchChangesAndWait() ?? false },
         freeBytes: { [weak self] in self?.noteAudioFreeBytes() },
         download: { [weak self] id in await self?.downloadNoteAudio(noteID: id) ?? false },
         cancelDownload: { [weak self] id in self?.noteAudioDownloader.cancel(noteID: id) },

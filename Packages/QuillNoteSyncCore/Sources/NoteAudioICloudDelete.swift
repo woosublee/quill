@@ -65,8 +65,8 @@ public enum NoteAudioICloudDeleteCopy {
     public static let progressDetailKey = "Nothing is deleted from iCloud until every recording is on this device."
     public static let notEnoughSpaceTitleKey = "Not enough space to download the recordings"
     /// One argument: the size text of what is missing.
-    public static let notEnoughSpaceMessageFormatKey = "Free up %@ more on this device, then try again. Nothing was deleted from iCloud, and sync is still on."
+    public static let notEnoughSpaceMessageFormatKey = "Free up %@ more on this device, then try again. Nothing was deleted from iCloud."
     public static let downloadFailedTitleKey = "Couldn't download every recording"
-    public static let downloadFailedMessageKey = "Nothing was deleted from iCloud, and sync is still on. Recordings already downloaded stay on this device. Check your internet connection and try again."
-    public static let cannotCheckMessageKey = "Quill couldn't check which recordings are only in iCloud, so nothing was deleted. Sync is still on."
+    public static let downloadFailedMessageKey = "Nothing was deleted from iCloud. Recordings already downloaded stay on this device. Check your internet connection and try again."
+    public static let cannotCheckMessageKey = "Quill couldn't check which recordings are only in iCloud, so nothing was deleted."
 }

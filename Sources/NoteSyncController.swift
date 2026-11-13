@@ -8,6 +8,9 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// schedules regular fetches, and fetches once.
     func start()
     func fetchNow()
+    /// Fetches now and returns once what changed is applied here: false
+    /// when the engine isn't running or the fetch failed.
+    func fetchChangesAndWait() async -> Bool
     /// Fetches, then sends what is waiting, and returns when both finished.
     func syncNow() async
     /// Deletes the notes from iCloud, then their audio. Returns false when
@@ -557,6 +560,14 @@ final class NoteSyncController: ObservableObject {
     /// Fetches now when sync is on: at launch, and when notes or Settings open.
     func fetchSoon() {
         engine?.fetchNow()
+    }
+
+    /// Fetches now and waits for it: Download, Then Delete reads which
+    /// recordings are only in iCloud right after. False without sync
+    /// running or when the fetch failed.
+    func fetchChangesAndWait() async -> Bool {
+        guard let engine else { return false }
+        return await engine.fetchChangesAndWait()
     }
 
     /// A download found a part missing: a sync may bring a newer marker,
