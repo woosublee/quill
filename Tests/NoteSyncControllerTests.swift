@@ -67,6 +67,18 @@ struct NoteSyncControllerTests {
         testConfirmingAudioAsksNothingWhilePaused()
         testConfirmingAudioAsksNothingWhileDeletingFromICloud()
         testConfirmingAudioConfirmsNothingWhenSyncChangesWhileWaiting()
+        try testEveryRecordingHereIsSafeWithoutReadingNotes()
+        try testTheCheckWritesNoMarkerItself()
+        try testAMarkerThisMacNeverFetchedIsMergedAndListed()
+        try testANoteThisMacNeverSawIsImported()
+        try testARecentlyDeletedNoteElsewhereIsImportedAsDeleted()
+        try testAPurgedNoteWaitingToBeDeletedIsNotBroughtBack()
+        try testLeftoverAndUploadingPartsDontBlock()
+        try testAFailedListingCantBeSure()
+        try testAFailedNoteReadCantBeSure()
+        try testARecordThatCantBeReadCantBeSure()
+        try testNoNoteInAnotherAccountCantBeSure()
+        try testCheckingWithoutAnEngineOrWhileTurningOffCantBeSure()
         print("NoteSyncControllerTests passed")
     }
 
@@ -128,7 +140,19 @@ struct NoteSyncControllerTests {
         func clearAllSyncSystemFields(forgettingAudio: Bool) { cleared = true }
         func syncableNoteIDs() -> [UUID] { ids }
         func isSyncable(id: UUID) -> Bool { ids.contains(id) }
-        func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult { .inserted }
+        /// Takes iCloud's copy as it is: a new note joins `ids`, and the
+        /// record's marker becomes the note's.
+        func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult {
+            let isNew = syncRecord(id: record.noteID) == nil
+            records[record.noteID] = record
+            if isNew { ids.append(record.noteID) }
+            if case .data(let data)? = record.fields[NoteSyncField.audioManifest.rawValue] {
+                manifests[record.noteID] = NoteAudioManifest.decode(data)
+            } else {
+                manifests[record.noteID] = nil
+            }
+            return isNew ? .inserted : .updated(needsUpload: false)
+        }
         func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? { nil }
         var manifests: [UUID: NoteAudioManifest] = [:]
         func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
@@ -170,10 +194,12 @@ struct NoteSyncControllerTests {
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         var partListings = 0
         var partListingError: Error?
+        var allParts: [NoteAudioPartInICloud] = []
         func allAudioParts() async throws -> [NoteAudioPartInICloud] {
             partListings += 1
+            await whileLookingUpAudio?()
             if let partListingError { throw partListingError }
-            return []
+            return allParts
         }
         func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] { [:] }
         func cancelAudioSaves(noteID: UUID) {}
@@ -195,7 +221,15 @@ struct NoteSyncControllerTests {
         /// Runs while the delete is in progress.
         var whileDeleting: (@MainActor () async -> Void)?
         var deleteError: Error?
-        func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] { [:] }
+        /// iCloud's copy of each note, and every set of notes asked for.
+        var copies: [UUID: NoteCopyInICloud] = [:]
+        var copiesError: Error?
+        var copyRequests: [Set<UUID>] = []
+        func noteCopiesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteCopyInICloud] {
+            copyRequests.append(ids)
+            if let copiesError { throw copiesError }
+            return copies.filter { ids.contains($0.key) }
+        }
         func deleteAllFromICloud() async throws -> Bool {
             await whileDeleting?()
             if let deleteError { throw deleteError }
@@ -1400,5 +1434,299 @@ struct NoteSyncControllerTests {
             precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
             precondition(running?.audioLookups == 1 && confirmed.isEmpty, name)
         }
+    }
+
+    // MARK: - Asking iCloud before Download, Then Delete deletes (#839)
+
+    /// Sync on in "account-a", with recordings in `dir` and the test's own
+    /// engine; the store starts with no notes.
+    @MainActor
+    static func makeDeleteCheck(_ dir: URL, log: CallLog = CallLog()) -> (NoteSyncController, FakeStore, FakeEngine) {
+        let defaults = UserDefaults(suiteName: "quill-sync-delete-check-\(UUID().uuidString)")!
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set("account-a", forKey: NoteSyncController.syncAccountKey)
+        clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let engine = FakeEngine()
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            accountID: { @MainActor in log.account },
+            localAudioURL: { name in
+                let url = dir.appendingPathComponent(name)
+                return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            },
+            now: { clock },
+            makeEngine: { _ in engine }
+        )
+        let store = FakeStore()
+        controller.attach(store: store)
+        return (controller, store, engine)
+    }
+
+    static func checkDirectory() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-delete-check-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func checkMarker(_ fill: String, bytes: Int64 = 4_000) -> NoteAudioManifest {
+        NoteAudioManifest(sha256: String(repeating: fill, count: 32), bytes: bytes, partSize: 50_000_000, parts: 1)
+    }
+
+    static func checkRecord(
+        _ id: UUID,
+        file: String?,
+        marker: NoteAudioManifest? = nil,
+        deletedAt: Date? = nil,
+        schemaVersion: Int? = nil
+    ) -> NoteSyncRecord {
+        var fields: [String: NoteSyncValue] = [NoteSyncField.rawTranscript.rawValue: .string("Invented note")]
+        if let file { fields[NoteSyncField.audioFileName.rawValue] = .string(file) }
+        if let marker { fields[NoteSyncField.audioManifest.rawValue] = .data(marker.encoded()) }
+        if let schemaVersion { fields[NoteSyncRecord.schemaVersionKey] = .int(schemaVersion) }
+        return NoteSyncRecord(noteID: id, fields: fields, clock: NoteFieldClock(stamps: [:]), deletedAt: deletedAt)
+    }
+
+    static func found(_ record: NoteSyncRecord) throws -> NoteCopyInICloud {
+        .found(NoteSyncFetched(noteID: record.noteID, payload: try NoteSyncPayload.encode(record), systemFields: Data()))
+    }
+
+    @MainActor
+    static func partsInICloud(_ id: UUID, _ marker: NoteAudioManifest) -> [NoteAudioPartInICloud] {
+        NoteAudioPartID.parts(of: id, sha256: marker.sha256, count: marker.parts).map {
+            NoteAudioPartInICloud(part: $0, saved: clock)
+        }
+    }
+
+    /// Puts a note on this Mac, with its recording file when `bytes` is set.
+    @MainActor
+    static func addNote(_ store: FakeStore, dir: URL, file: String, marker: NoteAudioManifest?, bytes: Int?) throws -> UUID {
+        let id = UUID()
+        store.ids.append(id)
+        store.records[id] = checkRecord(id, file: file)
+        store.manifests[id] = marker
+        if let bytes { try Data(count: bytes).write(to: dir.appendingPathComponent(file)) }
+        return id
+    }
+
+    @MainActor
+    static func runDeleteCheck(_ controller: NoteSyncController) -> NoteAudioICloudDeleteCheck.Verdict? {
+        var verdict: NoteAudioICloudDeleteCheck.Verdict?
+        precondition(expectation { verdict = await controller.checkRecordingsInICloudBeforeDelete() })
+        return verdict
+    }
+
+    /// Every listed recording is on this Mac: no note is read.
+    @MainActor
+    static func testEveryRecordingHereIsSafeWithoutReadingNotes() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let first = checkMarker("a1"), second = checkMarker("b2")
+        let a = try addNote(store, dir: dir, file: "a.wav", marker: first, bytes: 10)
+        let b = try addNote(store, dir: dir, file: "b.wav", marker: second, bytes: 10)
+        engine.allParts = partsInICloud(a, first) + partsInICloud(b, second)
+        engine.partListings = 0
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .safeToDelete, "\(String(describing: verdict))")
+        precondition(engine.copyRequests.isEmpty && engine.partListings == 1)
+    }
+
+    /// The check changes no marker or upload key itself.
+    @MainActor
+    static func testTheCheckWritesNoMarkerItself() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let first = checkMarker("a1"), second = checkMarker("b2")
+        let a = try addNote(store, dir: dir, file: "a.wav", marker: first, bytes: 10)
+        let b = try addNote(store, dir: dir, file: "b.wav", marker: second, bytes: 10)
+        engine.allParts = partsInICloud(a, first) + partsInICloud(b, second)
+        let manifests = store.manifests
+        let keys = store.ids.map { store.audioUploadKey(id: $0) }
+        let records = store.records
+        precondition(runDeleteCheck(controller) == .safeToDelete)
+        precondition(store.manifests == manifests && store.ids.map { store.audioUploadKey(id: $0) } == keys)
+        precondition(store.records == records)
+    }
+
+    /// A marker this Mac never fetched is merged, and its recording is then
+    /// listed as only in iCloud, with the file name it had.
+    @MainActor
+    static func testAMarkerThisMacNeverFetchedIsMergedAndListed() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let marker = checkMarker("c3")
+        let id = try addNote(store, dir: dir, file: "x.wav", marker: nil, bytes: nil)
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "x.wav", marker: marker))
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .download([id]), "\(String(describing: verdict))")
+        precondition(engine.copyRequests == [[id]])
+        precondition(store.audioManifest(id: id) == marker)
+        precondition(controller.recordingsOnlyInICloud?.contains(NoteAudioOnlyInICloud(id: id, bytes: Int64(marker.bytes))) == true)
+        precondition(store.syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] == .string("x.wav"))
+    }
+
+    @MainActor
+    static func testANoteThisMacNeverSawIsImported() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        var changed: [UUID] = []
+        controller.onRemoteChange = { changed += $0.changed }
+        let marker = checkMarker("d4")
+        let id = UUID()
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "new.wav", marker: marker))
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .download([id]), "\(String(describing: verdict))")
+        precondition(store.ids.contains(id) && store.audioManifest(id: id) == marker)
+        precondition(changed.contains(id))
+    }
+
+    /// A note in Recently Deleted on another device comes in deleted, and
+    /// its recording is still downloaded.
+    @MainActor
+    static func testARecentlyDeletedNoteElsewhereIsImportedAsDeleted() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let marker = checkMarker("e5")
+        let id = UUID()
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "gone.wav", marker: marker, deletedAt: clock))
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .download([id]), "\(String(describing: verdict))")
+        precondition(store.syncRecord(id: id)?.deletedAt != nil, "still deleted")
+    }
+
+    /// A note this Mac deleted for good, whose delete hasn't gone up, isn't
+    /// read, so iCloud's copy can't bring it back.
+    @MainActor
+    static func testAPurgedNoteWaitingToBeDeletedIsNotBroughtBack() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let marker = checkMarker("f6")
+        let id = UUID()
+        engine.deletes = [id]
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "purged.wav", marker: marker))
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .safeToDelete, "\(String(describing: verdict))")
+        precondition(!engine.copyRequests.contains { $0.contains(id) })
+        precondition(store.syncRecord(id: id) == nil)
+    }
+
+    /// Parts with no note in iCloud (left over) and parts of a note whose
+    /// marker isn't saved yet (still uploading) hold nothing to keep.
+    @MainActor
+    static func testLeftoverAndUploadingPartsDontBlock() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let leftover = UUID()
+        let uploading = try addNote(store, dir: dir, file: "up.wav", marker: nil, bytes: nil)
+        engine.allParts = partsInICloud(leftover, checkMarker("a7")) + partsInICloud(uploading, checkMarker("b8"))
+        engine.copies[leftover] = .noNote
+        engine.copies[uploading] = try found(checkRecord(uploading, file: "up.wav"))
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .safeToDelete, "\(String(describing: verdict))")
+        precondition(engine.copyRequests == [[leftover, uploading]])
+    }
+
+    @MainActor
+    static func testAFailedListingCantBeSure() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        var changes = 0
+        controller.onRemoteChange = { _ in changes += 1 }
+        let marker = checkMarker("c9")
+        let id = UUID()
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "n.wav", marker: marker))
+        engine.partListingError = URLError(.notConnectedToInternet)
+        precondition(runDeleteCheck(controller) == .cannotBeSure)
+        precondition(engine.copyRequests.isEmpty && store.ids.isEmpty && changes == 0)
+    }
+
+    @MainActor
+    static func testAFailedNoteReadCantBeSure() throws {
+        let cases: [(String, @MainActor (FakeEngine, UUID) -> Void)] = [
+            ("the read failed", { engine, _ in engine.copiesError = URLError(.timedOut) }),
+            ("this note failed", { engine, id in engine.copies[id] = .failed }),
+            ("no answer", { _, _ in }),
+        ]
+        for (name, setUp) in cases {
+            let dir = try checkDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let (controller, _, engine) = makeDeleteCheck(dir)
+            let id = UUID()
+            engine.allParts = partsInICloud(id, checkMarker("da"))
+            setUp(engine, id)
+            precondition(runDeleteCheck(controller) == .cannotBeSure, name)
+            precondition(engine.copyRequests == [[id]], name)
+        }
+    }
+
+    /// A record from a newer build decides nothing; the note here keeps
+    /// its file name and stays without a marker.
+    @MainActor
+    static func testARecordThatCantBeReadCantBeSure() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let id = try addNote(store, dir: dir, file: "x.wav", marker: nil, bytes: nil)
+        engine.allParts = partsInICloud(id, checkMarker("eb"))
+        engine.copies[id] = try found(checkRecord(id, file: "x.wav", schemaVersion: NoteSyncRecord.schemaVersion + 1))
+        precondition(runDeleteCheck(controller) == .cannotBeSure)
+        precondition(store.audioManifest(id: id) == nil)
+        precondition(store.syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] == .string("x.wav"))
+    }
+
+    /// iCloud holding no such note counts only in the account sync runs in.
+    @MainActor
+    static func testNoNoteInAnotherAccountCantBeSure() throws {
+        for account in ["account-b", nil] as [String?] {
+            let dir = try checkDirectory()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let log = CallLog()
+            let (controller, _, engine) = makeDeleteCheck(dir, log: log)
+            log.account = account
+            let id = UUID()
+            engine.allParts = partsInICloud(id, checkMarker("fc"))
+            engine.copies[id] = .noNote
+            precondition(runDeleteCheck(controller) == .cannotBeSure, "\(String(describing: account))")
+        }
+    }
+
+    @MainActor
+    static func testCheckingWithoutAnEngineOrWhileTurningOffCantBeSure() throws {
+        // Sync off.
+        let (off, offStore, offEngine, _) = make()
+        off.attach(store: offStore)
+        precondition(runDeleteCheck(off) == .cannotBeSure && offEngine() == nil)
+
+        // Note history can't be read.
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (unready, unreadyStore, unreadyEngine) = makeDeleteCheck(dir)
+        unreadyStore.isReadyForSync = false
+        unreadyEngine.partListings = 0
+        precondition(runDeleteCheck(unready) == .cannotBeSure && unreadyEngine.partListings == 0)
+
+        // Turned off while iCloud is asked.
+        let (controller, _, engine) = makeDeleteCheck(dir)
+        let id = UUID()
+        let marker = checkMarker("0d")
+        engine.allParts = partsInICloud(id, marker)
+        engine.copies[id] = try found(checkRecord(id, file: "n.wav", marker: marker))
+        engine.whileLookingUpAudio = { _ = await controller.turnOff(deleteFromICloud: false) }
+        precondition(runDeleteCheck(controller) == .cannotBeSure)
+        precondition(engine.copyRequests.isEmpty && !controller.isEnabled)
     }
 }

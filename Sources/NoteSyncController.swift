@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteSyncCore
 
 /// The engine the controller drives. `NoteSyncCloudKitEngine` is the real
 /// one; tests use a fake.
@@ -183,6 +184,109 @@ final class NoteSyncController: ObservableObject {
             guard isEnabled, self.engine === engine, !isDeletingFromICloud, turnOffInProgress == nil else { return [:] }
         }
         return checks
+    }
+
+    /// Asks iCloud which recordings it holds, right before Download, Then
+    /// Delete deletes, and merges the note records this Mac lacked, as a fetch
+    /// would (#839). `.cannotBeSure` whenever sync isn't running, a read
+    /// failed, or sync stopped or began turning off meanwhile.
+    func checkRecordingsInICloudBeforeDelete() async -> NoteAudioICloudDeleteCheck.Verdict {
+        guard isEnabled, let engine, let coordinator, let store, store.isReadyForSync,
+              !isDeletingFromICloud, turnOffInProgress == nil else { return .cannotBeSure }
+        // The engine may have stopped, or a turn-off or delete from iCloud
+        // begun, at any await below.
+        func stillRunning() -> Bool {
+            isEnabled && self.engine === engine && self.coordinator === coordinator
+                && self.store === store && store.isReadyForSync
+                && !isDeletingFromICloud && turnOffInProgress == nil
+        }
+        let parts: [NoteAudioPartID]
+        do {
+            parts = try await engine.allAudioParts().map(\.part)
+        } catch {
+            print("[NoteSync] Couldn't check iCloud before deleting")
+            return .cannotBeSure
+        }
+        guard stillRunning() else { return .cannotBeSure }
+        let listed = Set(parts.map(\.noteID))
+        guard let device = notesOnThisMac(listed, in: store) else { return .cannotBeSure }
+        let deletingHere = coordinator.noteDeletesOwed
+        let toRead = NoteAudioICloudDeleteCheck.notesToRead(parts: parts, device: device, deletingHere: deletingHere)
+        if toRead.isEmpty {
+            return NoteAudioICloudDeleteCheck.verdict(parts: parts, serverNotes: [:], device: device, deletingHere: deletingHere)
+        }
+        let copies: [UUID: NoteCopyInICloud]
+        do {
+            copies = try await engine.noteCopiesInICloud(toRead)
+        } catch {
+            print("[NoteSync] Couldn't check iCloud before deleting")
+            return .cannotBeSure
+        }
+        guard stillRunning() else { return .cannotBeSure }
+        let found = copies.values.compactMap { copy -> NoteSyncFetched? in
+            if case .found(let fetched) = copy { return fetched }
+            return nil
+        }
+        if !found.isEmpty {
+            let change = coordinator.handleFetched(found, deletions: [])
+            if change != NoteSyncRemoteChange() { onRemoteChange?(change) }
+            // A record the store couldn't save may have stopped sync.
+            guard stillRunning() else { return .cannotBeSure }
+        }
+        let serverNotes = copies.mapValues { copy -> NoteAudioICloudDeleteCheck.ServerNote in
+            switch copy {
+            case .noNote: return .noNote
+            case .failed: return .unreadable
+            case .found(let fetched):
+                switch NoteAudioInICloud.read(payload: fetched.payload) {
+                case .noNote: return .noNote
+                case .unreadable: return .unreadable
+                case .noMarker: return .noMarker
+                case .marker(let marker): return .marker(marker)
+                }
+            }
+        }
+        // A note missing from iCloud counts only in the account sync uses:
+        // an account switched before the engine reported it holds none of
+        // these notes.
+        if serverNotes.values.contains(.noNote) {
+            let synced = defaults.string(forKey: Self.syncAccountKey)
+            let current = await accountID()
+            guard synced != nil, current != nil, synced == current, stillRunning() else { return .cannotBeSure }
+        }
+        // Read again: the merge may have brought notes and markers here.
+        guard let merged = notesOnThisMac(listed, in: store) else { return .cannotBeSure }
+        return NoteAudioICloudDeleteCheck.verdict(
+            parts: parts, serverNotes: serverNotes, device: merged, deletingHere: coordinator.noteDeletesOwed
+        )
+    }
+
+    /// What this Mac holds of each of these notes: nil when the store can't
+    /// say whether one is here.
+    private func notesOnThisMac(_ ids: Set<UUID>, in store: NoteSyncLocalStore) -> [UUID: NoteAudioICloudDeleteCheck.DeviceNote]? {
+        // An empty file here is no copy of the audio, as in `recordingsOnlyInICloud`.
+        func hasAudio(_ audio: NoteSyncLocalAudio?) -> Bool { (audio?.bytes ?? 0) > 0 }
+        var device: [UUID: NoteAudioICloudDeleteCheck.DeviceNote] = [:]
+        for note in store.audioSyncSnapshots() where ids.contains(note.id) {
+            device[note.id] = NoteAudioICloudDeleteCheck.DeviceNote(
+                hasLocalAudio: hasAudio(NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)),
+                marker: note.manifest
+            )
+        }
+        for id in ids where device[id] == nil {
+            switch store.noteExists(id: id) {
+            case nil:
+                return nil
+            case false?:
+                continue
+            case true?:
+                device[id] = NoteAudioICloudDeleteCheck.DeviceNote(
+                    hasLocalAudio: hasAudio(store.localAudioFile(id: id, resolve: localAudioURL)),
+                    marker: store.audioManifest(id: id)
+                )
+            }
+        }
+        return device
     }
 
     /// False while sync is off, turning on or off, deleting from iCloud, or paused.

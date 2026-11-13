@@ -343,6 +343,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// only part names and save dates, never the audio.
     private func listAudioParts() async throws -> [NoteAudioPartInICloud] {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        // A stalled page gives up rather than wait for CloudKit's long
+        // default, as `noteRecordsInICloud` does.
+        let limit = CKOperation.Configuration()
+        limit.timeoutIntervalForRequest = 30
+        limit.timeoutIntervalForResource = 60
         var parts: [NoteAudioPartInICloud] = []
         var token: CKServerChangeToken?
         var moreComing = true
@@ -354,11 +359,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 moreComing: Bool
             )
             do {
-                changes = try await database.recordZoneChanges(
-                    inZoneWith: NoteAudioCloudRecord.zoneID(),
-                    since: token,
-                    desiredKeys: NoteAudioCloudRecord.lookupKeys
-                )
+                let since = token
+                changes = try await database.configuredWith(configuration: limit) { database in
+                    try await database.recordZoneChanges(
+                        inZoneWith: NoteAudioCloudRecord.zoneID(),
+                        since: since,
+                        desiredKeys: NoteAudioCloudRecord.lookupKeys
+                    )
+                }
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 return []
             }

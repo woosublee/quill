@@ -527,6 +527,14 @@ final class NoteSyncCoordinator {
         return confirmed
     }
 
+    /// Notes this Mac deleted for good whose delete iCloud hasn't confirmed:
+    /// waiting in the engine or in the retries, including given-up ones.
+    var noteDeletesOwed: Set<UUID> {
+        Set(engine.pendingNoteDeletes())
+            .union(deleteRetries.unconfirmed)
+            .union(deleteRetries.givenUp)
+    }
+
     /// Notes whose audio isn't settled: parts going up or waiting to be
     /// deleted, the note waiting to be deleted, or a check running or owed.
     private func notesWithUnsettledAudio() -> Set<UUID> {
