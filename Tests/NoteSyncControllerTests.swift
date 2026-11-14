@@ -23,6 +23,7 @@ struct NoteSyncControllerTests {
         testTurnOffInAnotherAccountKeepsTheFirstOnesAudio()
         testUnreadableAccountAtTurnOffIsRecordedAsUnknown()
         testAccountChangeTurnsSyncOff()
+        testTurnedOffIsReportedOnlyForTheUsersTurnOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
         testReplacedStoreStartsOverWithFullUpload()
         testUnreadyStoreDoesNotStartSync()
@@ -375,6 +376,24 @@ struct NoteSyncControllerTests {
         precondition(!controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(engine()?.stopped == [true])
         precondition(controller.status == .paused(.accountChanged), "the reason stays visible after sync turns off")
+    }
+
+    /// Turning sync off (plain, or deleting from iCloud) tells the app, which
+    /// turns Optimize Storage off with it; an account change does not.
+    @MainActor
+    static func testTurnedOffIsReportedOnlyForTheUsersTurnOff() {
+        var (controller, store, engine, _) = make(enabled: true)
+        var reports = 0
+        controller.onTurnedOff = { reports += 1 }
+        controller.attach(store: store)
+        engine()?.coordinator?.handleAccountChange(signedOut: false)
+        precondition(reports == 0, "an account change isn't the user's turn off")
+
+        (controller, store, engine, _) = make(enabled: true)
+        controller.onTurnedOff = { reports += 1 }
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(reports == 1 && !controller.isEnabled)
     }
 
     @MainActor

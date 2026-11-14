@@ -14847,6 +14847,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         controller.onEngineStop = { [weak self] in
             self?.noteAudioDownloader.cancelAll()
         }
+        // Optimize Storage needs sync: turning sync off turns it off too, so
+        // it isn't on (and removing recordings) the moment sync is back.
+        controller.onTurnedOff = {
+            UserDefaults.standard.set(false, forKey: NoteAudioOffload.isOnKey)
+        }
         controller.onRemoteChange = { [weak self] change in
             guard let self else { return }
             for assets in change.purged { noteAudioDownloader.cancel(noteID: assets.historyID) }
