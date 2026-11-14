@@ -5492,7 +5492,10 @@ struct RunLogEntryView: View {
                     // Audio player
                     if let audioFileName = item.audioFileName {
                         let audioURL = appState.storageLayout.audioDirectory.appendingPathComponent(audioFileName)
-                        AudioPlayerView(audioURL: audioURL)
+                        AudioPlayerView(audioURL: audioURL, onPlay: { appState.markNoteAudioUsed(item.id) })
+                            // Optimize Storage leaves a recording on screen alone.
+                            .onAppear { appState.noteAudioPlayerAppeared(item.id) }
+                            .onDisappear { appState.noteAudioPlayerDisappeared(item.id) }
                     } else {
                         HStack(spacing: 6) {
                             Image(systemName: "waveform.slash")
@@ -5832,6 +5835,8 @@ class AudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
 
 struct AudioPlayerView: View {
     let audioURL: URL
+    /// Runs each time playback starts.
+    var onPlay: @MainActor () -> Void = {}
     @State private var player: AVAudioPlayer?
     @State private var delegate = AudioPlayerDelegate()
     @State private var isPlaying = false
@@ -5908,7 +5913,7 @@ struct AudioPlayerView: View {
                     self.stopPlayback()
                 }
                 p.delegate = delegate
-                p.play()
+                if p.play() { onPlay() }
                 player = p
                 isPlaying = true
                 elapsed = 0

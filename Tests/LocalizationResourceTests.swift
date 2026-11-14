@@ -45,6 +45,8 @@ struct LocalizationResourceTests {
         try testSharedAPIKeyCheckKeysAreInTheCatalog(strings)
         try testSharedComparisonKeysAreInTheCatalog(strings)
         try testSharedCloudConsentKeysAreInTheCatalog(strings)
+        try testSharedAudioOffloadKeysAreInTheCatalog(strings)
+        try testSharedICloudDeleteKeysAreInTheCatalog(strings)
         try testSharedEmptyStateKeysAreInTheCatalog(strings)
         try testSharedTranscriptNoticeKeysAreInTheCatalog(strings)
         try testSharedMetaTagKeysAreInTheCatalog(strings)
@@ -584,6 +586,55 @@ struct LocalizationResourceTests {
         }
         guard missing.isEmpty else {
             throw TestFailure("Shared cloud consent keys missing from the catalog: \(missing)")
+        }
+    }
+
+    /// The Optimize Storage row reads its copy from the shared keys both apps translate.
+    private static func testSharedAudioOffloadKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = [
+            NoteAudioOffloadCopy.toggleKey,
+            NoteAudioOffloadCopy.detailKey,
+            NoteAudioOffloadCopy.needsSyncKey,
+        ]
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }
+        guard missing.isEmpty else {
+            throw TestFailure("Shared Optimize Storage keys missing from the catalog: \(missing)")
+        }
+    }
+
+    private static func testSharedICloudDeleteKeysAreInTheCatalog(_ strings: [String: Any]) throws {
+        let keys = [
+            NoteAudioICloudDeleteCopy.titleOneFormatKey,
+            NoteAudioICloudDeleteCopy.titleManyFormatKey,
+            NoteAudioICloudDeleteCopy.messageKey,
+            NoteAudioICloudDeleteCopy.downloadThenDeleteKey,
+            NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey,
+            NoteAudioICloudDeleteCopy.progressFormatKey,
+            NoteAudioICloudDeleteCopy.progressDetailKey,
+            NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey,
+            NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey,
+            NoteAudioICloudDeleteCopy.downloadFailedTitleKey,
+            NoteAudioICloudDeleteCopy.downloadFailedMessageKey,
+            NoteAudioICloudDeleteCopy.cannotCheckTitleKey,
+            NoteAudioICloudDeleteCopy.cannotCheckMessageKey,
+            NoteAudioICloudDeleteCopy.syncPausedTitleKey,
+            NoteAudioICloudDeleteCopy.syncPausedMessageKey,
+        ]
+        let missing = keys.filter { key in
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            return ["en", "ko"].contains { language in
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                return (unit?["value"] as? String ?? "").isEmpty
+            }
+        }
+        guard missing.isEmpty else {
+            throw TestFailure("Shared Turn Off and Delete keys missing from the catalog: \(missing)")
         }
     }
 
