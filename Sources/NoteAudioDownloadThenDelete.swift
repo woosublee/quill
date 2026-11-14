@@ -1,0 +1,195 @@
+import Combine
+import Foundation
+import QuillNoteSyncCore
+
+/// Turn Off and Delete from iCloud, keeping every recording: downloads the
+/// recordings that are only in iCloud, one at a time, and runs the delete
+/// only once none is left. A fetch is the cheap first step, but it may not
+/// reach the server (#562), so an empty list read after it isn't enough:
+/// iCloud's own list is the gate (`confirmWithICloud`, #839). The delete
+/// runs only when that answers safe and the list read after it is still
+/// empty, with no await in between. One runs at a time.
+///
+/// `run(asksBeforeDownloading: true)` is the same check for a press made
+/// with nothing listed here: it deletes when iCloud answers safe, and
+/// stops with `.foundRecordings` when a recording turned up, so the user
+/// is asked before anything downloads.
+@MainActor
+final class NoteAudioDownloadThenDelete: ObservableObject {
+    struct Work {
+        /// False when recordings can't be fetched from iCloud now: sync is
+        /// paused with no engine to download with (#838).
+        var canDownload: @MainActor () -> Bool
+        /// Read again before every download and before the delete. Nil: can't be read.
+        var recordingsOnlyInICloud: @MainActor () -> [NoteAudioOnlyInICloud]?
+        /// Asks sync to fetch and returns once what it fetched is applied
+        /// here; false with sync not running or when the fetch failed.
+        /// True doesn't mean iCloud was asked (#562): `confirmWithICloud`
+        /// asks before the delete.
+        var refresh: @MainActor () async -> Bool
+        /// Asks iCloud itself which recordings it holds and merges what this Mac
+        /// lacked (#839). Called only when the list read after a fetch is empty.
+        var confirmWithICloud: @MainActor () async -> NoteAudioICloudDeleteCheck.Verdict
+        var freeBytes: @MainActor () -> Int64?
+        /// True once the recording is on this Mac.
+        var download: @MainActor (UUID) async -> Bool
+        var cancelDownload: @MainActor (UUID) -> Void
+        /// The existing Turn Off and Delete from iCloud; false when it failed.
+        var deleteFromICloud: @MainActor () async -> Bool
+    }
+
+    enum Phase: Equatable {
+        case idle
+        /// Fetching from iCloud: first, and each time the list went empty.
+        case checking
+        /// `done` finished; `total` is `done` plus what is still only in iCloud.
+        case downloading(done: Int, total: Int, current: UUID)
+        case deleting
+    }
+
+    enum Outcome: Equatable {
+        case deleted
+        /// The delete ran and failed; the controller's `turnOffFailure` says why.
+        case deleteFailed
+        case notEnoughSpace(shortBy: Int64)
+        case downloadFailed
+        case cannotCheck
+        /// Sync is paused with nothing to download with; nothing was tried.
+        case syncPaused
+        case cancelled
+        case alreadyRunning
+        /// Only from `run(asksBeforeDownloading: true)`: recordings that
+        /// are only in iCloud turned up; nothing was downloaded or deleted.
+        case foundRecordings
+    }
+
+    /// How long the fetch that starts a run may take.
+    static let fetchTimeLimit: TimeInterval = 60
+
+    @Published private(set) var phase: Phase = .idle
+    /// The last run's outcome when it needs saying: `.deleteFailed`,
+    /// `.notEnoughSpace`, `.downloadFailed`, `.cannotCheck`, `.syncPaused`,
+    /// `.foundRecordings`. Stays until dismissed,
+    /// so it shows even if Settings was closed meanwhile.
+    @Published private(set) var notice: Outcome?
+    @Published private(set) var isRunning = false
+
+    private let work: Work
+    private var cancelRequested = false
+
+    init(work: Work) {
+        self.work = work
+    }
+
+    @discardableResult
+    func run(asksBeforeDownloading: Bool = false) async -> Outcome {
+        guard !isRunning else { return .alreadyRunning }
+        isRunning = true
+        cancelRequested = false
+        notice = nil
+        guard work.canDownload() else { return finish(.syncPaused) }
+
+        var tried = Set<UUID>()
+        var done = 0
+        // True when the next list read follows a fetch: what this Mac has
+        // fetched may miss a recording another device just made iCloud-only.
+        var fetchFirst = true
+        gathering: while true {
+            if fetchFirst {
+                phase = .checking
+                let fetched = await work.refresh()
+                if cancelRequested { return finish(.cancelled) }
+                // Nothing was being downloaded when only checking.
+                if !fetched { return finish(asksBeforeDownloading ? .cannotCheck : .downloadFailed) }
+            }
+            guard var listed = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
+            if listed.isEmpty {
+                // Only an empty list read straight after a fetch asks iCloud.
+                guard fetchFirst else {
+                    fetchFirst = true
+                    continue
+                }
+                // Still `.checking`, set for the fetch just done.
+                let verdict = await work.confirmWithICloud()
+                if cancelRequested { return finish(.cancelled) }
+                guard let after = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
+                switch verdict {
+                case .cannotBeSure:
+                    return finish(.cannotCheck)
+                case .safeToDelete:
+                    // The only way out to the delete, which follows this
+                    // read with no await in between.
+                    if after.isEmpty { break gathering }
+                case .download(let ids):
+                    // Each recording iCloud names must be listed to be downloaded.
+                    let listedIDs = Set(after.map(\.id))
+                    guard !after.isEmpty, ids.isSubset(of: listedIDs) else {
+                        return finish(.cannotCheck)
+                    }
+                }
+                listed = after
+            }
+            if asksBeforeDownloading { return finish(.foundRecordings) }
+            fetchFirst = false
+            let summary = NoteAudioICloudOnlySummary(markerBytes: listed.map(\.bytes))
+            if case .short(let by) = NoteAudioICloudDeletePolicy.space(
+                neededBytes: summary.bytes, freeBytes: work.freeBytes()
+            ) {
+                return finish(.notEnoughSpace(shortBy: by))
+            }
+            // A recording already tried that is still listed won't get better.
+            guard let next = listed.first(where: { !tried.contains($0.id) }) else {
+                return finish(.downloadFailed)
+            }
+            tried.insert(next.id)
+            phase = .downloading(done: done, total: done + listed.count, current: next.id)
+            let downloaded = await work.download(next.id)
+            if cancelRequested { return finish(.cancelled) }
+            if !downloaded { return finish(.downloadFailed) }
+            done += 1
+        }
+
+        // A backstop: every await above already checks for Cancel.
+        if cancelRequested { return finish(.cancelled) }
+        phase = .deleting
+        let deleted = await work.deleteFromICloud()
+        return finish(deleted ? .deleted : .deleteFailed)
+    }
+
+    /// Stops the run: the current download stops, and a fetch running ends
+    /// the run when it returns. Does nothing once the delete began.
+    func cancel() {
+        switch phase {
+        case .checking:
+            cancelRequested = true
+        case .downloading(_, _, let current):
+            cancelRequested = true
+            work.cancelDownload(current)
+        case .idle, .deleting:
+            return
+        }
+    }
+
+    func dismissNotice() {
+        notice = nil
+    }
+
+    private func finish(_ outcome: Outcome) -> Outcome {
+        phase = .idle
+        isRunning = false
+        switch outcome {
+        case .deleteFailed, .notEnoughSpace, .downloadFailed, .cannotCheck, .syncPaused, .foundRecordings:
+            notice = outcome
+        case .deleted, .cancelled, .alreadyRunning:
+            break
+        }
+        return outcome
+    }
+
+    /// Free space for a user's own files on the volume holding `url`
+    /// (`volumeAvailableCapacityForImportantUsage`); nil when it can't be read.
+    nonisolated static func freeBytes(at url: URL) -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
+    }
+}

@@ -116,7 +116,8 @@ protocol NoteSyncEngineClient: AnyObject {
     /// Every part in iCloud, with when it was saved there.
     func allAudioParts() async throws -> [NoteAudioPartInICloud]
     /// What iCloud's copy of each of these notes says of its audio.
-    func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud]
+    /// `timeLimited` keeps a stalled request from holding up its caller.
+    func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud]
 }
 
 /// What iCloud's copy of a note says of its audio.
@@ -484,6 +485,81 @@ final class NoteSyncCoordinator {
             }
             remaining.remove(note.id)
         }
+    }
+
+    /// The notes among `ids` whose marker iCloud backs with every part, and
+    /// whose note in iCloud names that same marker, asked now (#839): parts
+    /// alone may be an upload whose note never went up.
+    /// A note with no marker, with audio in flight, or being checked is left out.
+    /// A missing part starts the existing repair (`handleAudioMissing`) and the
+    /// note is left out. iCloud's note naming no marker or another one leaves
+    /// the note out and starts nothing. Nil when iCloud couldn't be asked
+    /// (sync stopped, a thrown error, a read that timed out): that says
+    /// nothing about any of the notes. The rule is
+    /// `NoteAudioOffloadPolicy.isConfirmedInICloud`.
+    /// Nothing else changes: removing this Mac's copy of a recording relies
+    /// on the answer, so a note that changed while iCloud answered is left
+    /// out too.
+    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID>? {
+        guard !isStopped else { return nil }
+        let unsettled = notesWithUnsettledAudio()
+        var asked: [UUID: NoteAudioManifest] = [:]
+        for id in Set(ids) where !unsettled.contains(id) {
+            // An empty recording has no part to confirm.
+            guard let manifest = store.audioManifest(id: id), manifest.parts > 0 else { continue }
+            asked[id] = manifest
+        }
+        guard !asked.isEmpty else { return [] }
+        func parts(_ id: UUID, _ manifest: NoteAudioManifest) -> [NoteAudioPartID] {
+            NoteAudioPartID.parts(of: id, sha256: manifest.sha256, count: manifest.parts)
+        }
+        let found: Set<NoteAudioPartID>
+        let notesInICloud: [UUID: NoteAudioInICloud]
+        do {
+            found = try await engine.existingAudioParts(asked.flatMap { parts($0.key, $0.value) })
+            // Time-limited: a stalled read would hold up every later pass.
+            notesInICloud = try await engine.audioOfNotesInICloud(Set(asked.keys), timeLimited: true)
+        } catch {
+            print("[NoteSync] Couldn't confirm audio in iCloud")
+            return nil
+        }
+        guard !isStopped else { return nil }
+        let unsettledNow = notesWithUnsettledAudio()
+        var confirmed: Set<UUID> = []
+        for (id, manifest) in asked {
+            guard !unsettledNow.contains(id), store.audioManifest(id: id) == manifest else { continue }
+            let partsPresent = parts(id, manifest).allSatisfy(found.contains)
+            if !partsPresent {
+                handleAudioMissing(noteID: id)
+                continue
+            }
+            var serverMarker: NoteAudioManifest?
+            if case .marker(let marker)? = notesInICloud[id] { serverMarker = marker }
+            if NoteAudioOffloadPolicy.isConfirmedInICloud(local: manifest, partsPresent: partsPresent, serverMarker: serverMarker) {
+                confirmed.insert(id)
+            }
+        }
+        return confirmed
+    }
+
+    /// Notes this Mac deleted for good whose delete iCloud hasn't confirmed:
+    /// waiting in the engine or in the retries, including given-up ones.
+    var noteDeletesOwed: Set<UUID> {
+        Set(engine.pendingNoteDeletes())
+            .union(deleteRetries.unconfirmed)
+            .union(deleteRetries.givenUp)
+    }
+
+    /// Notes whose audio isn't settled: parts going up or waiting to be
+    /// deleted, the note waiting to be deleted, or a check running or owed.
+    private func notesWithUnsettledAudio() -> Set<UUID> {
+        notesWithAudioInFlight()
+            .union(engine.pendingAudioDeletes().map(\.noteID))
+            .union(audioDeleteRetries.waiting.map(\.noteID))
+            .union(engine.pendingNoteDeletes())
+            .union(audioChecking)
+            .union(audioToCheck)
+            .union(savesAfterCheck)
     }
 
     /// Held notes go up now, with whatever marker remains.
@@ -1285,7 +1361,7 @@ final class NoteSyncCoordinator {
         guard !candidates.isEmpty else { return true }
         let notes: [UUID: NoteAudioInICloud]
         do {
-            notes = try await engine.audioOfNotesInICloud(Set(candidates.map(\.noteID)))
+            notes = try await engine.audioOfNotesInICloud(Set(candidates.map(\.noteID)), timeLimited: false)
         } catch {
             print("[NoteSync] Couldn't look for leftover audio")
             return false

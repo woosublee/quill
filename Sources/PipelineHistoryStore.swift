@@ -795,6 +795,37 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
+    /// When this Mac last used the note's recording (transcribed it,
+    /// downloaded it, or played it). Kept on this Mac only: it never syncs,
+    /// sits in no field-clock group, and writing it reports no change.
+    func audioLastUsedAt(id: UUID) -> Date? {
+        var date: Date?
+        container.viewContext.performAndWait {
+            date = (try? fetchEntry(id: id))??.audioLastUsedAt
+        }
+        return date
+    }
+
+    func setAudioLastUsedAt(_ date: Date, id: UUID) throws {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                guard let entity = try fetchEntry(id: id) else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                entity.audioLastUsedAt = date
+                try saveContext()
+            } catch {
+                container.viewContext.rollback()
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+    }
+
     /// Forgets which notes reached iCloud, after the iCloud data went away
     /// (account change, or deleted from iCloud). With `forgettingAudio`
     /// (iCloud lost the audio too) the audio markers go as well, stamped
@@ -850,6 +881,35 @@ final class PipelineHistoryStore {
                     audioFileName: entity.audioFileName,
                     manifest: entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode),
                     uploadKey: entity.audioSyncUploadKey
+                )
+            }
+        }
+        return snapshots
+    }
+
+    /// One fetch for every note, settled or not, so a note still waiting on
+    /// its transcription is read as one without a transcript.
+    func audioOffloadSnapshots() -> [NoteAudioOffloadSnapshot] {
+        var snapshots: [NoteAudioOffloadSnapshot] = []
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            let entities = (try? historyFetcher(container.viewContext, request)) ?? []
+            snapshots = entities.map { entity in
+                let item = Self.makeHistoryItem(from: entity)
+                let finished = item.machineStatus == .completed && !item.isIncompleteTranscription
+                let hasText = !item.displayedTranscript
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                return NoteAudioOffloadSnapshot(
+                    id: entity.id,
+                    audioFileName: entity.audioFileName,
+                    manifest: entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode),
+                    lastUsedAt: entity.audioLastUsedAt,
+                    recordingEndedAt: entity.recordingEndedAt,
+                    createdAt: item.timestamp,
+                    hasTranscript: finished && hasText,
+                    isRecentlyDeleted: entity.deletedAt != nil,
+                    hasUnrecoveredPieces: item.hasUnrecoveredRecordingPieces
                 )
             }
         }
@@ -1690,7 +1750,8 @@ final class PipelineHistoryStore {
             makeAttribute(name: "syncExtraFieldsJSON", type: .binaryDataAttributeType, isOptional: true),
             makeAttribute(name: "syncSystemFields", type: .binaryDataAttributeType, isOptional: true),
             makeAttribute(name: "audioSyncManifestJSON", type: .binaryDataAttributeType, isOptional: true),
-            makeAttribute(name: "audioSyncUploadKey", type: .stringAttributeType, isOptional: true)
+            makeAttribute(name: "audioSyncUploadKey", type: .stringAttributeType, isOptional: true),
+            makeAttribute(name: "audioLastUsedAt", type: .dateAttributeType, isOptional: true)
         ]
 
         model.entities = [entity]
@@ -1731,7 +1792,7 @@ final class PipelineHistoryStore {
         // PipelineHistoryEntry class that the shared model owns.
         entity.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
         entity.properties = entity.properties.filter {
-            !["deletedAt", "fieldClockJSON", "syncExtraFieldsJSON", "syncSystemFields", "audioSyncManifestJSON", "audioSyncUploadKey"].contains($0.name)
+            !["deletedAt", "fieldClockJSON", "syncExtraFieldsJSON", "syncSystemFields", "audioSyncManifestJSON", "audioSyncUploadKey", "audioLastUsedAt"].contains($0.name)
         }
         let container = NSPersistentContainer(name: "PipelineHistory", managedObjectModel: model)
         let description = NSPersistentStoreDescription(url: url)
@@ -1808,6 +1869,7 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var syncSystemFields: Data?
     @NSManaged var audioSyncManifestJSON: Data?
     @NSManaged var audioSyncUploadKey: String?
+    @NSManaged var audioLastUsedAt: Date?
 }
 
 /// The synced notice state kept beside each note (#730, #742, #745).

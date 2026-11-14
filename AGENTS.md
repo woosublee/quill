@@ -40,7 +40,22 @@ otherwise.
   one's image, tint, copy keys, and button ("View Models" when the setting is
   off or the model is missing), and the dismissal it syncs (next to
   `NoteNoticeDismissals`). Each app translates the keys with its own String
-  Catalog, and keeps what a notice's button does.
+  Catalog, and keeps what a notice's button does. It also decides which
+  recording Optimize Storage may remove from a device's own storage
+  (`NoteAudioOffloadPolicy`: seven days unused on that device, a transcribed
+  note whose parts iCloud holds, sync on), when iCloud confirms it
+  (`isConfirmedInICloud`: every part there and iCloud's note naming the same
+  marker), and
+  holds the switch's copy keys (`NoteAudioOffloadCopy`). The setting, the
+  last-used date, the hourly pass, and removing the file stay in `Sources/`.
+  It also holds what Turn Off and Delete from iCloud says when recordings
+  are only in iCloud (`NoteAudioICloudOnlySummary`,
+  `NoteAudioICloudDeleteCopy`) and whether there is room to download them
+  first (`NoteAudioICloudDeletePolicy`); the list, the downloads, the disk
+  query, and the delete stay in `Sources/`. It also decides what must be on
+  a device before everything is deleted from iCloud
+  (`NoteAudioICloudDeleteCheck`, #839); the reads and the merge stay in
+  `Sources/`.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution
