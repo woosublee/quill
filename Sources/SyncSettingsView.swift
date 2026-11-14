@@ -228,8 +228,9 @@ private struct NoteSyncSettingsCard: View {
         }
     }
 
-    /// Optimize Storage: off by default, needs sync on. Turning sync off turns
-    /// it off too (`onTurnedOff`); sync stopping by itself only stops the pass. Turning it on runs one pass so
+    /// Optimize Storage: off by default, needs sync on. Whenever sync turns
+    /// off, by the user or by itself, it turns off too (`onSyncDisabled`); a
+    /// pause only stops the pass. Turning it on runs one pass so
     /// the first effect doesn't wait for the hourly one.
     private var optimizeStorageRow: some View {
         HStack(alignment: .center, spacing: 12) {

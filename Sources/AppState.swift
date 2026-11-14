@@ -14847,9 +14847,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         controller.onEngineStop = { [weak self] in
             self?.noteAudioDownloader.cancelAll()
         }
-        // Optimize Storage needs sync: turning sync off turns it off too, so
-        // it isn't on (and removing recordings) the moment sync is back.
-        controller.onTurnedOff = {
+        // Optimize Storage needs sync: whenever sync turns off (by the user
+        // or by an account change) it turns off too, so it isn't on, and
+        // removing recordings, the moment sync is back. A choice left on
+        // from before this rule, with sync already off, is cleared here.
+        controller.onSyncDisabled = {
+            UserDefaults.standard.set(false, forKey: NoteAudioOffload.isOnKey)
+        }
+        if !controller.isEnabled {
             UserDefaults.standard.set(false, forKey: NoteAudioOffload.isOnKey)
         }
         controller.onRemoteChange = { [weak self] change in

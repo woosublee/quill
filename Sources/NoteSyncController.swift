@@ -384,9 +384,10 @@ final class NoteSyncController: ObservableObject {
     /// The engine stopped (sync turned off, or stopped by itself): audio
     /// downloads stop with it, since sync off means no talking to iCloud.
     var onEngineStop: (() -> Void)?
-    /// The user turned sync off (with or without deleting from iCloud).
-    /// Not called when sync stops by itself, such as an account change.
-    var onTurnedOff: (() -> Void)?
+    /// Sync is turning off, by the user (with or without deleting from
+    /// iCloud) or by itself (an account change). Called before `isEnabled`
+    /// changes, so nothing sees sync off with this not yet done.
+    var onSyncDisabled: (() -> Void)?
 
     private let defaults: UserDefaults
     private let createZone: () async throws -> Void
@@ -637,7 +638,6 @@ final class NoteSyncController: ObservableObject {
             }
         }
         finishTurningOff(status: .off)
-        onTurnedOff?()
         return true
     }
 
@@ -954,6 +954,7 @@ final class NoteSyncController: ObservableObject {
     }
 
     private func setEnabled(_ enabled: Bool) {
+        if !enabled { onSyncDisabled?() }
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
         if !enabled {

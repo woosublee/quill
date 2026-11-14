@@ -35,6 +35,8 @@ struct AppStateNoteSyncTests {
         try await testOffloadRemovesOnlyTheFile()
         try await testOffloadKeepsWhatICloudDoesNotConfirm()
         try await testOffloadAsksForTheLeastRecentlyUsedFirst()
+        try await testTurningSyncOffTurnsOptimizeStorageOff()
+        try await testOptimizeStorageLeftOnWithSyncOffIsClearedAtLaunch()
         try await testOffloadKeepsANoteUsedWhileICloudAnswers()
         try await testOffloadKeepsANoteBusyWhileICloudAnswers()
         try await testOffloadSkipsARecentlyDownloadedRecording()
@@ -954,7 +956,7 @@ struct AppStateNoteSyncTests {
         let now = t0 + 30 * day
         let candidates = ids.enumerated().map { (id: $0.element, lastUsed: t0 + Double($0.offset) * day) }
         let wait = NoteAudioOffload.unconfirmedWait
-        precondition(wait == day && perPass == 20)
+        precondition(wait == day && perPass >= 1)
 
         var next = NoteAudioOffload.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now)
         precondition(next.ask == Array(ids.prefix(perPass)) && next.waiting.isEmpty, "\(next)")
@@ -985,7 +987,7 @@ struct AppStateNoteSyncTests {
         }
         let unconfirmed = Array(notes.prefix(perPass))
         for note in unconfirmed { fixture.engine.markersInICloud[note.id] = nil }
-        let sixth = notes[perPass]
+        let newest = notes[perPass]
         let now = t0 + 30 * day
 
         await offload(fixture, now: now)
@@ -993,8 +995,8 @@ struct AppStateNoteSyncTests {
         precondition(urls.values.allSatisfy(exists), "nothing confirmed: every file stays")
 
         await offload(fixture, now: now)
-        precondition(fixture.engine.audioChecks.last == [sixth.id], "\(fixture.engine.audioChecks)")
-        precondition(!exists(urls[sixth.id]!), "the sixth is removed")
+        precondition(fixture.engine.audioChecks.last == [newest.id], "\(fixture.engine.audioChecks)")
+        precondition(!exists(urls[newest.id]!), "the newest is removed")
         precondition(unconfirmed.allSatisfy { exists(urls[$0.id]!) })
 
         await offload(fixture, now: now + 23 * 60 * 60)
@@ -1045,6 +1047,31 @@ struct AppStateNoteSyncTests {
         await offload(fixture, now: t0 + 30 * day)
         precondition(fixture.engine.audioChecks == [[note.id]], "iCloud was asked")
         precondition(exists(url), "a part iCloud doesn't hold keeps the file")
+    }
+
+    /// Optimize Storage needs sync: the app turns it off when sync turns off.
+    @MainActor
+    static func testTurningSyncOffTurnsOptimizeStorageOff() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let fixture = try makeFixture(items: [])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        precondition(UserDefaults.standard.bool(forKey: NoteAudioOffload.isOnKey), "stays on while sync is on")
+        _ = await fixture.appState.noteSyncController?.turnOff(deleteFromICloud: false)
+        precondition(fixture.appState.noteSyncController?.isEnabled == false)
+        precondition(!UserDefaults.standard.bool(forKey: NoteAudioOffload.isOnKey), "turned off with sync")
+    }
+
+    /// Before the rule above, turning sync off kept the choice; such a choice
+    /// is cleared at launch so it doesn't act the moment sync is back.
+    @MainActor
+    static func testOptimizeStorageLeftOnWithSyncOffIsClearedAtLaunch() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let fixture = try makeFixture(items: [], syncOn: false)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        precondition(fixture.appState.noteSyncController?.isEnabled == false)
+        precondition(!UserDefaults.standard.bool(forKey: NoteAudioOffload.isOnKey), "cleared at launch")
     }
 
     @MainActor
