@@ -65,74 +65,79 @@ private struct NoteSyncSettingsCard: View {
     }
 
     var body: some View {
-        SettingsCard("iCloud Sync", icon: "icloud") {
-            HStack(alignment: .center, spacing: 12) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        title
-                        statusLine
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        title
-                        statusLine
-                    }
-                }
-                Spacer(minLength: 0)
-                if showsSyncNow {
-                    Button {
-                        Task { @MainActor in await controller.syncNow() }
-                    } label: {
-                        if controller.isSyncingNow {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
+        VStack(alignment: .leading, spacing: 16) {
+            SettingsCard("iCloud Sync", icon: "icloud") {
+                HStack(alignment: .center, spacing: 12) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            title
+                            statusLine
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            title
+                            statusLine
                         }
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(controller.isSyncingNow)
-                    .help("Sync Now")
-                    .accessibilityLabel(Text("Sync Now"))
+                    Spacer(minLength: 0)
+                    if showsSyncNow {
+                        Button {
+                            Task { @MainActor in await controller.syncNow() }
+                        } label: {
+                            if controller.isSyncingNow {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(controller.isSyncingNow)
+                        .help("Sync Now")
+                        .accessibilityLabel(Text("Sync Now"))
+                    }
+                    Toggle(isOn: switchBinding) {
+                        Text("Sync this Mac's notes with iCloud")
+                    }
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(controller.unavailableReason != nil || isTurningOff || controller.isTurningOn
+                        || downloadThenDelete.isRunning)
                 }
-                Toggle(isOn: switchBinding) {
-                    Text("Sync this Mac's notes with iCloud")
-                }
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .disabled(controller.unavailableReason != nil || isTurningOff || controller.isTurningOn
-                    || downloadThenDelete.isRunning)
-            }
 
-            statusDetail
+                statusDetail
 
-            downloadThenDeleteRow
+                downloadThenDeleteRow
 
-            // Nothing to offer where sync can't be turned on at all.
-            if controller.unavailableReason == nil {
-                optimizeStorageRow
-            }
-
-            // What goes to iCloud is said once, when turning on.
-            if !controller.isEnabled, controller.unavailableReason == nil {
-                Text("Keeps your notes the same on your devices with this iCloud account.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Turning the switch on is the consent to this (#530).
-                Text(ConnectionsChoices.iCloudCalendarDisclosure)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if controller.audioLeftOnlyInOtherAccounts {
-                    Text("Some audio is still in another iCloud account. Quill deletes it when you sign in to that account again.")
+                // What goes to iCloud is said once, when turning on.
+                if !controller.isEnabled, controller.unavailableReason == nil {
+                    Text("Keeps your notes the same on your devices with this iCloud account.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                } else if controller.audioLeftInICloud {
-                    Text("Some audio couldn't be deleted from iCloud yet. Quill tries again when it opens and when you open this page.")
+                    // Turning the switch on is the consent to this (#530).
+                    Text(ConnectionsChoices.iCloudCalendarDisclosure)
                         .font(.caption)
-                        .foregroundStyle(QuillColor.issueWarning)
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if controller.audioLeftOnlyInOtherAccounts {
+                        Text("Some audio is still in another iCloud account. Quill deletes it when you sign in to that account again.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if controller.audioLeftInICloud {
+                        Text("Some audio couldn't be deleted from iCloud yet. Quill tries again when it opens and when you open this page.")
+                            .font(.caption)
+                            .foregroundStyle(QuillColor.issueWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            // Its own card on the same page, so it doesn't read as part of the
+            // sync switch. Nothing to offer where sync can't be turned on at all.
+            if controller.unavailableReason == nil {
+                SettingsCard("Storage", icon: "internaldrive") {
+                    optimizeStorageRow
                 }
             }
         }
@@ -229,8 +234,10 @@ private struct NoteSyncSettingsCard: View {
     private var optimizeStorageRow: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
+                // Greyed with its switch while sync is off, so it reads as unavailable.
                 Text(localizedCatalogString(NoteAudioOffloadCopy.toggleKey))
                     .font(.body.weight(.semibold))
+                    .foregroundStyle(controller.isEnabled ? .primary : .secondary)
                 Text(localizedCatalogString(controller.isEnabled
                     ? NoteAudioOffloadCopy.detailKey
                     : NoteAudioOffloadCopy.needsSyncKey))

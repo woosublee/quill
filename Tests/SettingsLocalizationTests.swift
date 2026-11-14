@@ -452,7 +452,7 @@ struct SettingsLocalizationTests {
         // The switch already says off, and the status sits beside the title,
         // dropping below it only when the line is too narrow.
         assert(view.contains("case .off:\n            EmptyView()"))
-        assert(view.contains("ViewThatFits(in: .horizontal) {\n                    HStack(alignment: .firstTextBaseline, spacing: 8) {\n                        title\n                        statusLine\n                    }"))
+        assert(view.contains("ViewThatFits(in: .horizontal) {\n                        HStack(alignment: .firstTextBaseline, spacing: 8) {\n                            title\n                            statusLine\n                        }"))
         // On, the card is the status line and Sync Now; what goes to iCloud
         // is said once, when turning on. Off, one line says what it does.
         assert(!view.contains("Screenshots and window details stay on this Mac."))
@@ -474,8 +474,11 @@ struct SettingsLocalizationTests {
         // A check that keeps failing still leaves a way to delete.
         assert(view.contains("if downloadThenDelete.notice == .cannotCheck {\n                Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {"))
         assert(view.contains("case .cannotCheck?:\n            return localizedCatalogString(NoteAudioICloudDeleteCopy.cannotCheckTitleKey)"))
-        // No Optimize Storage row where sync can't be turned on at all.
-        assert(view.contains("if controller.unavailableReason == nil {\n                optimizeStorageRow"))
+        // No Optimize Storage row where sync can't be turned on at all. It
+        // sits in its own Storage card on the same page, greyed with its
+        // switch while sync is off.
+        assert(view.contains("if controller.unavailableReason == nil {\n                SettingsCard(\"Storage\", icon: \"internaldrive\") {\n                    optimizeStorageRow"))
+        assert(view.contains(".foregroundStyle(controller.isEnabled ? .primary : .secondary)"))
         assert(view.contains("Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {\n                turnOff(deleteFromICloud: true)\n            }"))
         assert(!view.contains("notes have audio in iCloud that isn't on this Mac"))
         // Sync paused with nothing to download with (#838) says so, in the
