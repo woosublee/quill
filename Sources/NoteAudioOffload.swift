@@ -7,7 +7,7 @@ enum NoteAudioOffload {
     /// UserDefaults, Bool, off by default.
     static let isOnKey = "NoteAudioOptimizeStorage"
     /// At most this many recordings are asked about, and removed, per pass.
-    static let maxPerPass = 5
+    static let maxPerPass = 20
     /// A note iCloud didn't confirm (its note unreadable there, say) isn't
     /// asked about again for this long, so it can't hold up the others.
     static let unconfirmedWait: TimeInterval = 24 * 60 * 60

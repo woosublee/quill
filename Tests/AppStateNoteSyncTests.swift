@@ -34,7 +34,7 @@ struct AppStateNoteSyncTests {
         try await testOffloadWaitsForSyncToRun()
         try await testOffloadRemovesOnlyTheFile()
         try await testOffloadKeepsWhatICloudDoesNotConfirm()
-        try await testOffloadAsksForTheLeastRecentlyUsedFive()
+        try await testOffloadAsksForTheLeastRecentlyUsedFirst()
         try await testOffloadKeepsANoteUsedWhileICloudAnswers()
         try await testOffloadKeepsANoteBusyWhileICloudAnswers()
         try await testOffloadSkipsARecentlyDownloadedRecording()
@@ -945,45 +945,47 @@ struct AppStateNoteSyncTests {
         precondition(fixture.appState.noteAudioState(for: current) == .downloadable, "\(fixture.appState.noteAudioState(for: current))")
     }
 
-    /// The least recently used first, at most five; a note asked about and
+    /// The least recently used first, at most `maxPerPass`; a note asked about and
     /// not confirmed waits a day; a wait ends early for a note no longer a
     /// candidate, and a wait dated ahead of the clock is over.
     static func testOffloadChoosesWhoGoesNext() {
-        let ids = (0..<7).map { _ in UUID() }
+        let perPass = NoteAudioOffload.maxPerPass
+        let ids = (0..<(perPass + 2)).map { _ in UUID() }
         let now = t0 + 30 * day
         let candidates = ids.enumerated().map { (id: $0.element, lastUsed: t0 + Double($0.offset) * day) }
         let wait = NoteAudioOffload.unconfirmedWait
-        precondition(wait == day && NoteAudioOffload.maxPerPass == 5)
+        precondition(wait == day && perPass == 20)
 
         var next = NoteAudioOffload.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now)
-        precondition(next.ask == Array(ids.prefix(5)) && next.waiting.isEmpty, "\(next)")
+        precondition(next.ask == Array(ids.prefix(perPass)) && next.waiting.isEmpty, "\(next)")
 
         let gone = UUID()
         let waiting = [ids[0]: now, ids[1]: now - wait + 1, ids[2]: now - wait, ids[3]: now + 60, gone: now]
         next = NoteAudioOffload.notesToAsk(candidates: candidates, waiting: waiting, now: now)
-        precondition(next.ask == [ids[2], ids[3], ids[4], ids[5], ids[6]], "\(next)")
+        precondition(next.ask == Array(ids.dropFirst(2)), "\(next)")
         precondition(next.waiting == [ids[0]: now, ids[1]: now - wait + 1], "only waits still running, for candidates: \(next.waiting)")
     }
 
-    /// Six old recordings; iCloud never confirms the five oldest (its notes
-    /// can't be read, say). They don't hold the pass up: the next pass asks
-    /// about the sixth and removes it, and the five are asked again a day
-    /// later, when one confirmed since is removed as usual.
+    /// One more old recording than a pass takes; iCloud never confirms the
+    /// oldest ones (their notes can't be read, say). They don't hold the pass
+    /// up: the next pass asks about the newest and removes it, and the others
+    /// are asked again a day later, when one confirmed since is removed as usual.
     @MainActor
     static func testOffloadSkipsNotesICloudDidNotConfirmForADay() async throws {
         let restore = setOptimizeStorage(true)
         defer { restore() }
-        let notes = (0..<6).map { _ in makeRecordedItem() }
+        let perPass = NoteAudioOffload.maxPerPass
+        let notes = (0...perPass).map { _ in makeRecordedItem() }
         let fixture = try makeFixture(items: notes)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         var urls: [UUID: URL] = [:]
         for (index, note) in notes.enumerated() {
             urls[note.id] = try addRecording(fixture, note)
-            fixture.appState.markNoteAudioUsed(note.id, now: t0 + Double(index) * day)
+            fixture.appState.markNoteAudioUsed(note.id, now: t0 + Double(index) * 60)
         }
-        let unconfirmed = Array(notes.prefix(5))
+        let unconfirmed = Array(notes.prefix(perPass))
         for note in unconfirmed { fixture.engine.markersInICloud[note.id] = nil }
-        let sixth = notes[5]
+        let sixth = notes[perPass]
         let now = t0 + 30 * day
 
         await offload(fixture, now: now)
@@ -1002,7 +1004,7 @@ struct AppStateNoteSyncTests {
         fixture.engine.markersInICloud[confirmedLater.id] = fixture.store.audioManifest(id: confirmedLater.id)
         await offload(fixture, now: now + day)
         precondition(fixture.engine.audioChecks.count == 3, "\(fixture.engine.audioChecks)")
-        precondition(fixture.engine.audioChecks.last == Set(unconfirmed.map(\.id)), "a day later the five are asked again")
+        precondition(fixture.engine.audioChecks.last == Set(unconfirmed.map(\.id)), "a day later the others are asked again")
         precondition(!exists(urls[confirmedLater.id]!), "confirmed now: removed as usual")
         precondition(unconfirmed.dropFirst().allSatisfy { exists(urls[$0.id]!) })
     }
@@ -1046,21 +1048,22 @@ struct AppStateNoteSyncTests {
     }
 
     @MainActor
-    static func testOffloadAsksForTheLeastRecentlyUsedFive() async throws {
+    static func testOffloadAsksForTheLeastRecentlyUsedFirst() async throws {
         let restore = setOptimizeStorage(true)
         defer { restore() }
-        let notes = (0..<8).map { _ in makeRecordedItem() }
+        let perPass = NoteAudioOffload.maxPerPass
+        let notes = (0..<(perPass + 3)).map { _ in makeRecordedItem() }
         let fixture = try makeFixture(items: notes)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         var urls: [UUID: URL] = [:]
         for (index, note) in notes.enumerated() {
             urls[note.id] = try addRecording(fixture, note)
-            // Used one day apart; the first one longest ago.
-            fixture.appState.markNoteAudioUsed(note.id, now: t0 + Double(index) * day)
+            // Used a minute apart; the first one longest ago.
+            fixture.appState.markNoteAudioUsed(note.id, now: t0 + Double(index) * 60)
         }
         await offload(fixture, now: t0 + 30 * day)
-        let oldest = Set(notes.prefix(5).map(\.id))
-        precondition(fixture.engine.audioChecks == [oldest], "the five used longest ago are asked for")
+        let oldest = Set(notes.prefix(perPass).map(\.id))
+        precondition(fixture.engine.audioChecks == [oldest], "the ones used longest ago are asked for")
         for note in notes {
             precondition(exists(urls[note.id]!) != oldest.contains(note.id), "the other three wait")
         }
