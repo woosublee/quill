@@ -8,6 +8,22 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.4.0] - 2026-11-15
+
+### Added
+
+- **Optimize Storage.** A new Storage card in Settings › iCloud Sync. With it on, a recording you haven't played, downloaded, or transcribed on this Mac for a week is removed from this Mac and kept in iCloud. The note, transcript, and summary stay, and the recording downloads again when you play, retranscribe, or save it. It's off by default, needs iCloud sync, and turns off when sync does.
+
+### Changed
+
+- **Turn Off and Delete from iCloud keeps your recordings.** When some recordings are only in iCloud, Quill asks first and, by default, downloads them all before deleting. You can still delete without them. If there isn't enough space or a download fails, nothing is deleted.
+
+### Fixed
+
+- **Closed notices stay closed after Quill restarts.**
+- **The sync status shows notes that couldn't sync before the first upload's progress.**
+- **Quill opens even when two notes share the same ID.** Before, it could close right after launch.
+
 ## [1.3.1] - 2026-11-06
 
 ### Changed
