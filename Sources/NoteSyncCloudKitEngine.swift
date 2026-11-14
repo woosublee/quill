@@ -201,6 +201,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// any other error throws.
     func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        // A stalled lookup gives up rather than wait for CloudKit's long
+        // default, as `noteRecordsInICloud` does: it reads no audio.
+        let limit = CKOperation.Configuration()
+        limit.timeoutIntervalForRequest = 30
+        limit.timeoutIntervalForResource = 60
         var found: Set<NoteAudioPartID> = []
         var start = 0
         while start < parts.count {
@@ -208,10 +213,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             start += 200
             let results: [CKRecord.ID: Result<CKRecord, Error>]
             do {
-                results = try await database.records(
-                    for: chunk.map(NoteAudioCloudRecord.recordID(for:)),
-                    desiredKeys: NoteAudioCloudRecord.lookupKeys
-                )
+                let recordIDs = chunk.map(NoteAudioCloudRecord.recordID(for:))
+                results = try await database.configuredWith(configuration: limit) { database in
+                    try await database.records(for: recordIDs, desiredKeys: NoteAudioCloudRecord.lookupKeys)
+                }
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 continue
             }
@@ -343,6 +348,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// only part names and save dates, never the audio.
     private func listAudioParts() async throws -> [NoteAudioPartInICloud] {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        // A stalled page gives up rather than wait for CloudKit's long
+        // default, as `noteRecordsInICloud` does.
+        let limit = CKOperation.Configuration()
+        limit.timeoutIntervalForRequest = 30
+        limit.timeoutIntervalForResource = 60
         var parts: [NoteAudioPartInICloud] = []
         var token: CKServerChangeToken?
         var moreComing = true
@@ -354,11 +364,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 moreComing: Bool
             )
             do {
-                changes = try await database.recordZoneChanges(
-                    inZoneWith: NoteAudioCloudRecord.zoneID(),
-                    since: token,
-                    desiredKeys: NoteAudioCloudRecord.lookupKeys
-                )
+                let since = token
+                changes = try await database.configuredWith(configuration: limit) { database in
+                    try await database.recordZoneChanges(
+                        inZoneWith: NoteAudioCloudRecord.zoneID(),
+                        since: since,
+                        desiredKeys: NoteAudioCloudRecord.lookupKeys
+                    )
+                }
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 return []
             }
@@ -385,9 +398,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
     }
 
-    func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+    func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud] {
         var notes: [UUID: NoteAudioInICloud] = [:]
-        for (id, result) in try await noteRecordsInICloud(ids, timeLimited: false) {
+        for (id, result) in try await noteRecordsInICloud(ids, timeLimited: timeLimited) {
             switch result {
             case .success(let record?):
                 notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
@@ -473,6 +486,22 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             try await engine.sendChanges()
         } catch {
             print("[NoteSync] Sync Now didn't finish")
+        }
+    }
+
+    /// The fetch Sync Now starts with, on its own and awaited. Changes it
+    /// fetches are applied before `fetchChanges` returns, but, as with Sync
+    /// Now, it reaches the server only when the engine knows of a change
+    /// (#562): true doesn't mean iCloud was asked. Download, Then Delete
+    /// uses it as a cheap first step and asks the server before deleting
+    /// (`checkRecordingsInICloudBeforeDelete`, #839).
+    func fetchChangesAndWait() async -> Bool {
+        guard let engine = activeEngine() else { return false }
+        do {
+            try await engine.fetchChanges()
+            return true
+        } catch {
+            return false
         }
     }
 

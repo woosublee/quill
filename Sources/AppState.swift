@@ -3386,6 +3386,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // or finds the iCloud data deleted elsewhere.
         onMissingPart: { [weak self] id in self?.noteSyncController?.audioMissing(noteID: id) }
     )
+    /// Free space where recordings are kept; tests replace it.
+    @MainActor lazy var noteAudioFreeBytes: () -> Int64? = { [root = storageLayout.rootDirectory] in
+        NoteAudioDownloadThenDelete.freeBytes(at: root)
+    }
+    /// Turn Off and Delete from iCloud, after downloading every recording
+    /// that is only in iCloud.
+    @MainActor private(set) lazy var noteAudioDownloadThenDelete = NoteAudioDownloadThenDelete(work: .init(
+        canDownload: { [weak self] in self?.noteSyncController?.isEngineRunning == true },
+        recordingsOnlyInICloud: { [weak self] in self?.noteSyncController?.recordingsOnlyInICloud },
+        refresh: { [weak self] in
+            await self?.noteSyncController?.fetchChangesAndWait(timeLimit: NoteAudioDownloadThenDelete.fetchTimeLimit) ?? false
+        },
+        confirmWithICloud: { [weak self] in
+            await self?.noteSyncController?.checkRecordingsInICloudBeforeDelete() ?? .cannotBeSure
+        },
+        freeBytes: { [weak self] in self?.noteAudioFreeBytes() },
+        download: { [weak self] id in await self?.downloadNoteAudio(noteID: id) ?? false },
+        cancelDownload: { [weak self] id in self?.noteAudioDownloader.cancel(noteID: id) },
+        deleteFromICloud: { [weak self] in await self?.noteSyncController?.turnOff(deleteFromICloud: true) ?? false }
+    ))
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
     @MainActor private let cloudTranscriptionHistoryCoordinator =
@@ -6376,6 +6396,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .completed(let noteID, let outcome):
             switch outcome {
             case .succeeded(let completion), .fallback(let completion):
+                // Also a result that was the same, or one just chosen.
+                markNoteAudioUsed(noteID)
                 if completion.transcriptUnchanged,
                    let item = pipelineHistory.first(where: { $0.id == noteID }) {
                     setUnchangedRetranscription(
@@ -6412,7 +6434,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .stale:
                 markStoppedCloudTranscriptions(among: [noteID])
 
-            case .cancelled, .candidateReady:
+            case .candidateReady:
+                // The new transcript is made; it waits to be compared.
+                markNoteAudioUsed(noteID)
+
+            case .cancelled:
                 break
             }
         }
@@ -9860,7 +9886,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         spokenLanguage: transcription.spokenLanguage,
                         customVocabularyOverride: configuration.customVocabulary,
                         customSystemPromptOverride: configuration.customSystemPrompt,
-                        aiProcessingOutcome: result.aiProcessingOutcome
+                        aiProcessingOutcome: result.aiProcessingOutcome,
+                        transcriptionFinished: true
                     )
                     self.completeCloudTranscriptionHistory(
                         historyID: noteID,
@@ -10000,7 +10027,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // The note as it is now: the view's copy may predate a sync. A note
         // in Recently Deleted isn't listed, and keeps the copy it has.
         let item = pipelineHistory.first { $0.id == item.id } ?? item
-        if let local = noteBrowserStoredAudioURL(for: item) { return local }
+        if let local = noteBrowserStoredAudioURL(for: item) {
+            markNoteAudioUsed(item.id)
+            return local
+        }
         guard let destination = storedAudioURL(for: item),
               let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
         guard let url = await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination) else {
@@ -10011,7 +10041,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
+        markNoteAudioUsed(item.id)
         return url
+    }
+
+    /// This Mac used the note's recording: transcribed it, downloaded it,
+    /// or played it. The date stays on this Mac. A failed write is ignored:
+    /// a missed stamp only means the recording may be removed a little
+    /// earlier, and a note that is gone has nothing to stamp.
+    @MainActor
+    func markNoteAudioUsed(_ id: UUID, now: Date = Date()) {
+        try? pipelineHistoryStore.setAudioLastUsedAt(now, id: id)
+    }
+
+    /// Downloads the recording of a note in the list or in Recently Deleted.
+    /// False when the note isn't in either or the download didn't finish.
+    @MainActor
+    func downloadNoteAudio(noteID: UUID) async -> Bool {
+        guard let item = pipelineHistory.first(where: { $0.id == noteID })
+            ?? recentlyDeletedNotes.first(where: { $0.id == noteID }) else { return false }
+        return await downloadNoteAudio(for: item) != nil
     }
 
     @MainActor
@@ -13485,7 +13534,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customVocabularyOverride: settings.customVocabulary,
                 customSystemPromptOverride: settings.customSystemPrompt,
                 calendarMatch: calendarMatch,
-                aiProcessingOutcome: completion.aiProcessingOutcome
+                aiProcessingOutcome: completion.aiProcessingOutcome,
+                transcriptionFinished: true
             )
             completeCloudTranscriptionHistory(
                 historyID: historyID,
@@ -14821,6 +14871,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         controller.onEngineStop = { [weak self] in
             self?.noteAudioDownloader.cancelAll()
         }
+        // Optimize Storage needs sync: whenever sync turns off (by the user
+        // or by an account change) it turns off too, so it isn't on, and
+        // removing recordings, the moment sync is back. A choice left on
+        // from before this rule, with sync already off, is cleared here.
+        controller.onSyncDisabled = {
+            UserDefaults.standard.set(false, forKey: NoteAudioOffload.isOnKey)
+        }
+        if !controller.isEnabled {
+            UserDefaults.standard.set(false, forKey: NoteAudioOffload.isOnKey)
+        }
         controller.onRemoteChange = { [weak self] change in
             guard let self else { return }
             for assets in change.purged { noteAudioDownloader.cancel(noteID: assets.historyID) }
@@ -14898,9 +14958,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func startRecentlyDeletedPurgeSchedule() {
         purgeExpiredRecentlyDeletedNotes()
+        removeUnusedNoteAudio()
         recentlyDeletedPurgeTimer?.invalidate()
         let timer = Timer(timeInterval: 60 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.purgeExpiredRecentlyDeletedNotes() }
+            Task { @MainActor in
+                self?.purgeExpiredRecentlyDeletedNotes()
+                self?.removeUnusedNoteAudio()
+            }
         }
         // Common modes keep it firing while a menu is open.
         RunLoop.main.add(timer, forMode: .common)
@@ -14946,6 +15010,167 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// The iCloud check of a purge in progress; one runs at a time.
     private(set) var recentlyDeletedPurgeCheck: Task<Void, Never>?
+
+    // MARK: - Optimize Storage (#836)
+
+    /// The iCloud check of an Optimize Storage pass; one runs at a time.
+    private(set) var noteAudioOffloadCheck: Task<Void, Never>?
+    /// Notes a pass asked iCloud about that iCloud answered and didn't confirm, and when:
+    /// left out of the passes for `NoteAudioOffload.unconfirmedWait`. In
+    /// memory only.
+    private var noteAudioOffloadUnconfirmed: [UUID: Date] = [:]
+
+    /// Notes whose audio player is on screen (the note window, or a run in
+    /// Settings), counted per view. A player reads the file: its waveform
+    /// and length load in the background, and it plays from it.
+    private var noteAudioPlayerViews: [UUID: Int] = [:]
+    /// Notes whose Save Files is saving, counted per save. The copy runs in
+    /// the background and can outlive its sheet.
+    private var noteAudioExports: [UUID: Int] = [:]
+
+    @MainActor
+    func noteAudioPlayerAppeared(_ id: UUID) {
+        noteAudioPlayerViews[id, default: 0] += 1
+    }
+
+    @MainActor
+    func noteAudioPlayerDisappeared(_ id: UUID) {
+        guard let count = noteAudioPlayerViews[id] else { return }
+        noteAudioPlayerViews[id] = count > 1 ? count - 1 : nil
+    }
+
+    @MainActor
+    func noteAudioExportChanged(_ id: UUID, isRunning: Bool) {
+        if isRunning {
+            noteAudioExports[id, default: 0] += 1
+        } else if let count = noteAudioExports[id] {
+            noteAudioExports[id] = count > 1 ? count - 1 : nil
+        }
+    }
+
+    /// Whether anything here uses, or may soon open, the note's recording:
+    /// its recording or first transcription, Recover Again, a
+    /// retranscription running or its result waiting to be compared, a
+    /// cloud transcription running, stopped, or saved to resume, cleanup,
+    /// a download, Save Files, or its player on screen.
+    @MainActor
+    func isNoteAudioBusy(_ id: UUID) -> Bool {
+        if isRecordingInProgress(noteID: id) || recoveringRecordingIDs.contains(id) { return true }
+        let retry = transcriptionRetryWorkflow.state
+        if retryingItemIDs.contains(id) || retry.retryingNoteIDs.contains(id)
+            || retry.candidateNoteIDs.contains(id) || transcriptionCandidates[id] != nil { return true }
+        if stoppedCloudTranscriptionIDs.contains(id)
+            || cloudTranscriptionHistoryCoordinator.activeSession(historyID: id) != nil { return true }
+        if postProcessingNoteIDs.contains(id) || noteAudioDownloader.downloadingNotes.contains(id) { return true }
+        if noteAudioPlayerViews[id] != nil || noteAudioExports[id] != nil { return true }
+        // A saved cloud job resumes from this file; one that can't be read
+        // counts as saved.
+        do {
+            return try cloudTranscriptionJobStore.load(historyID: id) != nil
+        } catch {
+            return true
+        }
+    }
+
+    /// Optimize Storage: removes from this Mac the recordings of notes not
+    /// used here for a week, once iCloud confirms it holds every part. Only
+    /// the file in `audio/` goes: nothing in the store changes, so nothing
+    /// syncs, and the note shows the download bar. Anything uncertain keeps
+    /// the file until the next pass, an hour later.
+    @MainActor
+    func removeUnusedNoteAudio(now: Date = Date()) {
+        // Downloading every recording before deleting from iCloud: none is
+        // removed meanwhile.
+        guard !noteAudioDownloadThenDelete.isRunning, NoteAudioOffload.isOn,
+              let controller = noteSyncController, controller.canConfirmAudioInICloud,
+              noteAudioOffloadCheck == nil else { return }
+        synchronizeHistoryPersistenceState()
+        guard HistoryWorkflowAdmission.mutation(state: historyWorkflow.state) == .accepted else { return }
+        let retention = NoteAudioOffload.retention
+        let candidates = noteAudioOffloadCandidates(now: now, retention: retention)
+        // A note iCloud didn't confirm waits, so it can't hold up the rest.
+        let next = NoteAudioOffload.notesToAsk(
+            candidates: candidates.map { (id: $0.id, lastUsed: $0.lastUsed) },
+            waiting: noteAudioOffloadUnconfirmed,
+            now: now
+        )
+        noteAudioOffloadUnconfirmed = next.waiting
+        let candidatesByID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.id, $0) })
+        let asked = next.ask.compactMap { candidatesByID[$0] }
+        guard !asked.isEmpty else { return }
+        let filesAsked = Dictionary(uniqueKeysWithValues: asked.map { ($0.id, $0.file) })
+        noteAudioOffloadCheck = Task { @MainActor [weak self] in
+            let confirmed = await controller.confirmAudioInICloud(asked.map(\.id))
+            guard let self else { return }
+            self.noteAudioOffloadCheck = nil
+            // Nil: iCloud couldn't be asked, which says nothing about these
+            // notes, so none of them waits.
+            guard let confirmed else { return }
+            for candidate in asked {
+                self.noteAudioOffloadUnconfirmed[candidate.id] = confirmed.contains(candidate.id) ? nil : now
+            }
+            // iCloud's answer holds only now: everything below runs without
+            // waiting, from state read again.
+            guard !confirmed.isEmpty, NoteAudioOffload.isOn, !self.noteAudioDownloadThenDelete.isRunning,
+                  self.noteSyncController === controller, controller.canConfirmAudioInICloud else { return }
+            self.synchronizeHistoryPersistenceState()
+            guard HistoryWorkflowAdmission.mutation(state: self.historyWorkflow.state) == .accepted else { return }
+            var removed = false
+            for candidate in self.noteAudioOffloadCandidates(now: now, retention: retention)
+            where confirmed.contains(candidate.id) && filesAsked[candidate.id] == candidate.file {
+                // The candidates read the file and its marker again: the
+                // file asked about, still the size the marker names.
+                // A failed removal is tried again next pass.
+                guard (try? FileManager.default.removeItem(at: candidate.url)) != nil else { continue }
+                removed = true
+            }
+            // The note window reads the file's state when it redraws.
+            if removed { self.objectWillChange.send() }
+        }
+    }
+
+    private struct NoteAudioOffloadCandidate {
+        let id: UUID
+        let url: URL
+        let file: NoteAudioOffload.LocalFile
+        let lastUsed: Date
+    }
+
+    /// The notes whose recording the policy lets this Mac remove now.
+    @MainActor
+    private func noteAudioOffloadCandidates(now: Date, retention: TimeInterval) -> [NoteAudioOffloadCandidate] {
+        let isOn = NoteAudioOffload.isOn
+        let isSyncRunning = noteSyncController?.canConfirmAudioInICloud == true
+        let snapshots = pipelineHistoryStore.audioOffloadSnapshots()
+        var namedBy: [String: Int] = [:]
+        var rowsByID: [UUID: Int] = [:]
+        for snapshot in snapshots {
+            if let name = snapshot.audioFileName { namedBy[NoteAudioOffload.sameFileKey(name), default: 0] += 1 }
+            rowsByID[snapshot.id, default: 0] += 1
+        }
+        return snapshots.compactMap { snapshot in
+            // An id two rows share stays: which row iCloud's answer is for
+            // isn't known.
+            guard rowsByID[snapshot.id] == 1 else { return nil }
+            // A file another note also names stays.
+            guard let name = snapshot.audioFileName, namedBy[NoteAudioOffload.sameFileKey(name)] == 1,
+                  let url = noteAssetStore.storedAudioURL(fileName: name),
+                  let file = NoteAudioOffload.LocalFile(at: url),
+                  // The file here must be the size its marker names.
+                  let manifest = snapshot.manifest, file.matches(manifest),
+                  // Launch recovery and Recover Again read and write this
+                  // file while the recording's journal is here.
+                  !FileManager.default.fileExists(
+                      atPath: recordingJournalStore.recordingDirectory(recordingID: snapshot.id).path
+                  ) else { return nil }
+            // The busy check reads job files, so it runs last.
+            var note = NoteAudioOffload.policyNote(snapshot, hasLocalAudio: true, isBusy: false)
+            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention) else { return nil }
+            note.isBusy = isNoteAudioBusy(snapshot.id)
+            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention) else { return nil }
+            return NoteAudioOffloadCandidate(id: snapshot.id, url: url, file: file, lastUsed: NoteAudioOffloadPolicy.lastUsed(note))
+        }
+    }
 
     private func expiredRecentlyDeletedNoteIDs(now: Date) -> [UUID] {
         recentlyDeletedNotes.compactMap { note -> UUID? in
@@ -15677,7 +15902,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabularyOverride: String? = nil,
         customSystemPromptOverride: String? = nil,
         calendarMatch: CalendarEventMatch? = nil,
-        aiProcessingOutcome: AIProcessingOutcome = .succeeded
+        aiProcessingOutcome: AIProcessingOutcome = .succeeded,
+        transcriptionFinished: Bool = false
     ) -> Bool {
         guard !isHistoryRecoveryOperationInProgress else { return false }
         let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
@@ -15763,6 +15989,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             updatePipelineHistoryItem(entry)
             historySaved = true
+            if transcriptionFinished, audioFileName != nil {
+                markNoteAudioUsed(entryID)
+            }
             if let journalRecordingID {
                 completePromotedRecordingJournal(
                     recordingID: journalRecordingID

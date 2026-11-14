@@ -101,6 +101,11 @@ MACOS_DEPLOYMENT_TARGET := 13.0
 STANDALONE_TEST_TARGET = -target $(HOST_ARCH)-apple-macosx$(MACOS_DEPLOYMENT_TARGET)
 # Records the compiler and SDK, so a toolchain update rebuilds the module.
 SHARED_CORE_TOOLCHAIN = $(SHARED_CORE_BUILD_DIR)/.toolchain
+# Records the shared modules' source files, so a source added, removed, or
+# moved between modules rebuilds them: a file's date alone misses a removed
+# file (#812). Any change rebuilds every module; it's rare.
+SHARED_CORE_SOURCES_STAMP = $(SHARED_CORE_BUILD_DIR)/.sources
+SHARED_CORE_SOURCE_LIST = $(NOTE_SYNC_CORE_SOURCES) $(AI_TEXT_CORE_SOURCES) $(USER_ISSUE_CORE_SOURCES) $(SUMMARY_FORMAT_CORE_SOURCES) $(SUMMARY_GENERATION_CORE_SOURCES) $(PROVIDER_CORE_SOURCES) $(AUDIO_LEVEL_CORE_SOURCES) $(NOTE_CORE_SOURCES) $(NOTE_UI_SOURCES) $(DESIGN_TOKENS_SOURCES) $(AUDIO_FORMAT_CORE_SOURCES)
 RESOURCES = $(CONTENTS)/Resources
 LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings
 LOCALIZATION_INFO_DIR = Resources/Localization
@@ -244,6 +249,11 @@ $(SHARED_CORE_TOOLCHAIN): FORCE
 	@{ swiftc --version 2>&1; xcrun --sdk macosx --show-sdk-path; } > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
+$(SHARED_CORE_SOURCES_STAMP): FORCE
+	@mkdir -p "$(@D)"
+	@printf '%s\n' $(SHARED_CORE_SOURCE_LIST) > "$@.tmp"
+	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
+
 # $(1): module name, $(2): its sources, $(3): extra flags. Runs in a rule
 # whose stem is the arch.
 shared_core_compile = swiftc \
@@ -260,43 +270,43 @@ shared_core_compile = swiftc \
 		-target $*-apple-macosx13.0 \
 		$(2)
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteSyncCore.a: $(NOTE_SYNC_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteSyncCore.a: $(NOTE_SYNC_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteSyncCore,$(NOTE_SYNC_CORE_SOURCES))
 
 # Imports QuillUserIssueCore (the cleanup issue record).
-$(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a: $(AI_TEXT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a: $(AI_TEXT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillAITextCore,$(AI_TEXT_CORE_SOURCES),-I "$(@D)")
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a: $(USER_ISSUE_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillUserIssueCore,$(USER_ISSUE_CORE_SOURCES))
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillProviderCore.a: $(PROVIDER_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillProviderCore.a: $(PROVIDER_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillProviderCore,$(PROVIDER_CORE_SOURCES))
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a: $(AUDIO_LEVEL_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a: $(AUDIO_LEVEL_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillAudioLevelCore,$(AUDIO_LEVEL_CORE_SOURCES))
 
 # Imports QuillUserIssueCore (a failed note's stored issue).
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a: $(NOTE_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteCore,$(NOTE_CORE_SOURCES),-I "$(@D)")
 
 # SwiftUI views shared with the iPhone app (#697). Imports QuillDesignTokens and QuillAudioLevelCore.
-$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillNoteUI.a: $(NOTE_UI_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioLevelCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillNoteUI,$(NOTE_UI_SOURCES),-I "$(@D)")
 
 # Design tokens shared with the iPhone app (#623).
-$(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a: $(DESIGN_TOKENS_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillDesignTokens.a: $(DESIGN_TOKENS_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillDesignTokens,$(DESIGN_TOKENS_SOURCES))
 
-$(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCES) Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillAudioFormatCore,$(AUDIO_FORMAT_CORE_SOURCES))
 
@@ -308,12 +318,12 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCE
 # Imports QuillAITextCore and QuillUserIssueCore, so those are built first.
 # Only a module that imports other shared modules gets the search path to
 # their interfaces.
-$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a: $(SUMMARY_FORMAT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a: $(SUMMARY_FORMAT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillSummaryFormatCore,$(SUMMARY_FORMAT_CORE_SOURCES),-I "$(@D)")
 
 # Imports QuillAITextCore, QuillUserIssueCore, and QuillSummaryFormatCore.
-$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryGenerationCore.a: $(SUMMARY_GENERATION_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a Makefile $(SHARED_CORE_TOOLCHAIN)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryGenerationCore.a: $(SUMMARY_GENERATION_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillSummaryGenerationCore,$(SUMMARY_GENERATION_CORE_SOURCES),-I "$(@D)")
 
@@ -639,6 +649,8 @@ $(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests: Sources/RecordingJou
 
 $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistorySyncStoreTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistorySyncStoreTests.swift -o "$@"
+$(TEST_BUILD_DIR)/PipelineHistoryStoreAudioLastUsedTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryStoreAudioLastUsedTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryStoreAudioLastUsedTests.swift -o "$@"
 
 $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Tests/NoteSyncCoordinatorTests.swift $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Tests/NoteSyncCoordinatorTests.swift -o "$@"
@@ -858,8 +870,16 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteSyncPayloadTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/NoteAudioSync.swift Tests/NoteAudioSyncTests.swift -o $(TEST_BUILD_DIR)/NoteAudioSyncTests
 	@$(TEST_BUILD_DIR)/NoteAudioSyncTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioOffloadPolicyTests.swift -o $(TEST_BUILD_DIR)/NoteAudioOffloadPolicyTests
+	@$(TEST_BUILD_DIR)/NoteAudioOffloadPolicyTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioICloudDeleteTests.swift -o $(TEST_BUILD_DIR)/NoteAudioICloudDeleteTests
+	@$(TEST_BUILD_DIR)/NoteAudioICloudDeleteTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioICloudDeleteCheckTests.swift -o $(TEST_BUILD_DIR)/NoteAudioICloudDeleteCheckTests
+	@$(TEST_BUILD_DIR)/NoteAudioICloudDeleteCheckTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/NoteAudioSync.swift Sources/NoteAudioDownloader.swift Tests/NoteAudioDownloaderTests.swift -o $(TEST_BUILD_DIR)/NoteAudioDownloaderTests
 	@$(TEST_BUILD_DIR)/NoteAudioDownloaderTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/NoteAudioSync.swift Sources/NoteAudioDownloadThenDelete.swift Tests/NoteAudioDownloadThenDeleteTests.swift -o $(TEST_BUILD_DIR)/NoteAudioDownloadThenDeleteTests
+	@$(TEST_BUILD_DIR)/NoteAudioDownloadThenDeleteTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o $(TEST_BUILD_DIR)/NoteTitleResolutionTests
 	@$(TEST_BUILD_DIR)/NoteTitleResolutionTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/TitleBarLayout.swift Tests/TitleBarLayoutTests.swift -o $(TEST_BUILD_DIR)/TitleBarLayoutTests
@@ -1034,12 +1054,13 @@ _test-recording: $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/RecordingInputHintStateTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/AudioInputDevice.swift Tests/SystemAudioAppStateRoutingTests.swift -o $(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
 	@$(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
-_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests $(TEST_BUILD_DIR)/NoteSyncCloudRecordTests $(TEST_BUILD_DIR)/NoteSyncControllerTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
+_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests $(TEST_BUILD_DIR)/PipelineHistoryStoreAudioLastUsedTests $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests $(TEST_BUILD_DIR)/NoteSyncCloudRecordTests $(TEST_BUILD_DIR)/NoteSyncControllerTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests $(call shared_core_lib,$(HOST_ARCH)) | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/TranscriptTextCore.swift Tests/TranscriptTextCoreTests.swift -o $(TEST_BUILD_DIR)/TranscriptTextCoreTests
 	@$(TEST_BUILD_DIR)/TranscriptTextCoreTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests
 	@$(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests
+	@$(TEST_BUILD_DIR)/PipelineHistoryStoreAudioLastUsedTests
 	@$(TEST_BUILD_DIR)/NoteSyncCoordinatorTests
 	@$(TEST_BUILD_DIR)/NoteSyncCloudRecordTests
 	@$(TEST_BUILD_DIR)/NoteSyncControllerTests

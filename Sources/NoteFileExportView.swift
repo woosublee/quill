@@ -13,6 +13,9 @@ struct NoteFileExportView: View {
     let downloadAudio: () async -> String?
     /// Stops that download, for Cancel.
     let cancelDownload: () -> Void
+    /// True when a save starts and false when it ends, which can be after
+    /// the sheet closed.
+    let onSaveRunning: @MainActor (Bool) -> Void
 
     @AppStorage("note_file_export_last_directory")
     private var lastDirectoryPath = ""
@@ -39,7 +42,8 @@ struct NoteFileExportView: View {
         onDismiss: @escaping () -> Void,
         onSaved: @escaping (String) -> Void,
         downloadAudio: @escaping () async -> String? = { nil },
-        cancelDownload: @escaping () -> Void = {}
+        cancelDownload: @escaping () -> Void = {},
+        onSaveRunning: @escaping @MainActor (Bool) -> Void = { _ in }
     ) {
         self.source = source
         self.suggestedBaseName = suggestedBaseName
@@ -47,6 +51,7 @@ struct NoteFileExportView: View {
         self.onSaved = onSaved
         self.downloadAudio = downloadAudio
         self.cancelDownload = cancelDownload
+        self.onSaveRunning = onSaveRunning
         _includeTranscript = State(initialValue: source.transcript != nil)
         _includeSummary = State(initialValue: source.summary != nil)
         _includeAudio = State(initialValue: source.audioURL != nil)
@@ -365,7 +370,9 @@ struct NoteFileExportView: View {
         resultMessage = nil
         resultHasPartialSuccess = false
         pendingReplacementRequest = nil
+        onSaveRunning(true)
         saveTask = Task {
+            defer { onSaveRunning(false) }
             if request.source.audioNeedsDownload, request.selectedItems.contains(.audio) {
                 isDownloadingAudio = true
                 let failure = await downloadAudio()

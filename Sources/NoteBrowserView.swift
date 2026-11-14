@@ -3063,7 +3063,8 @@ private struct NoteDetailView: View {
                     return appState.noteAudioState(for: item).unavailableMessage
                         ?? localizedCatalogString("Couldn't download this audio. Try again.")
                 },
-                cancelDownload: { appState.cancelNoteAudioDownload(for: item) }
+                cancelDownload: { appState.cancelNoteAudioDownload(for: item) },
+                onSaveRunning: { appState.noteAudioExportChanged(item.id, isRunning: $0) }
             )
         }
         .sheet(item: $retryChoiceRequest) { request in
@@ -4570,6 +4571,8 @@ private struct SummaryIssueViewAction {
 
 struct NoteAudioPlayerView: View {
     let audioURL: URL
+    /// Runs each time the player actually starts.
+    let onPlay: @MainActor () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var player: AVAudioPlayer?
@@ -4800,7 +4803,7 @@ struct NoteAudioPlayerView: View {
 
     private func play() {
         guard let p = preparedPlayer() else { return }
-        p.play()
+        if p.play() { onPlay() }
         isPlaying = true
         startProgressTimer()
     }
