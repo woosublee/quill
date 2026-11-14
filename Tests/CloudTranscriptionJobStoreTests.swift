@@ -27,6 +27,7 @@ struct CloudTranscriptionJobStoreTests {
             try await pickedModelIsOptionalAndSavedWithItsJob()
             try await reconvertedImportCopyRestartsItsJob()
             try reconciliationClassifiesCompatibleAndInvalidRecords()
+            try reconciliationKeepsFirstOfDuplicateHistoryRows()
             try removesStaleTemporaryArtifacts()
             print("CloudTranscriptionJobStoreTests passed")
         } catch {
@@ -626,6 +627,60 @@ struct CloudTranscriptionJobStoreTests {
             Set([orphanID, missingAudioID, changedSourceID, corruptID]),
             "orphan, missing, changed, and corrupt sidecars"
         )
+    }
+
+    // #837: two note rows with the same id used to trap at launch. The first
+    // row wins, as in `TranscriptionRetryWorkflow`, which resumes the jobs
+    // from this reconciliation with the same history.
+    private static func reconciliationKeepsFirstOfDuplicateHistoryRows() throws {
+        let fixture = try makeStoreFixture()
+        defer { fixture.cleanup() }
+        try FileManager.default.createDirectory(
+            at: fixture.audioRoot,
+            withIntermediateDirectories: true
+        )
+        let store = CloudTranscriptionJobStore(
+            jobsDirectory: fixture.jobsDirectory,
+            temporaryRoot: fixture.temporaryRoot
+        )
+
+        let duplicateID = UUID()
+        let audioURL = fixture.audioRoot.appendingPathComponent("duplicate.wav")
+        try writeCanonicalFixture(to: audioURL)
+        let record = try makeRecordForAudio(
+            historyID: duplicateID,
+            fileURL: audioURL,
+            phase: .interrupted
+        )
+        try store.create(
+            record,
+            session: store.beginSession(historyID: duplicateID)
+        )
+
+        let matchingRow = makeHistory(id: duplicateID, audioFileName: "duplicate.wav")
+        let otherRow = makeHistory(id: duplicateID, audioFileName: "other.wav")
+
+        let matchingFirst = store.reconcile(
+            history: [matchingRow, otherRow],
+            audioRoot: fixture.audioRoot
+        )
+        try expectEqual(
+            matchingFirst.resumable.map(\.historyID),
+            [duplicateID],
+            "first duplicate row matches the job"
+        )
+        try expectEqual(matchingFirst.invalid, [], "no invalid job when the first row matches")
+
+        let otherFirst = store.reconcile(
+            history: [otherRow, matchingRow],
+            audioRoot: fixture.audioRoot
+        )
+        try expectEqual(
+            otherFirst.resumable.map(\.historyID),
+            [],
+            "later duplicate row is ignored"
+        )
+        try expectEqual(otherFirst.invalid, [duplicateID], "first duplicate row decides")
     }
 
     private static func removesStaleTemporaryArtifacts() throws {
