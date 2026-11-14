@@ -2911,6 +2911,12 @@ struct ModelsSettingsView: View {
                     Text("Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if appState.holdShortcutPostProcessingPreference == .on
+                        || appState.toggleShortcutPostProcessingPreference == .on {
+                        Text("A dictation shortcut set to On in Dictation Shortcuts still post-processes its recordings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if !transcriptionEnabledDraft {
@@ -3986,6 +3992,7 @@ struct PromptsSettingsView: View {
     @State private var systemTestIssue: QuillUserIssueRecord?
     @State private var systemTestPrompt: String?
     @State private var contextTestRunning = false
+    @State private var showContextTestConfirmation = false
     @State private var contextTestOutput: String?
     @State private var contextTestIssue: QuillUserIssueRecord?
     @State private var contextTestError: String?
@@ -4414,12 +4421,12 @@ struct PromptsSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Test Context Prompt")
                     .font(.caption.weight(.semibold))
-                Text("Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity.")
+                Text("Captures a screenshot and metadata from the frontmost app and sends them to your Context model, even when Context is off for dictation. If the active window can't be captured and whole-screen capture is on, the screenshot can include other windows.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Button {
-                    runContextPromptTest()
+                    requestContextPromptTest()
                 } label: {
                     HStack(spacing: 6) {
                         if contextTestRunning {
@@ -4435,6 +4442,14 @@ struct PromptsSettingsView: View {
                     contextTestRunning
                         || !appState.isAIProcessingBackendReady(for: .context)
                 )
+                .alert("Run the context test while Context is off?", isPresented: $showContextTestConfirmation) {
+                    Button("Cancel", role: .cancel) { }
+                    Button("Run One Test") {
+                        runContextPromptTest()
+                    }
+                } message: {
+                    Text("This one test captures a screenshot and app details and sends them to your Context model. Context stays off for dictation.")
+                }
 
                 if contextUsesCloud && !hasConfiguredCloudAPIKey {
                     providerConfigurationWarning("API key required to test")
@@ -4480,6 +4495,16 @@ struct PromptsSettingsView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// With Context off, a manual test still sends a screenshot, so it asks
+    /// first (upstream #341).
+    private func requestContextPromptTest() {
+        if appState.disableContextCapture {
+            showContextTestConfirmation = true
+        } else {
+            runContextPromptTest()
         }
     }
 
@@ -4580,7 +4605,54 @@ struct ShortcutsSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Double-tap Hold to Talk to lock recording", isOn: $appState.doubleTapToToggleEnabled)
+                    .disabled(!appState.hasEnabledHoldShortcut)
+
+                Text("Keeps recording after you release, as if you had used Tap to Toggle. Press the shortcut again to stop. A single quick tap takes 0.3 seconds longer to stop.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Post-processing per shortcut")
+                    .font(.caption.weight(.semibold))
+
+                shortcutPostProcessingPicker(
+                    "Hold to Talk",
+                    selection: $appState.holdShortcutPostProcessingPreference
+                )
+                .disabled(!appState.hasEnabledHoldShortcut)
+
+                shortcutPostProcessingPicker(
+                    "Tap to Toggle",
+                    selection: $appState.toggleShortcutPostProcessingPreference
+                )
+                .disabled(!appState.hasEnabledToggleShortcut)
+
+                Text("Follow Post-processing uses the Post-processing switch. On also needs a Post-processing model that's ready to use. A recording keeps the choice of the shortcut you pressed first, even if it switches to Tap to Toggle. Recordings you start another way follow the switch. Voice macros and Edit Mode work either way.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private func shortcutPostProcessingPicker(
+        _ title: LocalizedStringKey,
+        selection: Binding<ShortcutPostProcessingPreference>
+    ) -> some View {
+        Picker(title, selection: selection) {
+            Text("Follow Post-processing").tag(ShortcutPostProcessingPreference.inherit)
+            Text("On").tag(ShortcutPostProcessingPreference.on)
+            Text("Off").tag(ShortcutPostProcessingPreference.off)
+        }
+        .pickerStyle(.menu)
     }
 
     private var dictationAudioSection: some View {
@@ -4659,6 +4731,16 @@ struct ShortcutsSettingsView: View {
             ))
 
             Text("When off, Quill copies the transcript to the clipboard so you can paste it manually.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .padding(.vertical, 2)
+
+            Toggle("Insert into the original field", isOn: $appState.originalFieldInsertionEnabled)
+                .disabled(appState.disableAutoPaste)
+
+            Text("Puts the dictation in the field where recording began, even after you switch apps. Applies to new dictations. Pasting or pressing Return may briefly bring the original app forward, then return you to where you were. If the field changed or can't be reached, use Paste Again.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

@@ -3993,7 +3993,7 @@ private struct NoteDetailView: View {
             cloudProgress: cloudProgress,
             cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
             cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
-            cleanup: appState.noteCleanupStage
+            cleanup: appState.noteCleanupStage(noteID: item.id)
         )
     }
 
@@ -4006,7 +4006,7 @@ private struct NoteDetailView: View {
             cloudProgress: cloudProgress,
             cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
             cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
-            cleanup: appState.noteCleanupStage
+            cleanup: appState.noteCleanupStage(noteID: item.id)
         )
     }
 

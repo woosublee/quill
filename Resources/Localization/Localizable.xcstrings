@@ -4721,22 +4721,6 @@
         }
       }
     },
-    "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전면 앱의 스크린샷과 메타데이터를 캡처한 후 컨텍스트 프롬프트를 실행해 활동을 추론해요."
-          }
-        }
-      }
-    },
     "Change this to use a different OpenAI-compatible API provider.": {
       "localizations": {
         "en": {
@@ -10624,6 +10608,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "후처리가 꺼져 있으면 일반 받아쓰기는 원본 전사문을 사용해요. Edit Mode는 계속 이 모델 설정을 사용해요."
+          }
+        }
+      }
+    },
+    "A dictation shortcut set to On in Dictation Shortcuts still post-processes its recordings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A dictation shortcut set to On in Dictation Shortcuts still post-processes its recordings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 단축키에서 켬으로 둔 단축키는 계속 후처리해요."
           }
         }
       }
@@ -22512,6 +22512,326 @@
           "stringUnit": {
             "state": "translated",
             "value": "후처리 대기 중"
+          }
+        }
+      }
+    },
+    "Double-tap Hold to Talk to lock recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap Hold to Talk to lock recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 말하기를 두 번 눌러 녹음 고정"
+          }
+        }
+      }
+    },
+    "Keeps recording after you release, as if you had used Tap to Toggle. Press the shortcut again to stop. A single quick tap takes 0.3 seconds longer to stop.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps recording after you release, as if you had used Tap to Toggle. Press the shortcut again to stop. A single quick tap takes 0.3 seconds longer to stop."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손을 떼도 눌러서 전환을 쓴 것처럼 녹음이 계속돼요. 단축키를 한 번 더 누르면 멈춰요. 짧게 한 번만 누르면 멈추기까지 0.3초 더 걸려요."
+          }
+        }
+      }
+    },
+    "Post-processing per shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Post-processing per shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키별 후처리"
+          }
+        }
+      }
+    },
+    "Follow Post-processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow Post-processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 설정 따르기"
+          }
+        }
+      }
+    },
+    "Follow Post-processing uses the Post-processing switch. On also needs a Post-processing model that's ready to use. A recording keeps the choice of the shortcut you pressed first, even if it switches to Tap to Toggle. Recordings you start another way follow the switch. Voice macros and Edit Mode work either way.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow Post-processing uses the Post-processing switch. On also needs a Post-processing model that's ready to use. A recording keeps the choice of the shortcut you pressed first, even if it switches to Tap to Toggle. Recordings you start another way follow the switch. Voice macros and Edit Mode work either way."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 설정 따르기는 후처리 스위치를 그대로 따라요. 켬은 바로 쓸 수 있는 후처리 모델이 있어야 해요. 녹음은 처음 누른 단축키의 선택대로 끝까지 가요. 중간에 눌러서 전환으로 바뀌어도 같아요. 다른 방법으로 시작한 녹음은 스위치를 따라요. 음성 매크로와 편집 모드는 어느 쪽이든 그대로 동작해요."
+          }
+        }
+      }
+    },
+    "Captures a screenshot and metadata from the frontmost app and sends them to your Context model, even when Context is off for dictation. If the active window can't be captured and whole-screen capture is on, the screenshot can include other windows.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captures a screenshot and metadata from the frontmost app and sends them to your Context model, even when Context is off for dictation. If the active window can't be captured and whole-screen capture is on, the screenshot can include other windows."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전면 앱의 스크린샷과 메타데이터를 캡처해 컨텍스트 모델로 보내요. 받아쓰기에서 컨텍스트를 꺼 둬도 보내요. 활성 창을 캡처할 수 없고 전체 화면 캡처가 켜져 있으면 스크린샷에 다른 창이 담길 수 있어요."
+          }
+        }
+      }
+    },
+    "Run the context test while Context is off?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run the context test while Context is off?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트가 꺼져 있는데 테스트를 실행할까요?"
+          }
+        }
+      }
+    },
+    "Run One Test": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run One Test"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번만 실행"
+          }
+        }
+      }
+    },
+    "This one test captures a screenshot and app details and sends them to your Context model. Context stays off for dictation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This one test captures a screenshot and app details and sends them to your Context model. Context stays off for dictation."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 테스트만 스크린샷과 앱 정보를 캡처해 컨텍스트 모델로 보내요. 받아쓰기의 컨텍스트는 꺼진 채로 있어요."
+          }
+        }
+      }
+    },
+    "Insert into the original field": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert into the original field"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 입력하던 칸에 넣기"
+          }
+        }
+      }
+    },
+    "Puts the dictation in the field where recording began, even after you switch apps. Applies to new dictations. Pasting or pressing Return may briefly bring the original app forward, then return you to where you were. If the field changed or can't be reached, use Paste Again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puts the dictation in the field where recording began, even after you switch apps. Applies to new dictations. Pasting or pressing Return may briefly bring the original app forward, then return you to where you were. If the field changed or can't be reached, use Paste Again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱으로 옮겨 가도 녹음을 시작한 칸에 받아쓴 내용을 넣어요. 새로 받아쓰는 내용부터 적용돼요. 붙여넣거나 Return을 누를 때 원래 앱이 잠깐 앞으로 나왔다가 보던 곳으로 돌아갈 수 있어요. 칸 내용이 바뀌었거나 칸에 닿을 수 없으면 다시 붙여넣기를 쓰세요."
+          }
+        }
+      }
+    },
+    "Inserted in original field": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserted in original field"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 칸에 넣었어요"
+          }
+        }
+      }
+    },
+    "Pasted in original field": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasted in original field"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 칸에 붙여넣었어요"
+          }
+        }
+      }
+    },
+    "Original field unavailable — use Paste Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original field unavailable — use Paste Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 칸을 찾을 수 없어요 — 다시 붙여넣기를 쓰세요"
+          }
+        }
+      }
+    },
+    "Original field changed or unavailable — use Paste Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original field changed or unavailable — use Paste Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 칸이 바뀌었거나 찾을 수 없어요 — 다시 붙여넣기를 쓰세요"
+          }
+        }
+      }
+    },
+    "Insertion unavailable — use Paste Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insertion unavailable — use Paste Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "넣을 수 없어요 — 다시 붙여넣기를 쓰세요"
+          }
+        }
+      }
+    },
+    "Insertion unconfirmed — use Paste Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insertion unconfirmed — use Paste Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "들어갔는지 확인하지 못했어요 — 다시 붙여넣기를 쓰세요"
+          }
+        }
+      }
+    },
+    "Original field is not focused — Enter skipped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original field is not focused — Enter skipped"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 칸이 선택돼 있지 않아 Return을 누르지 않았어요"
+          }
+        }
+      }
+    },
+    "Original field unavailable — Enter skipped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original field unavailable — Enter skipped"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처음 칸을 찾을 수 없어 Return을 누르지 않았어요"
+          }
+        }
+      }
+    },
+    "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전면 앱의 스크린샷과 메타데이터를 캡처한 후 컨텍스트 프롬프트를 실행해 활동을 추론해요."
           }
         }
       }
