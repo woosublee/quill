@@ -2,14 +2,6 @@ import Foundation
 import QuillNoteCore
 
 enum NoteTitleResolver {
-    private static let calendarTitleDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
     /// The name of a settled note without a title of its own: when its
     /// recording started (else when it was saved), as the list row's date
     /// reads it. The note detail shows the same as its title placeholder,
@@ -23,29 +15,23 @@ enum NoteTitleResolver {
     }
 
     static func calendarAppliedTitle(suggestedTitle: String, recordingStartedAt: Date) -> String {
-        "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"
+        CalendarTitleSuggestion.appliedTitle(suggestedTitle: suggestedTitle, date: recordingStartedAt)
     }
 
-    /// The calendar title to suggest applying, or nil when there is nothing
-    /// to suggest or applying it would not change the note's current
-    /// effective title. Returns both the raw suggestion and the value
-    /// Apply would set so callers don't recompute the applied form.
+    /// The calendar title to suggest applying, with what Apply sets, or
+    /// nil. The rule is shared with the iPhone (`CalendarTitleSuggestion`,
+    /// #832): it shows even on a note with its own title, unless that title
+    /// already is the event's, or the person closed it.
     static func suggestedCalendarTitle(
-        for item: PipelineHistoryItem
+        for item: PipelineHistoryItem,
+        isDismissed: Bool = false
     ) -> (suggested: String, applied: String)? {
-        // A whitespace-only title counts as none, as it does everywhere else.
-        // An untitled note is named by its date, which never reads like the
-        // applied form, so applying always changes the title.
-        guard normalizedCustomTitle(item.customTitle ?? "") == nil,
-              item.calendarMatch?.titleState == .suggested,
-              let suggestedTitle = item.calendarMatch?.suggestedTitle else {
-            return nil
-        }
-        let appliedTitle = calendarAppliedTitle(
-            suggestedTitle: suggestedTitle,
-            recordingStartedAt: item.timestamp
+        CalendarTitleSuggestion.suggestion(
+            calendarMatch: item.calendarMatch,
+            customTitle: normalizedCustomTitle(item.customTitle ?? ""),
+            date: item.timestamp,
+            isDismissed: isDismissed
         )
-        return (suggested: suggestedTitle, applied: appliedTitle)
     }
 
     /// The title field's text after the note's title changed outside the

@@ -56,6 +56,13 @@ final class AppleCalendarService {
         }
     }
 
+    /// Which of these calendars Quill can read now: access is granted and
+    /// the calendar still exists (#832).
+    func existingCalendarIDs(_ calendarIDs: Set<String>) -> Set<String> {
+        guard Self.authorization() == .granted, !calendarIDs.isEmpty else { return [] }
+        return Set(store.calendars(for: .event).map(\.calendarIdentifier)).intersection(calendarIDs)
+    }
+
     func events(calendarIDs: Set<String>, from start: Date, to end: Date) -> [CalendarEvent] {
         guard Self.authorization() == .granted, !calendarIDs.isEmpty, end > start else { return [] }
         let calendars = store.calendars(for: .event).filter { calendarIDs.contains($0.calendarIdentifier) }

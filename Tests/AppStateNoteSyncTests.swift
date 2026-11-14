@@ -1045,7 +1045,11 @@ struct AppStateNoteSyncTests {
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let url = try addRecording(fixture, note, inICloud: false)
         await offload(fixture, now: t0 + 30 * day)
-        precondition(fixture.engine.audioChecks == [[note.id]], "iCloud was asked")
+        // Sync's own check at start (a marker iCloud doesn't hold) can ask
+        // about the same note, before or after the pass; only this note is
+        // ever asked about.
+        let checks = fixture.engine.audioChecks
+        precondition(!checks.isEmpty && checks.allSatisfy { $0 == [note.id] }, "iCloud was asked: \(checks)")
         precondition(exists(url), "a part iCloud doesn't hold keeps the file")
     }
 

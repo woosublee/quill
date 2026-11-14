@@ -2938,7 +2938,10 @@ private struct NoteDetailView: View {
     }
 
     private var suggestedCalendarTitleInfo: (suggested: String, applied: String)? {
-        NoteTitleResolver.suggestedCalendarTitle(for: item)
+        NoteTitleResolver.suggestedCalendarTitle(
+            for: item,
+            isDismissed: appState.isCalendarTitleSuggestionDismissed(item)
+        )
     }
 
     private var increasesContrast: Bool { colorSchemeContrast == .increased }
@@ -2990,6 +2993,15 @@ private struct NoteDetailView: View {
             loadContent()
             revealSummaryIfPending()
             applySearchTabPreference(prefersSummaryTab)
+        }
+        // A note with no event looks again when opened (#832): the event
+        // may have been added to the calendar after the recording.
+        .task(id: item.id) {
+            // Only a note that stays open: moving through the list with the
+            // arrow keys doesn't send a request per note.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            appState.lookUpCalendarMatchOnOpen(noteID: item.id)
         }
         .onChange(of: prefersSummaryTab) { newValue in
             applySearchTabPreference(newValue)
@@ -3173,39 +3185,16 @@ private struct NoteDetailView: View {
             .overrideCursor(.iBeam)
 
             if let suggestedCalendarTitleInfo {
-                HStack(spacing: 10) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.blue)
-                        .frame(width: 24, height: 24)
-                        .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
-
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("Calendar suggested title")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .fixedSize()
-                        Text(suggestedCalendarTitleInfo.suggested)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button("Apply") {
+                NoteCalendarTitleSuggestionRow(
+                    label: localizedCatalogString("Calendar suggested title"),
+                    title: suggestedCalendarTitleInfo.suggested,
+                    applyLabel: localizedCatalogString("Apply"),
+                    dismissLabel: localizedCatalogString("Dismiss"),
+                    onApply: {
                         applyOutsideTitle(suggestedCalendarTitleInfo.applied)
-                        appState.updateHistoryItemTitle(id: item.id, title: suggestedCalendarTitleInfo.applied)
-                    }
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+                        appState.applyCalendarTitleSuggestion(item, title: suggestedCalendarTitleInfo.applied)
+                    },
+                    onDismiss: { appState.dismissCalendarTitleSuggestion(item) }
                 )
                 .padding(.top, 2)
             }

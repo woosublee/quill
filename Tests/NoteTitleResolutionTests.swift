@@ -245,8 +245,8 @@ struct NoteTitleResolutionTests {
         assert(NoteTitleResolver.suggestedCalendarTitle(for: note)?.applied == appliedTitle)
     }
 
-    // A whitespace-only title counts as none, as everywhere else; a padded
-    // real title is the note's own and hides the suggestion.
+    // A whitespace-only title counts as none, as everywhere else. A note's
+    // own title no longer hides the suggestion (#832); closing it does.
     private static func testSuggestedCalendarTitleTreatsWhitespaceTitleAsNone() {
         let blank = item(
             transcript: "Synthetic transcript",
@@ -259,7 +259,8 @@ struct NoteTitleResolutionTests {
             calendarMatch: match(title: "Team Standup", titleState: .suggested),
             customTitle: "  Planning  "
         )
-        assert(NoteTitleResolver.suggestedCalendarTitle(for: titled) == nil)
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: titled)?.suggested == "Team Standup")
+        assert(NoteTitleResolver.suggestedCalendarTitle(for: titled, isDismissed: true) == nil)
     }
 
     private static func testDateTitleUsesRecordingStartAndLocale() {

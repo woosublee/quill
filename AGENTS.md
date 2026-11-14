@@ -153,7 +153,13 @@ otherwise.
   (`CalendarEventMerger`), and which meetings get a reminder to record and
   when (`CalendarRecordingReminderPlanner`: the notification identifiers,
   lead times, and the five-minute grace; reading calendars, notifications,
-  and settings stay in each app); and what the note list's Select All button does
+  and settings stay in each app), which notes look for their event again
+  after the recording, apart from meeting reminders (`CalendarMatchLookup`:
+  no event yet; the past 14 days on launch, coming forward, or a calendar
+  change, at most every 15 minutes; opening a note checks it at most every
+  5 minutes, and a deleted event gives way to the one now at that time) and when a
+  note's calendar title suggestion shows, even beside its own title
+  (`CalendarTitleSuggestion`, #832; when to look stays in each app); and what the note list's Select All button does
   (`NoteSelectAllAction`: Deselect All once every selectable visible note is
   selected), what its selection-mode header button reads
   (`NoteSelectionExitAction`: Cancel once a note is selected, Done
@@ -204,7 +210,8 @@ otherwise.
   and a detail, in a hero, standard, or quiet style, with its copy keys in
   `NoteEmptyStateCopy`, #697);
   the two-line settings row with one button (`QuillTwoLineActionRow`, the
-  consent rows on both apps); a note's two tabs (`NoteContentMode`) and the
+  consent rows on both apps); the calendar title suggestion row with Apply and
+  close (`NoteCalendarTitleSuggestionRow`, #832); a note's two tabs (`NoteContentMode`) and the
   summary field being edited (`NoteSummaryField`); the Keep/Use comparison's
   layout (side by side unless the window is compact, where a segmented picker
   shows the new side first: `NoteComparisonLayout`, `NoteComparisonSides`), its
