@@ -110,11 +110,4 @@ enum NoteAudioOffload {
     static var retention: TimeInterval {
         retention(bundleIdentifier: Bundle.main.bundleIdentifier, arguments: ProcessInfo.processInfo.arguments)
     }
-
-    /// The `now` to give the policy so that it applies `retention` instead
-    /// of its own: unused for `retention` here is unused for the policy's
-    /// retention there. With the policy's retention it is `now` itself.
-    static func policyNow(_ now: Date, retention: TimeInterval) -> Date {
-        now.addingTimeInterval(NoteAudioOffloadPolicy.retention - retention)
-    }
 }

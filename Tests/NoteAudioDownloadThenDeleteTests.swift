@@ -37,6 +37,10 @@ struct NoteAudioDownloadThenDeleteTests {
         await testAFailedDownloadNeverAsksICloud()
         await testTooLittleSpaceNeverAsksICloud()
         await testARecordingICloudNamesAgainAfterItsDownloadFails()
+        await testCheckingOnlyDeletesWhenICloudAnswersSafe()
+        await testCheckingOnlyStopsToAskWhenICloudNamesARecording()
+        await testCheckingOnlyStopsToAskWhenTheFetchListsARecording()
+        await testCheckingOnlyThatCantAskDeletesNothing()
         testFreeBytesOfARealFolderIsPositive()
         print("NoteAudioDownloadThenDeleteTests passed")
     }
@@ -473,6 +477,65 @@ struct NoteAudioDownloadThenDeleteTests {
         precondition(outcome == .deleted, "\(outcome)")
         precondition(fake.log == ["refresh", "confirm", "download x", "refresh", "confirm", "delete"], "\(fake.log)")
         precondition(runner.notice == nil)
+    }
+
+    /// A press with nothing listed here (#839): iCloud is asked, and the
+    /// delete runs when it answers safe.
+    @MainActor
+    static func testCheckingOnlyDeletesWhenICloudAnswersSafe() async {
+        let fake = Fake()
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run(asksBeforeDownloading: true)
+        precondition(outcome == .deleted, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm", "delete"], "\(fake.log)")
+        precondition(runner.notice == nil && runner.phase == .idle && !runner.isRunning)
+    }
+
+    /// iCloud holds a recording this Mac didn't know of: nothing downloads
+    /// or is deleted, and the run says so, so the user is asked first.
+    @MainActor
+    static func testCheckingOnlyStopsToAskWhenICloudNamesARecording() async {
+        let fake = Fake()
+        fake.verdicts = [.download([x])]
+        fake.onConfirm = { _ in fake.list?.append(.init(id: x, bytes: 100)) }
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run(asksBeforeDownloading: true)
+        precondition(outcome == .foundRecordings, "\(outcome)")
+        precondition(fake.log == ["refresh", "confirm"], "\(fake.log)")
+        precondition(runner.notice == .foundRecordings && runner.phase == .idle && !runner.isRunning)
+        runner.dismissNotice()
+        precondition(runner.notice == nil)
+    }
+
+    /// The fetch itself brought a recording that is only in iCloud.
+    @MainActor
+    static func testCheckingOnlyStopsToAskWhenTheFetchListsARecording() async {
+        let fake = Fake()
+        fake.onRefresh = { _ in fake.ids([a]) }
+        let runner = NoteAudioDownloadThenDelete(work: fake.work())
+        let outcome = await runner.run(asksBeforeDownloading: true)
+        precondition(outcome == .foundRecordings, "\(outcome)")
+        precondition(fake.log == ["refresh"], "\(fake.log)")
+        precondition(fake.freeAsked == 0, "no space is needed to ask")
+    }
+
+    /// A fetch that failed, or an answer that isn't sure, deletes nothing;
+    /// with nothing being downloaded, both say the check failed.
+    @MainActor
+    static func testCheckingOnlyThatCantAskDeletesNothing() async {
+        let offline = Fake()
+        offline.refreshResults = [false]
+        let first = NoteAudioDownloadThenDelete(work: offline.work())
+        let failed = await first.run(asksBeforeDownloading: true)
+        precondition(failed == .cannotCheck && first.notice == .cannotCheck, "\(failed)")
+        precondition(offline.log == ["refresh"], "\(offline.log)")
+
+        let unsure = Fake()
+        unsure.verdicts = [.cannotBeSure]
+        let second = NoteAudioDownloadThenDelete(work: unsure.work())
+        let outcome = await second.run(asksBeforeDownloading: true)
+        precondition(outcome == .cannotCheck && second.notice == .cannotCheck, "\(outcome)")
+        precondition(unsure.log == ["refresh", "confirm"], "\(unsure.log)")
     }
 
     @MainActor

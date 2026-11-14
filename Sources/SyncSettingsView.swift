@@ -107,7 +107,10 @@ private struct NoteSyncSettingsCard: View {
 
             downloadThenDeleteRow
 
-            optimizeStorageRow
+            // Nothing to offer where sync can't be turned on at all.
+            if controller.unavailableReason == nil {
+                optimizeStorageRow
+            }
 
             // What goes to iCloud is said once, when turning on.
             if !controller.isEnabled, controller.unavailableReason == nil {
@@ -171,6 +174,14 @@ private struct NoteSyncSettingsCard: View {
             Text(localizedCatalogString(NoteAudioICloudDeleteCopy.messageKey))
         }
         .alert(downloadThenDeleteNoticeTitle, isPresented: isShowingDownloadThenDeleteNotice) {
+            // The way on when the check keeps failing: the same choice the
+            // question about recordings only in iCloud offers.
+            if downloadThenDelete.notice == .cannotCheck {
+                Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {
+                    downloadThenDelete.dismissNotice()
+                    turnOff(deleteFromICloud: true)
+                }
+            }
             Button("OK", role: .cancel) {
                 downloadThenDelete.dismissNotice()
             }
@@ -178,9 +189,10 @@ private struct NoteSyncSettingsCard: View {
             Text(downloadThenDeleteNoticeMessage)
         }
         // A failed delete says why in the alert below, as a plain Turn Off
-        // and Delete does; a notice left while Settings was closed shows here.
-        .onAppear { showDeleteFailure(downloadThenDelete.notice) }
-        .onChange(of: downloadThenDelete.notice) { showDeleteFailure($0) }
+        // and Delete does, and recordings a check found are asked about; a
+        // notice left while Settings was closed shows here.
+        .onAppear { followUp(downloadThenDelete.notice) }
+        .onChange(of: downloadThenDelete.notice) { followUp($0) }
         .alert("Couldn't turn on iCloud sync", isPresented: isShowingTurnOnFailure) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -316,6 +328,8 @@ private struct NoteSyncSettingsCard: View {
             return localizedCatalogString(NoteAudioICloudDeleteCopy.notEnoughSpaceTitleKey)
         case .syncPaused?:
             return localizedCatalogString(NoteAudioICloudDeleteCopy.syncPausedTitleKey)
+        case .cannotCheck?:
+            return localizedCatalogString(NoteAudioICloudDeleteCopy.cannotCheckTitleKey)
         default:
             return localizedCatalogString(NoteAudioICloudDeleteCopy.downloadFailedTitleKey)
         }
@@ -334,10 +348,19 @@ private struct NoteSyncSettingsCard: View {
         }
     }
 
-    private func showDeleteFailure(_ notice: NoteAudioDownloadThenDelete.Outcome?) {
-        guard notice == .deleteFailed else { return }
-        downloadThenDelete.dismissNotice()
-        turnOffFailed = true
+    private func followUp(_ notice: NoteAudioDownloadThenDelete.Outcome?) {
+        switch notice {
+        case .deleteFailed?:
+            downloadThenDelete.dismissNotice()
+            turnOffFailed = true
+        case .foundRecordings?:
+            // The check found recordings that are only in iCloud: ask, as
+            // a press with some already listed does.
+            downloadThenDelete.dismissNotice()
+            askAboutRecordingsOnlyInICloud()
+        default:
+            break
+        }
     }
 
     private func sizeText(_ bytes: Int64) -> String {
@@ -398,17 +421,39 @@ private struct NoteSyncSettingsCard: View {
         }
     }
 
-    /// With recordings only in iCloud, asks whether to download them first;
-    /// otherwise deletes as before. Read again here: the storage pass may
-    /// have made a recording iCloud-only while the dialog was open.
+    /// With recordings only in iCloud, asks whether to download them first.
+    /// Read again here: the storage pass may have made a recording
+    /// iCloud-only while the dialog was open.
+    ///
+    /// With none listed here, iCloud is asked first when it can be (#839):
+    /// another device may have made a recording iCloud-only that this Mac
+    /// hasn't heard of. The run deletes when iCloud answers safe, and comes
+    /// back to ask when it found one. Where iCloud can't be asked (sync
+    /// paused for the account, or with nothing running), or the list can't
+    /// be read, the delete runs as before.
     private func deleteFromICloudPressed() {
         audioOnlyInICloud = controller.recordingsOnlyInICloud
-        guard let recordings = audioOnlyInICloud, !recordings.isEmpty else {
+        if let recordings = audioOnlyInICloud, !recordings.isEmpty {
+            // The dialog is still closing; an alert presented in the same
+            // turn can be dropped.
+            DispatchQueue.main.async {
+                isAskingAboutRecordings = true
+            }
+        } else if audioOnlyInICloud != nil, controller.canCheckRecordingsInICloud {
+            Task { @MainActor in await downloadThenDelete.run(asksBeforeDownloading: true) }
+        } else {
             turnOff(deleteFromICloud: true)
+        }
+    }
+
+    /// After a check found recordings only in iCloud. A list that is empty
+    /// again (they were downloaded meanwhile) starts over from the press.
+    private func askAboutRecordingsOnlyInICloud() {
+        audioOnlyInICloud = controller.recordingsOnlyInICloud
+        guard let recordings = audioOnlyInICloud, !recordings.isEmpty else {
+            deleteFromICloudPressed()
             return
         }
-        // The dialog is still closing; an alert presented in the same turn
-        // can be dropped.
         DispatchQueue.main.async {
             isAskingAboutRecordings = true
         }

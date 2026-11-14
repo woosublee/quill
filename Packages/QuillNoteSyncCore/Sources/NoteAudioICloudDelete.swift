@@ -68,6 +68,8 @@ public enum NoteAudioICloudDeleteCopy {
     public static let notEnoughSpaceMessageFormatKey = "Free up %@ more on this device, then try again. Nothing was deleted from iCloud."
     public static let downloadFailedTitleKey = "Couldn't download every recording"
     public static let downloadFailedMessageKey = "Nothing was deleted from iCloud. Recordings already downloaded stay on this device. Check your internet connection and try again."
+    /// iCloud couldn't be asked which recordings are only there.
+    public static let cannotCheckTitleKey = "Couldn't check the recordings in iCloud"
     public static let cannotCheckMessageKey = "Quill couldn't check which recordings are only in iCloud, so nothing was deleted."
     /// Sync paused with nothing running to download with (#838).
     public static let syncPausedTitleKey = "Can't download recordings while sync is paused"

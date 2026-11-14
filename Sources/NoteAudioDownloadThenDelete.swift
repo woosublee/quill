@@ -9,6 +9,11 @@ import QuillNoteSyncCore
 /// iCloud's own list is the gate (`confirmWithICloud`, #839). The delete
 /// runs only when that answers safe and the list read after it is still
 /// empty, with no await in between. One runs at a time.
+///
+/// `run(asksBeforeDownloading: true)` is the same check for a press made
+/// with nothing listed here: it deletes when iCloud answers safe, and
+/// stops with `.foundRecordings` when a recording turned up, so the user
+/// is asked before anything downloads.
 @MainActor
 final class NoteAudioDownloadThenDelete: ObservableObject {
     struct Work {
@@ -53,11 +58,18 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         case syncPaused
         case cancelled
         case alreadyRunning
+        /// Only from `run(asksBeforeDownloading: true)`: recordings that
+        /// are only in iCloud turned up; nothing was downloaded or deleted.
+        case foundRecordings
     }
+
+    /// How long the fetch that starts a run may take.
+    static let fetchTimeLimit: TimeInterval = 60
 
     @Published private(set) var phase: Phase = .idle
     /// The last run's outcome when it needs saying: `.deleteFailed`,
-    /// `.notEnoughSpace`, `.downloadFailed`, `.cannotCheck`, `.syncPaused`. Stays until dismissed,
+    /// `.notEnoughSpace`, `.downloadFailed`, `.cannotCheck`, `.syncPaused`,
+    /// `.foundRecordings`. Stays until dismissed,
     /// so it shows even if Settings was closed meanwhile.
     @Published private(set) var notice: Outcome?
     @Published private(set) var isRunning = false
@@ -70,7 +82,7 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
     }
 
     @discardableResult
-    func run() async -> Outcome {
+    func run(asksBeforeDownloading: Bool = false) async -> Outcome {
         guard !isRunning else { return .alreadyRunning }
         isRunning = true
         cancelRequested = false
@@ -87,7 +99,8 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
                 phase = .checking
                 let fetched = await work.refresh()
                 if cancelRequested { return finish(.cancelled) }
-                if !fetched { return finish(.downloadFailed) }
+                // Nothing was being downloaded when only checking.
+                if !fetched { return finish(asksBeforeDownloading ? .cannotCheck : .downloadFailed) }
             }
             guard var listed = work.recordingsOnlyInICloud() else { return finish(.cannotCheck) }
             if listed.isEmpty {
@@ -116,6 +129,7 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
                 }
                 listed = after
             }
+            if asksBeforeDownloading { return finish(.foundRecordings) }
             fetchFirst = false
             let summary = NoteAudioICloudOnlySummary(markerBytes: listed.map(\.bytes))
             if case .short(let by) = NoteAudioICloudDeletePolicy.space(
@@ -164,7 +178,7 @@ final class NoteAudioDownloadThenDelete: ObservableObject {
         phase = .idle
         isRunning = false
         switch outcome {
-        case .deleteFailed, .notEnoughSpace, .downloadFailed, .cannotCheck, .syncPaused:
+        case .deleteFailed, .notEnoughSpace, .downloadFailed, .cannotCheck, .syncPaused, .foundRecordings:
             notice = outcome
         case .deleted, .cancelled, .alreadyRunning:
             break

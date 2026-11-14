@@ -201,6 +201,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// any other error throws.
     func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        // A stalled lookup gives up rather than wait for CloudKit's long
+        // default, as `noteRecordsInICloud` does: it reads no audio.
+        let limit = CKOperation.Configuration()
+        limit.timeoutIntervalForRequest = 30
+        limit.timeoutIntervalForResource = 60
         var found: Set<NoteAudioPartID> = []
         var start = 0
         while start < parts.count {
@@ -208,10 +213,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             start += 200
             let results: [CKRecord.ID: Result<CKRecord, Error>]
             do {
-                results = try await database.records(
-                    for: chunk.map(NoteAudioCloudRecord.recordID(for:)),
-                    desiredKeys: NoteAudioCloudRecord.lookupKeys
-                )
+                let recordIDs = chunk.map(NoteAudioCloudRecord.recordID(for:))
+                results = try await database.configuredWith(configuration: limit) { database in
+                    try await database.records(for: recordIDs, desiredKeys: NoteAudioCloudRecord.lookupKeys)
+                }
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 continue
             }

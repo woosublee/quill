@@ -47,6 +47,7 @@ struct AppStateNoteSyncTests {
         try await testOffloadSkipsAnIDTwoRowsShare()
         testOffloadChoosesWhoGoesNext()
         try await testOffloadSkipsNotesICloudDidNotConfirmForADay()
+        try await testOffloadAsksAgainWhenICloudCouldNotBeAsked()
         testOffloadRetentionOverrideIsForDevelopmentOnly()
         try await testDownloadThenDeleteBringsEveryRecordingHereFirst()
         try await testDownloadThenDeleteWithTooLittleSpaceDeletesNothing()
@@ -85,8 +86,11 @@ struct AppStateNoteSyncTests {
         var partsInICloud: Set<NoteAudioPartID> = []
         var audioChecks: [Set<UUID>] = []
         var holdsAudioChecks = false
+        /// Thrown by the lookup of audio parts: iCloud can't be asked.
+        var audioCheckError: Error?
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
             audioChecks.append(Set(parts.map(\.noteID)))
+            if let audioCheckError { throw audioCheckError }
             while holdsAudioChecks { try await Task.sleep(for: .milliseconds(5)) }
             return partsInICloud.intersection(parts)
         }
@@ -1003,6 +1007,31 @@ struct AppStateNoteSyncTests {
         precondition(unconfirmed.dropFirst().allSatisfy { exists(urls[$0.id]!) })
     }
 
+    /// A pass that couldn't ask iCloud (a failed request, say) learned
+    /// nothing about its notes: none waits a day, and the next pass asks
+    /// about the same ones.
+    @MainActor
+    static func testOffloadAsksAgainWhenICloudCouldNotBeAsked() async throws {
+        let restore = setOptimizeStorage(true)
+        defer { restore() }
+        let note = makeRecordedItem()
+        let fixture = try makeFixture(items: [note])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let url = try addRecording(fixture, note)
+        fixture.appState.markNoteAudioUsed(note.id, now: t0)
+        let now = t0 + 30 * day
+
+        fixture.engine.audioCheckError = URLError(.notConnectedToInternet)
+        await offload(fixture, now: now)
+        precondition(fixture.engine.audioChecks == [[note.id]], "\(fixture.engine.audioChecks)")
+        precondition(exists(url), "not confirmed: the file stays")
+
+        fixture.engine.audioCheckError = nil
+        await offload(fixture, now: now + 60 * 60)
+        precondition(fixture.engine.audioChecks.count == 2, "asked again an hour later: \(fixture.engine.audioChecks)")
+        precondition(!exists(url), "confirmed now: removed")
+    }
+
     @MainActor
     static func testOffloadKeepsWhatICloudDoesNotConfirm() async throws {
         let restore = setOptimizeStorage(true)
@@ -1299,20 +1328,19 @@ struct AppStateNoteSyncTests {
         for bad in ["0", "-5", "nan", "inf", "soon"] {
             precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: ["Quill", NoteAudioOffload.retentionArgument, bad]) == week, bad)
         }
-        // The policy's `now`, moved so its week means the shorter period.
+        // The policy applies the shorter period it is given.
         let now = t0 + 30 * day
-        precondition(NoteAudioOffload.policyNow(now, retention: week) == now)
         let note = NoteAudioOffloadPolicy.Note(
             hasMarker: true, hasTranscript: true, hasLocalAudio: true, isBusy: false,
             isRecentlyDeleted: false, hasUnrecoveredPieces: false,
             lastUsedAt: now - 61, recordingEndedAt: nil, createdAt: t0
         )
-        precondition(NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)))
+        precondition(NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: true, isSyncRunning: true, now: now, retention: 60))
         var recent = note
         recent.lastUsedAt = now - 59
-        precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)))
+        precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: now, retention: 60))
         recent.lastUsedAt = now + day
-        precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: NoteAudioOffload.policyNow(now, retention: 60)), "a date ahead never counts")
+        precondition(!NoteAudioOffloadPolicy.isCandidate(recent, isOptimizeOn: true, isSyncRunning: true, now: now, retention: 60), "a date ahead never counts")
     }
 
     // MARK: Download, then Turn Off and Delete from iCloud

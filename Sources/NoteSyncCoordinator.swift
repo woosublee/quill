@@ -493,14 +493,15 @@ final class NoteSyncCoordinator {
     /// A note with no marker, with audio in flight, or being checked is left out.
     /// A missing part starts the existing repair (`handleAudioMissing`) and the
     /// note is left out. iCloud's note naming no marker or another one leaves
-    /// the note out and starts nothing. A thrown error, or a note read that
-    /// timed out, leaves every note out. The rule is
+    /// the note out and starts nothing. Nil when iCloud couldn't be asked
+    /// (sync stopped, a thrown error, a read that timed out): that says
+    /// nothing about any of the notes. The rule is
     /// `NoteAudioOffloadPolicy.isConfirmedInICloud`.
     /// Nothing else changes: removing this Mac's copy of a recording relies
     /// on the answer, so a note that changed while iCloud answered is left
     /// out too.
-    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID> {
-        guard !isStopped else { return [] }
+    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID>? {
+        guard !isStopped else { return nil }
         let unsettled = notesWithUnsettledAudio()
         var asked: [UUID: NoteAudioManifest] = [:]
         for id in Set(ids) where !unsettled.contains(id) {
@@ -520,9 +521,9 @@ final class NoteSyncCoordinator {
             notesInICloud = try await engine.audioOfNotesInICloud(Set(asked.keys), timeLimited: true)
         } catch {
             print("[NoteSync] Couldn't confirm audio in iCloud")
-            return []
+            return nil
         }
-        guard !isStopped else { return [] }
+        guard !isStopped else { return nil }
         let unsettledNow = notesWithUnsettledAudio()
         var confirmed: Set<UUID> = []
         for (id, manifest) in asked {

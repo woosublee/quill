@@ -63,6 +63,7 @@ struct NoteSyncControllerTests {
         testFullUploadStillSendsKeptDeletes()
         testStartingOverKeepsDeletesWaitingInTheEngine()
         testConfirmingAudioAsksICloudWhileSyncRuns()
+        testAStalledFetchGivesUpAfterItsTimeLimit()
         testConfirmingAudioAsksNothingWhileSyncIsOff()
         testConfirmingAudioAsksNothingWhilePaused()
         testConfirmingAudioAsksNothingWhileDeletingFromICloud()
@@ -224,7 +225,12 @@ struct NoteSyncControllerTests {
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
-        func fetchChangesAndWait() async -> Bool { true }
+        /// While set, a fetch doesn't return.
+        var fetchStalls = false
+        func fetchChangesAndWait() async -> Bool {
+            while fetchStalls { try? await Task.sleep(for: .milliseconds(5)) }
+            return true
+        }
         var syncsNow = 0
         /// Runs while the sync is still in progress, before it returns.
         var whileSyncing: (@MainActor () async -> Void)?
@@ -1338,6 +1344,22 @@ struct NoteSyncControllerTests {
         return (id, NoteAudioPartID.parts(of: id, sha256: sha, count: 1))
     }
 
+    /// The fetch that starts Download, Then Delete gives up after its time
+    /// limit, so a stalled fetch can't hold the run and the switches.
+    @MainActor
+    static func testAStalledFetchGivesUpAfterItsTimeLimit() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        var fetched: Bool?
+        precondition(expectation { fetched = await controller.fetchChangesAndWait(timeLimit: 5) })
+        precondition(fetched == true, "a fetch that finishes in time is its own answer")
+
+        engine()?.fetchStalls = true
+        precondition(expectation { fetched = await controller.fetchChangesAndWait(timeLimit: 0.05) })
+        precondition(fetched == false, "out of time counts as failed")
+        engine()?.fetchStalls = false
+    }
+
     @MainActor
     static func testConfirmingAudioAsksICloudWhileSyncRuns() {
         let (controller, store, engine, _) = make(enabled: true)
@@ -1346,7 +1368,7 @@ struct NoteSyncControllerTests {
         engine()?.audioInICloud = Set(parts)
         engine()?.markersInICloud[id] = store.manifests[id]
         precondition(controller.canConfirmAudioInICloud)
-        var confirmed: Set<UUID> = []
+        var confirmed: Set<UUID>? = []
         precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
         precondition(confirmed == [id] && engine()?.audioLookups == 1)
     }
@@ -1357,9 +1379,9 @@ struct NoteSyncControllerTests {
         let (id, _) = markedNote(store)
         controller.attach(store: store)
         precondition(!controller.canConfirmAudioInICloud)
-        var confirmed: Set<UUID> = [id]
+        var confirmed: Set<UUID>? = [id]
         precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
-        precondition(confirmed.isEmpty && engine() == nil)
+        precondition(confirmed == nil && engine() == nil)
     }
 
     /// Every pause, including ones where iCloud could still answer, asks
@@ -1391,9 +1413,9 @@ struct NoteSyncControllerTests {
             pause(running?.coordinator, store)
             guard case .paused = controller.status else { preconditionFailure("\(name): \(controller.status)") }
             precondition(!controller.canConfirmAudioInICloud, name)
-            var confirmed: Set<UUID> = [id]
+            var confirmed: Set<UUID>? = [id]
             precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
-            precondition(confirmed.isEmpty && running?.audioLookups == 0, name)
+            precondition(confirmed == nil && running?.audioLookups == 0, name)
         }
 
         // Paused with no engine: history that can't be opened, and notes
@@ -1409,9 +1431,9 @@ struct NoteSyncControllerTests {
         failingEngine()?.coordinator?.onNeedsFullRefetch?()
         drainMainQueue()
         precondition(failing.status == .paused(.couldNotSaveHere) && !failing.canConfirmAudioInICloud)
-        var confirmed: Set<UUID> = [failingStore.ids[0]]
+        var confirmed: Set<UUID>? = [failingStore.ids[0]]
         precondition(expectation { confirmed = await failing.confirmAudioInICloud([failingStore.ids[0]]) })
-        precondition(confirmed.isEmpty)
+        precondition(confirmed == nil)
     }
 
     @MainActor
@@ -1423,13 +1445,13 @@ struct NoteSyncControllerTests {
         running?.audioInICloud = Set(parts)
         running?.markersInICloud[id] = store.manifests[id]
         var canConfirm = true
-        var confirmed: Set<UUID> = [id]
+        var confirmed: Set<UUID>? = [id]
         running?.whileDeleting = {
             canConfirm = controller.canConfirmAudioInICloud
             confirmed = await controller.confirmAudioInICloud([id])
         }
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
-        precondition(!canConfirm && confirmed.isEmpty && running?.audioLookups == 0)
+        precondition(!canConfirm && confirmed == nil && running?.audioLookups == 0)
     }
 
     /// Sync pausing, turning off, or its engine being replaced while iCloud
@@ -1453,9 +1475,9 @@ struct NoteSyncControllerTests {
             running?.audioInICloud = Set(parts)
             running?.markersInICloud[id] = store.manifests[id]
             running?.whileLookingUpAudio = { await change(controller, running) }
-            var confirmed: Set<UUID> = [id]
+            var confirmed: Set<UUID>? = [id]
             precondition(expectation { confirmed = await controller.confirmAudioInICloud([id]) })
-            precondition(running?.audioLookups == 1 && confirmed.isEmpty, name)
+            precondition(running?.audioLookups == 1 && confirmed == nil, name)
         }
     }
 

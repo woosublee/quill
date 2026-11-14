@@ -22756,6 +22756,22 @@
         }
       }
     },
+    "Couldn't check the recordings in iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't check the recordings in iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud의 녹음을 확인하지 못했어요"
+          }
+        }
+      }
+    },
     "Can't download recordings while sync is paused": {
       "localizations": {
         "en": {

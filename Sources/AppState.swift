@@ -3385,7 +3385,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor private(set) lazy var noteAudioDownloadThenDelete = NoteAudioDownloadThenDelete(work: .init(
         canDownload: { [weak self] in self?.noteSyncController?.isEngineRunning == true },
         recordingsOnlyInICloud: { [weak self] in self?.noteSyncController?.recordingsOnlyInICloud },
-        refresh: { [weak self] in await self?.noteSyncController?.fetchChangesAndWait() ?? false },
+        refresh: { [weak self] in
+            await self?.noteSyncController?.fetchChangesAndWait(timeLimit: NoteAudioDownloadThenDelete.fetchTimeLimit) ?? false
+        },
         confirmWithICloud: { [weak self] in
             await self?.noteSyncController?.checkRecordingsInICloudBeforeDelete() ?? .cannotBeSure
         },
@@ -14979,7 +14981,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// The iCloud check of an Optimize Storage pass; one runs at a time.
     private(set) var noteAudioOffloadCheck: Task<Void, Never>?
-    /// Notes a pass asked iCloud about that it didn't confirm, and when:
+    /// Notes a pass asked iCloud about that iCloud answered and didn't confirm, and when:
     /// left out of the passes for `NoteAudioOffload.unconfirmedWait`. In
     /// memory only.
     private var noteAudioOffloadUnconfirmed: [UUID: Date] = [:]
@@ -15067,6 +15069,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let confirmed = await controller.confirmAudioInICloud(asked.map(\.id))
             guard let self else { return }
             self.noteAudioOffloadCheck = nil
+            // Nil: iCloud couldn't be asked, which says nothing about these
+            // notes, so none of them waits.
+            guard let confirmed else { return }
             for candidate in asked {
                 self.noteAudioOffloadUnconfirmed[candidate.id] = confirmed.contains(candidate.id) ? nil : now
             }
@@ -15102,7 +15107,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func noteAudioOffloadCandidates(now: Date, retention: TimeInterval) -> [NoteAudioOffloadCandidate] {
         let isOn = NoteAudioOffload.isOn
         let isSyncRunning = noteSyncController?.canConfirmAudioInICloud == true
-        let policyNow = NoteAudioOffload.policyNow(now, retention: retention)
         let snapshots = pipelineHistoryStore.audioOffloadSnapshots()
         var namedBy: [String: Int] = [:]
         var rowsByID: [UUID: Int] = [:]
@@ -15127,9 +15131,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                   ) else { return nil }
             // The busy check reads job files, so it runs last.
             var note = NoteAudioOffload.policyNote(snapshot, hasLocalAudio: true, isBusy: false)
-            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: policyNow) else { return nil }
+            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention) else { return nil }
             note.isBusy = isNoteAudioBusy(snapshot.id)
-            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: policyNow) else { return nil }
+            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention) else { return nil }
             return NoteAudioOffloadCandidate(id: snapshot.id, url: url, file: file, lastUsed: NoteAudioOffloadPolicy.lastUsed(note))
         }
     }

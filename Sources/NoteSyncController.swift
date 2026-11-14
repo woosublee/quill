@@ -320,9 +320,15 @@ final class NoteSyncController: ObservableObject {
         return device
     }
 
+    /// Sync on with its engine running, not turning on or off, and not
+    /// deleting from iCloud: what any question to iCloud needs first.
+    private var canAskICloud: Bool {
+        isEnabled && !isTurningOn && !isDeletingFromICloud && turnOffInProgress == nil && engine != nil
+    }
+
     /// False while sync is off, turning on or off, deleting from iCloud, or paused.
     var canConfirmAudioInICloud: Bool {
-        guard isEnabled, !isTurningOn, !isDeletingFromICloud, turnOffInProgress == nil, engine != nil else { return false }
+        guard canAskICloud else { return false }
         switch status {
         case .off, .paused: return false
         case .starting, .uploading, .upToDate: return true
@@ -334,7 +340,7 @@ final class NoteSyncController: ObservableObject {
     /// iCloud. Unlike `canConfirmAudioInICloud`, some pauses still let it ask,
     /// since the engine runs and iCloud can be read.
     var canCheckRecordingsInICloud: Bool {
-        guard isEnabled, !isTurningOn, !isDeletingFromICloud, turnOffInProgress == nil, engine != nil else { return false }
+        guard canAskICloud else { return false }
         switch status {
         case .off: return false
         case .starting, .uploading, .upToDate: return true
@@ -362,15 +368,16 @@ final class NoteSyncController: ObservableObject {
         }
     }
 
-    /// Empty whenever `canConfirmAudioInICloud` is false, or it became false while waiting.
     /// The notes among `ids` whose marked recording iCloud holds every part
     /// of, asked now (see `NoteSyncCoordinator.confirmAudioInICloud`).
-    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID> {
-        guard canConfirmAudioInICloud, let engine, let coordinator else { return [] }
+    /// Nil when iCloud couldn't be asked: `canConfirmAudioInICloud` is
+    /// false or became false while waiting, or the request failed.
+    func confirmAudioInICloud(_ ids: [UUID]) async -> Set<UUID>? {
+        guard canConfirmAudioInICloud, let engine, let coordinator else { return nil }
         let confirmed = await coordinator.confirmAudioInICloud(ids)
         // The engine may have stopped, or sync paused or begun turning off
         // or deleting, meanwhile.
-        guard canConfirmAudioInICloud, self.engine === engine, self.coordinator === coordinator else { return [] }
+        guard canConfirmAudioInICloud, self.engine === engine, self.coordinator === coordinator else { return nil }
         return confirmed
     }
 
@@ -737,9 +744,32 @@ final class NoteSyncController: ObservableObject {
     /// asked (#562): only changes the engine knew of are sure to be here.
     /// That makes it the cheap first step; before deleting,
     /// `checkRecordingsInICloudBeforeDelete` asks the server (#839).
-    func fetchChangesAndWait() async -> Bool {
+    /// With `timeLimit`, a fetch still running after that many seconds
+    /// counts as failed: the engine's fetch has no limit of its own, and
+    /// the run waiting on it holds both switches in Settings.
+    func fetchChangesAndWait(timeLimit: TimeInterval? = nil) async -> Bool {
         guard let engine else { return false }
-        return await engine.fetchChangesAndWait()
+        guard let timeLimit else { return await engine.fetchChangesAndWait() }
+        let race = FetchRace()
+        return await withCheckedContinuation { continuation in
+            race.continuation = continuation
+            Task { @MainActor in race.finish(await engine.fetchChangesAndWait()) }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(timeLimit * 1_000_000_000))
+                race.finish(false)
+            }
+        }
+    }
+
+    /// The first answer wins: the fetch's, or false when the time ran out.
+    @MainActor
+    private final class FetchRace {
+        var continuation: CheckedContinuation<Bool, Never>?
+
+        func finish(_ fetched: Bool) {
+            continuation?.resume(returning: fetched)
+            continuation = nil
+        }
     }
 
     /// A download found a part missing: a sync may bring a newer marker,

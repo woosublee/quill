@@ -63,6 +63,7 @@ struct NoteAudioICloudDeleteTests {
         precondition(C.notEnoughSpaceMessageFormatKey == "Free up %@ more on this device, then try again. Nothing was deleted from iCloud.")
         precondition(C.downloadFailedTitleKey == "Couldn't download every recording")
         precondition(C.downloadFailedMessageKey == "Nothing was deleted from iCloud. Recordings already downloaded stay on this device. Check your internet connection and try again.")
+        precondition(C.cannotCheckTitleKey == "Couldn't check the recordings in iCloud")
         precondition(C.cannotCheckMessageKey == "Quill couldn't check which recordings are only in iCloud, so nothing was deleted.")
         precondition(C.syncPausedTitleKey == "Can't download recordings while sync is paused")
         precondition(C.syncPausedMessageKey == "Nothing was deleted from iCloud. Check the sync status above, then try again.")

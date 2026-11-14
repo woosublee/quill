@@ -347,6 +347,7 @@ struct SettingsLocalizationTests {
             NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey: "이 기기에서 %@를 더 비운 뒤 다시 시도해 주세요. iCloud에서는 아무것도 지우지 않았어요.",
             NoteAudioICloudDeleteCopy.downloadFailedTitleKey: "녹음을 모두 받지 못했어요",
             NoteAudioICloudDeleteCopy.downloadFailedMessageKey: "iCloud에서는 아무것도 지우지 않았어요. 이미 받은 녹음은 이 기기에 남아요. 인터넷 연결을 확인하고 다시 시도해 주세요.",
+            NoteAudioICloudDeleteCopy.cannotCheckTitleKey: "iCloud의 녹음을 확인하지 못했어요",
             NoteAudioICloudDeleteCopy.cannotCheckMessageKey: "iCloud에만 있는 녹음을 확인하지 못해서 아무것도 지우지 않았어요.",
             NoteAudioICloudDeleteCopy.syncPausedTitleKey: "동기화가 일시 중지된 동안에는 녹음을 받을 수 없어요",
             NoteAudioICloudDeleteCopy.syncPausedMessageKey: "iCloud에서는 아무것도 지우지 않았어요. 위의 동기화 상태를 확인한 뒤 다시 시도해 주세요.",
@@ -465,7 +466,16 @@ struct SettingsLocalizationTests {
         assert(view.contains("Button(localizedCatalogString(NoteAudioICloudDeleteCopy.downloadThenDeleteKey)) {\n                Task { @MainActor in await downloadThenDelete.run() }\n            }\n            .keyboardShortcut(.defaultAction)"))
         // The prompt reads the list again when the button is pressed, and
         // decides from that fresh read.
-        assert(view.contains("private func deleteFromICloudPressed() {\n        audioOnlyInICloud = controller.recordingsOnlyInICloud\n        guard let recordings = audioOnlyInICloud, !recordings.isEmpty else {\n            turnOff(deleteFromICloud: true)"))
+        assert(view.contains("private func deleteFromICloudPressed() {\n        audioOnlyInICloud = controller.recordingsOnlyInICloud\n        if let recordings = audioOnlyInICloud, !recordings.isEmpty {"))
+        // With none listed here, iCloud is asked first where it can be
+        // (#839); a recording the check finds brings the same prompt.
+        assert(view.contains("} else if audioOnlyInICloud != nil, controller.canCheckRecordingsInICloud {\n            Task { @MainActor in await downloadThenDelete.run(asksBeforeDownloading: true) }\n        } else {\n            turnOff(deleteFromICloud: true)"))
+        assert(view.contains("case .foundRecordings?:"))
+        // A check that keeps failing still leaves a way to delete.
+        assert(view.contains("if downloadThenDelete.notice == .cannotCheck {\n                Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {"))
+        assert(view.contains("case .cannotCheck?:\n            return localizedCatalogString(NoteAudioICloudDeleteCopy.cannotCheckTitleKey)"))
+        // No Optimize Storage row where sync can't be turned on at all.
+        assert(view.contains("if controller.unavailableReason == nil {\n                optimizeStorageRow"))
         assert(view.contains("Button(localizedCatalogString(NoteAudioICloudDeleteCopy.deleteWithoutRecordingsKey), role: .destructive) {\n                turnOff(deleteFromICloud: true)\n            }"))
         assert(!view.contains("notes have audio in iCloud that isn't on this Mac"))
         // Sync paused with nothing to download with (#838) says so, in the

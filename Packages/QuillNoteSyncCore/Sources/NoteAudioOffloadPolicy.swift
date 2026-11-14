@@ -56,7 +56,14 @@ public enum NoteAudioOffloadPolicy {
 
     /// True when this device may ask iCloud and then remove the file.
     /// A last-used date in the future (the clock moved back) never counts.
-    public static func isCandidate(_ note: Note, isOptimizeOn: Bool, isSyncRunning: Bool, now: Date) -> Bool {
+    /// `retention` is this type's own unless a development build shortens it.
+    public static func isCandidate(
+        _ note: Note,
+        isOptimizeOn: Bool,
+        isSyncRunning: Bool,
+        now: Date,
+        retention: TimeInterval = NoteAudioOffloadPolicy.retention
+    ) -> Bool {
         guard isOptimizeOn, isSyncRunning else { return false }
         guard note.hasMarker, note.hasTranscript, note.hasLocalAudio else { return false }
         guard !note.isBusy, !note.isRecentlyDeleted, !note.hasUnrecoveredPieces else { return false }

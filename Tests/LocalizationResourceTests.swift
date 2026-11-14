@@ -621,6 +621,7 @@ struct LocalizationResourceTests {
             NoteAudioICloudDeleteCopy.notEnoughSpaceMessageFormatKey,
             NoteAudioICloudDeleteCopy.downloadFailedTitleKey,
             NoteAudioICloudDeleteCopy.downloadFailedMessageKey,
+            NoteAudioICloudDeleteCopy.cannotCheckTitleKey,
             NoteAudioICloudDeleteCopy.cannotCheckMessageKey,
             NoteAudioICloudDeleteCopy.syncPausedTitleKey,
             NoteAudioICloudDeleteCopy.syncPausedMessageKey,
