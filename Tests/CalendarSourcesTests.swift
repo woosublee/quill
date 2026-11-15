@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import QuillNoteCore
 
@@ -15,6 +16,8 @@ struct CalendarSourcesTests {
         try testReminderRefreshKeepsExistingRemindersWhenGoogleFails()
         try testAppStateCalendarWiringContract()
         testGroupsBySourceInFirstSeenOrder()
+        testSharedGroupingKeepsAccountsApartAndSortsLikeFinder()
+        testCalendarColorHexReadsAndWritesSRGB()
         testSelectionSummaryText()
         try testCombineKeepsAppleWhenGoogleFails()
         testReminderAvailability()
@@ -88,7 +91,7 @@ struct CalendarSourcesTests {
     /// A calendar missing for a moment (sync, account off) is skipped but
     /// stays selected, so it comes back on its own.
     static func testVisibleSelectionSkipsMissingCalendarsWithoutDroppingThem() {
-        let available = [AppleCalendarInfo(id: "A", title: "Personal", sourceTitle: "iCloud", colorHex: nil)]
+        let available = [AppleCalendarInfo(id: "A", title: "Personal", sourceTitle: "iCloud", sourceID: "iCloud", colorHex: nil)]
         let selected: Set<String> = ["A", "TEMPORARILY-MISSING"]
         precondition(AppleCalendarSelection.visible(selected, available: available).map(\.id) == ["A"])
         precondition(selected.count == 2)
@@ -150,13 +153,44 @@ struct CalendarSourcesTests {
 
     static func testGroupsBySourceInFirstSeenOrder() {
         let calendars = [
-            AppleCalendarInfo(id: "1", title: "Work", sourceTitle: "Exchange", colorHex: nil),
-            AppleCalendarInfo(id: "2", title: "Personal", sourceTitle: "iCloud", colorHex: nil),
-            AppleCalendarInfo(id: "3", title: "Family", sourceTitle: "iCloud", colorHex: nil),
+            AppleCalendarInfo(id: "1", title: "Work", sourceTitle: "Exchange", sourceID: "Exchange", colorHex: nil),
+            AppleCalendarInfo(id: "2", title: "Personal", sourceTitle: "iCloud", sourceID: "iCloud", colorHex: nil),
+            AppleCalendarInfo(id: "3", title: "Family", sourceTitle: "iCloud", sourceID: "iCloud", colorHex: nil),
         ]
         let groups = calendars.groupedBySource()
         precondition(groups.map(\.title) == ["Exchange", "iCloud"])
         precondition(groups[1].calendars.map(\.title) == ["Family", "Personal"])
+    }
+
+    // p#347: the rule the iPhone uses too. An account with no name is its
+    // own group; titles sort like Finder ("Team 2" before "Team 10"), then
+    // by id; two accounts with the same name stay apart.
+    static func testSharedGroupingKeepsAccountsApartAndSortsLikeFinder() {
+        let calendars = [
+            AppleCalendarInfo(id: "1", title: "Team 10", sourceTitle: "", sourceID: "none", colorHex: nil),
+            AppleCalendarInfo(id: "2", title: "Home", sourceTitle: "Exchange", sourceID: "ex-a", colorHex: nil),
+            AppleCalendarInfo(id: "3", title: "Team 2", sourceTitle: "", sourceID: "none", colorHex: nil),
+            AppleCalendarInfo(id: "5", title: "Work", sourceTitle: "Exchange", sourceID: "ex-b", colorHex: nil),
+            AppleCalendarInfo(id: "4", title: "work", sourceTitle: "Exchange", sourceID: "ex-b", colorHex: nil),
+        ]
+        let groups = calendars.groupedBySource()
+        precondition(groups.map(\.id) == ["none", "ex-a", "ex-b"])
+        precondition(groups.map(\.title) == ["", "Exchange", "Exchange"])
+        precondition(groups[0].calendars.map(\.id) == ["3", "1"])
+        precondition(groups[2].calendars.map(\.id) == ["4", "5"], "same title: by id")
+        precondition(AppleCalendarDisplayGroup.otherTitleKey == "Other")
+        precondition([AppleCalendarInfo]().groupedBySource().isEmpty)
+    }
+
+    static func testCalendarColorHexReadsAndWritesSRGB() {
+        let red = CGColor(srgbRed: 1, green: 0, blue: 0x80 / 255, alpha: 1)
+        precondition(CalendarColorHex.hex(red) == "#FF0080")
+        let rgb = CalendarColorHex.rgb("#FF0080")
+        precondition(rgb?.red == 1 && rgb?.green == 0 && rgb?.blue == 0x80 / 255)
+        precondition(CalendarColorHex.rgb(nil) == nil)
+        precondition(CalendarColorHex.rgb("FF0080") == nil)
+        precondition(CalendarColorHex.rgb("#FF00") == nil)
+        precondition(CalendarColorHex.rgb("#GG0080") == nil)
     }
 
     static func testSelectionSummaryText() {
@@ -264,6 +298,11 @@ struct CalendarSourcesTests {
         // Select All keeps choices for calendars that are hidden right now.
         precondition(CalendarBulkSelection.toggled(["A", "GONE"], listed: listed) == ["A", "B", "C", "GONE"])
         precondition(CalendarBulkSelection.toggled(["A", "B", "C", "GONE"], listed: listed) == ["GONE"])
+        precondition(CalendarBulkSelection.action(["A", "B", "C"], listed: listed) == .deselectAll)
+        precondition(CalendarBulkSelection.action(["A"], listed: listed) == .selectAll)
+        // The action the button showed decides, even if the selection changed since.
+        precondition(CalendarBulkSelection.applying(.selectAll, to: ["A", "B", "C"], listed: listed) == ["A", "B", "C"])
+        precondition(CalendarBulkSelection.applying(.deselectAll, to: ["A"], listed: listed) == [])
     }
 
     static func testSelectionSheetHasSelectAll() throws {

@@ -14,33 +14,19 @@ struct AppleCalendarInfo: Identifiable, Equatable {
     let title: String
     /// The account in the Mac Calendar app, such as iCloud or Exchange.
     let sourceTitle: String
+    /// The account's identity (`EKSource.sourceIdentifier`): two accounts
+    /// with the same name are listed apart.
+    let sourceID: String
     let colorHex: String?
 }
 
-struct AppleCalendarDisplayGroup: Equatable {
-    let title: String
-    let calendars: [AppleCalendarInfo]
-}
+/// One account's calendars in Settings, by the shared rule.
+typealias AppleCalendarDisplayGroup = CalendarSourceGroup<AppleCalendarInfo>
 
 extension Array where Element == AppleCalendarInfo {
     /// Groups calendars by account in the order the accounts first appear.
     func groupedBySource() -> [AppleCalendarDisplayGroup] {
-        var order: [String] = []
-        var bySource: [String: [AppleCalendarInfo]] = [:]
-        for calendar in self {
-            if bySource[calendar.sourceTitle] == nil {
-                order.append(calendar.sourceTitle)
-            }
-            bySource[calendar.sourceTitle, default: []].append(calendar)
-        }
-        return order.map { source in
-            AppleCalendarDisplayGroup(
-                title: source,
-                calendars: (bySource[source] ?? []).sorted {
-                    $0.title.localizedStandardCompare($1.title) == .orderedAscending
-                }
-            )
-        }
+        CalendarSourceGroup.grouping(self, account: \.sourceID, accountTitle: \.sourceTitle, title: \.title, id: \.id)
     }
 }
 
@@ -224,20 +210,6 @@ enum GoogleCalendarAccount {
             return email
         }
         return calendars.first(where: \.primary)?.id
-    }
-}
-
-/// Select All / Deselect All in the calendar selection sheet. Only listed
-/// calendars change; choices for calendars hidden right now are kept.
-enum CalendarBulkSelection {
-    static func allSelected(_ selected: Set<String>, listed: [String]) -> Bool {
-        !listed.isEmpty && listed.allSatisfy(selected.contains)
-    }
-
-    static func toggled(_ selected: Set<String>, listed: [String]) -> Set<String> {
-        allSelected(selected, listed: listed)
-            ? selected.subtracting(listed)
-            : selected.union(listed)
     }
 }
 

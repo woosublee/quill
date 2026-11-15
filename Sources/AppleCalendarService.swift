@@ -51,7 +51,8 @@ final class AppleCalendarService {
                 id: calendar.calendarIdentifier,
                 title: calendar.title,
                 sourceTitle: calendar.source?.title ?? "",
-                colorHex: calendar.cgColor.flatMap(Self.hex)
+                sourceID: calendar.source?.sourceIdentifier ?? "",
+                colorHex: calendar.cgColor.flatMap(CalendarColorHex.hex)
             )
         }
     }
@@ -96,21 +97,6 @@ final class AppleCalendarService {
             response: response,
             isOptional: participant.participantRole == .optional,
             isCurrentUser: participant.isCurrentUser
-        )
-    }
-
-    private static func hex(_ color: CGColor) -> String? {
-        guard let srgb = CGColorSpace(name: CGColorSpace.sRGB),
-              let converted = color.converted(to: srgb, intent: .defaultIntent, options: nil),
-              let components = converted.components,
-              components.count >= 3 else {
-            return nil
-        }
-        return String(
-            format: "#%02X%02X%02X",
-            Int((components[0] * 255).rounded()),
-            Int((components[1] * 255).rounded()),
-            Int((components[2] * 255).rounded())
         )
     }
 }

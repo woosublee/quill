@@ -154,7 +154,12 @@ otherwise.
   values; a calendar event as both apps read it (`CalendarEvent`, with the
   Apple attendee mapping `AppleParticipantData`), which event a recording
   matches (`CalendarEventMatcher`), how events from several calendars merge
-  (`CalendarEventMerger`), and which meetings get a reminder to record and
+  (`CalendarEventMerger`), how a calendar settings list groups calendars by
+  account (`CalendarSourceGroup`: accounts in first-seen order, titles in
+  Finder order, quill-universal-private#347) and a calendar color's
+  `#RRGGBB` (`CalendarColorHex`), what the list's Select All button does
+  (`CalendarBulkSelection`: the note list's `NoteSelectAllAction` rule,
+  touching only the listed calendars), and which meetings get a reminder to record and
   when (`CalendarRecordingReminderPlanner`: the notification identifiers,
   lead times, and the five-minute grace; reading calendars, notifications,
   and settings stay in each app), which notes look for their event again

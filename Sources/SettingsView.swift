@@ -1201,7 +1201,7 @@ private struct CalendarSelectionSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else {
-            ForEach(groups, id: \.title) { group in
+            ForEach(groups, id: \.id) { group in
                 appleGroupSection(group)
             }
             if groups.contains(where: { $0.title.localizedCaseInsensitiveContains("google") || $0.title.contains("@") }) {
@@ -1216,7 +1216,13 @@ private struct CalendarSelectionSheet: View {
     private func appleGroupSection(_ group: AppleCalendarDisplayGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text(verbatim: group.title)
+                Group {
+                    if group.title.isEmpty {
+                        Text(localizedCatalogString(AppleCalendarDisplayGroup.otherTitleKey))
+                    } else {
+                        Text(verbatim: group.title)
+                    }
+                }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
@@ -1258,15 +1264,8 @@ private struct CalendarSelectionSheet: View {
     }
 
     private static func color(hex: String?) -> Color {
-        guard let hex, hex.count == 7, hex.hasPrefix("#"),
-              let value = UInt32(hex.dropFirst(), radix: 16) else {
-            return .secondary
-        }
-        return Color(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
+        guard let rgb = CalendarColorHex.rgb(hex) else { return .secondary }
+        return Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 
     private func calendarGroupSection(_ group: GoogleCalendarDisplayGroup) -> some View {
