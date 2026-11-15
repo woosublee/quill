@@ -1034,8 +1034,11 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         // Stopping reuses that note instead of adding a second row.
         assert(persist.contains("appendPipelineHistoryItem(item)"))
         assert(append.contains("pipelineHistory.first(where: { $0.id == item.id })"))
-        assert(append.contains("recordingNote.isUnfinishedRecordingNote"))
+        // #840: the recording note is saved over even if it shows live
+        // text; any other copy of the ID is read back from the store.
+        assert(append.contains("recordingNote.postProcessingStatus == NoteMachineStatus.liveRecordingStatus"))
         assert(append.contains("item.withCustomTitle(recordingNote.customTitle)"))
+        assert(append.contains("let isHeld = (pipelineHistory + recentlyDeletedNotes).contains(where: { $0.id == item.id })"))
         assert(append.contains("pipelineHistoryStore.upsert("))
         assert(placeholder.contains("pipelineHistory.first(where: { $0.id == noteID })?.customTitle"))
         assert(recovery.contains(".withCustomTitle(existingHistory?.customTitle)"))

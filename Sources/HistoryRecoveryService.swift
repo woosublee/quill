@@ -281,7 +281,9 @@ final class HistoryRecoveryService {
         guard descriptor.integrity == .ready else {
             throw HistoryRecoveryServiceError.snapshotNotReady
         }
-        let activeItems = Dictionary(uniqueKeysWithValues: activeHistory.map { ($0.id, $0) })
+        // The store keeps one row per note (#840); if a list still holds an id
+        // twice, its first entry stands for it instead of trapping.
+        let activeItems = Dictionary(activeHistory.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let sourceItems: [PipelineHistoryItem]
         do {
             sourceItems = try loadSourceHistory(from: descriptor)
@@ -329,8 +331,10 @@ final class HistoryRecoveryService {
             status: .available,
             completedAt: nil
         )
+        // One row per note (#840); a repeated id keeps its first entry.
         var activeItems = Dictionary(
-            uniqueKeysWithValues: activeStore.loadAllHistory().map { ($0.id, $0) }
+            activeStore.loadAllHistory().map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         var importedRecordCount = 0
         var alreadyPresentRecordCount = 0

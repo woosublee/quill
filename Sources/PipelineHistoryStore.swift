@@ -113,6 +113,7 @@ final class PipelineHistoryStore {
     nonisolated(unsafe) private static let managedObjectModel = makeModel()
 
     private let container: NSPersistentContainer
+    private var didReportRowsSharingAnID = false
     private let contextSaver: (NSManagedObjectContext) throws -> Void
     private let historyFetcher: (NSManagedObjectContext, NSFetchRequest<PipelineHistoryEntry>) throws -> [PipelineHistoryEntry]
     private let assetReferenceSnapshotURL: URL?
@@ -292,6 +293,7 @@ final class PipelineHistoryStore {
                 request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
                 let entities = try historyFetcher(container.viewContext, request)
                 result = entities.compactMap(Self.makeHistoryItem(from:))
+                reportRowsSharingAnIDOnce(result)
             } catch {
                 fetchError = error
             }
@@ -300,6 +302,18 @@ final class PipelineHistoryStore {
             markHistoryUnavailable(fetchError)
         }
         return result
+    }
+
+    /// Says once per store, with no note content, how many rows share a
+    /// note ID with another (#840). The store no longer makes them; this keeps
+    /// an older one diagnosable. Call inside `performAndWait`.
+    private func reportRowsSharingAnIDOnce(_ history: [PipelineHistoryItem]) {
+        guard !didReportRowsSharingAnID, !history.isEmpty else { return }
+        didReportRowsSharingAnID = true
+        let extra = history.count - Set(history.map(\.id)).count
+        if extra > 0 {
+            print("[PipelineHistoryStore] \(extra) note row(s) share an ID with another row.")
+        }
     }
 
     private func markHistoryUnavailable(_ error: Error) {
@@ -415,18 +429,11 @@ final class PipelineHistoryStore {
         try data.write(to: assetReferenceSnapshotURL, options: .atomic)
     }
 
+    /// Saves a new note. A note is one row (#840): an ID the store already
+    /// holds is saved over that row (its sync changes reported, Recently
+    /// Deleted kept), never added as a second one, so this is `upsert`.
     func append(_ item: PipelineHistoryItem, maxCount: Int) throws -> [DeletedPipelineHistoryAssets] {
-        guard availability == .ready, isStoreLoaded else {
-            throw PipelineHistoryStoreError.storeUnavailable
-        }
-        try insert(item)
-        onChange?([.saved(item.id)])
-        let deletedAssets = try trim(
-            to: maxCount,
-            shouldSynchronizeAssetReferenceSnapshot: false
-        )
-        synchronizeAssetReferenceSnapshot()
-        return deletedAssets
+        try upsert(item, maxCount: maxCount)
     }
 
     /// `keepsImportedDeletion` is for snapshot imports only: a new row then
@@ -1248,22 +1255,6 @@ final class PipelineHistoryStore {
         return extras.isEmpty ? nil : try? NoteSyncPayload.encodeFields(extras)
     }
 
-    private func insert(_ item: PipelineHistoryItem) throws {
-        guard isStoreLoaded else { return }
-
-        var thrownError: Error?
-        container.viewContext.performAndWait {
-            do {
-                let context = container.viewContext
-                let entity = PipelineHistoryEntry(context: context)
-                applyStamping(item, to: entity, isNew: true)
-                try saveContext()
-            } catch {
-                thrownError = error
-            }
-        }
-        if let thrownError { throw thrownError }
-    }
 
     /// Applies `item` and advances the clock of the field groups it
     /// changed. `deletedAt` is left alone: only `setDeletedAt` and a

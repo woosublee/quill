@@ -14,6 +14,7 @@ struct HistoryRecoveryServiceTests {
         try testCatalogRejectsSymbolicLinkSnapshot()
         try testUnreadableSnapshotInspectionPersistsFailureWithoutChangingSource()
         try testSuccessfulReinspectionRestoresPriorSnapshotStatus()
+        try testInspectionAgainstAListHoldingAnIDTwiceDoesNotTrap()
         try testInvalidSnapshotInspectionDoesNotWriteFailureState()
         try testLogicalComparisonIgnoresOnlyDestinationAssetNames()
         try testStateWritesReplacePriorStateAtomically()
@@ -265,6 +266,24 @@ struct HistoryRecoveryServiceTests {
             currentManifest == originalManifest && currentSQLite == originalSQLite,
             "inspection failure never changes the source manifest or database"
         )
+    }
+
+    // #840: a lookup over the current notes trapped when two rows shared an id.
+    private static func testInspectionAgainstAListHoldingAnIDTwiceDoesNotTrap() throws {
+        let fixture = try HistoryRecoveryFixture()
+        defer { fixture.remove() }
+        let sourceItem = makeHistoryItem(
+            id: fixture.snapshotID,
+            audioFileName: "archived.wav",
+            transcriptFileName: "archived.txt"
+        )
+        _ = try fixture.writeHistorySnapshot(item: sourceItem)
+        let service = HistoryRecoveryService(storageRoot: fixture.rootURL)
+
+        let inspection = try service.inspectSnapshot(id: fixture.snapshotID, against: [sourceItem, sourceItem])
+
+        try expect(inspection.readableRecordCount == 1, "the archived note is read")
+        try expect(inspection.alreadyPresentRecordCount == 1, "the repeated current note counts once")
     }
 
     private static func testSuccessfulReinspectionRestoresPriorSnapshotStatus() throws {
