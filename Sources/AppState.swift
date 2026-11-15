@@ -2352,7 +2352,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 Task { @MainActor in
                     self?.refreshAppleCalendarAuthorization()
                     // An event added after the meeting reaches its note soon.
-                    self?.lookUpRecentCalendarMatches(minimumInterval: CalendarMatchLookup.calendarChangeInterval)
+                    self?.lookUpRecentCalendarMatches(
+                        minimumInterval: CalendarMatchLookup.calendarChangeInterval,
+                        lookLaterIfSkipped: true
+                    )
                 }
             }
             self.appleCalendarChangeDebounce = work
@@ -15903,17 +15906,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// A lookup asked for while one ran; it runs when that one ends, so new
     /// calendars or a calendar change aren't missed.
     @MainActor private var recentCalendarMatchLookupPending = false
+    /// A calendar change that came too soon after a lookup, waiting for the
+    /// rest of the interval (#848). Only one waits at a time.
+    @MainActor private var recentCalendarMatchLaterLookup: Task<Void, Never>?
     private var appActivationObserver: NSObjectProtocol?
 
     /// Looks up the events of recent notes that have none (#832), apart
     /// from meeting reminders: on launch and when Quill comes forward (at
     /// most every 15 minutes), when Apple Calendar changes (at most every
-    /// minute), and when calendars are chosen (at once). Nothing is read
-    /// when no recent note lacks an event, and only the span of those
-    /// recordings is read.
+    /// minute; a change within the minute looks when the minute ends), and
+    /// when calendars are chosen (at once). Nothing is read when no recent
+    /// note lacks an event, and only the span of those recordings is read.
     @MainActor
     func lookUpRecentCalendarMatches(
         minimumInterval: TimeInterval = CalendarMatchLookup.refreshInterval,
+        lookLaterIfSkipped: Bool = false,
         now: Date = Date()
     ) {
         guard hasSelectedCalendarSource else { return }
@@ -15921,7 +15928,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             recentCalendarMatchLookupPending = true
             return
         }
-        if let last = recentCalendarMatchLookupAt, now.timeIntervalSince(last) < minimumInterval {
+        if let wait = CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: recentCalendarMatchLookupAt,
+            minimumInterval: minimumInterval,
+            now: now
+        ) {
+            if lookLaterIfSkipped { lookUpRecentCalendarMatchesLater(after: wait) }
             return
         }
         let recordings = pipelineHistory.compactMap { item -> (start: Date, end: Date)? in
@@ -15950,6 +15962,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.lookUpRecentCalendarMatches(minimumInterval: 0)
                 }
             }
+        }
+    }
+
+    /// Not cancelled when another lookup runs first: that one may have had
+    /// no note to read or not read every calendar, and one more read within
+    /// the minute is cheap.
+    @MainActor
+    private func lookUpRecentCalendarMatchesLater(after wait: TimeInterval) {
+        guard recentCalendarMatchLaterLookup == nil else { return }
+        recentCalendarMatchLaterLookup = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            guard let self else { return }
+            self.recentCalendarMatchLaterLookup = nil
+            self.lookUpRecentCalendarMatches(minimumInterval: 0)
         }
     }
 
