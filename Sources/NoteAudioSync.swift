@@ -26,9 +26,11 @@ struct NoteAudioOffloadSnapshot: Equatable, Sendable {
     let recordingEndedAt: Date?
     /// The item's `timestamp`.
     let createdAt: Date
-    let hasTranscript: Bool
+    /// Read from the full note; `audioOffloadSnapshots` first assumes true.
+    var hasTranscript: Bool
     let isRecentlyDeleted: Bool
-    let hasUnrecoveredPieces: Bool
+    /// Read from the full note; `audioOffloadSnapshots` first assumes false.
+    var hasUnrecoveredPieces: Bool
 }
 
 /// What iCloud may hold of a deleted or replaced note's audio: the parts

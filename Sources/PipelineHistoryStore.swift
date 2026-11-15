@@ -889,28 +889,48 @@ final class PipelineHistoryStore {
 
     /// One fetch for every note, settled or not, so a note still waiting on
     /// its transcription is read as one without a transcript.
-    func audioOffloadSnapshots() -> [NoteAudioOffloadSnapshot] {
+    /// The fetch reads only the audio and date columns (#842).
+    /// `mayBeCandidate` sees each note from them first, as if it had a
+    /// transcript and no unrecovered pieces, the values that rule nothing out.
+    /// Only a note it accepts is read in full (transcript and status); any
+    /// other is listed as having no transcript, so it can't be a candidate.
+    /// Every row is still listed, for the pass's same-ID and same-file checks.
+    func audioOffloadSnapshots(
+        mayBeCandidate: (NoteAudioOffloadSnapshot) -> Bool = { _ in true }
+    ) -> [NoteAudioOffloadSnapshot] {
         var snapshots: [NoteAudioOffloadSnapshot] = []
         container.viewContext.performAndWait {
             let request = pipelineHistoryRequest()
             request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            request.propertiesToFetch = [
+                "id", "audioFileName", "audioSyncManifestJSON", "audioLastUsedAt",
+                "recordingEndedAt", "timestamp", "deletedAt"
+            ]
             let entities = (try? historyFetcher(container.viewContext, request)) ?? []
             snapshots = entities.map { entity in
-                let item = Self.makeHistoryItem(from: entity)
-                let finished = item.machineStatus == .completed && !item.isIncompleteTranscription
-                let hasText = !item.displayedTranscript
-                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                return NoteAudioOffloadSnapshot(
+                var snapshot = NoteAudioOffloadSnapshot(
                     id: entity.id,
                     audioFileName: entity.audioFileName,
                     manifest: entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode),
                     lastUsedAt: entity.audioLastUsedAt,
                     recordingEndedAt: entity.recordingEndedAt,
-                    createdAt: item.timestamp,
-                    hasTranscript: finished && hasText,
+                    createdAt: entity.timestamp ?? Date(),
+                    hasTranscript: true,
                     isRecentlyDeleted: entity.deletedAt != nil,
-                    hasUnrecoveredPieces: item.hasUnrecoveredRecordingPieces
+                    hasUnrecoveredPieces: false
                 )
+                guard mayBeCandidate(snapshot) else {
+                    snapshot.hasTranscript = false
+                    return snapshot
+                }
+                // Reads the rest of this row only.
+                let item = Self.makeHistoryItem(from: entity)
+                let finished = item.machineStatus == .completed && !item.isIncompleteTranscription
+                let hasText = !item.displayedTranscript
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                snapshot.hasTranscript = finished && hasText
+                snapshot.hasUnrecoveredPieces = item.hasUnrecoveredRecordingPieces
+                return snapshot
             }
         }
         return snapshots
