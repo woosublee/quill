@@ -78,16 +78,17 @@ public enum CalendarMatchLookup {
     /// (none ran yet, or the last one started `minimumInterval` or longer
     /// ago). A calendar change skipped this way looks once when the wait
     /// ends, so an event added right after a lookup still reaches its note
-    /// (#848). It never waits longer than `minimumInterval`, even when the
-    /// clock was set back since the last lookup.
+    /// (#848). When the clock was set back since the last lookup, it runs
+    /// now rather than waiting until the clock passes that lookup again.
     public static func waitBeforeLookup(
         lastLookupAt: Date?,
         minimumInterval: TimeInterval,
         now: Date
     ) -> TimeInterval? {
         guard let lastLookupAt else { return nil }
-        let wait = minimumInterval - now.timeIntervalSince(lastLookupAt)
-        return wait > 0 ? min(wait, minimumInterval) : nil
+        let elapsed = now.timeIntervalSince(lastLookupAt)
+        guard elapsed >= 0, elapsed < minimumInterval else { return nil }
+        return minimumInterval - elapsed
     }
 
     /// The span to read for these recordings: from the earliest start to

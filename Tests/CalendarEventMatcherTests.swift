@@ -196,10 +196,14 @@ struct CalendarEventMatcherTests {
         assert(CalendarMatchLookup.waitBeforeLookup(
             lastLookupAt: now.addingTimeInterval(-5), minimumInterval: 0, now: now
         ) == nil)
-        // The clock was set back two hours: wait the interval, not two hours.
+        // The clock was set back two hours: look now, not in two hours, and a
+        // lookup asked for at once isn't skipped.
         assert(CalendarMatchLookup.waitBeforeLookup(
             lastLookupAt: now.addingTimeInterval(7_200), minimumInterval: interval, now: now
-        ) == interval)
+        ) == nil)
+        assert(CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: now.addingTimeInterval(7_200), minimumInterval: 0, now: now
+        ) == nil)
     }
 
     private static func testOpenCheckWaitsFiveMinutes() {
