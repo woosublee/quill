@@ -204,6 +204,9 @@ struct NoteSyncControllerTests {
             await whileLookingUpAudio?()
             return audioInICloud.intersection(parts)
         }
+        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
+            NoteAudioPartsLookup(found: try await existingAudioParts(parts))
+        }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         var partListings = 0
         var partListingError: Error?

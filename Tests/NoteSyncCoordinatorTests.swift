@@ -139,6 +139,8 @@ struct NoteSyncCoordinatorTests {
         try await testConfirmingAMissingPartStartsTheRepair()
         try await testConfirmingAMissingPartResendsTheFileHere()
         try await testConfirmingWithoutICloudConfirmsNothing()
+        try await testAnUnreadPartLeavesOnlyItsNoteOut()
+        try await testAMissingPartBesideAnUnreadOneStillStartsTheRepair()
         try await testConfirmingLeavesOutNotesWithAudioInFlight()
         try await testConfirmingLeavesOutWhatChangedWhileWaiting()
         try await testConfirmingNeedsICloudsNoteToNameTheRecording()
@@ -260,6 +262,13 @@ struct NoteSyncCoordinatorTests {
             await whileLookingUp?()
             if let lookupError { throw lookupError }
             return iCloud.intersection(parts)
+        }
+        /// Parts whose own read fails (#846).
+        var unreadParts: Set<NoteAudioPartID> = []
+        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
+            let found = try await existingAudioParts(parts)
+            let unread = unreadParts.intersection(parts)
+            return NoteAudioPartsLookup(found: found.subtracting(unread), unread: unread)
         }
         /// Runs while the notes' parts are being listed.
         var onListParts: (() -> Void)?
@@ -2553,6 +2562,42 @@ struct NoteSyncCoordinatorTests {
         precondition(after[.size] as? NSNumber == before[.size] as? NSNumber
             && after[.systemFileNumber] as? NSNumber == before[.systemFileNumber] as? NSNumber
             && after[.modificationDate] as? Date == before[.modificationDate] as? Date, "the file here is untouched")
+    }
+
+    /// #846: a part iCloud wouldn't read leaves only its note out: it isn't
+    /// confirmed or repaired, and the other notes asked are confirmed.
+    @MainActor
+    static func testAnUnreadPartLeavesOnlyItsNoteOut() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backed = noteWithAudio(store, "b.wav"), unread = noteWithAudio(store, "c.wav")
+        store.manifests[backed] = manifest("b.wav", bytes: 60_000_000, parts: 2)
+        store.manifests[unread] = manifest("c.wav", bytes: 60_000_000, parts: 2)
+        engine.iCloud = Set(parts(backed, 2, "b.wav") + parts(unread, 2, "c.wav"))
+        engine.unreadParts = [parts(unread, 2, "c.wav")[1]]
+        engine.notesInCloud[backed] = .marker(manifest("b.wav", bytes: 60_000_000, parts: 2))
+        engine.notesInCloud[unread] = .marker(manifest("c.wav", bytes: 60_000_000, parts: 2))
+        let manifestsBefore = store.manifests
+        let confirmed = await coordinator.confirmAudioInICloud([backed, unread])
+        await coordinator.lastAudioCheck?.value
+        precondition(confirmed == [backed], String(describing: confirmed))
+        precondition(store.manifests == manifestsBefore, "an unread part isn't treated as missing")
+        precondition(engine.saves.isEmpty && engine.audioSaves.isEmpty, "nothing is repaired")
+    }
+
+    /// #846: a note with one part iCloud lacks and another it wouldn't read
+    /// is still repaired: the missing part already says it isn't backed.
+    @MainActor
+    static func testAMissingPartBesideAnUnreadOneStillStartsTheRepair() async throws {
+        let (coordinator, store, engine, dir, id) = try lostMarkedNote()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.manifests[id] = manifest("b.wav", bytes: 60_000_000, parts: 2)
+        engine.iCloud = [parts(id, 2, "b.wav")[1]]
+        engine.unreadParts = [parts(id, 2, "b.wav")[1]]
+        let confirmed = await coordinator.confirmAudioInICloud([id])
+        precondition(confirmed == [])
+        await coordinator.lastAudioCheck?.value
+        precondition(store.manifests[id] == nil, "a marker iCloud can't back is cleared")
     }
 
     /// A lookup that fails, or a sync stopped while iCloud answered,

@@ -15,6 +15,7 @@ struct AppStateNoteSyncTests {
         try await testRemoteChangeShowsNoteAndWritesTranscript()
         try await testRemoteDeletionRemovesTheNote()
         try testWriteTranscriptRejectsUnsafeNames()
+        if #available(macOS 14.0, *) { testOnlyARecordOwnLookupErrorLeavesAPartUnread() }
         try testSourceContracts()
         if #available(macOS 14.0, *) { testAudioFetchErrorsSayOffline() }
         try await testEmptyAudioFileCountsAsNoFile()
@@ -70,6 +71,21 @@ struct AppStateNoteSyncTests {
         print("AppStateNoteSyncTests passed")
     }
 
+    // #846: a per-record error about that record alone leaves it unread, so
+    // only its note waits; iCloud being busy, offline, or the account still
+    // fails the whole lookup, so no note is held back for a day.
+    @available(macOS 14.0, *)
+    static func testOnlyARecordOwnLookupErrorLeavesAPartUnread() {
+        for code in [CKError.Code.permissionFailure, .serverRejectedRequest, .invalidArguments, .assetFileNotFound] {
+            precondition(NoteSyncCloudKitEngine.isAboutThisRecordOnly(CKError(code)), "\(code) is about the record")
+        }
+        for code in [CKError.Code.networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited,
+                     .zoneBusy, .notAuthenticated, .quotaExceeded, .accountTemporarilyUnavailable] {
+            precondition(!NoteSyncCloudKitEngine.isAboutThisRecordOnly(CKError(code)), "\(code) is about iCloud")
+        }
+        precondition(!NoteSyncCloudKitEngine.isAboutThisRecordOnly(URLError(.timedOut)))
+    }
+
     final class FakeEngine: NoteSyncEngineHandle {
         var saves: [UUID] = []
         var events: NoteSyncEngineEvents?
@@ -95,6 +111,9 @@ struct AppStateNoteSyncTests {
             if let audioCheckError { throw audioCheckError }
             while holdsAudioChecks { try await Task.sleep(for: .milliseconds(5)) }
             return partsInICloud.intersection(parts)
+        }
+        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
+            NoteAudioPartsLookup(found: try await existingAudioParts(parts))
         }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         /// Every audio part iCloud holds, as the check before Download,
