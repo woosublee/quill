@@ -59,7 +59,12 @@ otherwise.
   query, and the delete stay in `Sources/`. It also decides what must be on
   a device before everything is deleted from iCloud
   (`NoteAudioICloudDeleteCheck`, #839); the reads and the merge stay in
-  `Sources/`.
+  `Sources/`. It also decides whether a note's recording can be had right
+  now (`NoteAudioAvailability`, #836): here, downloading, downloadable, or
+  why not, decided in this order: a running download, sync off (a lost
+  file with no marker is no audio), no marker yet, waiting for Wi-Fi, then
+  the last failure for the same marker. Each app reads the inputs and runs
+  the download itself.
 - `Packages/QuillAITextCore/`: AI text rules shared with the iPhone app:
   spoken- and output-language checks, protected atoms, text chunking, the
   post-processing prompt policy, vocabulary parsing, the instruction-execution

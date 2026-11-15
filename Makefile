@@ -874,6 +874,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteAudioSyncTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioOffloadPolicyTests.swift -o $(TEST_BUILD_DIR)/NoteAudioOffloadPolicyTests
 	@$(TEST_BUILD_DIR)/NoteAudioOffloadPolicyTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioAvailabilityTests.swift -o $(TEST_BUILD_DIR)/NoteAudioAvailabilityTests
+	@$(TEST_BUILD_DIR)/NoteAudioAvailabilityTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioICloudDeleteTests.swift -o $(TEST_BUILD_DIR)/NoteAudioICloudDeleteTests
 	@$(TEST_BUILD_DIR)/NoteAudioICloudDeleteTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteAudioICloudDeleteCheckTests.swift -o $(TEST_BUILD_DIR)/NoteAudioICloudDeleteCheckTests
