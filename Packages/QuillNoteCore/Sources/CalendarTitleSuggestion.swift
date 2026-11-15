@@ -67,12 +67,29 @@ public enum CalendarMatchLookup {
     public static let noteOpenInterval: TimeInterval = 5 * 60
 
     /// How often launching, coming forward, or choosing calendars looks
-    /// again for recent notes. A calendar change on the device looks at once.
+    /// again for recent notes. A calendar change uses `calendarChangeInterval`.
     public static let refreshInterval: TimeInterval = 15 * 60
 
     /// How often a calendar change on the device looks again: changes come
     /// in bursts while calendars sync.
     public static let calendarChangeInterval: TimeInterval = 60
+
+    /// How long a lookup asked for now must wait: nil when it may run now
+    /// (none ran yet, or the last one started `minimumInterval` or longer
+    /// ago). A calendar change skipped this way looks once when the wait
+    /// ends, so an event added right after a lookup still reaches its note
+    /// (#848). When the clock was set back since the last lookup, it runs
+    /// now rather than waiting until the clock passes that lookup again.
+    public static func waitBeforeLookup(
+        lastLookupAt: Date?,
+        minimumInterval: TimeInterval,
+        now: Date
+    ) -> TimeInterval? {
+        guard let lastLookupAt else { return nil }
+        let elapsed = now.timeIntervalSince(lastLookupAt)
+        guard elapsed >= 0, elapsed < minimumInterval else { return nil }
+        return minimumInterval - elapsed
+    }
 
     /// The span to read for these recordings: from the earliest start to
     /// the latest end, or nil when there is none.

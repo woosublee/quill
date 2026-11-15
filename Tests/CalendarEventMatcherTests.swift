@@ -17,6 +17,7 @@ struct CalendarEventMatcherTests {
         testSuggestionNeedsSuggestedState()
         testLookupNeedsNoEventAndRecordingTime()
         testRecentCandidatesStayInWindow()
+        testSkippedLookupWaitsForTheRestOfTheInterval()
         testOpenCheckWaitsFiveMinutes()
         testOpenCheckReplacesOnlyDeletedEvents()
         testLookupRangeSpansRecordings()
@@ -178,6 +179,31 @@ struct CalendarEventMatcherTests {
             calendarMatch: nil, recordingStartedAt: old, recordingEndedAt: old.addingTimeInterval(600), now: now
         ))
         assert(CalendarMatchLookup.recentRange(now: now).start == now.addingTimeInterval(-CalendarMatchLookup.recentWindow))
+    }
+
+    // #848: a calendar change within a minute of a lookup was dropped. It
+    // now waits for the rest of the minute.
+    private static func testSkippedLookupWaitsForTheRestOfTheInterval() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        let interval = CalendarMatchLookup.calendarChangeInterval
+        assert(CalendarMatchLookup.waitBeforeLookup(lastLookupAt: nil, minimumInterval: interval, now: now) == nil)
+        assert(CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: now.addingTimeInterval(-20), minimumInterval: interval, now: now
+        ) == interval - 20)
+        assert(CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: now.addingTimeInterval(-interval), minimumInterval: interval, now: now
+        ) == nil)
+        assert(CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: now.addingTimeInterval(-5), minimumInterval: 0, now: now
+        ) == nil)
+        // The clock was set back two hours: look now, not in two hours, and a
+        // lookup asked for at once isn't skipped.
+        assert(CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: now.addingTimeInterval(7_200), minimumInterval: interval, now: now
+        ) == nil)
+        assert(CalendarMatchLookup.waitBeforeLookup(
+            lastLookupAt: now.addingTimeInterval(7_200), minimumInterval: 0, now: now
+        ) == nil)
     }
 
     private static func testOpenCheckWaitsFiveMinutes() {

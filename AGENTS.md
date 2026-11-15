@@ -155,8 +155,9 @@ otherwise.
   lead times, and the five-minute grace; reading calendars, notifications,
   and settings stay in each app), which notes look for their event again
   after the recording, apart from meeting reminders (`CalendarMatchLookup`:
-  no event yet; the past 14 days on launch, coming forward, or a calendar
-  change, at most every 15 minutes; opening a note checks it at most every
+  no event yet; the past 14 days on launch or coming forward, at most every
+  15 minutes, and on a calendar change, at most every minute, a change within
+  the minute looking once when it ends (`waitBeforeLookup`, #848); opening a note checks it at most every
   5 minutes, and a deleted event gives way to the one now at that time) and when a
   note's calendar title suggestion shows, even beside its own title
   (`CalendarTitleSuggestion`, #832; when to look stays in each app); and what the note list's Select All button does
