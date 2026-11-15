@@ -34,6 +34,7 @@ struct NoteAudioOffloadPolicyTests {
         testConfirmedOnlyWithEveryPartAndTheSameMarker()
         testPassLocalFileIsAPlainNonEmptyFileOfTheMarkersSize()
         testPassRetentionOverrideIsForDevelopmentOnly()
+        testPassOrdersTiesByID()
         print("NoteAudioOffloadPolicyTests passed")
     }
 
@@ -130,6 +131,11 @@ struct NoteAudioOffloadPolicyTests {
         precondition(NoteAudioOffloadPass.LocalFile(at: link) == nil, "a link")
         precondition(NoteAudioOffloadPass.LocalFile(at: folder) == nil, "a folder")
         precondition(NoteAudioOffloadPass.LocalFile(at: folder.appendingPathComponent("none.wav")) == nil, "missing")
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 10, partSize: 10, parts: 1)
+        precondition(local?.matches(manifest) == true)
+        precondition(local?.matches(NoteAudioManifest(sha256: manifest.sha256, bytes: 9, partSize: 10, parts: 1)) == false, "smaller marker")
+        precondition(local?.matches(NoteAudioManifest(sha256: manifest.sha256, bytes: 11, partSize: 11, parts: 1)) == false, "larger marker")
+        precondition(local?.matches(NoteAudioManifest(sha256: manifest.sha256, bytes: 0, partSize: 10, parts: 0)) == false, "empty marker")
         precondition(NoteAudioOffloadPass.sameFileKey("Ab\u{0065}\u{0301}.wav") == NoteAudioOffloadPass.sameFileKey("aB\u{00E9}.WAV"))
     }
 
@@ -138,5 +144,23 @@ struct NoteAudioOffloadPolicyTests {
         precondition(NoteAudioOffloadPass.retention(isDevelopmentBuild: true, arguments: arguments) == 60)
         precondition(NoteAudioOffloadPass.retention(isDevelopmentBuild: false, arguments: arguments) == NoteAudioOffloadPolicy.retention)
         precondition(NoteAudioOffloadPass.retention(isDevelopmentBuild: true, arguments: ["Quill"]) == NoteAudioOffloadPolicy.retention)
+        for bad in ["0", "-5", "nan", "inf", "soon"] {
+            precondition(NoteAudioOffloadPass.retention(
+                isDevelopmentBuild: true, arguments: ["Quill", NoteAudioOffloadPass.retentionArgument, bad]
+            ) == NoteAudioOffloadPolicy.retention, bad)
+        }
+        precondition(NoteAudioOffloadPass.retention(
+            isDevelopmentBuild: true, arguments: ["Quill", NoteAudioOffloadPass.retentionArgument]
+        ) == NoteAudioOffloadPolicy.retention, "no value")
+    }
+
+    /// The same date is ordered by id, so both apps ask about the same notes.
+    static func testPassOrdersTiesByID() {
+        let ids = (0..<(NoteAudioOffloadPass.maxPerPass + 5)).map { _ in UUID() }
+        let candidates = ids.map { (id: $0, lastUsed: now) }
+        let first = NoteAudioOffloadPass.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now).ask
+        let second = NoteAudioOffloadPass.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now).ask
+        precondition(first == second)
+        precondition(first == Array(ids.sorted { $0.uuidString < $1.uuidString }.prefix(NoteAudioOffloadPass.maxPerPass)))
     }
 }

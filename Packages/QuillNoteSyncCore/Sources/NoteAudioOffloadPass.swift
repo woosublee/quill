@@ -18,7 +18,8 @@ public enum NoteAudioOffloadPass {
     /// most `maxPerPass`, leaving out a note asked about and not confirmed
     /// less than `unconfirmedWait` ago. `waiting` (when each such note was
     /// asked) comes back holding only the waits still running for notes
-    /// still candidates; a wait dated ahead of the clock is over.
+    /// still candidates; a wait dated ahead of the clock is over. Ids must be
+    /// unique.
     public static func notesToAsk(
         candidates: [(id: UUID, lastUsed: Date)],
         waiting: [UUID: Date],
@@ -32,7 +33,8 @@ public enum NoteAudioOffloadPass {
         }
         let ask = candidates
             .filter { stillWaiting[$0.id] == nil }
-            .sorted { $0.lastUsed < $1.lastUsed }
+            // Same date: by id, so both apps and every pass pick the same ones.
+            .sorted { ($0.lastUsed, $0.id.uuidString) < ($1.lastUsed, $1.id.uuidString) }
             .prefix(maxPerPass)
             .map(\.id)
         return (Array(ask), stillWaiting)
