@@ -14,6 +14,7 @@ struct HistoryRecoveryServiceTests {
         try testCatalogRejectsSymbolicLinkSnapshot()
         try testUnreadableSnapshotInspectionPersistsFailureWithoutChangingSource()
         try testSuccessfulReinspectionRestoresPriorSnapshotStatus()
+        try testInspectionAgainstAListHoldingAnIDTwiceDoesNotTrap()
         try testInvalidSnapshotInspectionDoesNotWriteFailureState()
         try testLogicalComparisonIgnoresOnlyDestinationAssetNames()
         try testStateWritesReplacePriorStateAtomically()
@@ -264,6 +265,40 @@ struct HistoryRecoveryServiceTests {
         try expect(
             currentManifest == originalManifest && currentSQLite == originalSQLite,
             "inspection failure never changes the source manifest or database"
+        )
+    }
+
+    // #840: a lookup over the current notes trapped when two rows shared an id.
+    private static func testInspectionAgainstAListHoldingAnIDTwiceDoesNotTrap() throws {
+        let fixture = try HistoryRecoveryFixture()
+        defer { fixture.remove() }
+        let sourceItem = makeHistoryItem(
+            id: fixture.snapshotID,
+            audioFileName: "archived.wav",
+            transcriptFileName: "archived.txt"
+        )
+        _ = try fixture.writeHistorySnapshot(item: sourceItem)
+        let service = HistoryRecoveryService(storageRoot: fixture.rootURL)
+
+        // The same ID with other text: which entry stands for it decides the count.
+        let edited = makeHistoryItem(
+            id: fixture.snapshotID,
+            audioFileName: "archived.wav",
+            transcriptFileName: "archived.txt",
+            rawTranscript: "edited source text"
+        )
+
+        let sameFirst = try service.inspectSnapshot(id: fixture.snapshotID, against: [sourceItem, edited])
+        try expect(sameFirst.readableRecordCount == 1, "the archived note is read")
+        try expect(
+            sameFirst.alreadyPresentRecordCount == 1 && sameFirst.conflictRecordCount == 0,
+            "the first entry, the same note, stands for the ID"
+        )
+
+        let editedFirst = try service.inspectSnapshot(id: fixture.snapshotID, against: [edited, sourceItem])
+        try expect(
+            editedFirst.alreadyPresentRecordCount == 0 && editedFirst.conflictRecordCount == 1,
+            "the first entry, another version, stands for the ID"
         )
     }
 
@@ -838,12 +873,13 @@ struct HistoryRecoveryServiceTests {
     private static func makeHistoryItem(
         id: UUID,
         audioFileName: String?,
-        transcriptFileName: String?
+        transcriptFileName: String?,
+        rawTranscript: String = "source text"
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             id: id,
             timestamp: Date(timeIntervalSince1970: 1_754_010_203),
-            rawTranscript: "source text",
+            rawTranscript: rawTranscript,
             postProcessedTranscript: "final text",
             postProcessingPrompt: "prompt",
             contextSummary: "summary",

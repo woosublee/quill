@@ -14927,8 +14927,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func appendPipelineHistoryItem(_ item: PipelineHistoryItem) throws -> [DeletedPipelineHistoryAssets] {
         // The note created when recording started shares this ID. Replace it,
         // keeping a title typed while recording, instead of adding a second row.
+        // It is still that note when it already shows live text (#840).
         if let recordingNote = pipelineHistory.first(where: { $0.id == item.id }),
-           recordingNote.isUnfinishedRecordingNote {
+           recordingNote.postProcessingStatus == NoteMachineStatus.liveRecordingStatus {
             let replacement = item.withCustomTitle(recordingNote.customTitle)
             let removedStoredFiles = try pipelineHistoryStore.upsert(
                 replacement,
@@ -14940,7 +14941,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             movePipelineHistoryItemToTop(replacement)
             return []
         }
+        // The store saves over a note it already holds (#840); then show its one copy.
+        let isHeld = (pipelineHistory + recentlyDeletedNotes).contains(where: { $0.id == item.id })
         let removedStoredFiles = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
+        guard !isHeld else {
+            applyLoadedHistory(pipelineHistoryStore.loadAllHistory())
+            return removedStoredFiles
+        }
         insertPipelineHistoryItemInTimeOrder(item)
         if pipelineHistory.count > maxPipelineHistoryCount {
             pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
@@ -15328,7 +15335,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         synchronizeHistoryPersistenceState()
         guard HistoryWorkflowAdmission.mutation(state: historyWorkflow.state) == .accepted else { return }
         let retention = NoteAudioOffload.retention
+        // One entry per note even if the store held an ID twice (#840).
+        var seenIDs = Set<UUID>()
         let candidates = noteAudioOffloadCandidates(now: now, retention: retention)
+            .filter { seenIDs.insert($0.id).inserted }
         // A note iCloud didn't confirm waits, so it can't hold up the rest.
         let next = NoteAudioOffloadPass.notesToAsk(
             candidates: candidates.map { (id: $0.id, lastUsed: $0.lastUsed) },

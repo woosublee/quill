@@ -21,6 +21,7 @@ struct PipelineHistoryStoreRecoveryTests {
         try testTrimPropagatesReadFailure()
         try testHealthyHistoryIsRetriedOnNextLaunch()
         try testExplicitInMemoryStoreRejectsDurableWrites()
+        try testAppendingAnIDTheStoreHoldsSavesOverThatRow()
         print("PipelineHistoryStoreRecoveryTests passed")
     }
 
@@ -409,6 +410,44 @@ struct PipelineHistoryStoreRecoveryTests {
         } catch PipelineHistoryStoreError.durableStoreUnavailable {
             // expected
         }
+    }
+
+    // #840: a second append of an ID made a second row, so by-ID reads and
+    // writes picked either one. It now saves over the row, as upsert does,
+    // and a note in Recently Deleted stays there.
+    private static func testAppendingAnIDTheStoreHoldsSavesOverThatRow() throws {
+        let fixture = try PersistentStoreFixture()
+        defer { fixture.remove() }
+        let store = PipelineHistoryStore(storeURL: fixture.storeURL)
+        let item = makeHistoryItem()
+        _ = try store.append(item, maxCount: 10)
+        let deletedAt = Date(timeIntervalSince1970: 2_000)
+        try store.setDeletedAt(deletedAt, id: item.id)
+
+        var changes: [PipelineHistoryChange] = []
+        store.onChange = { changes += $0 }
+        let edited = PipelineHistoryItem(
+            id: item.id,
+            timestamp: item.timestamp,
+            rawTranscript: "Edited history item.",
+            postProcessedTranscript: "Edited history item.",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            usedPostProcessing: false
+        )
+        _ = try store.append(edited, maxCount: 10)
+
+        let history = store.loadAllHistory()
+        try expect(history.map(\.id) == [item.id], "a second append of the same ID keeps one row")
+        try expect(history.first?.deletedAt == deletedAt, "the note stays in Recently Deleted")
+        try expect(history.first?.rawTranscript == "Edited history item.", "the second append saved over the row")
+        try expect(changes.contains(.saved(item.id)), "sync hears about the saved note")
+        try store.detachForArchiveVerification()
     }
 
     private static func makeHistoryItem() -> PipelineHistoryItem {
