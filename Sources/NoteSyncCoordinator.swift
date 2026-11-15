@@ -111,6 +111,10 @@ protocol NoteSyncEngineClient: AnyObject {
     func cancelAudioDeletes(_ parts: [NoteAudioPartID])
     /// Which of these parts iCloud holds. Never reads the audio.
     func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID>
+    /// Like `existingAudioParts`, but a part whose own read failed is listed
+    /// as unread instead of failing every part asked (#846). A failed
+    /// request still throws.
+    func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup
     /// Every part in iCloud for these notes, whatever file it came from.
     func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID]
     /// Every part in iCloud, with when it was saved there.
@@ -118,6 +122,14 @@ protocol NoteSyncEngineClient: AnyObject {
     /// What iCloud's copy of each of these notes says of its audio.
     /// `timeLimited` keeps a stalled request from holding up its caller.
     func audioOfNotesInICloud(_ ids: Set<UUID>, timeLimited: Bool) async throws -> [UUID: NoteAudioInICloud]
+}
+
+/// What iCloud said of each audio part asked about.
+struct NoteAudioPartsLookup {
+    /// Parts iCloud holds.
+    var found: Set<NoteAudioPartID> = []
+    /// Parts whose own read failed: iCloud said nothing about them.
+    var unread: Set<NoteAudioPartID> = []
 }
 
 /// What iCloud's copy of a note says of its audio.
@@ -495,7 +507,10 @@ final class NoteSyncCoordinator {
     /// note is left out. iCloud's note naming no marker or another one leaves
     /// the note out and starts nothing. Nil when iCloud couldn't be asked
     /// (sync stopped, a thrown error, a read that timed out): that says
-    /// nothing about any of the notes. The rule is
+    /// nothing about any of the notes. A note one of whose parts iCloud
+    /// wouldn't read for that record alone (#846) is left out too, starting
+    /// nothing, so the caller lets it wait like an unconfirmed note while the
+    /// rest go ahead; a missing part still starts the repair. The rule is
     /// `NoteAudioOffloadPolicy.isConfirmedInICloud`.
     /// Nothing else changes: removing this Mac's copy of a recording relies
     /// on the answer, so a note that changed while iCloud answered is left
@@ -513,12 +528,18 @@ final class NoteSyncCoordinator {
         func parts(_ id: UUID, _ manifest: NoteAudioManifest) -> [NoteAudioPartID] {
             NoteAudioPartID.parts(of: id, sha256: manifest.sha256, count: manifest.parts)
         }
-        let found: Set<NoteAudioPartID>
+        let lookup: NoteAudioPartsLookup
         let notesInICloud: [UUID: NoteAudioInICloud]
         do {
-            found = try await engine.existingAudioParts(asked.flatMap { parts($0.key, $0.value) })
+            // A part iCloud wouldn't read leaves only its note out (#846), so
+            // one bad record can't hold up every pass.
+            lookup = try await engine.lookUpAudioParts(asked.flatMap { parts($0.key, $0.value) })
             // Time-limited: a stalled read would hold up every later pass.
-            notesInICloud = try await engine.audioOfNotesInICloud(Set(asked.keys), timeLimited: true)
+            // A note with an unread part is left out below, so it isn't asked.
+            let readable = asked.filter { !parts($0.key, $0.value).contains(where: lookup.unread.contains) }
+            notesInICloud = readable.isEmpty
+                ? [:]
+                : try await engine.audioOfNotesInICloud(Set(readable.keys), timeLimited: true)
         } catch {
             print("[NoteSync] Couldn't confirm audio in iCloud")
             return nil
@@ -526,16 +547,22 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return nil }
         let unsettledNow = notesWithUnsettledAudio()
         var confirmed: Set<UUID> = []
+        if !lookup.unread.isEmpty {
+            print("[NoteSync] Couldn't read \(lookup.unread.count) audio part(s) in iCloud")
+        }
         for (id, manifest) in asked {
             guard !unsettledNow.contains(id), store.audioManifest(id: id) == manifest else { continue }
-            let partsPresent = parts(id, manifest).allSatisfy(found.contains)
-            if !partsPresent {
+            let noteParts = parts(id, manifest)
+            // A part iCloud said it doesn't have: the note isn't backed.
+            if noteParts.contains(where: { !lookup.found.contains($0) && !lookup.unread.contains($0) }) {
                 handleAudioMissing(noteID: id)
                 continue
             }
+            // An unread part says nothing: neither confirmed nor missing.
+            guard !noteParts.contains(where: lookup.unread.contains) else { continue }
             var serverMarker: NoteAudioManifest?
             if case .marker(let marker)? = notesInICloud[id] { serverMarker = marker }
-            if NoteAudioOffloadPolicy.isConfirmedInICloud(local: manifest, partsPresent: partsPresent, serverMarker: serverMarker) {
+            if NoteAudioOffloadPolicy.isConfirmedInICloud(local: manifest, partsPresent: true, serverMarker: serverMarker) {
                 confirmed.insert(id)
             }
         }
