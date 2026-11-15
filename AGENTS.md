@@ -46,8 +46,12 @@ otherwise.
   note whose parts iCloud holds, sync on), when iCloud confirms it
   (`isConfirmedInICloud`: every part there and iCloud's note naming the same
   marker), and
-  holds the switch's copy keys (`NoteAudioOffloadCopy`). The setting, the
-  last-used date, the hourly pass, and removing the file stay in `Sources/`.
+  holds the switch's copy keys (`NoteAudioOffloadCopy`), and how a pass
+  goes on both apps (`NoteAudioOffloadPass`: at most 20 notes asked per pass,
+  the longest unused first, a note iCloud didn't confirm left out for a day,
+  only a plain non-empty file the marker's size, and a development build's
+  shorter period). The setting, the last-used date, when the pass runs,
+  asking iCloud, and removing the file stay in `Sources/`.
   It also holds what Turn Off and Delete from iCloud says when recordings
   are only in iCloud (`NoteAudioICloudOnlySummary`,
   `NoteAudioICloudDeleteCopy`) and whether there is room to download them
