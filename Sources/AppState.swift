@@ -15392,7 +15392,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func noteAudioOffloadCandidates(now: Date, retention: TimeInterval) -> [NoteAudioOffloadCandidate] {
         let isOn = NoteAudioOffload.isOn
         let isSyncRunning = noteSyncController?.canConfirmAudioInICloud == true
-        let snapshots = pipelineHistoryStore.audioOffloadSnapshots()
+        // The policy rules out most notes from their dates and marker alone,
+        // before their transcripts are read or their files looked at (#842).
+        func passesPolicy(_ snapshot: NoteAudioOffloadSnapshot) -> Bool {
+            NoteAudioOffloadPolicy.isCandidate(
+                NoteAudioOffload.policyNote(snapshot, hasLocalAudio: true, isBusy: false),
+                isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention
+            )
+        }
+        let snapshots = pipelineHistoryStore.audioOffloadSnapshots(mayBeCandidate: passesPolicy)
         var namedBy: [String: Int] = [:]
         var rowsByID: [UUID: Int] = [:]
         for snapshot in snapshots {
@@ -15402,7 +15410,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return snapshots.compactMap { snapshot in
             // An id two rows share stays: which row iCloud's answer is for
             // isn't known.
-            guard rowsByID[snapshot.id] == 1 else { return nil }
+            guard rowsByID[snapshot.id] == 1, passesPolicy(snapshot) else { return nil }
             // A file another note also names stays.
             guard let name = snapshot.audioFileName, namedBy[NoteAudioOffloadPass.sameFileKey(name)] == 1,
                   let url = noteAssetStore.storedAudioURL(fileName: name),
@@ -15416,7 +15424,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                   ) else { return nil }
             // The busy check reads job files, so it runs last.
             var note = NoteAudioOffload.policyNote(snapshot, hasLocalAudio: true, isBusy: false)
-            guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention) else { return nil }
             note.isBusy = isNoteAudioBusy(snapshot.id)
             guard NoteAudioOffloadPolicy.isCandidate(note, isOptimizeOn: isOn, isSyncRunning: isSyncRunning, now: now, retention: retention) else { return nil }
             return NoteAudioOffloadCandidate(id: snapshot.id, url: url, file: file, lastUsed: NoteAudioOffloadPolicy.lastUsed(note))

@@ -11,6 +11,8 @@ struct PipelineHistoryStoreAudioLastUsedTests {
         try testUnknownNoteThrows()
         try testSnapshotsReadHasTranscript()
         try testSnapshotsCarryTheRestOfTheNote()
+        try testSnapshotsReadInFullOnlyWhatMayBeACandidate()
+        testTheFirstLookAssumesTheValuesThatRuleNothingOut()
         try testLegacyStoreOpensAndReadsNil()
         print("PipelineHistoryStoreAudioLastUsedTests passed")
     }
@@ -103,6 +105,51 @@ struct PipelineHistoryStoreAudioLastUsedTests {
         } catch {
             preconditionFailure("wrong error \(error)")
         }
+    }
+
+    // #842: the pass rules most notes out from their cheap columns, so only
+    // a note it accepts is read in full; every row is still listed.
+    private static func testSnapshotsReadInFullOnlyWhatMayBeACandidate() throws {
+        let s = store()
+        let kept = makeItem()
+        let ruledOut = makeItem()
+        let blankKept = makeItem(raw: "  ", edited: "\n ")
+        for item in [kept, ruledOut, blankKept] {
+            _ = try s.append(item, maxCount: Int.max)
+        }
+        var seen: [UUID: NoteAudioOffloadSnapshot] = [:]
+        let snapshots = s.audioOffloadSnapshots(mayBeCandidate: { snapshot in
+            seen[snapshot.id] = snapshot
+            return snapshot.id != ruledOut.id
+        })
+        let byID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
+        precondition(byID.count == 3, "every row is listed")
+        precondition(seen.values.allSatisfy { $0.hasTranscript && !$0.hasUnrecoveredPieces }, "the first look assumes the best")
+        precondition(seen[kept.id]?.audioFileName == "synthetic.wav", "the cheap columns are read")
+        precondition(byID[kept.id]?.hasTranscript == true, "an accepted note is read in full")
+        precondition(byID[blankKept.id]?.hasTranscript == false, "the full read finds a blank transcript")
+        precondition(byID[ruledOut.id]?.hasTranscript == false, "a ruled-out note can't be a candidate")
+        precondition(byID[ruledOut.id]?.audioFileName == "synthetic.wav", "it still names its file for the same-file check")
+    }
+
+    // #842: the first look assumes a transcript and no unrecovered pieces.
+    // That is only safe while those values never rule a note out, so a note
+    // the full read rejects for them could still pass the first look.
+    private static func testTheFirstLookAssumesTheValuesThatRuleNothingOut() {
+        func note(hasTranscript: Bool, hasUnrecoveredPieces: Bool) -> NoteAudioOffloadPolicy.Note {
+            NoteAudioOffloadPolicy.Note(
+                hasMarker: true, hasTranscript: hasTranscript, hasLocalAudio: true, isBusy: false,
+                isRecentlyDeleted: false, hasUnrecoveredPieces: hasUnrecoveredPieces,
+                lastUsedAt: t0, recordingEndedAt: t0, createdAt: t0
+            )
+        }
+        let now = t0.addingTimeInterval(30 * 86_400)
+        func passes(_ n: NoteAudioOffloadPolicy.Note) -> Bool {
+            NoteAudioOffloadPolicy.isCandidate(n, isOptimizeOn: true, isSyncRunning: true, now: now, retention: 7 * 86_400)
+        }
+        precondition(passes(note(hasTranscript: true, hasUnrecoveredPieces: false)), "the assumed values pass")
+        precondition(!passes(note(hasTranscript: false, hasUnrecoveredPieces: false)), "no transcript rules out")
+        precondition(!passes(note(hasTranscript: true, hasUnrecoveredPieces: true)), "unrecovered pieces rule out")
     }
 
     private static func testSnapshotsReadHasTranscript() throws {
