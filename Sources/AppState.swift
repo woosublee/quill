@@ -15257,7 +15257,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// The iCloud check of an Optimize Storage pass; one runs at a time.
     private(set) var noteAudioOffloadCheck: Task<Void, Never>?
     /// Notes a pass asked iCloud about that iCloud answered and didn't confirm, and when:
-    /// left out of the passes for `NoteAudioOffload.unconfirmedWait`. In
+    /// left out of the passes for `NoteAudioOffloadPass.unconfirmedWait`. In
     /// memory only.
     private var noteAudioOffloadUnconfirmed: [UUID: Date] = [:]
 
@@ -15330,7 +15330,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let retention = NoteAudioOffload.retention
         let candidates = noteAudioOffloadCandidates(now: now, retention: retention)
         // A note iCloud didn't confirm waits, so it can't hold up the rest.
-        let next = NoteAudioOffload.notesToAsk(
+        let next = NoteAudioOffloadPass.notesToAsk(
             candidates: candidates.map { (id: $0.id, lastUsed: $0.lastUsed) },
             waiting: noteAudioOffloadUnconfirmed,
             now: now
@@ -15373,7 +15373,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private struct NoteAudioOffloadCandidate {
         let id: UUID
         let url: URL
-        let file: NoteAudioOffload.LocalFile
+        let file: NoteAudioOffloadPass.LocalFile
         let lastUsed: Date
     }
 
@@ -15386,7 +15386,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var namedBy: [String: Int] = [:]
         var rowsByID: [UUID: Int] = [:]
         for snapshot in snapshots {
-            if let name = snapshot.audioFileName { namedBy[NoteAudioOffload.sameFileKey(name), default: 0] += 1 }
+            if let name = snapshot.audioFileName { namedBy[NoteAudioOffloadPass.sameFileKey(name), default: 0] += 1 }
             rowsByID[snapshot.id, default: 0] += 1
         }
         return snapshots.compactMap { snapshot in
@@ -15394,9 +15394,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // isn't known.
             guard rowsByID[snapshot.id] == 1 else { return nil }
             // A file another note also names stays.
-            guard let name = snapshot.audioFileName, namedBy[NoteAudioOffload.sameFileKey(name)] == 1,
+            guard let name = snapshot.audioFileName, namedBy[NoteAudioOffloadPass.sameFileKey(name)] == 1,
                   let url = noteAssetStore.storedAudioURL(fileName: name),
-                  let file = NoteAudioOffload.LocalFile(at: url),
+                  let file = NoteAudioOffloadPass.LocalFile(at: url),
                   // The file here must be the size its marker names.
                   let manifest = snapshot.manifest, file.matches(manifest),
                   // Launch recovery and Recover Again read and write this

@@ -32,6 +32,9 @@ struct NoteAudioOffloadPolicyTests {
         testFutureDateBlocks()
         testCopyKeys()
         testConfirmedOnlyWithEveryPartAndTheSameMarker()
+        testPassLocalFileIsAPlainNonEmptyFileOfTheMarkersSize()
+        testPassRetentionOverrideIsForDevelopmentOnly()
+        testPassOrdersTiesByID()
         print("NoteAudioOffloadPolicyTests passed")
     }
 
@@ -106,5 +109,58 @@ struct NoteAudioOffloadPolicyTests {
             NoteAudioManifest(sha256: local.sha256, bytes: 150, partSize: 100, parts: 3),
         ]
         for other in others { precondition(!confirmed(true, other), "another marker: \(other)") }
+    }
+
+    /// Both apps' passes remove only a plain, non-empty file, the size its
+    /// marker names, never a link or a folder.
+    static func testPassLocalFileIsAPlainNonEmptyFileOfTheMarkersSize() {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("offload-pass-\(UUID().uuidString)", isDirectory: true)
+        try! FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("a.wav")
+        try! Data(repeating: 1, count: 10).write(to: file)
+        let empty = folder.appendingPathComponent("empty.wav")
+        try! Data().write(to: empty)
+        let link = folder.appendingPathComponent("link.wav")
+        try! FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+
+        let local = NoteAudioOffloadPass.LocalFile(at: file)
+        precondition(local?.size == 10)
+        precondition(NoteAudioOffloadPass.LocalFile(at: empty) == nil, "empty")
+        precondition(NoteAudioOffloadPass.LocalFile(at: link) == nil, "a link")
+        precondition(NoteAudioOffloadPass.LocalFile(at: folder) == nil, "a folder")
+        precondition(NoteAudioOffloadPass.LocalFile(at: folder.appendingPathComponent("none.wav")) == nil, "missing")
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 10, partSize: 10, parts: 1)
+        precondition(local?.matches(manifest) == true)
+        precondition(local?.matches(NoteAudioManifest(sha256: manifest.sha256, bytes: 9, partSize: 10, parts: 1)) == false, "smaller marker")
+        precondition(local?.matches(NoteAudioManifest(sha256: manifest.sha256, bytes: 11, partSize: 11, parts: 1)) == false, "larger marker")
+        precondition(local?.matches(NoteAudioManifest(sha256: manifest.sha256, bytes: 0, partSize: 10, parts: 0)) == false, "empty marker")
+        precondition(NoteAudioOffloadPass.sameFileKey("Ab\u{0065}\u{0301}.wav") == NoteAudioOffloadPass.sameFileKey("aB\u{00E9}.WAV"))
+    }
+
+    static func testPassRetentionOverrideIsForDevelopmentOnly() {
+        let arguments = ["Quill", NoteAudioOffloadPass.retentionArgument, "60"]
+        precondition(NoteAudioOffloadPass.retention(isDevelopmentBuild: true, arguments: arguments) == 60)
+        precondition(NoteAudioOffloadPass.retention(isDevelopmentBuild: false, arguments: arguments) == NoteAudioOffloadPolicy.retention)
+        precondition(NoteAudioOffloadPass.retention(isDevelopmentBuild: true, arguments: ["Quill"]) == NoteAudioOffloadPolicy.retention)
+        for bad in ["0", "-5", "nan", "inf", "soon"] {
+            precondition(NoteAudioOffloadPass.retention(
+                isDevelopmentBuild: true, arguments: ["Quill", NoteAudioOffloadPass.retentionArgument, bad]
+            ) == NoteAudioOffloadPolicy.retention, bad)
+        }
+        precondition(NoteAudioOffloadPass.retention(
+            isDevelopmentBuild: true, arguments: ["Quill", NoteAudioOffloadPass.retentionArgument]
+        ) == NoteAudioOffloadPolicy.retention, "no value")
+    }
+
+    /// The same date is ordered by id, so both apps ask about the same notes.
+    static func testPassOrdersTiesByID() {
+        let ids = (0..<(NoteAudioOffloadPass.maxPerPass + 5)).map { _ in UUID() }
+        let candidates = ids.map { (id: $0, lastUsed: now) }
+        let first = NoteAudioOffloadPass.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now).ask
+        let second = NoteAudioOffloadPass.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now).ask
+        precondition(first == second)
+        precondition(first == Array(ids.sorted { $0.uuidString < $1.uuidString }.prefix(NoteAudioOffloadPass.maxPerPass)))
     }
 }

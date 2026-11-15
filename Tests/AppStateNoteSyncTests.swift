@@ -951,19 +951,19 @@ struct AppStateNoteSyncTests {
     /// not confirmed waits a day; a wait ends early for a note no longer a
     /// candidate, and a wait dated ahead of the clock is over.
     static func testOffloadChoosesWhoGoesNext() {
-        let perPass = NoteAudioOffload.maxPerPass
+        let perPass = NoteAudioOffloadPass.maxPerPass
         let ids = (0..<(perPass + 2)).map { _ in UUID() }
         let now = t0 + 30 * day
         let candidates = ids.enumerated().map { (id: $0.element, lastUsed: t0 + Double($0.offset) * day) }
-        let wait = NoteAudioOffload.unconfirmedWait
+        let wait = NoteAudioOffloadPass.unconfirmedWait
         precondition(wait == day && perPass >= 1)
 
-        var next = NoteAudioOffload.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now)
+        var next = NoteAudioOffloadPass.notesToAsk(candidates: candidates.shuffled(), waiting: [:], now: now)
         precondition(next.ask == Array(ids.prefix(perPass)) && next.waiting.isEmpty, "\(next)")
 
         let gone = UUID()
         let waiting = [ids[0]: now, ids[1]: now - wait + 1, ids[2]: now - wait, ids[3]: now + 60, gone: now]
-        next = NoteAudioOffload.notesToAsk(candidates: candidates, waiting: waiting, now: now)
+        next = NoteAudioOffloadPass.notesToAsk(candidates: candidates, waiting: waiting, now: now)
         precondition(next.ask == Array(ids.dropFirst(2)), "\(next)")
         precondition(next.waiting == [ids[0]: now, ids[1]: now - wait + 1], "only waits still running, for candidates: \(next.waiting)")
     }
@@ -976,7 +976,7 @@ struct AppStateNoteSyncTests {
     static func testOffloadSkipsNotesICloudDidNotConfirmForADay() async throws {
         let restore = setOptimizeStorage(true)
         defer { restore() }
-        let perPass = NoteAudioOffload.maxPerPass
+        let perPass = NoteAudioOffloadPass.maxPerPass
         let notes = (0...perPass).map { _ in makeRecordedItem() }
         let fixture = try makeFixture(items: notes)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -1082,7 +1082,7 @@ struct AppStateNoteSyncTests {
     static func testOffloadAsksForTheLeastRecentlyUsedFirst() async throws {
         let restore = setOptimizeStorage(true)
         defer { restore() }
-        let perPass = NoteAudioOffload.maxPerPass
+        let perPass = NoteAudioOffloadPass.maxPerPass
         let notes = (0..<(perPass + 3)).map { _ in makeRecordedItem() }
         let fixture = try makeFixture(items: notes)
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -1354,13 +1354,13 @@ struct AppStateNoteSyncTests {
     /// The shortened period is for a development build's manual check only.
     static func testOffloadRetentionOverrideIsForDevelopmentOnly() {
         let week = NoteAudioOffloadPolicy.retention
-        let arguments = ["Quill", NoteAudioOffload.retentionArgument, "60"]
+        let arguments = ["Quill", NoteAudioOffloadPass.retentionArgument, "60"]
         precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: arguments) == 60)
         precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill", arguments: arguments) == week, "never in the released app")
         precondition(NoteAudioOffload.retention(bundleIdentifier: nil, arguments: arguments) == week)
         precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: ["Quill"]) == week)
         for bad in ["0", "-5", "nan", "inf", "soon"] {
-            precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: ["Quill", NoteAudioOffload.retentionArgument, bad]) == week, bad)
+            precondition(NoteAudioOffload.retention(bundleIdentifier: "com.woosublee.quill.dev", arguments: ["Quill", NoteAudioOffloadPass.retentionArgument, bad]) == week, bad)
         }
         // The policy applies the shorter period it is given.
         let now = t0 + 30 * day
