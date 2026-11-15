@@ -298,6 +298,11 @@ struct CalendarSourcesTests {
         // Select All keeps choices for calendars that are hidden right now.
         precondition(CalendarBulkSelection.toggled(["A", "GONE"], listed: listed) == ["A", "B", "C", "GONE"])
         precondition(CalendarBulkSelection.toggled(["A", "B", "C", "GONE"], listed: listed) == ["GONE"])
+        precondition(CalendarBulkSelection.action(["A", "B", "C"], listed: listed) == .deselectAll)
+        precondition(CalendarBulkSelection.action(["A"], listed: listed) == .selectAll)
+        // The action the button showed decides, even if the selection changed since.
+        precondition(CalendarBulkSelection.applying(.selectAll, to: ["A", "B", "C"], listed: listed) == ["A", "B", "C"])
+        precondition(CalendarBulkSelection.applying(.deselectAll, to: ["A"], listed: listed) == [])
     }
 
     static func testSelectionSheetHasSelectAll() throws {

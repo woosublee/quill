@@ -213,20 +213,6 @@ enum GoogleCalendarAccount {
     }
 }
 
-/// Select All / Deselect All in the calendar selection sheet. Only listed
-/// calendars change; choices for calendars hidden right now are kept.
-enum CalendarBulkSelection {
-    static func allSelected(_ selected: Set<String>, listed: [String]) -> Bool {
-        !listed.isEmpty && listed.allSatisfy(selected.contains)
-    }
-
-    static func toggled(_ selected: Set<String>, listed: [String]) -> Set<String> {
-        allSelected(selected, listed: listed)
-            ? selected.subtracting(listed)
-            : selected.union(listed)
-    }
-}
-
 enum CalendarCheckTime {
     /// "Last checked" shows minutes, so updating more often only redraws
     /// views that observe app state.

@@ -157,7 +157,9 @@ otherwise.
   (`CalendarEventMerger`), how a calendar settings list groups calendars by
   account (`CalendarSourceGroup`: accounts in first-seen order, titles in
   Finder order, quill-universal-private#347) and a calendar color's
-  `#RRGGBB` (`CalendarColorHex`), and which meetings get a reminder to record and
+  `#RRGGBB` (`CalendarColorHex`), what the list's Select All button does
+  (`CalendarBulkSelection`: the note list's `NoteSelectAllAction` rule,
+  touching only the listed calendars), and which meetings get a reminder to record and
   when (`CalendarRecordingReminderPlanner`: the notification identifiers,
   lead times, and the five-minute grace; reading calendars, notifications,
   and settings stay in each app), which notes look for their event again

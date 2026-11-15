@@ -64,6 +64,33 @@ public struct CalendarSourceGroup<Item> {
 extension CalendarSourceGroup: Equatable where Item: Equatable {}
 extension CalendarSourceGroup: Sendable where Item: Sendable {}
 
+/// The calendar list's Select All / Deselect All button, alike on the Mac
+/// and the iPhone (quill-universal-private#347). Which one it reads is the
+/// note list's rule (`NoteSelectAllAction`, every calendar selectable).
+/// It only touches the listed calendars: a saved choice for a calendar not
+/// listed now stays.
+public enum CalendarBulkSelection {
+    public static func action(_ selected: Set<String>, listed: [String]) -> NoteSelectAllAction {
+        NoteSelectAllAction(visibleIDs: listed, selectedIDs: selected, isSelectable: { _ in true })
+    }
+
+    public static func allSelected(_ selected: Set<String>, listed: [String]) -> Bool {
+        action(selected, listed: listed) == .deselectAll
+    }
+
+    /// What the button does to `selected`, given the action it showed.
+    public static func applying(_ action: NoteSelectAllAction, to selected: Set<String>, listed: [String]) -> Set<String> {
+        switch action {
+        case .selectAll: selected.union(listed)
+        case .deselectAll: selected.subtracting(listed)
+        }
+    }
+
+    public static func toggled(_ selected: Set<String>, listed: [String]) -> Set<String> {
+        applying(action(selected, listed: listed), to: selected, listed: listed)
+    }
+}
+
 /// A calendar's color as both apps keep it: `#RRGGBB` in sRGB.
 public enum CalendarColorHex {
     /// The color as `#RRGGBB`, or nil when it can't be read in sRGB.
