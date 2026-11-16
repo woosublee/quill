@@ -189,6 +189,7 @@ struct NoteSyncCoordinatorTests {
             manifestReads += 1
             return manifests[id]
         }
+        func audioSnapshotsOfEveryNote() -> [NoteAudioSyncSnapshot]? { audioSyncSnapshots() }
         var snapshotReads = 0
         func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
             snapshotReads += 1

@@ -29,6 +29,7 @@ struct PipelineHistorySyncStoreTests {
         try testClearingChangeTagsClearsAudioManifests()
         try testAudioManifestCanBeCleared()
         try testAudioSyncSnapshotsReadEverySyncableNote()
+        try testAudioSnapshotsOfEveryNoteIncludeNotesThatDoNotSync()
         try testDismissedNoticeIsKeptAndSyncs()
         try testDismissedNoticeFromICloudIsKept()
         try testUnchangedRetranscriptionIsKeptAndSyncs()
@@ -580,5 +581,18 @@ struct PipelineHistorySyncStoreTests {
         precondition(byID[marked.id] == NoteAudioSyncSnapshot(id: marked.id, audioFileName: "marked.wav", manifest: manifest, uploadKey: nil))
         precondition(byID[sending.id]?.uploadKey == String(repeating: "cd", count: 32) && byID[sending.id]?.manifest == nil)
         precondition(byID[text.id]?.audioFileName == nil)
+    }
+
+    /// #843: a note that doesn't sync now is listed too, with its marker.
+    private static func testAudioSnapshotsOfEveryNoteIncludeNotesThatDoNotSync() throws {
+        let s = store()
+        let done = makeItem(audio: "done.wav"), busy = makeItem(status: "live-recording", audio: "busy.wav")
+        for item in [done, busy] { _ = try s.append(item, maxCount: Int.max) }
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ef", count: 32), bytes: 10, partSize: 50_000_000, parts: 1)
+        try s.setAudioManifest(manifest, id: busy.id)
+        let byID = Dictionary(uniqueKeysWithValues: (s.audioSnapshotsOfEveryNote() ?? []).map { ($0.id, $0) })
+        precondition(Set(byID.keys) == [done.id, busy.id] && !s.isSyncable(id: busy.id))
+        precondition(byID[busy.id] == NoteAudioSyncSnapshot(id: busy.id, audioFileName: "busy.wav", manifest: manifest, uploadKey: nil))
+        precondition(byID[done.id]?.audioFileName == "done.wav" && byID[done.id]?.manifest == nil)
     }
 }

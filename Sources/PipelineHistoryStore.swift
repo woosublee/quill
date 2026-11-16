@@ -882,16 +882,31 @@ final class PipelineHistoryStore {
     func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
         var snapshots: [NoteAudioSyncSnapshot] = []
         container.viewContext.performAndWait {
-            snapshots = syncableEntities().map { entity in
-                NoteAudioSyncSnapshot(
-                    id: entity.id,
-                    audioFileName: entity.audioFileName,
-                    manifest: entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode),
-                    uploadKey: entity.audioSyncUploadKey
-                )
-            }
+            snapshots = syncableEntities().map(Self.audioSyncSnapshot)
         }
         return snapshots
+    }
+
+    /// One fetch for every note, settled or not, newest first (#843). Reads
+    /// only the audio columns. Nil when the fetch fails.
+    func audioSnapshotsOfEveryNote() -> [NoteAudioSyncSnapshot]? {
+        var snapshots: [NoteAudioSyncSnapshot]?
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            request.propertiesToFetch = ["id", "audioFileName", "audioSyncManifestJSON", "audioSyncUploadKey"]
+            snapshots = (try? historyFetcher(container.viewContext, request))?.map(Self.audioSyncSnapshot)
+        }
+        return snapshots
+    }
+
+    private static func audioSyncSnapshot(_ entity: PipelineHistoryEntry) -> NoteAudioSyncSnapshot {
+        NoteAudioSyncSnapshot(
+            id: entity.id,
+            audioFileName: entity.audioFileName,
+            manifest: entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode),
+            uploadKey: entity.audioSyncUploadKey
+        )
     }
 
     /// One fetch for every note, settled or not, so a note still waiting on
