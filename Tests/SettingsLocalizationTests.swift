@@ -154,10 +154,12 @@ struct SettingsLocalizationTests {
     private static func testSettingsSectionTitlePolicy() throws {
         let bundle = try compiledLocalizationBundle()
 
-        for key in ["Note Browser", "Recording Overlay", "Google Calendar"] {
+        for key in ["Note Browser", "Google Calendar"] {
             assert(localizedCatalogString(key, language: "en", bundle: bundle) == key)
             assert(localizedCatalogString(key, language: "ko", bundle: bundle) == key)
         }
+        // Translated since #630.
+        assert(localizedCatalogString("Recording Overlay", language: "ko", bundle: bundle) == "녹음 오버레이")
 
         let ordinaryKoreanTitles: [String: String] = [
             "App Appearance": "앱 외관",
@@ -247,7 +249,7 @@ struct SettingsLocalizationTests {
             "Connect a calendar first.": "먼저 캘린더를 연결하세요.",
             "Choose at least one calendar to use.": "사용할 캘린더를 하나 이상 선택하세요.",
             "Turn on the switch next to %@": "목록에서 %@ 옆 스위치를 켜 주세요",
-            "%@ connects as soon as it’s on.": "켜면 %@이(가) 바로 연결돼요.",
+            "%@ connects as soon as it’s on.": "켜면 %@ 앱이 바로 연결돼요.",
             "More": "더 보기",
             "Last checked %@": "마지막 확인 %@",
             "%@, %@ and %lld more": "%@, %@ 외 %lld개"

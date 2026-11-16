@@ -2156,7 +2156,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "  비활성화됨"
+            "value": "  사용 안 함"
           }
         }
       }
@@ -4156,7 +4156,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "✓ 비활성화됨"
+            "value": "✓ 사용 안 함"
           }
         }
       }
@@ -4380,7 +4380,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@은(는) 받아쓰기가 끝나면 변경한 오디오 상태를 복원해요."
+            "value": "받아쓰기 중에 %@ 앱이 바꾼 오디오 상태를 끝나면 되돌려요."
           }
         }
       }
@@ -6874,7 +6874,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성화하면 후처리가 받아쓴 텍스트를 정리하지 않고 답변한 것으로 보일 때 %@이(가) 재시도하거나 원문 받아쓰기로 대체해요."
+            "value": "활성화하면 후처리가 받아쓴 텍스트를 정리하지 않고 답변한 것으로 보일 때 %@에서 다시 시도하거나 원문 받아쓰기로 대체해요."
           }
         }
       }
@@ -6890,7 +6890,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "켜면 클립보드 관리자(Paste, Raycast, Maccy 등)가 각 받아쓰기를 기록하여 최근 기록에서 찾을 수 있어요. 끄면 %@이(가) 받아쓰기를 임시 항목으로 표시하고 클립보드 관리자가 건너뛰어요."
+            "value": "켜면 클립보드 관리자(Paste, Raycast, Maccy 등)가 각 받아쓰기를 기록하여 최근 기록에서 찾을 수 있어요. 끄면 %@에서 받아쓰기를 임시 항목으로 표시해 클립보드 관리자가 건너뛰어요."
           }
         }
       }
@@ -9773,11 +9773,10 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recording Overlay"
+            "value": "녹음 오버레이"
           }
         }
-      },
-      "shouldTranslate": false
+      }
     },
     "Google Calendar": {
       "localizations": {
@@ -18735,7 +18734,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "누르면 Finder에서 %@을(를) 보여 줘요. 시스템 설정의 목록 아래에 있는 + 버튼으로 추가할 수도 있어요."
+            "value": "누르면 Finder에서 %@ 앱을 보여 줘요. 시스템 설정의 목록 아래에 있는 + 버튼으로 추가할 수도 있어요."
           }
         }
       }
@@ -20159,7 +20158,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "켜면 %@이(가) 바로 연결돼요."
+            "value": "켜면 %@ 앱이 바로 연결돼요."
           }
         }
       }
@@ -23152,6 +23151,182 @@
           "stringUnit": {
             "state": "translated",
             "value": "기타"
+          }
+        }
+      }
+    },
+    "Disabled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 안 함"
+          }
+        }
+      }
+    },
+    "Record…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록…"
+          }
+        }
+      }
+    },
+    "Press and hold the shortcut you want.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press and hold the shortcut you want."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원하는 단축키를 길게 누르세요."
+          }
+        }
+      }
+    },
+    "Press Esc or Enter to save.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Esc or Enter to save."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc 또는 Enter를 눌러 저장하세요."
+          }
+        }
+      }
+    },
+    "Custom Shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 단축키"
+          }
+        }
+      }
+    },
+    "Recording shortcut…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording shortcut…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 기록 중…"
+          }
+        }
+      }
+    },
+    "Recorded shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록한 단축키"
+          }
+        }
+      }
+    },
+    "Record any key combo.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record any key combo."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원하는 키 조합을 기록하세요."
+          }
+        }
+      }
+    },
+    "Saved custom shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved custom shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장한 사용자 지정 단축키"
+          }
+        }
+      }
+    },
+    "Cancel Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 취소"
+          }
+        }
+      }
+    },
+    "Deleting...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제 중..."
           }
         }
       }

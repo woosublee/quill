@@ -12,7 +12,7 @@ This follow-up keeps the existing localization architecture and makes only targe
 
 ## Display Language Policy
 
-Use Korean for ordinary section names and explanatory UI when Korean is the preferred app language. Keep product and feature names in English, including `Note Browser`, `Recording Overlay`, and `Google Calendar`.
+Use Korean for ordinary section names and explanatory UI when Korean is the preferred app language. Keep product and feature names in English, including `Note Browser` and `Google Calendar`. `Recording Overlay` reads in Korean since #630.
 
 `Recordings` and `Transcription` are explicit exceptions: the two Note Browser headings remain English even though they are ordinary terms. Their rendering must make the verbatim intent visible in source code and localization audits.
 
@@ -43,7 +43,7 @@ Do not change health status enums, affected-feature values, token handling, or p
 
 ## Recording Overlay Settings
 
-Keep the card title `Recording Overlay` in English. Add English and Korean catalog entries for its ordinary option copy:
+The card title `Recording Overlay` reads in Korean since #630. Add English and Korean catalog entries for its ordinary option copy:
 
 - notch-side and centered layout option titles
 - both layout descriptions
@@ -61,7 +61,7 @@ Do not change overlay layout behavior, previews, persisted enum values, geometry
 Extend localization resource tests to verify:
 
 - the two Note Browser headings use explicit verbatim rendering and are allowlisted as intentional English exceptions
-- `Note Browser`, `Recording Overlay`, and `Google Calendar` remain English product/feature names where required
+- `Note Browser` and `Google Calendar` remain English product/feature names where required
 - all Calendar health message keys have English and Korean values with compatible placeholders
 - all regular-user Recording Overlay option and accessibility keys have English and Korean values
 - Debug/Run Log-only overlay controls remain non-translatable
