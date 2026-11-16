@@ -1277,6 +1277,16 @@ struct LocalizationResourceTests {
                 throw TestFailure("A particle follows the app name in \(key)")
             }
         }
+        // #859: a shortcut name reads with no particle and no "키", as Setup
+        // writes it ("Fn 🌐 길게 눌러 녹음").
+        let shortcutHints = [
+            "Hold %@ to dictate": "%@ 길게 눌러 받아쓰기",
+            "Tap %@ to dictate": "%@ 탭하여 받아쓰기",
+            "Hold %@ or tap %@ to dictate": "%@ 길게 누르거나 %@ 탭하여 받아쓰기"
+        ]
+        for (key, expected) in shortcutHints where korean(key) != expected {
+            throw TestFailure("Unexpected Korean shortcut hint for \(key): \(korean(key) ?? "none")")
+        }
     }
 
     private static func assertCatalogTranslations(
