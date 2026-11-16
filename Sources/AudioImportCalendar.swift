@@ -1,30 +1,6 @@
-import AVFoundation
 import Foundation
+import QuillAudioFormatCore
 import QuillNoteCore
-
-/// The span an imported file was recorded over, from the creation date
-/// recorders write into the file. Filesystem dates are not used: copying or
-/// downloading a file changes them.
-struct AudioFileRecordingTime: Equatable {
-    let start: Date
-    let end: Date
-
-    static func make(creationDate: Date?, duration: TimeInterval) -> AudioFileRecordingTime? {
-        guard let creationDate, duration.isFinite, duration > 0 else { return nil }
-        return AudioFileRecordingTime(start: creationDate, end: creationDate.addingTimeInterval(duration))
-    }
-
-    /// Reads metadata only; the audio is not decoded.
-    static func read(from url: URL) async -> AudioFileRecordingTime? {
-        let asset = AVURLAsset(url: url)
-        guard let item = try? await asset.load(.creationDate),
-              let date = try? await item.load(.dateValue),
-              let duration = try? await asset.load(.duration) else {
-            return nil
-        }
-        return make(creationDate: date, duration: duration.seconds)
-    }
-}
 
 enum CalendarDayEvents {
     static func dayInterval(containing date: Date, calendar: Calendar = .current) -> DateInterval {
