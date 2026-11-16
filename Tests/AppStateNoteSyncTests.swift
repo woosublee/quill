@@ -106,14 +106,11 @@ struct AppStateNoteSyncTests {
         var holdsAudioChecks = false
         /// Thrown by the lookup of audio parts: iCloud can't be asked.
         var audioCheckError: Error?
-        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
+        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
             audioChecks.append(Set(parts.map(\.noteID)))
             if let audioCheckError { throw audioCheckError }
             while holdsAudioChecks { try await Task.sleep(for: .milliseconds(5)) }
-            return partsInICloud.intersection(parts)
-        }
-        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
-            NoteAudioPartsLookup(found: try await existingAudioParts(parts))
+            return NoteAudioPartsLookup(found: partsInICloud.intersection(parts))
         }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         /// Every audio part iCloud holds, as the check before Download,

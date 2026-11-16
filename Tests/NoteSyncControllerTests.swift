@@ -199,13 +199,10 @@ struct NoteSyncControllerTests {
         var audioLookups = 0
         /// Runs while iCloud is being asked about audio, before it answers.
         var whileLookingUpAudio: (@MainActor () async -> Void)?
-        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
+        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
             audioLookups += 1
             await whileLookingUpAudio?()
-            return audioInICloud.intersection(parts)
-        }
-        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
-            NoteAudioPartsLookup(found: try await existingAudioParts(parts))
+            return NoteAudioPartsLookup(found: audioInICloud.intersection(parts))
         }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         var partListings = 0
