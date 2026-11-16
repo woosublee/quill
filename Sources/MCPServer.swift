@@ -3,7 +3,7 @@ import Network
 import Combine
 import QuillSummaryFormatCore
 
-// MCP server over HTTP (localhost:3457)
+// MCP server over HTTP (localhost:3457; any build other than the release uses 13457)
 // Claude Code MCP config:
 //   { "mcpServers": { "quill": { "url": "http://localhost:3457" } } }
 
@@ -15,7 +15,7 @@ enum MCPServerStatus: Equatable {
 }
 
 final class MCPServer {
-    static let port: UInt16 = 3457
+    static let port = MCPLocalAccessPolicy.port(bundleIdentifier: Bundle.main.bundleIdentifier)
     static let address = "http://localhost:\(port)"
 
     /// Called on the server's queue when the listener is ready or fails.

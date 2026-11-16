@@ -2,6 +2,17 @@ import Foundation
 import Network
 
 enum MCPLocalAccessPolicy {
+    /// The released app listens on 3457. Any other build (`make run`'s
+    /// Quill Dev, a custom bundle ID, Quill Shots) uses 13457, so it can run
+    /// beside the released app without taking its port or its AI tools.
+    static let releasePort: UInt16 = 3457
+    static let developmentPort: UInt16 = 13457
+    static let releaseBundleIdentifier = "com.woosublee.quill"
+
+    static func port(bundleIdentifier: String?) -> UInt16 {
+        bundleIdentifier == releaseBundleIdentifier ? releasePort : developmentPort
+    }
+
     static func listenerParameters() -> NWParameters {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
