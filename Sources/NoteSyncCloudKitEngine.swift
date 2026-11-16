@@ -198,21 +198,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
 
     /// Looks parts up a few hundred at a time, asking for one small field
     /// only. A part iCloud doesn't have, or a missing zone, reads as absent;
-    /// any other error throws.
-    func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
-        let lookup = try await lookUpAudioParts(parts, collectingUnread: false)
-        return lookup.found
-    }
-
-    /// As above, but a part whose own read failed is listed as unread (#846).
+    /// a part whose own read failed is listed as unread (#846); any other
+    /// error throws.
     func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
-        try await lookUpAudioParts(parts, collectingUnread: true)
-    }
-
-    private func lookUpAudioParts(
-        _ parts: [NoteAudioPartID],
-        collectingUnread: Bool
-    ) async throws -> NoteAudioPartsLookup {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
         // A stalled lookup gives up rather than wait for CloudKit's long
         // default, as `noteRecordsInICloud` does: it reads no audio.
@@ -241,7 +229,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     if let code = (error as? CKError)?.code, code == .unknownItem || Self.isZoneGone(code) { continue }
                     // Only an error about this record alone leaves it unread;
                     // one about iCloud or the account says nothing of any part.
-                    guard collectingUnread, Self.isAboutThisRecordOnly(error),
+                    guard Self.isAboutThisRecordOnly(error),
                           let part = NoteAudioCloudRecord.part(from: recordID) else { throw error }
                     lookup.unread.insert(part)
                 }

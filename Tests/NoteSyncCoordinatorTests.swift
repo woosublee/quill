@@ -140,6 +140,9 @@ struct NoteSyncCoordinatorTests {
         try await testConfirmingAMissingPartResendsTheFileHere()
         try await testConfirmingWithoutICloudConfirmsNothing()
         try await testAnUnreadPartLeavesOnlyItsNoteOut()
+        try await testAnUnreadPartLeavesOnlyItsNoteUnsettled()
+        await testAnUnreadPartKeepsOnlyItsNotesLeftovers()
+        try await testAnUnreadPartDoesNotHoldItsNotesText()
         try await testAMissingPartBesideAnUnreadOneStillStartsTheRepair()
         try await testConfirmingLeavesOutNotesWithAudioInFlight()
         try await testConfirmingLeavesOutWhatChangedWhileWaiting()
@@ -256,20 +259,16 @@ struct NoteSyncCoordinatorTests {
         var whileLookingUp: (@MainActor () async -> Void)?
         /// Every part asked about, in order.
         var askedParts: [NoteAudioPartID] = []
-        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
+        /// Parts whose own read fails (#846).
+        var unreadParts: Set<NoteAudioPartID> = []
+        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
             lookups += 1
             askedParts += parts
             onLookup?()
             await whileLookingUp?()
             if let lookupError { throw lookupError }
-            return iCloud.intersection(parts)
-        }
-        /// Parts whose own read fails (#846).
-        var unreadParts: Set<NoteAudioPartID> = []
-        func lookUpAudioParts(_ parts: [NoteAudioPartID]) async throws -> NoteAudioPartsLookup {
-            let found = try await existingAudioParts(parts)
             let unread = unreadParts.intersection(parts)
-            return NoteAudioPartsLookup(found: found.subtracting(unread), unread: unread)
+            return NoteAudioPartsLookup(found: iCloud.intersection(parts).subtracting(unread), unread: unread)
         }
         /// Runs while the notes' parts are being listed.
         var onListParts: (() -> Void)?
@@ -2584,6 +2583,65 @@ struct NoteSyncCoordinatorTests {
         precondition(confirmed == [backed], String(describing: confirmed))
         precondition(store.manifests == manifestsBefore, "an unread part isn't treated as missing")
         precondition(engine.saves.isEmpty && engine.audioSaves.isEmpty, "nothing is repaired")
+    }
+
+    /// #853: in the audio check after sync, a part iCloud wouldn't read
+    /// leaves only its note to be checked again; the other note settles.
+    @MainActor
+    static func testAnUnreadPartLeavesOnlyItsNoteUnsettled() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10, "b.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let settles = noteWithAudio(store, "a.wav"), unread = noteWithAudio(store, "b.wav")
+        engine.iCloud = Set(parts(settles, 1, "a.wav") + parts(unread, 1, "b.wav"))
+        engine.unreadParts = Set(parts(unread, 1, "b.wav"))
+        coordinator.handleLocalChanges([.saved(settles), .saved(unread)])
+        await coordinator.lastAudioCheck?.value
+        precondition(store.manifests[settles] == manifest("a.wav"), "the readable note is marked")
+        precondition(store.manifests[unread] == nil, "an unread part is neither there nor missing")
+        precondition(engine.audioSaves.isEmpty, "nothing is sent again")
+
+        // Once iCloud reads it, the check after the next sync settles it.
+        engine.unreadParts = []
+        coordinator.handleFetchFinished(pending: 0)
+        await coordinator.lastAudioCheck?.value
+        precondition(store.manifests[unread] == manifest("b.wav"))
+    }
+
+    /// #853: turning sync on holds a marked note's text until its audio is
+    /// checked; an unread part doesn't keep holding it.
+    @MainActor
+    static func testAnUnreadPartDoesNotHoldItsNotesText() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store, "a.wav")
+        store.manifests[id] = manifest("a.wav")
+        engine.iCloud = Set(parts(id, 1, "a.wav"))
+        engine.unreadParts = engine.iCloud
+        coordinator.startInitialUpload()
+        precondition(!engine.saves.contains(id), "held until its audio is checked")
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.saves.contains(id), "its text goes up")
+        precondition(store.manifests[id] == manifest("a.wav"), "an unread part clears no marker")
+    }
+
+    /// #853: in the leftover search, a note whose marked part iCloud
+    /// wouldn't read keeps every part; another note's leftovers still go.
+    @MainActor
+    static func testAnUnreadPartKeepsOnlyItsNotesLeftovers() async {
+        let (coordinator, store, engine) = make()
+        let readable = record(), unread = record()
+        for note in [readable, unread] {
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+            store.manifests[note.noteID] = manifest("a.wav")
+            engine.notesInCloud[note.noteID] = .marker(manifest("a.wav"))
+        }
+        let readableOld = parts(readable.noteID, 1, "old.wav"), unreadOld = parts(unread.noteID, 1, "old.wav")
+        engine.iCloud = Set(parts(readable.noteID, 1, "a.wav") + parts(unread.noteID, 1, "a.wav") + readableOld + unreadOld)
+        engine.unreadParts = Set(parts(unread.noteID, 1, "a.wav"))
+        let searched = await coordinator.removeLeftoverAudio()
+        precondition(Set(engine.audioDeletes) == Set(readableOld), "\(engine.audioDeletes)")
+        precondition(!searched, "the unread note waits for the next search, an hour later")
     }
 
     /// #846: a note with one part iCloud lacks and another it wouldn't read
