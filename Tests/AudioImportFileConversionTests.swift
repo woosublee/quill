@@ -88,6 +88,18 @@ struct AudioImportFileConversionTests {
         } catch CanonicalAudioFileConversionError.conversionFailed {
         }
         try expect(try Data(contentsOf: source) == before, "the source is untouched")
+
+        // The same file under a path that differs only in case.
+        let alias = source.deletingLastPathComponent()
+            .appendingPathComponent(source.lastPathComponent.uppercased())
+        if FileManager.default.fileExists(atPath: alias.path) {
+            do {
+                try CanonicalAudioFileConversion.convert(source, to: alias)
+                try expect(false, "converting onto a case alias of the source must fail")
+            } catch CanonicalAudioFileConversionError.conversionFailed {
+            }
+            try expect(try Data(contentsOf: source) == before, "the source is untouched by its alias")
+        }
     }
 
     private static func testUnreadableFileIsRejectedWithoutOutput() throws {

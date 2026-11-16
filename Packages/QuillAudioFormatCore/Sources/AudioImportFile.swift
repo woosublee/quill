@@ -163,8 +163,14 @@ public enum CanonicalAudioFileConversion {
         allowsEmpty: Bool = false,
         progress: ((Double) -> Void)? = nil
     ) throws -> CanonicalPCM16WAVLayout {
-        // Writing over the source would delete it before it is read.
-        guard sourceURL.standardizedFileURL.resolvingSymlinksInPath()
+        // Writing over the source would delete it before it is read. The
+        // file identity also catches a path that differs only in case.
+        let identity: (URL) -> NSObject? = {
+            (try? $0.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject
+        }
+        let sourceIdentity = identity(sourceURL)
+        guard sourceIdentity == nil || sourceIdentity != identity(destinationURL),
+              sourceURL.standardizedFileURL.resolvingSymlinksInPath()
             != destinationURL.standardizedFileURL.resolvingSymlinksInPath() else {
             throw CanonicalAudioFileConversionError.conversionFailed(reason: "The output file is the source file.")
         }
@@ -211,6 +217,8 @@ public enum CanonicalAudioFileConversion {
             // A placeholder header; the real one is written once the size is known.
             try output.write(contentsOf: CanonicalPCM16WAV.header(dataByteCount: 0))
             let length = inputFile.length
+            // Only a compressed file's length is an estimate.
+            let isCompressed = inputFile.fileFormat.streamDescription.pointee.mFormatID != kAudioFormatLinearPCM
             var didFinish = false
             while !didFinish {
                 try Task.checkCancellation()
@@ -239,7 +247,7 @@ public enum CanonicalAudioFileConversion {
                         // that fails in its last second, after audio was
                         // read, is its end rather than a broken file.
                         let lastSecond = AVAudioFramePosition(inputFormat.sampleRate)
-                        if inputFile.framePosition > 0, remaining <= lastSecond {
+                        if isCompressed, inputFile.framePosition > 0, remaining <= lastSecond {
                             inputStatus.pointee = .endOfStream
                             return nil
                         }
