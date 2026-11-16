@@ -12,7 +12,8 @@ struct LocalizedUserMessageTests {
 
     private static func testShortcutStatusUsesLocalizedCompleteSentence(bundle: Bundle) {
         assert(LocalizedUserMessage.shortcutStatus(shortcut: "⌥ Space", isToggleMode: false, language: "en", bundle: bundle) == "Hold ⌥ Space to dictate")
-        assert(LocalizedUserMessage.shortcutStatus(shortcut: "⌥ Space", isToggleMode: true, language: "ko", bundle: bundle) == "⌥ Space을(를) 눌러 받아쓰기")
+        assert(LocalizedUserMessage.shortcutStatus(shortcut: "⌥ Space", isToggleMode: true, language: "ko", bundle: bundle) == "⌥ Space 탭하여 받아쓰기")
+        assert(LocalizedUserMessage.shortcutStatus(shortcut: "Fn 🌐", isToggleMode: false, language: "ko", bundle: bundle) == "Fn 🌐 길게 눌러 받아쓰기")
     }
 
     private static func testPermissionAndScreenshotMessagesKeepOneVerbatimDetail(bundle: Bundle) {

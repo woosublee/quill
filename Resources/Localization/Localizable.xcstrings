@@ -8074,7 +8074,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@을(를) 길게 눌러 받아쓰기"
+            "value": "%@ 길게 눌러 받아쓰기"
           }
         }
       }
@@ -8090,7 +8090,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@을(를) 눌러 받아쓰기"
+            "value": "%@ 탭하여 받아쓰기"
           }
         }
       }
@@ -8106,7 +8106,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@을(를) 길게 누르거나 %@을(를) 눌러 받아쓰기"
+            "value": "%@ 길게 누르거나 %@ 탭하여 받아쓰기"
           }
         }
       }
