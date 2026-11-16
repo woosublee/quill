@@ -38,6 +38,10 @@ protocol NoteSyncLocalStore: AnyObject {
     /// What audio sync needs of every syncable note, in the order of
     /// `syncableNoteIDs`; the real store reads it in one fetch.
     func audioSyncSnapshots() -> [NoteAudioSyncSnapshot]
+    /// The same for every note, settled or not (#843): a note that doesn't
+    /// sync now can still have a recording only in iCloud. Nil when the
+    /// notes can't be read.
+    func audioSnapshotsOfEveryNote() -> [NoteAudioSyncSnapshot]?
 }
 
 /// A note's audio file on this Mac.

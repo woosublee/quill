@@ -72,6 +72,7 @@ struct NoteSyncControllerTests {
         try testEveryRecordingHereIsSafeWithoutReadingNotes()
         try testTheCheckWritesNoMarkerItself()
         try testAMarkerThisMacNeverFetchedIsMergedAndListed()
+        try testANoteThatDoesNotSyncIsListedForDownload()
         try testANoteThisMacNeverSawIsImported()
         try testARecentlyDeletedNoteElsewhereIsImportedAsDeleted()
         try testAPurgedNoteWaitingToBeDeletedIsNotBroughtBack()
@@ -150,6 +151,16 @@ struct NoteSyncControllerTests {
         func clearAllSyncSystemFields(forgettingAudio: Bool) { cleared = true }
         func syncableNoteIDs() -> [UUID] { ids }
         func isSyncable(id: UUID) -> Bool { ids.contains(id) }
+        /// Every note: the syncable ones, then those with only a record here
+        /// (a note that doesn't sync now).
+        func audioSnapshotsOfEveryNote() -> [NoteAudioSyncSnapshot]? {
+            let unsynced = records.keys.filter { !ids.contains($0) }.sorted { $0.uuidString < $1.uuidString }
+            return (ids + unsynced).map { id in
+                var name: String?
+                if case .string(let value)? = records[id]?.fields[NoteSyncField.audioFileName.rawValue] { name = value }
+                return NoteAudioSyncSnapshot(id: id, audioFileName: name, manifest: manifests[id], uploadKey: uploadKeys[id])
+            }
+        }
         /// Takes iCloud's copy as it is: a new note joins `ids`, and the
         /// record's marker becomes the note's.
         func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult {
@@ -1656,6 +1667,30 @@ struct NoteSyncControllerTests {
         precondition(store.audioManifest(id: id) == marker)
         precondition(controller.recordingsOnlyInICloud?.contains(NoteAudioOnlyInICloud(id: id, bytes: Int64(marker.bytes))) == true)
         precondition(store.syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] == .string("x.wav"))
+    }
+
+    /// A note that doesn't sync now (still transcribing, or with unrecovered
+    /// pieces) whose recording is only in iCloud: the check names it, so it
+    /// must be listed for Download, Then Delete to download it (#843).
+    @MainActor
+    static func testANoteThatDoesNotSyncIsListedForDownload() throws {
+        let dir = try checkDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (controller, store, engine) = makeDeleteCheck(dir)
+        let marker = checkMarker("e5")
+        let id = UUID()
+        store.records[id] = checkRecord(id, file: "u.wav")
+        store.manifests[id] = marker
+        precondition(!store.isSyncable(id: id) && store.noteExists(id: id) == true)
+        engine.allParts = partsInICloud(id, marker)
+        let verdict = runDeleteCheck(controller)
+        precondition(verdict == .download([id]), "\(String(describing: verdict))")
+        precondition(
+            controller.recordingsOnlyInICloud == [NoteAudioOnlyInICloud(id: id, bytes: Int64(marker.bytes))],
+            "listed, so the download loop can fetch it"
+        )
+        precondition(controller.notesWithAudioOnlyInICloud == 1, "the turn-off confirmation counts it")
+        precondition(controller.uploadAudioByteCount == 0)
     }
 
     @MainActor

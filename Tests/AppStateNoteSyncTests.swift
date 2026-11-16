@@ -62,6 +62,7 @@ struct AppStateNoteSyncTests {
         try await testOffloadWaitsWhileDownloadThenDeleteRuns()
         try await testOffloadKeepsFilesWhenDownloadThenDeleteStartsWhileICloudAnswers()
         try await testDownloadByIDOfAnUnknownNoteIsFalse()
+        try await testDownloadByIDWaitsForANoteThatDoesNotSyncToSettle()
         try await testDownloadThenDeleteBringsARecordingThisMacDidntKnowWasInICloud()
         try await testDownloadThenDeleteImportsANoteThisMacNeverSaw()
         try await testDownloadThenDeleteStopsWhenICloudCantBeListed()
@@ -170,7 +171,7 @@ struct AppStateNoteSyncTests {
         let appState: AppState
     }
 
-    static func makeItem(id: UUID = UUID(), title: String = "Synthetic", transcriptFile: String? = nil, audioFile: String? = nil, recordingEndedAt: Date? = nil) -> PipelineHistoryItem {
+    static func makeItem(id: UUID = UUID(), title: String = "Synthetic", transcriptFile: String? = nil, audioFile: String? = nil, recordingEndedAt: Date? = nil, status: String = "succeeded") -> PipelineHistoryItem {
         PipelineHistoryItem(
             id: id,
             timestamp: t0,
@@ -181,7 +182,7 @@ struct AppStateNoteSyncTests {
             contextSummary: "",
             contextScreenshotDataURL: nil,
             contextScreenshotStatus: "No screenshot",
-            postProcessingStatus: "succeeded",
+            postProcessingStatus: status,
             debugStatus: "",
             customVocabulary: "",
             audioFileName: audioFile,
@@ -1657,6 +1658,42 @@ struct AppStateNoteSyncTests {
         precondition(fixture.store.audioManifest(id: note.id) == nil)
         let withoutMarker = await fixture.appState.downloadNoteAudio(noteID: note.id)
         precondition(!withoutMarker)
+    }
+
+    /// #843: a note that doesn't sync now downloads its recording, except
+    /// while its recording journal is here (recovery writes that file).
+    @MainActor
+    static func testDownloadByIDWaitsForANoteThatDoesNotSyncToSettle() async throws {
+        let fixture = try makeFixture(items: [])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let appState = fixture.appState
+        // Added after launch, which settles notes left mid-recording.
+        let note = makeItem(audioFile: "\(UUID().uuidString).wav", status: "live-recording")
+        _ = try fixture.store.append(note, maxCount: Int.max)
+        appState.pipelineHistory = [note]
+        precondition(!fixture.store.isSyncable(id: note.id))
+        let bytes = Data("synthetic-unsettled".utf8)
+        let source = fixture.root.appendingPathComponent("source.wav")
+        try bytes.write(to: source)
+        let manifest = NoteAudioManifest(sha256: try NoteAudioParts.sha256(of: source), bytes: Int64(bytes.count), partSize: 50_000_000, parts: 1)
+        try fixture.store.setAudioManifest(manifest, id: note.id)
+        let fetcher = StampFetcher(dir: fixture.root)
+        fetcher.mode = .serve(bytes)
+        appState.noteAudioDownloader = NoteAudioDownloader(
+            downloadsDirectory: fixture.root.appendingPathComponent("downloads", isDirectory: true),
+            fetcher: { fetcher },
+            isSyncOn: { true }
+        )
+        guard let url = appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
+        let journal = RecordingJournalStore(audioDirectory: fixture.layout.audioDirectory)
+            .recordingDirectory(recordingID: note.id)
+        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
+        let whileJournaled = await appState.downloadNoteAudio(noteID: note.id)
+        precondition(!whileJournaled && !exists(url), "recovery owns the file while the journal is here")
+
+        try FileManager.default.removeItem(at: journal)
+        let settled = await appState.downloadNoteAudio(noteID: note.id)
+        precondition(settled && exists(url), "its parts and marker are enough")
     }
 
     // MARK: Download, Then Delete asks iCloud's own list (#839)

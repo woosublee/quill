@@ -494,11 +494,15 @@ final class NoteSyncController: ObservableObject {
 
     /// Notes whose audio is in iCloud but not on this Mac (a missing or empty
     /// file), newest first, with each marker's size. Nil when note history
-    /// can't be opened; empty before a store is attached.
+    /// can't be opened; empty before a store is attached. A note that doesn't
+    /// sync now (still transcribing, or with unrecovered pieces) is listed
+    /// too: the check before deleting reads it, and its parts and marker are
+    /// enough to download it (#843).
     var recordingsOnlyInICloud: [NoteAudioOnlyInICloud]? {
         guard let store else { return [] }
         guard store.isReadyForSync else { return nil }
-        return store.audioSyncSnapshots().compactMap { note in
+        guard let notes = store.audioSnapshotsOfEveryNote() else { return nil }
+        return notes.compactMap { note in
             // An empty file here is no copy of the audio.
             guard let manifest = note.manifest,
                   (NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)?.bytes ?? 0) == 0 else { return nil }

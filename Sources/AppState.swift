@@ -10150,10 +10150,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Downloads the recording of a note in the list or in Recently Deleted.
     /// False when the note isn't in either or the download didn't finish.
+    /// A note that doesn't sync now (#843) may still be at work: recording,
+    /// recovering, or transcribing writes or reads its file, so nothing is
+    /// downloaded into it until it settles.
     @MainActor
     func downloadNoteAudio(noteID: UUID) async -> Bool {
         guard let item = pipelineHistory.first(where: { $0.id == noteID })
             ?? recentlyDeletedNotes.first(where: { $0.id == noteID }) else { return false }
+        if !pipelineHistoryStore.isSyncable(id: noteID) {
+            // Its own download running already is no other work.
+            if !noteAudioDownloader.downloadingNotes.contains(noteID), isNoteAudioBusy(noteID) { return false }
+            // Launch recovery and Recover Again write this file while the
+            // recording's journal is here.
+            if FileManager.default.fileExists(
+                atPath: recordingJournalStore.recordingDirectory(recordingID: noteID).path
+            ) { return false }
+        }
         return await downloadNoteAudio(for: item) != nil
     }
 
