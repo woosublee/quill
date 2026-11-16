@@ -6498,7 +6498,7 @@ struct ModelRowView: View {
         HStack(spacing: 4) {
             ProgressView()
                 .controlSize(.mini)
-            Text(title)
+            Text(localizedCatalogString(title))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }

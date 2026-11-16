@@ -51,6 +51,7 @@ struct LocalizationResourceTests {
         try testSharedTranscriptNoticeKeysAreInTheCatalog(strings)
         try testSharedMetaTagKeysAreInTheCatalog(strings)
         try testSharedSummaryNoticeKeysAreInTheCatalog(strings)
+        try testSettingsShortcutAndAppearanceTextIsKorean(strings)
 
         let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
         let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
@@ -1076,7 +1077,8 @@ struct LocalizationResourceTests {
         assert(!noteBrowser.contains("Text(\"Recordings\")"))
         assert(!noteBrowser.contains("Text(\"Transcription\")"))
 
-        for key in ["Note Browser", "Recording Overlay", "Google Calendar"] {
+        // "Recording Overlay" is translated since #630.
+        for key in ["Note Browser", "Google Calendar"] {
             let entry = catalogStrings[key] as? [String: Any]
             assert(entry?["shouldTranslate"] as? Bool == false, "Feature name must be an explicit English exception: \(key)")
             let localizations = entry?["localizations"] as? [String: Any]
@@ -1094,7 +1096,7 @@ struct LocalizationResourceTests {
         let settings = try managedSource("Sources/SettingsView.swift", root: root)
         let pattern = try NSRegularExpression(pattern: #"SettingsCard\(\"((?:\\.|[^\"\\])*)\""#)
         let range = NSRange(settings.startIndex..., in: settings)
-        let englishFeatureNames: Set<String> = ["Note Browser", "Recording Overlay", "Google Calendar"]
+        let englishFeatureNames: Set<String> = ["Note Browser", "Google Calendar"]
 
         for match in pattern.matches(in: settings, range: range) {
             guard let titleRange = Range(match.range(at: 1), in: settings) else { continue }
@@ -1235,6 +1237,45 @@ struct LocalizationResourceTests {
             assert(english.contains("iCloud sync") && english.contains("AI tool"), "\(key) should name both ways events leave")
             assert(korean.contains("iCloud 동기화") && korean.contains("AI 도구"), "\(key) should name both ways events leave (ko)")
             assert(!english.contains("never leave") && !korean.contains("전송되지 않"), "\(key) must not say events never leave the Mac")
+        }
+    }
+
+    /// #630: Settings › Appearance and Shortcuts read in Korean, and no
+    /// Korean value puts a particle right after the app name, which reads
+    /// wrong for one of "Quill" and "Quill Dev".
+    private static func testSettingsShortcutAndAppearanceTextIsKorean(_ strings: [String: Any]) throws {
+        func korean(_ key: String) -> String? {
+            let entry = strings[key] as? [String: Any]
+            let ko = (entry?["localizations"] as? [String: Any])?["ko"] as? [String: Any]
+            return (ko?["stringUnit"] as? [String: Any])?["value"] as? String
+        }
+        let keys = [
+            "Recording Overlay", "Hold to Talk", "Tap to Toggle", "Cancel Recording", "Paste Again",
+            "Disabled", "Record…", "Custom Shortcut", "Record any key combo.", "Saved custom shortcut",
+            "Recording shortcut…", "Recorded shortcut", "Press and hold the shortcut you want.",
+            "Press Esc or Enter to save.", "Deleting..."
+        ]
+        for key in keys {
+            guard let value = korean(key), !value.isEmpty, value != key else {
+                throw TestFailure("No Korean for Settings text \(key)")
+            }
+        }
+        let appNameKeys = [
+            "%@ restores the audio state it changed when dictation ends.",
+            "When enabled, %@ retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.",
+            "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %@ marks dictations transient and your clipboard manager skips them.",
+            "Press to show %@ in Finder. You can also add it with the + button below the list in System Settings.",
+            "%@ connects as soon as it’s on."
+        ]
+        let particleAfterName = try NSRegularExpression(pattern: #"%(\d+\$)?@\s*(이\(가\)|을\(를\)|은\(는\)|와\(과\)|이|가|을|를|은|는)"#)
+        for key in appNameKeys {
+            guard let value = korean(key), value.contains("@") else {
+                throw TestFailure("No Korean naming the app for \(key)")
+            }
+            let range = NSRange(value.startIndex..., in: value)
+            if particleAfterName.firstMatch(in: value, range: range) != nil {
+                throw TestFailure("A particle follows the app name in \(key)")
+            }
         }
     }
 

@@ -155,12 +155,12 @@ struct ShortcutRoleSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(role.title)
+            Text(localizedCatalogString(role.title))
                 .font(.subheadline.weight(.semibold))
 
             VStack(spacing: 6) {
                 ShortcutPresetRow(
-                    title: "Disabled",
+                    title: localizedCatalogString("Disabled"),
                     isSelected: selection.isDisabled,
                     action: { onSelect(.disabled) }
                 )
@@ -209,7 +209,7 @@ struct RecordingCancelShortcutSection: View {
 
             VStack(spacing: 6) {
                 ShortcutPresetRow(
-                    title: "Disabled",
+                    title: localizedCatalogString("Disabled"),
                     isSelected: selection.isDisabled,
                     action: { onSelect(.disabled) }
                 )
@@ -280,7 +280,7 @@ private struct ShortcutCaptureRow: View {
 
     private var captureHintKey: String? {
         guard isCapturing else { return nil }
-        // Separate announcement keys keep the visible hint text unchanged.
+        // VoiceOver hears the state too; the visible hint reads the same words.
         return currentBinding == nil
             ? "Recording a shortcut. Press and hold the shortcut you want."
             : "Shortcut entered. Press Esc or Enter to save."
@@ -305,7 +305,7 @@ private struct ShortcutCaptureRow: View {
                             Text(displayedBindingName)
                                 .font(displayedBindingUsesMonospace ? .system(.body, design: .monospaced).weight(.semibold) : .body)
                                 .foregroundStyle(.primary)
-                            Text(displayedBindingSubtitle)
+                            Text(localizedCatalogString(displayedBindingSubtitle))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -345,9 +345,9 @@ private struct ShortcutCaptureRow: View {
 
             if isCapturing {
                 Label(
-                    currentBinding == nil
+                    localizedCatalogString(currentBinding == nil
                         ? "Press and hold the shortcut you want."
-                        : "Press Esc or Enter to save.",
+                        : "Press Esc or Enter to save."),
                     systemImage: "keyboard"
                 )
                     .font(.subheadline.weight(.semibold))
@@ -447,7 +447,8 @@ private struct ShortcutCaptureRow: View {
         } else if let savedBinding {
             savedBinding.displayName
         } else {
-            "Custom Shortcut"
+            // A recorded shortcut's key names read as they are.
+            localizedCatalogString("Custom Shortcut")
         }
     }
 
