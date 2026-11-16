@@ -5,6 +5,7 @@ import Network
 struct MCPLocalAccessPolicyTests {
     static func main() throws {
         testAcceptsExpectedLocalHosts()
+        testDevelopmentBuildUsesItsOwnPort()
         testRejectsMissingAndUnexpectedHosts()
         testRejectsEveryBrowserOrigin()
         testAcceptsOnlyNumericLoopbackPeers()
@@ -13,6 +14,19 @@ struct MCPLocalAccessPolicyTests {
         try testMCPStopRecordingCopySupportsRecordOnly()
         try testMCPInitializeReportsAppVersion()
         print("MCPLocalAccessPolicyTests passed")
+    }
+
+    /// A development build and the released app can listen at once.
+    private static func testDevelopmentBuildUsesItsOwnPort() {
+        precondition(MCPLocalAccessPolicy.port(bundleIdentifier: "com.woosublee.quill") == 3457)
+        for other in ["com.woosublee.quill.dev", "com.woosublee.quill.shots", "com.example.custom", nil] as [String?] {
+            precondition(MCPLocalAccessPolicy.port(bundleIdentifier: other) == 13457, "\(String(describing: other))")
+        }
+        // The host check follows the port the build listens on.
+        for host in ["localhost:13457", "127.0.0.1:13457", "[::1]:13457"] {
+            precondition(MCPLocalAccessPolicy.allowsRequest(headers: ["host": host], port: 13457), host)
+        }
+        precondition(!MCPLocalAccessPolicy.allowsRequest(headers: ["host": "localhost:3457"], port: 13457))
     }
 
     private static func testAcceptsExpectedLocalHosts() {
