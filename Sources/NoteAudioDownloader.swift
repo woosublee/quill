@@ -2,24 +2,15 @@ import CryptoKit
 import Foundation
 import QuillNoteSyncCore
 
-/// Why a note's audio can't be downloaded right now.
-enum NoteAudioUnavailableReason: Equatable, Sendable {
-    /// No marker: the device that recorded it hasn't finished uploading.
-    case notUploadedYet
-    case syncOff
-    case offline
-    case failed
-}
+/// Why a note's audio can't be downloaded right now: the shared reasons
+/// (#836). The Mac never waits for Wi-Fi.
+typealias NoteAudioUnavailableReason = NoteAudioAvailability.Reason
 
-/// A note's audio as the audio bar, Retranscribe, and Export see it.
-enum NoteAudioState: Equatable {
-    /// The note has no audio.
-    case none
-    case local
-    case downloadable
-    case downloading(Double)
-    case unavailable(NoteAudioUnavailableReason)
+/// A note's audio as the audio bar, Retranscribe, and Export see it: the
+/// shared availability (#836), with the Mac's copy and button rules.
+typealias NoteAudioState = NoteAudioAvailability
 
+extension NoteAudioAvailability {
     /// Why the audio can't be had right now, for the audio bar and Export.
     var unavailableMessage: String? {
         guard case .unavailable(let reason) = self else { return nil }
@@ -28,7 +19,8 @@ enum NoteAudioState: Equatable {
             return localizedCatalogString("It can be downloaded once the device that recorded it uploads it to iCloud.")
         case .syncOff:
             return localizedCatalogString("Turn on iCloud sync to download this audio.")
-        case .offline:
+        // The Mac passes `waitsForWiFi: false`; a network wait reads as offline.
+        case .offline, .waitingForWiFi:
             return localizedCatalogString("Connect to the internet to download this audio.")
         case .failed:
             return localizedCatalogString("Couldn't download this audio. Try again.")
@@ -155,19 +147,21 @@ final class NoteAudioDownloader: ObservableObject {
         self.onMissingPart = onMissingPart
     }
 
+    /// The shared rule (`NoteAudioAvailability`, #836). A Mac note's
+    /// recording was made or kept here, so a missing file with no marker is
+    /// no audio while sync is off, and the Mac never waits for Wi-Fi.
     func state(noteID: UUID, hasAudio: Bool, isLocal: Bool, manifest: NoteAudioManifest?) -> NoteAudioState {
+        // Read for every row on each redraw: answer these before reading sync.
         guard hasAudio else { return .none }
         if isLocal { return .local }
-        if let progress = progress[noteID] { return .downloading(progress) }
-        guard isSyncOn() else {
-            // A file missing on a Mac that never synced it is no audio, as
-            // before sync; audio marked in iCloud waits for sync.
-            return manifest == nil ? .none : .unavailable(.syncOff)
-        }
-        guard let manifest else { return .unavailable(.notUploadedYet) }
-        // A failure for an earlier marker says nothing about this one.
-        if let failure = failures[noteID], failure.sha256 == manifest.sha256 { return .unavailable(failure.reason) }
-        return .downloadable
+        return NoteAudioAvailability.of(.init(
+            hasAudio: hasAudio,
+            isLocal: isLocal,
+            downloadProgress: progress[noteID],
+            marker: manifest,
+            isSyncOn: isSyncOn(),
+            lastFailure: failures[noteID].map { .init(sha256: $0.sha256, reason: $0.reason) }
+        ))
     }
 
     /// Returns `destination` once the audio is there, or nil when it
