@@ -16,6 +16,7 @@ struct AudioImportFileConversionTests {
         try testEmptyFileIsRejected()
         try testMacKeepsAnEmptyFileAsAnEmptyRecording()
         try testChannelMixingIsTheCallersChoice()
+        try testConvertingOntoTheSourceKeepsIt()
         try await testCancellationLeavesNoOutput()
         print("AudioImportFileConversionTests passed")
     }
@@ -74,6 +75,19 @@ struct AudioImportFileConversionTests {
         try expect(CanonicalAudioFileConversion.estimatedDataByteCount(frameCount: 0, sampleRate: 48_000) == 0, "no frames")
         try expect(CanonicalAudioFileConversion.maximumDataByteCount == UInt64(UInt32.max) - 37,
                    "the header limit in whole frames")
+    }
+
+    /// A destination that is the source fails before touching the file.
+    private static func testConvertingOntoTheSourceKeepsIt() throws {
+        let source = try writeTone(sampleRate: 44_100, channels: 2, seconds: 0.2, fileExtension: "wav", settings: nil)
+        defer { remove(source) }
+        let before = try Data(contentsOf: source)
+        do {
+            try CanonicalAudioFileConversion.convert(source, to: source)
+            try expect(false, "converting onto the source must fail")
+        } catch CanonicalAudioFileConversionError.conversionFailed {
+        }
+        try expect(try Data(contentsOf: source) == before, "the source is untouched")
     }
 
     private static func testUnreadableFileIsRejectedWithoutOutput() throws {

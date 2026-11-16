@@ -163,6 +163,11 @@ public enum CanonicalAudioFileConversion {
         allowsEmpty: Bool = false,
         progress: ((Double) -> Void)? = nil
     ) throws -> CanonicalPCM16WAVLayout {
+        // Writing over the source would delete it before it is read.
+        guard sourceURL.standardizedFileURL.resolvingSymlinksInPath()
+            != destinationURL.standardizedFileURL.resolvingSymlinksInPath() else {
+            throw CanonicalAudioFileConversionError.conversionFailed(reason: "The output file is the source file.")
+        }
         let inputFile: AVAudioFile
         do {
             inputFile = try AVAudioFile(forReading: sourceURL)
@@ -230,6 +235,14 @@ public enum CanonicalAudioFileConversion {
                     do {
                         try inputFile.read(into: inputBuffer, frameCount: requested)
                     } catch {
+                        // A compressed file's length is an estimate: a read
+                        // that fails in its last second, after audio was
+                        // read, is its end rather than a broken file.
+                        let lastSecond = AVAudioFramePosition(inputFormat.sampleRate)
+                        if inputFile.framePosition > 0, remaining <= lastSecond {
+                            inputStatus.pointee = .endOfStream
+                            return nil
+                        }
                         readError = error
                         inputStatus.pointee = .noDataNow
                         return nil
@@ -243,6 +256,9 @@ public enum CanonicalAudioFileConversion {
                 }
                 if let conversionError {
                     throw CanonicalAudioFileConversionError.conversionFailed(reason: conversionError.localizedDescription)
+                }
+                if let readError = readError as? CanonicalAudioFileConversionError {
+                    throw readError
                 }
                 if let readError {
                     throw CanonicalAudioFileConversionError.conversionFailed(reason: readError.localizedDescription)
