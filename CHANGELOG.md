@@ -8,6 +8,29 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.5.0] - 2026-11-17
+
+### Added
+
+- **Double-tap Hold to Talk to lock recording.** With the new setting on (Settings › Shortcuts › Dictation Shortcuts), press Hold to Talk twice quickly and recording keeps going after you let go. Press it again to stop. Off by default, and available while the Hold to Talk shortcut is on.
+- **Post-processing per shortcut.** Hold to Talk and Tap to Toggle can each follow the Post-processing switch (the default), turn it on, or turn it off (Settings › Shortcuts › Dictation Shortcuts). On needs an API key or a ready local model; without one, the shortcut follows the switch. Recordings started from the menu bar, the Note Browser, a reminder, or MCP follow the switch.
+- **Insert into the original field.** With this setting on (Settings › Shortcuts › Clipboard), a dictation goes into the field where you started recording, even if you switched apps before it finished. If Quill can't confirm it went in, it doesn't paste twice and tells you to use Paste Again. Off by default, and needs Paste Automatically.
+- **Calendar title suggestions arrive later too.** If you add the event or connect a calendar after recording, the note still offers the event's title, including an event added to Apple Calendar while Quill is open. The suggestion now also shows on notes you titled yourself, and has a close button; applying or closing it carries over to your other devices.
+
+### Changed
+
+- **Turning Context off during a recording** drops that recording's captured app context, so it isn't sent for cleanup or saved in the note. Test Context Prompt asks first while Context is off, and its description says a whole-screen capture can include other windows.
+- **Settings › Calendar groups calendars by account.** Two accounts with the same name stay separate, and an account with no name shows "Other".
+- **More of Settings is in Korean**, including Recording Overlay and the shortcut wording, and the menu bar's shortcut hints read naturally in Korean.
+
+### Fixed
+
+- **Download, Then Delete counts recordings of notes that don't sync yet**, such as a note still transcribing, instead of failing to check iCloud. A recording that can't be downloaded yet stops the delete.
+- **Optimize Storage keeps working when one recording's iCloud copy can't be read.** Before, that one recording stopped every other recording from being removed from this Mac.
+- **A recording whose iCloud copy can't be read no longer holds up the other notes' sync check.**
+- **Optimize Storage picks recordings faster on Macs with many notes.**
+- **Transcribing an imported file longer than about 37 hours with Local Whisper** stops with "The file is too long." instead of preparing a broken file.
+
 ## [1.4.0] - 2026-11-15
 
 ### Added
