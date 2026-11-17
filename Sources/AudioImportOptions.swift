@@ -1,5 +1,5 @@
 import Foundation
-
+import QuillAudioFormatCore
 
 enum NoteBrowserTranscriptionMode: CaseIterable, Equatable, Hashable {
     case apiStandard
@@ -165,20 +165,16 @@ struct AudioImportLocalAIModel: Equatable {
 }
 
 struct AudioImportOptions {
-    static let broadlySupportedExtensions: Set<String> = [
-        "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
-    ]
-    static let nativeLocalWhisperExtensions: Set<String> = [
-        "mp3", "mp4", "mpeg", "mpga", "m4a", "wav"
-    ]
+    // The import types are shared with the iPhone app (QuillAudioFormatCore).
+    static let broadlySupportedExtensions = AudioImportFileTypes.broadlySupportedExtensions
+    static let nativeLocalWhisperExtensions = AudioImportFileTypes.decodableExtensions
     static let apiUploadLimitBytes: Int64 = 25_000_000
     static let fallbackAPIModelID = "whisper-large-v3"
     static let fallbackNativeWhisperModelID = "whisper-large-v3-turbo"
     static let fallbackNativeWhisperDisplayName = "Whisper Large v3 Turbo"
 
     static func storageExtension(for fileName: String) -> String {
-        let ext = URL(fileURLWithPath: fileName).pathExtension.lowercased()
-        return broadlySupportedExtensions.contains(ext) ? ext : "wav"
+        AudioImportFileTypes.storageExtension(for: fileName)
     }
 
     static func importContextSummary(for fileName: String) -> String {

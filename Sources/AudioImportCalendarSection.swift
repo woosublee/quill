@@ -1,4 +1,5 @@
 import Combine
+import QuillAudioFormatCore
 import QuillNoteCore
 import SwiftUI
 

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import QuillAudioFormatCore
 
 struct PreparedNativeWhisperAudio {
     let fileURL: URL
@@ -83,125 +84,38 @@ struct AudioImportConversionService {
             && format.commonFormat == .pcmFormatInt16
     }
 
+    /// The decoding itself is shared with the iPhone app
+    /// (`CanonicalAudioFileConversion`); it writes the canonical recording.
     private static func convertToNativeWhisperWAV(
         _ sourceURL: URL,
         outputDirectory: URL
     ) throws -> PreparedNativeWhisperAudio {
-        let inputFile: AVAudioFile
-        do {
-            inputFile = try AVAudioFile(forReading: sourceURL)
-        } catch {
-            throw AudioImportConversionError.unreadableAudio(sourceURL.lastPathComponent)
-        }
-
-        let inputFormat = inputFile.processingFormat
-        guard let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatInt16,
-            sampleRate: targetSampleRate,
-            channels: targetChannelCount,
-            interleaved: true
-        ) else {
-            throw AudioImportConversionError.converterUnavailable
-        }
-        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            throw AudioImportConversionError.converterUnavailable
-        }
-
         let outputURL = outputDirectory
             .appendingPathComponent("quill-native-whisper-import-\(UUID().uuidString)")
             .appendingPathExtension("wav")
-
         do {
-            let outputFile = try AVAudioFile(
-                forWriting: outputURL,
-                settings: pcmFileSettings(for: targetFormat),
-                commonFormat: targetFormat.commonFormat,
-                interleaved: targetFormat.isInterleaved
+            // As before the decoder was shared: the first channel of a stereo
+            // file, and an empty file passes on as an empty recording.
+            try CanonicalAudioFileConversion.convert(
+                sourceURL,
+                to: outputURL,
+                mixesChannels: false,
+                allowsEmpty: true
             )
-
-            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 16_384) else {
+        } catch let error as CanonicalAudioFileConversionError {
+            switch error {
+            case .unreadable:
+                throw AudioImportConversionError.unreadableAudio(sourceURL.lastPathComponent)
+            case .converterUnavailable:
                 throw AudioImportConversionError.converterUnavailable
+            case .empty:
+                throw AudioImportConversionError.conversionFailed("The file has no audio.")
+            case .tooLong:
+                throw AudioImportConversionError.conversionFailed("The file is too long.")
+            case .conversionFailed(let reason):
+                throw AudioImportConversionError.conversionFailed(reason)
             }
-
-            var didFinish = false
-            while !didFinish {
-                try Task.checkCancellation()
-                outputBuffer.frameLength = 0
-
-                var readError: Error?
-                var conversionError: NSError?
-                let status = converter.convert(to: outputBuffer, error: &conversionError) { packetCount, outStatus in
-                    guard inputFile.framePosition < inputFile.length else {
-                        outStatus.pointee = .endOfStream
-                        return nil
-                    }
-
-                    let remainingFrames = inputFile.length - inputFile.framePosition
-                    let requestedFrames = AVAudioFrameCount(min(AVAudioFramePosition(packetCount), remainingFrames))
-                    guard let inputBuffer = AVAudioPCMBuffer(
-                        pcmFormat: inputFormat,
-                        frameCapacity: max(requestedFrames, AVAudioFrameCount(1))
-                    ) else {
-                        readError = AudioImportConversionError.converterUnavailable
-                        outStatus.pointee = .noDataNow
-                        return nil
-                    }
-
-                    do {
-                        try inputFile.read(into: inputBuffer, frameCount: requestedFrames)
-                    } catch {
-                        readError = error
-                        outStatus.pointee = .noDataNow
-                        return nil
-                    }
-
-                    guard inputBuffer.frameLength > 0 else {
-                        outStatus.pointee = .endOfStream
-                        return nil
-                    }
-
-                    outStatus.pointee = .haveData
-                    return inputBuffer
-                }
-
-                if let conversionError {
-                    throw AudioImportConversionError.conversionFailed(conversionError.localizedDescription)
-                }
-                if let readError {
-                    throw AudioImportConversionError.conversionFailed(readError.localizedDescription)
-                }
-                if outputBuffer.frameLength > 0 {
-                    try outputFile.write(from: outputBuffer)
-                }
-
-                switch status {
-                case .haveData, .inputRanDry:
-                    continue
-                case .endOfStream:
-                    didFinish = true
-                case .error:
-                    throw AudioImportConversionError.conversionFailed("Audio conversion failed.")
-                @unknown default:
-                    throw AudioImportConversionError.conversionFailed("Audio conversion returned an unknown status.")
-                }
-            }
-
-            return PreparedNativeWhisperAudio(fileURL: outputURL, temporaryFileURL: outputURL)
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
         }
-    }
-
-    private static func pcmFileSettings(for format: AVAudioFormat) -> [String: Any] {
-        [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: Int(format.channelCount),
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: !format.isInterleaved,
-        ]
+        return PreparedNativeWhisperAudio(fileURL: outputURL, temporaryFileURL: outputURL)
     }
 }
