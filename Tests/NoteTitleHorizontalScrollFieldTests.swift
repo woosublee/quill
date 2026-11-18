@@ -43,6 +43,13 @@ struct NoteTitleHorizontalScrollFieldTests {
         let header = sourceBlock(in: source, from: "private var noteHeader: some View", to: "\n            if let suggestedCalendarTitle")
         precondition(header.contains("applyOutsideTitle(NoteTitleResolver.titleDraft(for: item.customTitle))"))
         precondition(header.contains("if newValue == appliedOutsideTitle {\n                    appliedOutsideTitle = nil\n                    return\n                }"))
+        // The skip returns before any save is scheduled.
+        let onChange = sourceBlock(in: header, from: ".onChange(of: titleDraft)", to: ".onAppear")
+        let skip = try requireRange(onChange.range(of: "if newValue == appliedOutsideTitle {"))
+        let timer = try requireRange(onChange.range(of: "Timer("))
+        let save = try requireRange(onChange.range(of: "appState.updateHistoryItemTitle"))
+        precondition(skip.upperBound < timer.lowerBound && skip.upperBound < save.lowerBound,
+                     "opening a note must return before a save is scheduled")
         let assignments = (source.components(separatedBy: "titleDraft = ").count - 1)
             - (source.components(separatedBy: "var titleDraft = ").count - 1)
         precondition(assignments == 1, "the title field's text is set only in applyOutsideTitle")
@@ -136,4 +143,11 @@ struct NoteTitleHorizontalScrollFieldTests {
         }
         return String(source[start.lowerBound..<end.lowerBound])
     }
+}
+
+private struct MissingSourceRange: Error {}
+
+private func requireRange(_ range: Range<String.Index>?) throws -> Range<String.Index> {
+    guard let range else { throw MissingSourceRange() }
+    return range
 }

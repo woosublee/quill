@@ -343,6 +343,8 @@ struct PipelineHistoryMeetingSummaryTests {
         let item = makeSearchItem(title: "Quarterly\nPlanning", processed: "Synthetic body.")
         precondition(matcher.matches(item, query: "quarterly planning"))
         precondition(!matcher.matchesOnlyInSummary(item, query: "quarterly planning"))
+        // A query with the line break still finds the title, as before.
+        precondition(matcher.matches(item, query: "Quarterly\nPlanning"))
     }
 
     private static func makeSearchItem(
