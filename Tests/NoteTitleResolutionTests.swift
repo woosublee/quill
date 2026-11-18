@@ -26,6 +26,7 @@ struct NoteTitleResolutionTests {
         testOutsideTitleChangeKeepsAnUnsavedEdit()
         testOutsideTitleChangeMatchingTheDraftChangesNothing()
         testTypedTitleIsSavedTrimmedAndNilWhenEmpty()
+        testMultilineTitlesReadAndSaveAsOneLine()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -357,6 +358,42 @@ struct NoteTitleResolutionTests {
         assert(NoteTitleResolver.normalizedCustomTitle("  Team sync \n") == "Team sync")
         assert(NoteTitleResolver.normalizedCustomTitle("   ") == nil)
         assert(NoteTitleResolver.normalizedCustomTitle("") == nil)
+    }
+
+    // Catches #361: a title saved with line breaks (an older multi-line
+    // field, another device, or a calendar event) showing, saving, or being
+    // suggested with them on the Mac while the iPhone reads it as one line.
+    private static func testMultilineTitlesReadAndSaveAsOneLine() {
+        let typed = item(transcript: "Synthetic", calendarMatch: nil, customTitle: " First\n\n Second \n")
+        precondition(NoteTitleResolver.displayTitle(for: typed) == "First Second")
+        precondition(NoteTitleResolver.displayTitleSource(for: typed) == .custom)
+        precondition(NoteTitleResolver.titleDraft(for: typed.customTitle) == "First Second")
+        precondition(NoteTitleResolver.titleDraft(for: nil) == "")
+        precondition(NoteTitleResolver.normalizedCustomTitle("A\r\nB\u{2028}C") == "A B C")
+        precondition(NoteTitleResolver.normalizedCustomTitle(" \n ") == nil)
+
+        let applied = item(
+            transcript: "Synthetic",
+            calendarMatch: match(title: "Weekly\nsync", titleState: .applied)
+        )
+        precondition(NoteTitleResolver.displayTitle(for: applied) == "Weekly sync")
+
+        let suggested = item(
+            transcript: "Synthetic",
+            calendarMatch: match(title: "Weekly\nsync", titleState: .suggested)
+        )
+        let suggestion = NoteTitleResolver.suggestedCalendarTitle(for: suggested)
+        precondition(suggestion?.suggested == "Weekly sync")
+        precondition(suggestion?.applied.hasSuffix(" Weekly sync") == true)
+        precondition(suggestion?.applied.contains("\n") == false)
+
+        // The field already shows a stored "A\nB" as "A B": nothing to replace.
+        precondition(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "A B", newTitle: "A\nB", hasUnsavedEdit: false
+        ) == nil)
+        precondition(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "Old", newTitle: "A\nB", hasUnsavedEdit: false
+        ) == "A B")
     }
 
     private static func item(

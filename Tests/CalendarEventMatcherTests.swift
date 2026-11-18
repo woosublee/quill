@@ -15,6 +15,8 @@ struct CalendarEventMatcherTests {
         testSuggestionShowsOnTitledNote()
         testSuggestionHidesWhenTitleMatchesOrDismissed()
         testSuggestionNeedsSuggestedState()
+        testTitleTurnsEveryLineBreakIntoOneSpace()
+        testCalendarTitlesWithLineBreaksApplyAsOneLine()
         testLookupNeedsNoEventAndRecordingTime()
         testRecentCandidatesStayInWindow()
         testSkippedLookupWaitsForTheRestOfTheInterval()
@@ -154,6 +156,35 @@ struct CalendarEventMatcherTests {
         assert(CalendarTitleSuggestion.suggestion(calendarMatch: applied, customTitle: nil, date: date, isDismissed: false) == nil)
         let blank = calendarMatch(title: "  ", titleState: .suggested)
         assert(CalendarTitleSuggestion.suggestion(calendarMatch: blank, customTitle: nil, date: date, isDismissed: false) == nil)
+    }
+
+    // #361 (the iPhone's #355 rule, now shared): a title reads as one line.
+    private static func testTitleTurnsEveryLineBreakIntoOneSpace() {
+        precondition(NoteTitleText.oneLine("A\nB\r\nC\rD\u{2028}E\u{2029}F\u{85}G") == "A B C D E F G")
+        precondition(NoteTitleText.oneLine("A\n\nB") == "A B")
+        precondition(NoteTitleText.oneLine("A \n \n B") == "A B")
+        precondition(NoteTitleText.oneLine("Two  spaces") == "Two  spaces", "spaces inside a line stay")
+        precondition(NoteTitleText.oneLine(" \n A \n ") == "A")
+        precondition(NoteTitleText.oneLine(" \n ") == nil)
+        precondition(NoteTitleText.oneLine(nil) == nil)
+    }
+
+    // #361: an event title with line breaks never saves them into a note's title.
+    private static func testCalendarTitlesWithLineBreaksApplyAsOneLine() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let applied = calendarMatch(title: "Weekly\nsync", titleState: .applied)
+        precondition(applied.suggestedTitle == "Weekly sync")
+        precondition(applied.appliedTitle == "Weekly sync")
+        precondition(applied.title == "Weekly\nsync", "the stored event title stays as the calendar gave it")
+
+        let suggested = calendarMatch(title: " Weekly \n\n sync ", titleState: .suggested)
+        let suggestion = CalendarTitleSuggestion.suggestion(calendarMatch: suggested, customTitle: nil, date: date, isDismissed: false)
+        precondition(suggestion?.suggested == "Weekly sync")
+        precondition(suggestion?.applied == CalendarTitleSuggestion.appliedTitle(suggestedTitle: "Weekly sync", date: date))
+        precondition(CalendarTitleSuggestion.appliedTitle(suggestedTitle: "Weekly\nsync", date: date)
+            == CalendarTitleSuggestion.appliedTitle(suggestedTitle: "Weekly sync", date: date))
+        // A title saved with line breaks still matches the suggestion it came from.
+        precondition(CalendarTitleSuggestion.suggestion(calendarMatch: suggested, customTitle: "Weekly\nsync", date: date, isDismissed: false) == nil)
     }
 
     private static func testLookupNeedsNoEventAndRecordingTime() {

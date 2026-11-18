@@ -58,6 +58,9 @@ struct NoteExportPlanTests {
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         precondition(NoteExportPlan.suggestedBaseName(customTitle: " Mine ", calendarTitle: "Event", timestamp: date) == "Mine")
         precondition(NoteExportPlan.suggestedBaseName(customTitle: "  ", calendarTitle: "Event", timestamp: date) == "Event")
+        // #361: a title with line breaks names the file as one line, like the iPhone.
+        precondition(NoteExportPlan.suggestedBaseName(customTitle: "A\nB", calendarTitle: nil, timestamp: date) == "A B")
+        precondition(NoteExportPlan.suggestedBaseName(customTitle: " \n ", calendarTitle: "Weekly\r\nsync", timestamp: date) == "Weekly sync")
         let dated = NoteExportPlan.suggestedBaseName(
             customTitle: nil,
             calendarTitle: nil,

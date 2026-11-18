@@ -3171,7 +3171,7 @@ private struct NoteDetailView: View {
                 titleDebounceTimer = timer
             }
             .onAppear {
-                applyOutsideTitle(item.customTitle ?? "")
+                applyOutsideTitle(NoteTitleResolver.titleDraft(for: item.customTitle))
             }
             // Another Mac renamed the open note.
             .onChange(of: item.customTitle) { newValue in

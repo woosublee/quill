@@ -153,7 +153,10 @@ otherwise.
   and the import sheet stay in `Sources/`.
 - `Packages/QuillNoteCore/`: note data and rules shared with the iPhone app:
   how a note's date reads in a list row, its detail, and as an untitled
-  note's name (`NoteTimestampFormatter`), how its audio time reads
+  note's name (`NoteTimestampFormatter`), a title as one line wherever it
+  shows, is saved, or names a file (`NoteTitleText`: each run of line
+  breaks becomes one space, ends trimmed; a calendar event's suggested and
+  applied titles read through it, #361), how its audio time reads
   (`NoteAudioDuration`: `m:ss` or `h:mm:ss`), the tags on its detail meta line
   (`NoteMetaTags`: LOCAL/CLOUD or Audio only, CTX, LLM, the fixed language,
   and their spoken words), the notices above its transcript
