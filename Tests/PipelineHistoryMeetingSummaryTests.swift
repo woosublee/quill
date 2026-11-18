@@ -23,6 +23,7 @@ struct PipelineHistoryMeetingSummaryTests {
         testNoteSearchMatchesKoreanAndDiacritics()
         testNoteSearchRefreshesCachedSummaryText()
         testNoteSearchReportsSummaryOnlyMatches()
+        testNoteSearchMatchesATitleAsOneLine()
         print("PipelineHistoryMeetingSummaryTests passed")
     }
 
@@ -334,6 +335,14 @@ struct PipelineHistoryMeetingSummaryTests {
         precondition(!matcher.matchesOnlyInSummary(noSummary, query: "short"))
         precondition(!matcher.matchesOnlyInSummary(summaryOnly, query: "pricing"))
         precondition(!matcher.matchesOnlyInSummary(summaryOnly, query: "   "))
+    }
+
+    // #361: a title saved with line breaks is found the way it shows, on one line.
+    private static func testNoteSearchMatchesATitleAsOneLine() {
+        let matcher = NoteSearchMatcher()
+        let item = makeSearchItem(title: "Quarterly\nPlanning", processed: "Synthetic body.")
+        precondition(matcher.matches(item, query: "quarterly planning"))
+        precondition(!matcher.matchesOnlyInSummary(item, query: "quarterly planning"))
     }
 
     private static func makeSearchItem(

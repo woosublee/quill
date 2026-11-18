@@ -5,9 +5,12 @@ import Foundation
 public enum CalendarTitleSuggestion {
     /// The title Apply sets: the recording's date, then the event's title
     /// ("2026-11-12 Weekly sync"), on one line (`NoteTitleText`, #361), so
-    /// an event title with line breaks never saves them into the note.
+    /// an event title with line breaks never saves them into the note. A
+    /// blank event title gives the date alone, with no trailing space.
     public static func appliedTitle(suggestedTitle: String, date: Date) -> String {
-        "\(dateFormatter.string(from: date)) \(NoteTitleText.oneLine(suggestedTitle) ?? "")"
+        let day = dateFormatter.string(from: date)
+        guard let title = NoteTitleText.oneLine(suggestedTitle) else { return day }
+        return "\(day) \(title)"
     }
 
     /// The suggestion to show, with what Apply sets, or nil.

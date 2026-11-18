@@ -6,6 +6,7 @@ import QuillNoteCore
 struct AudioImportCalendarTests {
     static func main() async throws {
         testRecordingTimeNeedsEmbeddedDate()
+        testImportTitleIsOneLineWithNoTrailingSpace()
         try await testReadingSyntheticWAVWithoutDateReturnsNil()
         testMeetingCandidatesDropAllDayUntitledDeclinedAndSort()
         testRecommendationPicksLargestOverlapOnly()
@@ -86,6 +87,18 @@ struct AudioImportCalendarTests {
         let expectedDay = NoteTitleResolver.calendarAppliedTitle(suggestedTitle: "주간 기획 회의", recordingStartedAt: recording!.start)
         precondition(ImportCalendarTitle.title(for: meeting, recording: recording, chosenDay: base.addingTimeInterval(86_400 * 3)) == expectedDay)
         _ = utc
+    }
+
+    /// #361: an imported note's title saves an event title as one line, and
+    /// a blank event title gives the date alone.
+    static func testImportTitleIsOneLineWithNoTrailingSpace() {
+        let chosen = base.addingTimeInterval(1_800)
+        let multiline = ImportCalendarTitle.title(for: event("m", " Weekly\n\nsync ", 0, 600), recording: nil, chosenDay: chosen)
+        precondition(multiline == NoteTitleResolver.calendarAppliedTitle(suggestedTitle: "Weekly sync", recordingStartedAt: chosen))
+        precondition(multiline.hasSuffix(" Weekly sync") && !multiline.contains(where: \.isNewline))
+        let blank = ImportCalendarTitle.title(for: event("b", " \n ", 0, 600), recording: nil, chosenDay: chosen)
+        precondition(!blank.hasSuffix(" ") && !blank.isEmpty)
+        precondition(NoteTitleResolver.normalizedCustomTitle(blank) == blank, "saved as it is made")
     }
 
     static func testInsertionIndexKeepsNewestFirst() {

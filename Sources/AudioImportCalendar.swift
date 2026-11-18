@@ -36,10 +36,11 @@ enum CalendarDayEvents {
 
 enum ImportCalendarTitle {
     /// Same form as applying a calendar suggestion after recording. Without a
-    /// recording time the date is the day the person chose in the sheet.
+    /// recording time the date is the day the person chose in the sheet. The
+    /// shared rule reads the event title as one line (#361).
     static func title(for event: CalendarEvent, recording: AudioFileRecordingTime?, chosenDay: Date) -> String {
         NoteTitleResolver.calendarAppliedTitle(
-            suggestedTitle: event.title.trimmingCharacters(in: .whitespacesAndNewlines),
+            suggestedTitle: event.title,
             recordingStartedAt: recording?.start ?? chosenDay
         )
     }

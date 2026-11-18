@@ -12,6 +12,7 @@ struct NotePayloadTests {
         testAudioIsNullWithoutAudio()
         testResourceAttendeeFlagFromEmail()
         testTimestampsUseProvidedFormatter()
+        try testCalendarTitleWithLineBreaksIsSentAndFoundAsOneLine()
         try testListIsNewestFirstWithTitleAndPreview()
         try testListLimitReportsMore()
         try testListOffsetPagesThroughMatches()
@@ -171,6 +172,20 @@ struct NotePayloadTests {
         precondition((ts["recording_started_at"] as? String)?.hasSuffix("+09:00") == true)
         precondition((ts["transcript_created_at"] as? String) != nil)
         precondition(ts["recording_ended_at"] is NSNull)
+    }
+
+    // #361: an event title saved with line breaks reads, and is found, as one line.
+    private static func testCalendarTitleWithLineBreaksIsSentAndFoundAsOneLine() throws {
+        let item = makeItem(calendarMatch: sampleCalendar(title: "Design\n\nCrit "))
+        let cal = note(item)["calendar"] as! [String: Any]
+        precondition(cal["title"] as? String == "Design Crit")
+        let listed = try list([:], items: [item]).notes
+        precondition(listed.first?["calendar_event"] as? String == "Design Crit")
+        let found = try list(["query": "design crit"], items: [item]).notes
+        precondition(ids(found) == ["A"])
+        let blank = makeItem(calendarMatch: sampleCalendar(title: " \n "))
+        let blankListed = try list([:], items: [blank]).notes
+        precondition(blankListed.first?["calendar_event"] is NSNull)
     }
 
     // MARK: - list_notes

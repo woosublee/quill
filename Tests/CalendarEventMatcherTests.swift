@@ -185,6 +185,9 @@ struct CalendarEventMatcherTests {
             == CalendarTitleSuggestion.appliedTitle(suggestedTitle: "Weekly sync", date: date))
         // A title saved with line breaks still matches the suggestion it came from.
         precondition(CalendarTitleSuggestion.suggestion(calendarMatch: suggested, customTitle: "Weekly\nsync", date: date, isDismissed: false) == nil)
+        // A blank event title gives the date alone, with no trailing space.
+        let blank = CalendarTitleSuggestion.appliedTitle(suggestedTitle: " \n ", date: date)
+        precondition(!blank.isEmpty && !blank.hasSuffix(" ") && !blank.contains(" "))
     }
 
     private static func testLookupNeedsNoEventAndRecordingTime() {

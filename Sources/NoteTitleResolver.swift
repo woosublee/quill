@@ -28,7 +28,7 @@ enum NoteTitleResolver {
     ) -> (suggested: String, applied: String)? {
         CalendarTitleSuggestion.suggestion(
             calendarMatch: item.calendarMatch,
-            customTitle: normalizedCustomTitle(item.customTitle ?? ""),
+            customTitle: item.customTitle,
             date: item.timestamp,
             isDismissed: isDismissed
         )
@@ -44,9 +44,9 @@ enum NoteTitleResolver {
         hasUnsavedEdit: Bool
     ) -> String? {
         // A draft with a trailing space already matches its own saved title.
-        let shownTitle = titleDraft(for: newTitle)
-        guard !hasUnsavedEdit, normalizedCustomTitle(draft) != normalizedCustomTitle(shownTitle) else { return nil }
-        return shownTitle
+        let shownTitle = NoteTitleText.oneLine(newTitle)
+        guard !hasUnsavedEdit, normalizedCustomTitle(draft) != shownTitle else { return nil }
+        return shownTitle ?? ""
     }
 
     /// What the title field shows for a saved title: one line (#361), so a
