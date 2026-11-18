@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 import QuillSummaryFormatCore
 
 extension PipelineHistoryItem {
@@ -97,8 +98,11 @@ final class NoteSearchMatcher {
         _ item: PipelineHistoryItem,
         _ query: String
     ) -> Bool {
-        contains(item.customTitle, query)
-            || contains(item.calendarMatch?.title, query)
+        // Titles match as they show: on one line, and so does the query
+        // they're compared with (a pasted "A\nB" finds the title "A B", #361).
+        let titleQuery = NoteTitleText.oneLine(query) ?? query
+        return contains(NoteTitleText.oneLine(item.customTitle), titleQuery)
+            || contains(NoteTitleText.oneLine(item.calendarMatch?.title), titleQuery)
             || contains(searchableTranscript(of: item), query)
     }
 

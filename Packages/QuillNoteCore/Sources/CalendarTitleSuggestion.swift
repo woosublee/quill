@@ -4,9 +4,13 @@ import Foundation
 /// (#832): the "Calendar suggested title … Apply" row above the note.
 public enum CalendarTitleSuggestion {
     /// The title Apply sets: the recording's date, then the event's title
-    /// ("2026-11-12 Weekly sync").
+    /// ("2026-11-12 Weekly sync"), on one line (`NoteTitleText`, #361), so
+    /// an event title with line breaks never saves them into the note. A
+    /// blank event title gives the date alone, with no trailing space.
     public static func appliedTitle(suggestedTitle: String, date: Date) -> String {
-        "\(dateFormatter.string(from: date)) \(suggestedTitle)"
+        let day = dateFormatter.string(from: date)
+        guard let title = NoteTitleText.oneLine(suggestedTitle) else { return day }
+        return "\(day) \(title)"
     }
 
     /// The suggestion to show, with what Apply sets, or nil.
@@ -32,7 +36,7 @@ public enum CalendarTitleSuggestion {
               let calendarMatch, calendarMatch.titleState == .suggested,
               let suggested = calendarMatch.suggestedTitle else { return nil }
         let applied = appliedTitle(suggestedTitle: suggested, date: date)
-        if let current = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let current = NoteTitleText.oneLine(customTitle),
            current == applied || current == suggested {
             return nil
         }

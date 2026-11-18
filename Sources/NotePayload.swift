@@ -1,4 +1,5 @@
 import Foundation
+import QuillNoteCore
 
 /// Builds the JSON the MCP `list_notes` and `get_note` tools return.
 /// Pure functions: the note's display title, summary and audio state are
@@ -248,19 +249,13 @@ enum NotePayload {
             "id": item.id.uuidString,
             "title": title,
             "recorded_at": formatter.string(from: noteDate(item)),
-            "calendar_event": orNull(nonEmpty(item.calendarMatch?.title)),
+            "calendar_event": orNull(NoteTitleText.oneLine(item.calendarMatch?.title)),
             "has_summary": hasSummary,
             "preview": preview,
         ]
     }
 
     // MARK: - Shared pieces
-
-    private static func nonEmpty(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else { return nil }
-        return trimmed
-    }
 
     private static func orNull(_ value: String?) -> Any { value ?? NSNull() }
 
@@ -291,7 +286,8 @@ enum NotePayload {
             ]
         }
         return [
-            "title": match.title,
+            // The event title as a note title reads it: one line (#361).
+            "title": NoteTitleText.oneLine(match.title) ?? "",
             "start": formatter.string(from: match.start),
             "end": formatter.string(from: match.end),
             "attendees": attendees,

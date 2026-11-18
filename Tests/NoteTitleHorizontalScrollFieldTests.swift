@@ -9,6 +9,7 @@ struct NoteTitleHorizontalScrollFieldTests {
         try testTitleFieldDelegatesHorizontalWheelAndMapsVerticalWheel()
         try testTitleFieldUsesSafeResizeAndSharedScrollBounds()
         try testTitleFieldClampsClipOriginAfterDocumentWidthChanges()
+        try testOpeningANoteShowsItsTitleWithoutSavingIt()
         print("NoteTitleHorizontalScrollFieldTests passed")
     }
 
@@ -28,6 +29,30 @@ struct NoteTitleHorizontalScrollFieldTests {
         precondition(header.contains(".onChange(of: titleDraft)"))
         precondition(header.contains("appState.updateHistoryItemTitle(id: item.id, title: newValue)"))
         precondition(header.contains(".overrideCursor(.iBeam)"))
+    }
+
+    // #361: opening a note whose saved title has line breaks shows it on one
+    // line without saving it (the title field clock stays). The field is set
+    // only through `applyOutsideTitle`, which marks the text as not typed, so
+    // `.onChange(of: titleDraft)` skips the save for it.
+    private static func testOpeningANoteShowsItsTitleWithoutSavingIt() throws {
+        let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let apply = sourceBlock(in: source, from: "private func applyOutsideTitle(_ title: String)", to: "\n    }")
+        precondition(apply.contains("appliedOutsideTitle = title"))
+        precondition(apply.contains("titleDraft = title"))
+        let header = sourceBlock(in: source, from: "private var noteHeader: some View", to: "\n            if let suggestedCalendarTitle")
+        precondition(header.contains("applyOutsideTitle(NoteTitleResolver.titleDraft(for: item.customTitle))"))
+        precondition(header.contains("if newValue == appliedOutsideTitle {\n                    appliedOutsideTitle = nil\n                    return\n                }"))
+        // The skip returns before any save is scheduled.
+        let onChange = sourceBlock(in: header, from: ".onChange(of: titleDraft)", to: ".onAppear")
+        let skip = try requireRange(onChange.range(of: "if newValue == appliedOutsideTitle {"))
+        let timer = try requireRange(onChange.range(of: "Timer("))
+        let save = try requireRange(onChange.range(of: "appState.updateHistoryItemTitle"))
+        precondition(skip.upperBound < timer.lowerBound && skip.upperBound < save.lowerBound,
+                     "opening a note must return before a save is scheduled")
+        let assignments = (source.components(separatedBy: "titleDraft = ").count - 1)
+            - (source.components(separatedBy: "var titleDraft = ").count - 1)
+        precondition(assignments == 1, "the title field's text is set only in applyOutsideTitle")
     }
 
     private static func testHorizontallyScrollableTitleFieldDefinesSingleLineAppKitWrapper() throws {
@@ -118,4 +143,11 @@ struct NoteTitleHorizontalScrollFieldTests {
         }
         return String(source[start.lowerBound..<end.lowerBound])
     }
+}
+
+private struct MissingSourceRange: Error {}
+
+private func requireRange(_ range: Range<String.Index>?) throws -> Range<String.Index> {
+    guard let range else { throw MissingSourceRange() }
+    return range
 }

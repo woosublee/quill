@@ -28,7 +28,7 @@ enum NoteTitleResolver {
     ) -> (suggested: String, applied: String)? {
         CalendarTitleSuggestion.suggestion(
             calendarMatch: item.calendarMatch,
-            customTitle: normalizedCustomTitle(item.customTitle ?? ""),
+            customTitle: item.customTitle,
             date: item.timestamp,
             isDismissed: isDismissed
         )
@@ -44,14 +44,21 @@ enum NoteTitleResolver {
         hasUnsavedEdit: Bool
     ) -> String? {
         // A draft with a trailing space already matches its own saved title.
-        guard !hasUnsavedEdit, normalizedCustomTitle(draft) != newTitle else { return nil }
-        return newTitle ?? ""
+        let shownTitle = NoteTitleText.oneLine(newTitle)
+        guard !hasUnsavedEdit, normalizedCustomTitle(draft) != shownTitle else { return nil }
+        return shownTitle ?? ""
     }
 
-    /// A typed title as it is saved: trimmed, and nil when empty.
+    /// What the title field shows for a saved title: one line (#361), so a
+    /// title saved with line breaks reads as the list and the iPhone read it.
+    static func titleDraft(for customTitle: String?) -> String {
+        NoteTitleText.oneLine(customTitle) ?? ""
+    }
+
+    /// A typed title as it is saved: one line (`NoteTitleText`, shared with
+    /// the iPhone, #361), trimmed, and nil when empty.
     static func normalizedCustomTitle(_ title: String) -> String? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        NoteTitleText.oneLine(title)
     }
 
     /// Where a note's display title comes from.
@@ -74,9 +81,8 @@ enum NoteTitleResolver {
     private static func explicitTitle(
         for item: PipelineHistoryItem
     ) -> (source: DisplayTitleSource, title: String)? {
-        if let customTitle = item.customTitle {
-            let trimmed = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return (.custom, trimmed) }
+        if let customTitle = NoteTitleText.oneLine(item.customTitle) {
+            return (.custom, customTitle)
         }
         if let applied = item.calendarMatch?.appliedTitle {
             return (.calendar, applied)

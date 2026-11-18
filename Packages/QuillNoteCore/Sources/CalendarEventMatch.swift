@@ -82,9 +82,10 @@ public struct CalendarEventMatch: Codable, Equatable, Sendable {
 
     public var resolvedProvider: CalendarProvider { provider ?? .google }
 
+    /// The event's title as a note title: one line (`NoteTitleText`, #361),
+    /// or nil when blank. The stored `title` stays as the calendar gave it.
     public var suggestedTitle: String? {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        NoteTitleText.oneLine(title)
     }
 
     public var appliedTitle: String? {

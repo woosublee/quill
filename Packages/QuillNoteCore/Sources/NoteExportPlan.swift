@@ -109,7 +109,8 @@ public struct NoteExportPlan: Equatable, Sendable {
     }
 
     /// The name Save Files suggests: the note's own title, then its
-    /// calendar event's title, then its recording time.
+    /// calendar event's title, then its recording time. A title reads as
+    /// one line (`NoteTitleText`), so "A\nB" is named "A B", not "A-B".
     public static func suggestedBaseName(
         customTitle: String?,
         calendarTitle: String?,
@@ -117,9 +118,8 @@ public struct NoteExportPlan: Equatable, Sendable {
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> String {
-        for candidate in [customTitle, calendarTitle] {
-            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty { return trimmed }
+        if let title = NoteTitleText.oneLine(customTitle) ?? NoteTitleText.oneLine(calendarTitle) {
+            return title
         }
         let formatted = Date.FormatStyle(
             date: .long,
