@@ -227,8 +227,8 @@ public struct NoteBanner: View {
     /// title when it fits, below it when not. A group's first banner shows
     /// only its title while folded, like the Mac, and its detail below when
     /// unfolded. Buttons have a 44 pt touch area, so a banner with one is
-    /// 44 pt tall unless its text doesn't fit; then the text keeps 3 pt
-    /// above and below and the banner grows. At accessibility text sizes
+    /// 44 pt tall while its text and 3 pt above and below fit in that;
+    /// taller text grows the banner. At accessibility text sizes
     /// the action drops to its own line so it doesn't squeeze the title.
     private var touchBody: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -261,9 +261,9 @@ public struct NoteBanner: View {
                 }
                 // Without buttons, 7 pt above and below like the Mac (off the
                 // spacing scale, #736). With one, its 44 pt touch area sets the
-                // height, and the text keeps 3 pt above and below so a title
-                // and detail that don't fit in 44 pt make the banner taller
-                // instead of reaching its edges.
+                // height, and the text keeps 3 pt above and below, so text
+                // taller than 38 pt makes the banner taller instead of
+                // reaching its edges.
                 .padding(.vertical, hasRowButtons ? QuillSpacing.space3 : 7)
                 .layoutPriority(1)
                 if let details {
