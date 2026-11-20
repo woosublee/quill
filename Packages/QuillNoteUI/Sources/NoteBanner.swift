@@ -17,7 +17,7 @@ public struct NoteBannerStrings: Sendable {
     /// sit beside the title (the iPhone only).
     public var details: String
 
-    public init(showLess: String, showAllNotices: String, dismiss: String, details: String = "Details") {
+    public init(showLess: String, showAllNotices: String, dismiss: String, details: String) {
         self.showLess = showLess
         self.showAllNotices = showAllNotices
         self.dismiss = dismiss
@@ -308,12 +308,14 @@ public struct NoteBanner: View {
     }
 
     /// The info button's popover: the banner's own details, with the
-    /// detail first when it doesn't sit beside the title.
+    /// detail first when it doesn't sit beside the title (once: a banner
+    /// whose details already start with it keeps them as they are).
     private func detailsButtonContent(detailBeside: Bool) -> NoteBannerDetails? {
         guard showsDetail, !detailBeside else { return details }
+        let lines = details?.lines ?? []
         return NoteBannerDetails(
             label: details?.label ?? strings.details,
-            lines: [detail] + (details?.lines ?? []),
+            lines: lines.first == detail ? lines : [detail] + lines,
             rows: details?.rows ?? []
         )
     }

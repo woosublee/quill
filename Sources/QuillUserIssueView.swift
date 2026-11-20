@@ -248,7 +248,10 @@ extension NoteBannerStrings {
         NoteBannerStrings(
             showLess: localizedCatalogString("Show Less"),
             showAllNotices: localizedCatalogString("Show All Notices"),
-            dismiss: localizedCatalogString("Dismiss")
+            dismiss: localizedCatalogString("Dismiss"),
+            // The Mac shows a detail that doesn't fit as a tooltip, so it
+            // never draws this button; the phone's info button names it.
+            details: localizedCatalogString("Issue Details")
         )
     }
 }
