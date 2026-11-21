@@ -2856,7 +2856,9 @@ private struct NoteDetailView: View {
             postProcessing = nil
         } else if isNothingToPostProcess {
             postProcessing = .nothingToCleanUp
-        } else if item.userIssueRecord?.severity == .warning {
+        } else if item.userIssueRecord?.severity == .warning, retranscriptionFailure == nil {
+            // A failed retry with a warning-level code shows as the failed
+            // retranscription, not as a cleanup warning too.
             postProcessing = .warning
         } else {
             postProcessing = nil
@@ -2871,7 +2873,39 @@ private struct NoteDetailView: View {
                 notice: NoteDismissedNotices.nothingToCleanUp
             ),
             isWarningDismissed: isWarningBannerDismissed,
-            isWorkRunning: isWorkRunning
+            isWorkRunning: isWorkRunning,
+            showsRetranscriptionFailure: retranscriptionFailure != nil
+                && !appState.isRetranscriptionFailureDismissed(item)
+        )
+    }
+
+    /// The last retranscription failed and the transcript stayed: the
+    /// note's status holds an issue marked as a transcription retry over a
+    /// transcript that isn't blank (shared rule, quill-universal-private#429).
+    private var retranscriptionFailure: QuillUserIssueRecord? {
+        NoteRetranscriptionFailure.issue(
+            postProcessingStatus: item.postProcessingStatus,
+            transcript: item.displayedTranscript
+        )
+    }
+
+    /// The failure as a warning banner like the post-processing one: titled
+    /// "Retranscription failed", its cause and that the transcript stayed
+    /// beside it, the issue's suggestion and details behind ⓘ, and Open
+    /// Provider Settings when the key, quota, or provider setup is the
+    /// problem. Otherwise there's no button and the toolbar's ↻ retries.
+    private func retranscriptionFailurePresentation(_ failure: QuillUserIssueRecord) -> QuillUserIssuePresentation {
+        let issue = NoteBrowserRecoveryPresentation.presentation(for: failure, actionState: actionState)
+        return QuillUserIssuePresentation(
+            title: localizedCatalogString(NoteRetranscriptionFailure.titleKey),
+            body: [issue.body, localizedCatalogString(NoteRetranscriptionFailure.unchangedKey)]
+                .filter { !$0.isEmpty }
+                .joined(separator: " "),
+            suggestion: issue.suggestion,
+            compactMessage: issue.compactMessage,
+            detailsRows: issue.detailsRows,
+            recoveryAction: NoteRetranscriptionFailure.opensProviderSettings(failure) ? .openProviderSettings : .none,
+            severity: .warning
         )
     }
 
@@ -2928,6 +2962,23 @@ private struct NoteDetailView: View {
                     },
                     onDismiss: {
                         appState.dismissPostProcessingWarning(item)
+                    },
+                    expansion: expansion
+                )
+                .padding(.horizontal, QuillSpacing.space40)
+                .padding(.top, QuillSpacing.space16)
+            }
+        case .retranscriptionFailed:
+            if let failure = retranscriptionFailure {
+                let presentation = retranscriptionFailurePresentation(failure)
+                QuillUserIssueView(
+                    presentation: presentation,
+                    style: .warningBanner,
+                    action: {
+                        performRecoveryAction(presentation.recoveryAction)
+                    },
+                    onDismiss: {
+                        appState.dismissRetranscriptionFailure(item)
                     },
                     expansion: expansion
                 )
