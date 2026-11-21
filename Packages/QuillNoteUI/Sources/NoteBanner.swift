@@ -239,12 +239,20 @@ public struct NoteBanner: View {
     /// or a wide button beside the info, "+N" and close buttons, #870), as
     /// it always does at accessibility text sizes.
     private var touchBody: some View {
+        // In order: everything on one line; the detail behind the info
+        // button; then, when the title still doesn't fit beside the action,
+        // the action on its own line, with the detail beside the title if
+        // that fits. ViewThatFits measures each title at its one-line width,
+        // so a title that would wrap moves on to the next layout.
         ViewThatFits(in: .horizontal) {
             if showsDetail {
                 touchLayout(detailBeside: true, actionInRow: !stacksAction)
             }
             touchLayout(detailBeside: false, actionInRow: !stacksAction)
             if action != nil, !stacksAction {
+                if showsDetail {
+                    touchLayout(detailBeside: true, actionInRow: false)
+                }
                 touchLayout(detailBeside: false, actionInRow: false)
             }
         }
@@ -254,13 +262,9 @@ public struct NoteBanner: View {
         .noteBannerBackground()
     }
 
-    /// One way to lay the banner out. With the action in the row and a
-    /// layout to fall back on, the title must fit on one line, so a title
-    /// that would wrap picks the next layout, with the action below.
     private func touchLayout(detailBeside: Bool, actionInRow: Bool) -> some View {
-        let titleOnOneLine = actionInRow && action != nil && !detailBeside
-        return VStack(alignment: .leading, spacing: 0) {
-            touchRow(detailBeside: detailBeside, actionInRow: actionInRow, titleOnOneLine: titleOnOneLine)
+        VStack(alignment: .leading, spacing: 0) {
+            touchRow(detailBeside: detailBeside, actionInRow: actionInRow)
             if let action, !actionInRow {
                 NoteBannerActionButton(action: action)
             }
@@ -272,10 +276,9 @@ public struct NoteBanner: View {
         !detail.isEmpty && expansion?.isExpanded != false
     }
 
-    private func touchRow(detailBeside: Bool, actionInRow: Bool, titleOnOneLine: Bool) -> some View {
+    private func touchRow(detailBeside: Bool, actionInRow: Bool) -> some View {
         let rowDetails = detailsButtonContent(detailBeside: detailBeside)
         let detailBehindButton = showsDetail && !detailBeside
-        let detailOnlyInButton = detailBehindButton && rowDetails?.lines == [detail] && rowDetails?.rows.isEmpty == true
         return HStack(spacing: QuillSpacing.space8) {
             HStack(alignment: .firstTextBaseline, spacing: QuillSpacing.space8) {
                 icon
@@ -285,8 +288,6 @@ public struct NoteBanner: View {
                             titleText.lineLimit(1).fixedSize()
                             detailText.lineLimit(1).fixedSize()
                         }
-                    } else if titleOnOneLine {
-                        titleText.lineLimit(1).fixedSize()
                     } else {
                         titleText
                     }
@@ -294,12 +295,11 @@ public struct NoteBanner: View {
                 .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // Title and detail read as one element; the buttons stay
-                // separate controls. VoiceOver reads the detail in one place
-                // (#869): here when it is all the info button holds (that
-                // button is then hidden from VoiceOver), else in the popover
-                // with the banner's other details.
+                // separate controls. A detail behind the info button is read
+                // there, with the rest of the popover, and not here too
+                // (#869).
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(verbatim: detailBehindButton && !detailOnlyInButton ? title : spokenText))
+                .accessibilityLabel(Text(verbatim: detailBehindButton ? title : spokenText))
             }
             // Without buttons, 7 pt above and below like the Mac (off the
             // spacing scale, #736). With one, its 44 pt touch area sets the
@@ -311,7 +311,6 @@ public struct NoteBanner: View {
             if let rowDetails {
                 // Several banners can each have one, so the spoken name says which, like the close button.
                 NoteBannerDetailsButton(details: rowDetails, spokenLabel: "\(rowDetails.label), \(title)")
-                    .accessibilityHidden(detailOnlyInButton)
             }
             if let action, actionInRow {
                 NoteBannerActionButton(action: action)
