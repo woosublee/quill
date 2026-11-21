@@ -29,7 +29,12 @@ build_arch() {
   local build_arch="$1"
   local build_dir="$2"
   # The deployment target keeps the helper launchable on the app's minimum
-  # macOS instead of inheriting the build machine's SDK version.
+  # macOS instead of inheriting the build machine's SDK version. Quill never
+  # serves llama-server's web UI, so the build neither builds nor downloads
+  # its assets (#867): the server embeds an empty UI table, and the build
+  # needs no network beyond the llama.cpp checkout. UI files left by an
+  # earlier build that downloaded them are removed so they aren't embedded.
+  rm -rf "$build_dir/tools/ui/dist" "$build_dir/tools/ui/.ui-stamp" "$build_dir/tools/ui/.ui-embed.sha256"
   cmake -S "$checkout_dir" -B "$build_dir" \
     -DCMAKE_OSX_ARCHITECTURES="$build_arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
@@ -39,6 +44,8 @@ build_arch() {
     -DLLAMA_BUILD_EXAMPLES=ON \
     -DLLAMA_BUILD_SERVER=ON \
     -DLLAMA_OPENSSL=OFF \
+    -DLLAMA_BUILD_UI=OFF \
+    -DLLAMA_USE_PREBUILT_UI=OFF \
     -DGGML_NATIVE=OFF \
     -DGGML_METAL=ON \
     -DGGML_METAL_EMBED_LIBRARY=ON
