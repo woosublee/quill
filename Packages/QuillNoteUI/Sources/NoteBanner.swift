@@ -234,20 +234,26 @@ public struct NoteBanner: View {
     /// lines. A group's first banner shows only its title while folded,
     /// like the Mac. Buttons have a 44 pt touch area, so a banner with one
     /// is 44 pt tall while its text and 3 pt above and below fit in that.
-    /// At accessibility text sizes the action drops to its own line so it
-    /// doesn't squeeze the title.
+    /// When the title doesn't fit on one line beside the action, the action
+    /// drops to its own line instead of squeezing the title (a narrow phone,
+    /// or a wide button beside the info, "+N" and close buttons, #870), as
+    /// it always does at accessibility text sizes.
     private var touchBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // In order: everything on one line; the detail behind the info
+        // button; then, when the title still doesn't fit beside the action,
+        // the action on its own line, with the detail beside the title if
+        // that fits. ViewThatFits measures each title at its one-line width,
+        // so a title that would wrap moves on to the next layout.
+        ViewThatFits(in: .horizontal) {
             if showsDetail {
-                ViewThatFits(in: .horizontal) {
-                    touchRow(detailBeside: true)
-                    touchRow(detailBeside: false)
-                }
-            } else {
-                touchRow(detailBeside: false)
+                touchLayout(detailBeside: true, actionInRow: !stacksAction)
             }
-            if let action, stacksAction {
-                NoteBannerActionButton(action: action)
+            touchLayout(detailBeside: false, actionInRow: !stacksAction)
+            if action != nil, !stacksAction {
+                if showsDetail {
+                    touchLayout(detailBeside: true, actionInRow: false)
+                }
+                touchLayout(detailBeside: false, actionInRow: false)
             }
         }
         .padding(.leading, QuillSpacing.space10)
@@ -256,13 +262,23 @@ public struct NoteBanner: View {
         .noteBannerBackground()
     }
 
+    private func touchLayout(detailBeside: Bool, actionInRow: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            touchRow(detailBeside: detailBeside, actionInRow: actionInRow)
+            if let action, !actionInRow {
+                NoteBannerActionButton(action: action)
+            }
+        }
+    }
+
     /// A folded group's first banner shows only its title, like the Mac.
     private var showsDetail: Bool {
         !detail.isEmpty && expansion?.isExpanded != false
     }
 
-    private func touchRow(detailBeside: Bool) -> some View {
+    private func touchRow(detailBeside: Bool, actionInRow: Bool) -> some View {
         let rowDetails = detailsButtonContent(detailBeside: detailBeside)
+        let detailBehindButton = showsDetail && !detailBeside
         return HStack(spacing: QuillSpacing.space8) {
             HStack(alignment: .firstTextBaseline, spacing: QuillSpacing.space8) {
                 icon
@@ -278,24 +294,25 @@ public struct NoteBanner: View {
                 }
                 .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Title and detail read as one element, the detail too when
-                // it sits behind the info button; the buttons stay separate
-                // controls.
+                // Title and detail read as one element; the buttons stay
+                // separate controls. A detail behind the info button is read
+                // there, with the rest of the popover, and not here too
+                // (#869).
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(verbatim: spokenText))
+                .accessibilityLabel(Text(verbatim: detailBehindButton ? title : spokenText))
             }
             // Without buttons, 7 pt above and below like the Mac (off the
             // spacing scale, #736). With one, its 44 pt touch area sets the
             // height, and the text keeps 3 pt above and below, so text
             // taller than 38 pt makes the banner taller instead of
             // reaching its edges.
-            .padding(.vertical, hasRowButtons(details: rowDetails) ? QuillSpacing.space3 : 7)
+            .padding(.vertical, hasRowButtons(details: rowDetails, actionInRow: actionInRow) ? QuillSpacing.space3 : 7)
             .layoutPriority(1)
             if let rowDetails {
                 // Several banners can each have one, so the spoken name says which, like the close button.
                 NoteBannerDetailsButton(details: rowDetails, spokenLabel: "\(rowDetails.label), \(title)")
             }
-            if let action, !stacksAction {
+            if let action, actionInRow {
                 NoteBannerActionButton(action: action)
             }
             if let expansion {
@@ -322,8 +339,8 @@ public struct NoteBanner: View {
 
     private var stacksAction: Bool { dynamicTypeSize.isAccessibilitySize }
 
-    private func hasRowButtons(details: NoteBannerDetails?) -> Bool {
-        onDismiss != nil || expansion != nil || details != nil || (action != nil && !stacksAction)
+    private func hasRowButtons(details: NoteBannerDetails?, actionInRow: Bool) -> Bool {
+        onDismiss != nil || expansion != nil || details != nil || (action != nil && actionInRow)
     }
 
     /// No line limit at accessibility text sizes, so nothing is cut off
