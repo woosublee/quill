@@ -1192,7 +1192,10 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             rawTranscript: currentItem.rawTranscript,
             postProcessedTranscript: currentItem.postProcessedTranscript,
             postProcessingPrompt: currentItem.postProcessingPrompt,
-            postProcessingStatus: issue.persistedStatus,
+            // Marked as a transcription retry, so both apps can tell this
+            // failure (the transcript stays) from another error the note's
+            // status may hold (quill-universal-private#429).
+            postProcessingStatus: issue.record.with(operation: .transcriptionRetry).persistedStatus,
             aiProcessingOutcome: currentItem.aiProcessingOutcome,
             debugStatus: "Retry failed",
             customVocabulary: request.historyMetadata.customVocabulary,

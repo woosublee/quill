@@ -132,27 +132,30 @@ public struct NoteTranscriptNoticeGroup: Equatable, Sendable {
 }
 
 /// A failed retranscription, alike on the Mac and the iPhone (quill-universal-private#429).
-/// The Mac stores the failure as an error-level issue in the note's
-/// `postProcessingStatus` and keeps the transcript; that status syncs. A note
-/// whose status holds an error and whose transcript isn't blank is therefore
-/// a retranscription that failed (a failed first transcription has no
-/// transcript). The banner reads "Retranscription failed", its detail is the
-/// issue's cause and that the transcript is unchanged, and it opens provider
-/// settings when the shared rule sends the issue there. Each app translates
-/// the keys and runs the button.
+/// The Mac stores a failed retry as an issue in the note's
+/// `postProcessingStatus`, marked with the `transcriptionRetry` operation,
+/// and keeps the transcript; that status syncs. A note whose status holds
+/// such an issue over a transcript that isn't blank is a retranscription
+/// that failed (a failed first transcription has no transcript, and other
+/// errors a status can hold, such as a failed context capture, aren't
+/// marked). The banner reads "Retranscription failed", its detail is the
+/// issue's cause and that the transcript is unchanged, and it opens
+/// provider settings when the shared rule sends the issue there. Each app
+/// translates the keys and runs the button.
 public enum NoteRetranscriptionFailure {
     public static let titleKey = "Retranscription failed"
     public static let unchangedKey = "The current transcript is unchanged."
 
-    /// The failure a stored status describes, or nil when it isn't one: no
-    /// issue, a warning (post-processing), or a blank transcript.
+    /// The failure a stored status describes over `transcript`, or nil when
+    /// it isn't one: no issue, an issue from something else, or a blank
+    /// transcript.
     public static func issue(
         postProcessingStatus: String,
-        hasTranscriptText: Bool
+        transcript: String
     ) -> QuillUserIssueRecord? {
-        guard hasTranscriptText,
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let record = NoteMachineStatus.userIssueRecord(postProcessingStatus: postProcessingStatus),
-              record.severity == .error else { return nil }
+              record.context.operation == .transcriptionRetry else { return nil }
         return record
     }
 
