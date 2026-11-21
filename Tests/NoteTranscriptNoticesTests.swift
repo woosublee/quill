@@ -85,22 +85,31 @@ struct NoteTranscriptNoticesTests {
         precondition(NoteTranscriptNotice.retranscriptionFailed.titleKey == "Retranscription failed")
         precondition(NoteTranscriptNotice.retranscriptionFailed.detailKey == "The current transcript is unchanged.")
 
-        // Which stored statuses are a failed retranscription: an error-level
-        // issue over a transcript that isn't blank. A warning is the
-        // post-processing banner's, and a blank transcript is a failed first
-        // transcription.
-        let auth = QuillUserIssueRecord(code: .authenticationFailed).persistedStatus
-        let network = QuillUserIssueRecord(code: .networkUnavailable).persistedStatus
+        // Which stored statuses are a failed retranscription: an issue marked
+        // as a transcription retry over a transcript that isn't blank. An
+        // unmarked error (a failed context capture on a good note) or a
+        // warning (post-processing) isn't one, and a blank transcript is a
+        // failed first transcription.
+        let auth = QuillUserIssueRecord(code: .authenticationFailed).with(operation: .transcriptionRetry).persistedStatus
+        let network = QuillUserIssueRecord(code: .networkUnavailable).with(operation: .transcriptionRetry).persistedStatus
+        let unmarked = QuillUserIssueRecord(code: .authenticationFailed).persistedStatus
         let warning = QuillUserIssueRecord(code: .postProcessingFailed).persistedStatus
-        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: auth, hasTranscriptText: true)?.code == .authenticationFailed)
-        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: auth, hasTranscriptText: false) == nil)
-        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: warning, hasTranscriptText: true) == nil)
-        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: "Post-processing disabled", hasTranscriptText: true) == nil)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: auth, transcript: "Hello")?.code == .authenticationFailed)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: auth, transcript: " \n") == nil)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: unmarked, transcript: "Hello") == nil)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: warning, transcript: "Hello") == nil)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: "Post-processing disabled", transcript: "Hello") == nil)
         precondition(NoteRetranscriptionFailure.opensProviderSettings(QuillUserIssueRecord(code: .authenticationFailed)))
         precondition(NoteRetranscriptionFailure.opensProviderSettings(QuillUserIssueRecord(code: .quotaExceeded)))
         precondition(!NoteRetranscriptionFailure.opensProviderSettings(
-            NoteRetranscriptionFailure.issue(postProcessingStatus: network, hasTranscriptText: true)!
+            NoteRetranscriptionFailure.issue(postProcessingStatus: network, transcript: "Hello")!
         ))
+        // The mark survives the stored status and doesn't change the code,
+        // severity, or recovery.
+        let marked = QuillUserIssueRecord(code: .authenticationFailed, context: QuillUserIssueContext(modelID: "m"))
+            .with(operation: .transcriptionRetry)
+        precondition(marked.code == .authenticationFailed && marked.severity == .error && marked.context.modelID == "m")
+        precondition(marked.recoveryAction == .openProviderSettings)
 
         // Its dismissal syncs under its own key, for the status: a new
         // failure (another status) shows again.

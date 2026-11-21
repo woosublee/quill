@@ -2666,14 +2666,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Dismisses the failed-retranscription banner on every device until the
     /// note's status changes or it is retried. If the store can't save it,
-    /// it stays dismissed on this Mac until the app quits.
+    /// the banner stays, so every device keeps showing the same thing.
     @MainActor
     func dismissRetranscriptionFailure(_ item: PipelineHistoryItem) {
-        let notice = Self.syncedRetranscriptionFailure(status: item.postProcessingStatus)
         dismissConditionalNotice(
-            notice,
+            Self.syncedRetranscriptionFailure(status: item.postProcessingStatus),
             noteID: item.id,
-            fallback: { self.rememberNoticeDismissal(notice, noteID: item.id) }
+            fallback: {}
         )
     }
 
