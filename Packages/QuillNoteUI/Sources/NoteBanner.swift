@@ -227,33 +227,30 @@ public struct NoteBanner: View {
     // MARK: iPhone and iPad
 
     #if os(iOS)
-    /// The same rule as the Mac and the design system's StatusBanner: the
-    /// detail shows beside the title when both fit on one line; otherwise
-    /// it moves behind the info button, first in its popover, since the
-    /// phone has no tooltip. The title is never hidden and takes up to two
-    /// lines. A group's first banner shows only its title while folded,
-    /// like the Mac. Buttons have a 44 pt touch area, so a banner with one
-    /// is 44 pt tall while its text and 3 pt above and below fit in that.
-    /// When the title doesn't fit on one line beside the action, the action
-    /// drops to its own line instead of squeezing the title (a narrow phone,
-    /// or a wide button beside the info, "+N" and close buttons, #870), as
-    /// it always does at accessibility text sizes.
+    /// The same rule as the Mac and the design system's StatusBanner: one
+    /// line. The detail shows beside the title when both fit; otherwise it
+    /// moves behind the info button, first in its popover, since the phone
+    /// has no tooltip. A title too long for the line ends in "…" like the
+    /// Mac's, and the popover then starts with the whole title (#872). A
+    /// group's first banner shows only its title while folded, like the
+    /// Mac. Buttons have a 44 pt touch area, so a banner with one is 44 pt
+    /// tall. At accessibility text sizes nothing is cut off: the title
+    /// wraps and the action drops to its own line so it doesn't squeeze
+    /// the title.
     private var touchBody: some View {
-        // In order: everything on one line; the detail behind the info
-        // button; then, when the title still doesn't fit beside the action,
-        // the action on its own line, with the detail beside the title if
-        // that fits. ViewThatFits measures each title at its one-line width,
-        // so a title that would wrap moves on to the next layout.
-        ViewThatFits(in: .horizontal) {
-            if showsDetail {
-                touchLayout(detailBeside: true, actionInRow: !stacksAction)
-            }
-            touchLayout(detailBeside: false, actionInRow: !stacksAction)
-            if action != nil, !stacksAction {
+        VStack(alignment: .leading, spacing: 0) {
+            // ViewThatFits measures each title at its one-line width, so a
+            // title that doesn't fit moves on to the next layout; the last
+            // one is used when none fits.
+            ViewThatFits(in: .horizontal) {
                 if showsDetail {
-                    touchLayout(detailBeside: true, actionInRow: false)
+                    touchRow(.detailBeside)
                 }
-                touchLayout(detailBeside: false, actionInRow: false)
+                touchRow(.titleOnly)
+                touchRow(.titleShortened)
+            }
+            if let action, stacksAction {
+                NoteBannerActionButton(action: action)
             }
         }
         .padding(.leading, QuillSpacing.space10)
@@ -262,13 +259,14 @@ public struct NoteBanner: View {
         .noteBannerBackground()
     }
 
-    private func touchLayout(detailBeside: Bool, actionInRow: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            touchRow(detailBeside: detailBeside, actionInRow: actionInRow)
-            if let action, !actionInRow {
-                NoteBannerActionButton(action: action)
-            }
-        }
+    private enum TouchLayout {
+        /// Title and detail side by side.
+        case detailBeside
+        /// The whole title; the detail, if any, behind the info button.
+        case titleOnly
+        /// The title cut short with "…" (or wrapped, at accessibility
+        /// sizes); the info button holds the whole title and the detail.
+        case titleShortened
     }
 
     /// A folded group's first banner shows only its title, like the Mac.
@@ -276,43 +274,46 @@ public struct NoteBanner: View {
         !detail.isEmpty && expansion?.isExpanded != false
     }
 
-    private func touchRow(detailBeside: Bool, actionInRow: Bool) -> some View {
-        let rowDetails = detailsButtonContent(detailBeside: detailBeside)
-        let detailBehindButton = showsDetail && !detailBeside
+    private func touchRow(_ layout: TouchLayout) -> some View {
+        let rowDetails = detailsButtonContent(layout)
         return HStack(spacing: QuillSpacing.space8) {
             HStack(alignment: .firstTextBaseline, spacing: QuillSpacing.space8) {
                 icon
                 Group {
-                    if detailBeside {
+                    switch layout {
+                    case .detailBeside:
                         HStack(spacing: QuillSpacing.space8) {
                             titleText.lineLimit(1).fixedSize()
                             detailText.lineLimit(1).fixedSize()
                         }
-                    } else {
+                    case .titleOnly:
+                        titleText.lineLimit(1).fixedSize()
+                    case .titleShortened:
                         titleText
+                            .lineLimit(stacksAction ? nil : 1)
+                            .truncationMode(.tail)
                     }
                 }
                 .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Title and detail read as one element; the buttons stay
-                // separate controls. A detail behind the info button is read
+                // Title and detail read as one element when both are shown;
+                // the buttons stay separate controls. VoiceOver reads the
+                // whole title here; a detail behind the info button is read
                 // there, with the rest of the popover, and not here too
                 // (#869).
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(verbatim: detailBehindButton ? title : spokenText))
+                .accessibilityLabel(Text(verbatim: layout == .detailBeside ? spokenText : title))
             }
             // Without buttons, 7 pt above and below like the Mac (off the
             // spacing scale, #736). With one, its 44 pt touch area sets the
-            // height, and the text keeps 3 pt above and below, so text
-            // taller than 38 pt makes the banner taller instead of
-            // reaching its edges.
-            .padding(.vertical, hasRowButtons(details: rowDetails, actionInRow: actionInRow) ? QuillSpacing.space3 : 7)
+            // height, and the text keeps 3 pt above and below.
+            .padding(.vertical, hasRowButtons(details: rowDetails) ? QuillSpacing.space3 : 7)
             .layoutPriority(1)
             if let rowDetails {
                 // Several banners can each have one, so the spoken name says which, like the close button.
                 NoteBannerDetailsButton(details: rowDetails, spokenLabel: "\(rowDetails.label), \(title)")
             }
-            if let action, actionInRow {
+            if let action, !stacksAction {
                 NoteBannerActionButton(action: action)
             }
             if let expansion {
@@ -324,34 +325,41 @@ public struct NoteBanner: View {
         }
     }
 
-    /// The info button's popover: the banner's own details, with the
-    /// detail first when it doesn't sit beside the title (once: a banner
-    /// whose details already start with it keeps them as they are).
-    private func detailsButtonContent(detailBeside: Bool) -> NoteBannerDetails? {
-        guard showsDetail, !detailBeside else { return details }
-        let lines = details?.lines ?? []
+    /// The info button's popover: the banner's own details, after what
+    /// the row can't show. The detail comes first when it doesn't sit
+    /// beside the title, and the whole title before it when the title is
+    /// cut short. Each is added once: details that already start with it
+    /// keep it where it is.
+    private func detailsButtonContent(_ layout: TouchLayout) -> NoteBannerDetails? {
+        var leading: [String] = []
+        if layout == .titleShortened, !stacksAction {
+            leading.append(title)
+        }
+        if showsDetail, layout != .detailBeside {
+            leading.append(detail)
+        }
+        guard !leading.isEmpty else { return details }
+        var lines = details?.lines ?? []
+        for line in leading.reversed() where lines.first != line {
+            lines.insert(line, at: 0)
+        }
         return NoteBannerDetails(
             label: details?.label ?? strings.details,
-            lines: lines.first == detail ? lines : [detail] + lines,
+            lines: lines,
             rows: details?.rows ?? []
         )
     }
 
     private var stacksAction: Bool { dynamicTypeSize.isAccessibilitySize }
 
-    private func hasRowButtons(details: NoteBannerDetails?, actionInRow: Bool) -> Bool {
-        onDismiss != nil || expansion != nil || details != nil || (action != nil && actionInRow)
+    private func hasRowButtons(details: NoteBannerDetails?) -> Bool {
+        onDismiss != nil || expansion != nil || details != nil || (action != nil && !stacksAction)
     }
-
-    /// No line limit at accessibility text sizes, so nothing is cut off
-    /// (the phone has no tooltip to fall back on).
-    private var lineLimit: Int? { dynamicTypeSize.isAccessibilitySize ? nil : 2 }
 
     private var titleText: some View {
         Text(title)
             .quillTextStyle(.bannerTitle)
             .foregroundStyle(.primary)
-            .lineLimit(lineLimit)
             .fixedSize(horizontal: false, vertical: true)
     }
     #endif
