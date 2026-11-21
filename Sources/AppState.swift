@@ -2647,6 +2647,34 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // A retry brings a dismissed warning back on every device, as the
         // generation does here (#745).
         endNoticeDismissals(withPrefix: NoteNoticeDismissals.postProcessingWarningPrefix, noteID: noteID)
+        endNoticeDismissals(withPrefix: NoteNoticeDismissals.retranscriptionFailure, noteID: noteID)
+    }
+
+    /// The failed-retranscription banner on this note is dismissed on any
+    /// device for the note's current status (quill-universal-private#429).
+    func isRetranscriptionFailureDismissed(_ item: PipelineHistoryItem) -> Bool {
+        noticeDismissalsByNoteID[item.id]?.isDismissed(
+            Self.syncedRetranscriptionFailure(status: item.postProcessingStatus)
+        ) == true
+    }
+
+    /// The failed retranscription as every device dismisses it, for the
+    /// status as it syncs (without the provider host), like the warning.
+    static func syncedRetranscriptionFailure(status: String) -> NoteNoticeDismissals.Notice {
+        .retranscriptionFailure(status: QuillUserIssueRecord.persistedStatusWithoutProviderHost(status))
+    }
+
+    /// Dismisses the failed-retranscription banner on every device until the
+    /// note's status changes or it is retried. If the store can't save it,
+    /// it stays dismissed on this Mac until the app quits.
+    @MainActor
+    func dismissRetranscriptionFailure(_ item: PipelineHistoryItem) {
+        let notice = Self.syncedRetranscriptionFailure(status: item.postProcessingStatus)
+        dismissConditionalNotice(
+            notice,
+            noteID: item.id,
+            fallback: { self.rememberNoticeDismissal(notice, noteID: item.id) }
+        )
     }
 
     /// The post-processing warning on this note is dismissed: on any device
