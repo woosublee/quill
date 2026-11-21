@@ -2871,7 +2871,19 @@ private struct NoteDetailView: View {
                 notice: NoteDismissedNotices.nothingToCleanUp
             ),
             isWarningDismissed: isWarningBannerDismissed,
-            isWorkRunning: isWorkRunning
+            isWorkRunning: isWorkRunning,
+            showsRetranscriptionFailure: retranscriptionFailure != nil
+                && !appState.isRetranscriptionFailureDismissed(item)
+        )
+    }
+
+    /// The last retranscription failed and the transcript stayed: the
+    /// note's status holds an error over a transcript that isn't blank
+    /// (shared rule, quill-universal-private#429).
+    private var retranscriptionFailure: QuillUserIssueRecord? {
+        NoteRetranscriptionFailure.issue(
+            postProcessingStatus: item.postProcessingStatus,
+            hasTranscriptText: !isDisplayedTranscriptBlank
         )
     }
 
@@ -2930,6 +2942,33 @@ private struct NoteDetailView: View {
                         appState.dismissPostProcessingWarning(item)
                     },
                     expansion: expansion
+                )
+                .padding(.horizontal, QuillSpacing.space40)
+                .padding(.top, QuillSpacing.space16)
+            }
+        case .retranscriptionFailed:
+            if let failure = retranscriptionFailure {
+                // A warning banner like the post-processing one: the cause
+                // and that the transcript stayed, and Open Provider Settings
+                // when the key, quota, or provider setup is the problem.
+                // Otherwise the toolbar's ↻ retries.
+                QuillStatusBanner(
+                    systemImage: "exclamationmark.triangle.fill",
+                    tint: QuillStatusBanner.warningTint,
+                    title: localizedCatalogString(NoteRetranscriptionFailure.titleKey),
+                    detail: [
+                        failure.presentation().body,
+                        localizedCatalogString(NoteRetranscriptionFailure.unchangedKey),
+                    ].filter { !$0.isEmpty }.joined(separator: " "),
+                    action: NoteRetranscriptionFailure.opensProviderSettings(failure)
+                        ? NoteBannerAction(title: localizedCatalogString("Open Provider Settings")) {
+                            performRecoveryAction(.openProviderSettings)
+                        }
+                        : nil,
+                    expansion: expansion,
+                    onDismiss: {
+                        appState.dismissRetranscriptionFailure(item)
+                    }
                 )
                 .padding(.horizontal, QuillSpacing.space40)
                 .padding(.top, QuillSpacing.space16)

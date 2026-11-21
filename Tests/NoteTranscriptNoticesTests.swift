@@ -1,5 +1,7 @@
 import Foundation
 import QuillNoteCore
+import QuillNoteSyncCore
+import QuillUserIssueCore
 
 /// The notices above a note's transcript, shared by the Mac and the iPhone
 /// (#697): which show, how they fold behind "+1", and the owner's decisions
@@ -63,7 +65,51 @@ struct NoteTranscriptNoticesTests {
         precondition(NoteTranscriptNotice.nothingToCleanUp.titleKey == "Nothing to clean up; showing the original transcript.")
         precondition(NoteTranscriptNotice.nothingToCleanUp.detailKey == nil)
         precondition(NoteTranscriptNotice.warning.titleKey == nil)
-        precondition(NoteTranscriptNotice.allCopyKeys.count == 3)
+        precondition(NoteTranscriptNotice.allCopyKeys.count == 5)
+
+        // quill-universal-private#429: a failed retranscription shows after the
+        // same-result notice and before the post-processing one, folds like
+        // them, and hides while work runs.
+        func failed(same: Bool = false, pp: NoteTranscriptNotice.PostProcessing? = nil, working: Bool = false) -> NoteTranscriptNoticeGroup {
+            NoteTranscriptNoticeGroup(
+                showsSameAsCurrent: same, postProcessing: pp, isDisplayedTranscriptBlank: false,
+                isNothingToCleanUpDismissed: false, isWarningDismissed: false, isWorkRunning: working,
+                showsRetranscriptionFailure: true
+            )
+        }
+        precondition(failed().notices == [.retranscriptionFailed])
+        precondition(failed(same: true, pp: .warning).notices == [.sameAsCurrent, .retranscriptionFailed, .warning])
+        precondition(failed(working: true).notices.isEmpty)
+        precondition(group().notices == [], "off by default for callers that don't pass it")
+        precondition(NoteTranscriptNotice.retranscriptionFailed.systemImage == nil, "draws as a warning banner")
+        precondition(NoteTranscriptNotice.retranscriptionFailed.titleKey == "Retranscription failed")
+        precondition(NoteTranscriptNotice.retranscriptionFailed.detailKey == "The current transcript is unchanged.")
+
+        // Which stored statuses are a failed retranscription: an error-level
+        // issue over a transcript that isn't blank. A warning is the
+        // post-processing banner's, and a blank transcript is a failed first
+        // transcription.
+        let auth = QuillUserIssueRecord(code: .authenticationFailed).persistedStatus
+        let network = QuillUserIssueRecord(code: .networkUnavailable).persistedStatus
+        let warning = QuillUserIssueRecord(code: .postProcessingFailed).persistedStatus
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: auth, hasTranscriptText: true)?.code == .authenticationFailed)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: auth, hasTranscriptText: false) == nil)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: warning, hasTranscriptText: true) == nil)
+        precondition(NoteRetranscriptionFailure.issue(postProcessingStatus: "Post-processing disabled", hasTranscriptText: true) == nil)
+        precondition(NoteRetranscriptionFailure.opensProviderSettings(QuillUserIssueRecord(code: .authenticationFailed)))
+        precondition(NoteRetranscriptionFailure.opensProviderSettings(QuillUserIssueRecord(code: .quotaExceeded)))
+        precondition(!NoteRetranscriptionFailure.opensProviderSettings(
+            NoteRetranscriptionFailure.issue(postProcessingStatus: network, hasTranscriptText: true)!
+        ))
+
+        // Its dismissal syncs under its own key, for the status: a new
+        // failure (another status) shows again.
+        let dismissal = NoteNoticeDismissals.Notice.retranscriptionFailure(status: auth)
+        precondition(dismissal.key == NoteNoticeDismissals.retranscriptionFailure)
+        precondition(!dismissal.key.hasPrefix(NoteNoticeDismissals.postProcessingWarningPrefix))
+        let dismissed = NoteNoticeDismissals().dismissing(dismissal, at: Date(timeIntervalSince1970: 1))!
+        precondition(dismissed.isDismissed(dismissal))
+        precondition(!dismissed.isDismissed(.retranscriptionFailure(status: network)))
         print("NoteTranscriptNoticesTests passed")
     }
 }

@@ -23330,6 +23330,38 @@
           }
         }
       }
+    },
+    "Retranscription failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retranscription failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사 실패"
+          }
+        }
+      }
+    },
+    "The current transcript is unchanged.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current transcript is unchanged."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 전사문은 그대로예요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
