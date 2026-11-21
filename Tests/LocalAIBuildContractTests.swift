@@ -26,6 +26,7 @@ struct LocalAIBuildContractTests {
         // failed download broke every build. Quill never serves that UI.
         try expect(buildScript.contains("-DLLAMA_USE_PREBUILT_UI=OFF"), "build downloads no web UI assets")
         try expect(buildScript.contains("-DLLAMA_BUILD_UI=OFF"), "build doesn't build the web UI")
+        try expect(buildScript.contains("fetched web UI assets"), "build fails if the UI assets were fetched anyway")
         try expect(buildScript.contains("-DBUILD_SHARED_LIBS=OFF"), "build links llama.cpp statically")
         try expect(buildScript.contains("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"), "helper runs on the app's minimum macOS")
         try expect(buildScript.contains("lipo -create"), "universal helper combines per-architecture builds so each keeps its CPU kernels")

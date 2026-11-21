@@ -29,12 +29,15 @@ build_arch() {
   local build_arch="$1"
   local build_dir="$2"
   # The deployment target keeps the helper launchable on the app's minimum
-  # macOS instead of inheriting the build machine's SDK version. Quill never
-  # serves llama-server's web UI, so the build neither builds nor downloads
-  # its assets (#867): the server embeds an empty UI table, and the build
-  # needs no network beyond the llama.cpp checkout. UI files left by an
-  # earlier build that downloaded them are removed so they aren't embedded.
-  rm -rf "$build_dir/tools/ui/dist" "$build_dir/tools/ui/.ui-stamp" "$build_dir/tools/ui/.ui-embed.sha256"
+  # macOS instead of inheriting the build machine's SDK version.
+  #
+  # Quill never serves llama-server's web UI (it starts the server with
+  # --no-webui), so the build neither builds nor downloads the UI's assets
+  # (#867): a failed download used to break every build. UI assets left in
+  # the source tree or by an earlier build are removed first, since
+  # llama.cpp embeds whatever it finds there.
+  rm -rf "$checkout_dir/tools/ui/dist" "$build_dir/tools/ui/dist" \
+    "$build_dir/tools/ui/dist.tar.gz" "$build_dir/tools/ui/dist.tar.gz.sha256" "$build_dir/tools/ui/ui-gzip"
   cmake -S "$checkout_dir" -B "$build_dir" \
     -DCMAKE_OSX_ARCHITECTURES="$build_arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
@@ -50,6 +53,12 @@ build_arch() {
     -DGGML_METAL=ON \
     -DGGML_METAL_EMBED_LIBRARY=ON
   cmake --build "$build_dir" --target llama-server --config Release -j "$(sysctl -n hw.ncpu)"
+  # A download would leave its assets here. Fail rather than ship them, for
+  # example if a llama.cpp update renames the options above.
+  if [ -e "$build_dir/tools/ui/dist" ] || [ -e "$build_dir/tools/ui/dist.tar.gz" ]; then
+    echo "llama-server build fetched web UI assets; it should build without them (#867)" >&2
+    exit 1
+  fi
 }
 
 mkdir -p "$checkout_dir/build/bin"
