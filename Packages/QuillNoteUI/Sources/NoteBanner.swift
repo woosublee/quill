@@ -84,6 +84,18 @@ public struct NoteBannerDetails {
 
     public var isEmpty: Bool { lines.isEmpty && rows.isEmpty }
 
+    /// These details with `leading` lines first: what the banner row can't
+    /// show (the whole title when it is cut short, then a detail that
+    /// doesn't fit beside it). Each line appears once, in that order, and
+    /// the details' own lines follow without the ones already shown.
+    public func withLeadingLines(_ leading: [String]) -> NoteBannerDetails {
+        var shown: [String] = []
+        for line in leading + lines where !shown.contains(line) {
+            shown.append(line)
+        }
+        return NoteBannerDetails(label: label, lines: shown, rows: rows)
+    }
+
     /// The details a banner shows behind its info button: nil when there is
     /// nothing to show, so no button appears.
     public static func shown(_ details: NoteBannerDetails?) -> NoteBannerDetails? {
@@ -325,11 +337,10 @@ public struct NoteBanner: View {
         }
     }
 
-    /// The info button's popover: the banner's own details, after what
-    /// the row can't show. The detail comes first when it doesn't sit
-    /// beside the title, and the whole title before it when the title is
-    /// cut short. Each is added once: details that already start with it
-    /// keep it where it is.
+    /// The info button's popover: what the row can't show (the whole title
+    /// when it is cut short, then a detail that doesn't sit beside the
+    /// title), then the banner's own details, each line once
+    /// (`NoteBannerDetails.withLeadingLines`).
     private func detailsButtonContent(_ layout: TouchLayout) -> NoteBannerDetails? {
         var leading: [String] = []
         if layout == .titleShortened, !stacksAction {
@@ -339,15 +350,8 @@ public struct NoteBanner: View {
             leading.append(detail)
         }
         guard !leading.isEmpty else { return details }
-        var lines = details?.lines ?? []
-        for line in leading.reversed() where lines.first != line {
-            lines.insert(line, at: 0)
-        }
-        return NoteBannerDetails(
-            label: details?.label ?? strings.details,
-            lines: lines,
-            rows: details?.rows ?? []
-        )
+        return (details ?? NoteBannerDetails(label: strings.details, lines: []))
+            .withLeadingLines(leading)
     }
 
     private var stacksAction: Bool { dynamicTypeSize.isAccessibilitySize }

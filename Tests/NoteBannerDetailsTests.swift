@@ -11,9 +11,28 @@ struct NoteBannerDetailsTests {
         testDetailsWithNothingToShowAreEmpty()
         testActionsArePlainByDefault()
         testBannersShowNoInfoButtonForEmptyDetails()
+        testLeadingLinesComeFirstAndOnce()
         testComparisonLayoutFollowsTheWindow()
         testComparisonCardsKeepTheMacLook()
         print("NoteBannerDetailsTests passed")
+    }
+
+    /// Catches (#872): the iOS banner's popover starts with what its row
+    /// can't show, the whole title when cut short and then the detail,
+    /// each line once even when the banner's own details already hold them
+    /// in another order.
+    private static func testLeadingLinesComeFirstAndOnce() {
+        let own = NoteBannerDetails(
+            label: "Issue Details",
+            lines: ["Detail.", "Title", "Try again later."],
+            rows: [NoteBannerDetails.Row(label: "Code", value: "auth")]
+        )
+        let shown = own.withLeadingLines(["Title", "Detail."])
+        precondition(shown.lines == ["Title", "Detail.", "Try again later."])
+        precondition(shown.rows == own.rows && shown.label == "Issue Details")
+        precondition(own.withLeadingLines(["Title", "Title"]).lines.first == "Title")
+        precondition(own.withLeadingLines(["Title", "Title"]).lines.filter { $0 == "Title" }.count == 1)
+        precondition(NoteBannerDetails(label: "More Info", lines: []).withLeadingLines([" "]).isEmpty)
     }
 
     private static func testEmptyLinesAreDropped() {
