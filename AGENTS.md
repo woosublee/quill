@@ -161,7 +161,7 @@ otherwise.
   (`NoteMetaTags`: LOCAL/CLOUD or Audio only, CTX, LLM, the fixed language,
   and their spoken words), the notices above its transcript
   (`NoteTranscriptNoticeGroup`, #697: which show, none while a retranscription
-  or cleanup runs, the same-result notice folding the rest behind "+1", and
+  or cleanup runs, several folding behind "+N" on the leading one, and
   their copy keys), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw

@@ -54,7 +54,7 @@ struct NoteTranscriptNoticesTests {
         let sameOnly = group(same: true)
         precondition(!sameOnly.folds && sameOnly.hiddenCount == nil && sameOnly.shown(isExpanded: false) == [.sameAsCurrent])
         let warningOnly = group(pp: .warning)
-        precondition(!warningOnly.folds && warningOnly.shown(isExpanded: false) == [.warning], "without the lead nothing folds")
+        precondition(!warningOnly.folds && warningOnly.shown(isExpanded: false) == [.warning], "one notice doesn't fold")
 
         // n1: both quiet notices are the grey info banner.
         precondition(NoteTranscriptNotice.sameAsCurrent.systemImage == "info.circle")
@@ -80,6 +80,14 @@ struct NoteTranscriptNoticesTests {
         precondition(failed().notices == [.retranscriptionFailed])
         precondition(failed(same: true, pp: .warning).notices == [.sameAsCurrent, .retranscriptionFailed, .warning])
         precondition(failed(working: true).notices.isEmpty)
+        // Several notices always fold behind "+N" on the leading one, whatever
+        // leads, so the transcript keeps one banner line.
+        let failedAndWarning = failed(pp: .warning)
+        precondition(failedAndWarning.notices == [.retranscriptionFailed, .warning])
+        precondition(failedAndWarning.folds && failedAndWarning.hiddenCount == 1)
+        precondition(failedAndWarning.shown(isExpanded: false) == [.retranscriptionFailed])
+        precondition(failedAndWarning.shown(isExpanded: true) == [.retranscriptionFailed, .warning])
+        precondition(failed(same: true, pp: .warning).hiddenCount == 2)
         precondition(group().notices == [], "off by default for callers that don't pass it")
         precondition(NoteTranscriptNotice.retranscriptionFailed.systemImage == nil, "draws as a warning banner")
         precondition(NoteTranscriptNotice.retranscriptionFailed.titleKey == "Retranscription failed")
