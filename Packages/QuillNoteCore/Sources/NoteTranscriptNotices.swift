@@ -2,7 +2,7 @@ import Foundation
 import QuillUserIssueCore
 
 /// A notice above a note's transcript, the same on the Mac and the iPhone
-/// (#697): which notices show, in what order, how the "+1" group folds,
+/// (#697): which notices show, in what order, how the "+N" group folds,
 /// and their copy keys. Each app decides the inputs (the post-processing
 /// record, the dismissals it keeps, whether work runs), what the warning
 /// says (from its issue record), and what the buttons do.
@@ -114,10 +114,10 @@ public struct NoteTranscriptNoticeGroup: Equatable, Sendable {
         self.notices = notices
     }
 
-    /// The same-result notice leads and folds the rest behind "+N", like
-    /// the Summary tab's notices. Without it, every notice shows.
+    /// Several notices fold behind "+N" on the leading one, like the
+    /// Summary tab's notices, so the transcript keeps one banner line.
     public var folds: Bool {
-        notices.first == .sameAsCurrent && notices.count > 1
+        notices.count > 1
     }
 
     /// The "+N" count on the leading notice, or nil when nothing folds.

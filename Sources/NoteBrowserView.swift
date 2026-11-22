@@ -3508,15 +3508,14 @@ private struct NoteDetailView: View {
         } else {
             VStack(spacing: 0) {
                 // The transcript's notices, from the shared table: none while
-                // a retranscription or cleanup runs; a same-result notice
-                // leads and folds the rest behind "+1", like the Summary
-                // tab's notices.
+                // a retranscription or cleanup runs; several fold behind
+                // "+N" on the leading one, like the Summary tab's notices.
                 let notices = transcriptNoticeGroup
                 ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \.self) { notice in
                     transcriptNoticeRow(notice, group: notices)
                 }
                 .onChange(of: notices.folds) { folds in
-                    // A new group starts folded behind "+1".
+                    // A new group starts folded behind "+N".
                     if !folds { areTranscriptNoticesExpanded = false }
                 }
                 NoteTextView(
