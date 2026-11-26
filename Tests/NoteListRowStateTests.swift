@@ -12,6 +12,7 @@ struct NoteListRowStateTests {
         testWorkingStatuses()
         testRetryWinsAndNamesTheStage()
         testStoppedCloudTranscriptionFails()
+        testFailedRetranscriptionKeepsTheTranscriptRow()
         testRecoveredPreviewKeepsItsContext()
         testBadgesAndAccessibility()
         testBulkSelection()
@@ -37,6 +38,37 @@ struct NoteListRowStateTests {
             isCloudTranscriptionStopped: isCloudTranscriptionStopped,
             isPostProcessing: isPostProcessing
         )
+    }
+
+    /// A failed retranscription keeps its transcript, so the row shows it as
+    /// done with its text; the failure is the note's banner. Without text the
+    /// same status still reads as a failed transcription.
+    private static func testFailedRetranscriptionKeepsTheTranscriptRow() {
+        let retryFailure = QuillUserIssueRecord(code: .authenticationFailed)
+            .with(operation: .transcriptionRetry).persistedStatus
+        let kept = state(retryFailure, hasContent: true)
+        precondition(kept.status == .done)
+        precondition(kept.dotRole == .done)
+        precondition(kept.preview == .content)
+        precondition(kept.statusKey == "Transcription complete")
+
+        let empty = state(retryFailure, hasContent: false)
+        precondition(empty.status == .fail)
+        precondition(empty.preview == .key("Couldn't transcribe"))
+
+        let firstFailure = state(QuillUserIssueRecord(code: .authenticationFailed).persistedStatus, hasContent: true)
+        precondition(firstFailure.status == .fail, "only a retry failure keeps the row")
+
+        let retryingAgain = state(retryFailure, hasContent: true, isRetrying: true)
+        precondition(retryingAgain.status == .transcribing, "a new retry still shows its spinner")
+        precondition(retryingAgain.workStageKey == "Retranscribing...")
+
+        let status = NoteListRowStatus(
+            machineStatus: NoteMachineStatus(postProcessingStatus: retryFailure),
+            isTranscriptionPlaceholder: false,
+            hasContent: true
+        )
+        precondition(status == .done, "the row status alone agrees with the row")
     }
 
     private static func testSettledStatuses() {

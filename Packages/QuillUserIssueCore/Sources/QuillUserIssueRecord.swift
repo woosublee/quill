@@ -101,6 +101,11 @@ public enum ProviderDiagnosticCode {
 public enum QuillUserIssueOperation: String, Codable, Equatable, Sendable {
     case postProcessing
     case commandTransform
+    /// A transcription run again on a note (a retranscription, or retrying
+    /// a failed one). The note keeps whatever transcript it had
+    /// (quill-universal-private#429). Older builds read an operation they
+    /// don't know as none.
+    case transcriptionRetry
 }
 
 public struct QuillUserIssueContext: Codable, Equatable, Sendable {
@@ -204,6 +209,30 @@ public struct QuillUserIssueRecord: Codable, Equatable, Sendable {
         self.code = code
         self.severity = severity ?? code.defaultSeverity
         self.context = context
+    }
+}
+
+public extension QuillUserIssueRecord {
+    /// This record with its context's operation set to `operation`.
+    func with(operation: QuillUserIssueOperation) -> QuillUserIssueRecord {
+        QuillUserIssueRecord(
+            schemaVersion: schemaVersion,
+            code: code,
+            severity: severity,
+            context: QuillUserIssueContext(
+                httpStatus: context.httpStatus,
+                providerHost: context.providerHost,
+                providerCode: context.providerCode,
+                modelID: context.modelID,
+                localBackend: context.localBackend,
+                processExitCode: context.processExitCode,
+                retryExhausted: context.retryExhausted,
+                meetingSummaryFailureSubtype: context.meetingSummaryFailureSubtype,
+                operation: operation,
+                postProcessingFailureReason: context.postProcessingFailureReason,
+                requestTimeoutSeconds: context.requestTimeoutSeconds
+            )
+        )
     }
 }
 

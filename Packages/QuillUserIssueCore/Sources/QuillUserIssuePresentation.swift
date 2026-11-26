@@ -176,7 +176,7 @@ extension QuillUserIssueCode {
                     bodyKey: "Quill kept the selected text because the edit did not finish in time.",
                     suggestionKey: "Use the selected text or try the edit again later."
                 )
-            case nil:
+            case nil, .transcriptionRetry:
                 return QuillUserIssueCopy(
                     titleKey: "Transcription timed out",
                     bodyKey: "The transcription service did not respond in time.",

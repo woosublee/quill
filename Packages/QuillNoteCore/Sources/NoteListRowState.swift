@@ -26,15 +26,25 @@ public enum NoteListRowStatus: Equatable, Sendable {
     /// work running for it. `isRetrying` wins over everything: the note is
     /// being transcribed again. `isCloudTranscriptionStopped` marks a
     /// cloud-transcribing note that no work is running for; it shows as
-    /// failed so it can be retried or deleted.
+    /// failed so it can be retried or deleted. A failed retranscription
+    /// (an issue marked `transcriptionRetry`) over a note that `hasContent`
+    /// kept its transcript, so it reads as done; the note's banner says the
+    /// retry failed (quill-universal-private#432). Without text it fails.
     public init(
         machineStatus: NoteMachineStatus,
         isTranscriptionPlaceholder: Bool,
+        hasContent: Bool = false,
         isRetrying: Bool = false,
         isCloudTranscriptionStopped: Bool = false
     ) {
         if isRetrying {
             self = .transcribing
+            return
+        }
+        if case .failed(let record) = machineStatus,
+           record.context.operation == .transcriptionRetry,
+           hasContent {
+            self = isTranscriptionPlaceholder ? .transcribing : .done
             return
         }
         switch machineStatus {
@@ -117,6 +127,7 @@ public struct NoteListRowState: Equatable, Sendable {
         let status = NoteListRowStatus(
             machineStatus: machineStatus,
             isTranscriptionPlaceholder: isTranscriptionPlaceholder,
+            hasContent: hasContent,
             isRetrying: isRetrying,
             isCloudTranscriptionStopped: isCloudTranscriptionStopped
         )

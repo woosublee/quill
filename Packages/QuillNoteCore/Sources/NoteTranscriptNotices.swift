@@ -1,7 +1,8 @@
 import Foundation
+import QuillUserIssueCore
 
 /// A notice above a note's transcript, the same on the Mac and the iPhone
-/// (#697): which notices show, in what order, how the "+1" group folds,
+/// (#697): which notices show, in what order, how the "+N" group folds,
 /// and their copy keys. Each app decides the inputs (the post-processing
 /// record, the dismissals it keeps, whether work runs), what the warning
 /// says (from its issue record), and what the buttons do.
@@ -12,6 +13,10 @@ public enum NoteTranscriptNotice: String, CaseIterable, Equatable, Sendable {
     case nothingToCleanUp
     /// Cleanup ended with a warning (its issue record says which).
     case warning
+    /// A retranscription failed and the current transcript stayed
+    /// (`NoteRetranscriptionFailure`). It draws as a warning banner whose
+    /// detail is the failure's cause.
+    case retranscriptionFailed
 
     /// What the note's post-processing record says, before dismissals.
     public enum PostProcessing: Equatable, Sendable {
@@ -24,7 +29,7 @@ public enum NoteTranscriptNotice: String, CaseIterable, Equatable, Sendable {
     public var systemImage: String? {
         switch self {
         case .sameAsCurrent, .nothingToCleanUp: return "info.circle"
-        case .warning: return nil
+        case .warning, .retranscriptionFailed: return nil
         }
     }
 
@@ -35,6 +40,7 @@ public enum NoteTranscriptNotice: String, CaseIterable, Equatable, Sendable {
         case .sameAsCurrent: return "The new transcript is the same as the current one."
         case .nothingToCleanUp: return "Nothing to clean up; showing the original transcript."
         case .warning: return nil
+        case .retranscriptionFailed: return NoteRetranscriptionFailure.titleKey
         }
     }
 
@@ -44,6 +50,7 @@ public enum NoteTranscriptNotice: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .sameAsCurrent: return "The transcript text didn't change."
         case .nothingToCleanUp, .warning: return nil
+        case .retranscriptionFailed: return NoteRetranscriptionFailure.unchangedKey
         }
     }
 
@@ -74,13 +81,18 @@ public struct NoteTranscriptNoticeGroup: Equatable, Sendable {
     ///   - isWorkRunning: A retranscription or a cleanup runs for the note.
     ///     The notices describe the transcript being replaced, so none show
     ///     until the work ends.
+    ///   - showsRetranscriptionFailure: The last retranscription failed and
+    ///     the current transcript stayed (`NoteRetranscriptionFailure`), and
+    ///     it isn't dismissed. It shows after the same-result notice and
+    ///     before the post-processing one.
     public init(
         showsSameAsCurrent: Bool,
         postProcessing: NoteTranscriptNotice.PostProcessing?,
         isDisplayedTranscriptBlank: Bool,
         isNothingToCleanUpDismissed: Bool,
         isWarningDismissed: Bool,
-        isWorkRunning: Bool
+        isWorkRunning: Bool,
+        showsRetranscriptionFailure: Bool = false
     ) {
         guard !isWorkRunning else {
             notices = []
@@ -88,6 +100,7 @@ public struct NoteTranscriptNoticeGroup: Equatable, Sendable {
         }
         var notices: [NoteTranscriptNotice] = []
         if showsSameAsCurrent { notices.append(.sameAsCurrent) }
+        if showsRetranscriptionFailure { notices.append(.retranscriptionFailed) }
         switch postProcessing {
         case .nothingToCleanUp:
             if !isDisplayedTranscriptBlank, !isNothingToCleanUpDismissed, !isWarningDismissed {
@@ -101,10 +114,10 @@ public struct NoteTranscriptNoticeGroup: Equatable, Sendable {
         self.notices = notices
     }
 
-    /// The same-result notice leads and folds the rest behind "+N", like
-    /// the Summary tab's notices. Without it, every notice shows.
+    /// Several notices fold behind "+N" on the leading one, like the
+    /// Summary tab's notices, so the transcript keeps one banner line.
     public var folds: Bool {
-        notices.first == .sameAsCurrent && notices.count > 1
+        notices.count > 1
     }
 
     /// The "+N" count on the leading notice, or nil when nothing folds.
@@ -115,5 +128,41 @@ public struct NoteTranscriptNoticeGroup: Equatable, Sendable {
     /// The notices to draw.
     public func shown(isExpanded: Bool) -> [NoteTranscriptNotice] {
         folds && !isExpanded ? Array(notices.prefix(1)) : notices
+    }
+}
+
+/// A failed retranscription, alike on the Mac and the iPhone (quill-universal-private#429).
+/// The Mac stores a failed retry as an issue in the note's
+/// `postProcessingStatus`, marked with the `transcriptionRetry` operation,
+/// and keeps the transcript; that status syncs. A note whose status holds
+/// such an issue over a transcript that isn't blank is a retranscription
+/// that failed (a failed first transcription has no transcript, and other
+/// errors a status can hold, such as a failed context capture, aren't
+/// marked). The banner reads "Retranscription failed", its detail is the
+/// issue's cause and that the transcript is unchanged, and it opens
+/// provider settings when the shared rule sends the issue there. Each app
+/// translates the keys and runs the button.
+public enum NoteRetranscriptionFailure {
+    public static let titleKey = "Retranscription failed"
+    public static let unchangedKey = "The current transcript is unchanged."
+
+    /// The failure a stored status describes over `transcript`, or nil when
+    /// it isn't one: no issue, an issue from something else, or a blank
+    /// transcript.
+    public static func issue(
+        postProcessingStatus: String,
+        transcript: String
+    ) -> QuillUserIssueRecord? {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let record = NoteMachineStatus.userIssueRecord(postProcessingStatus: postProcessingStatus),
+              record.context.operation == .transcriptionRetry else { return nil }
+        return record
+    }
+
+    /// The banner offers Open Provider Settings for this failure (a rejected
+    /// key, a used-up quota, a provider set up wrong); otherwise it has no
+    /// button and the toolbar's ↻ retries.
+    public static func opensProviderSettings(_ issue: QuillUserIssueRecord) -> Bool {
+        issue.recoveryAction == .openProviderSettings
     }
 }

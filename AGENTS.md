@@ -161,7 +161,7 @@ otherwise.
   (`NoteMetaTags`: LOCAL/CLOUD or Audio only, CTX, LLM, the fixed language,
   and their spoken words), the notices above its transcript
   (`NoteTranscriptNoticeGroup`, #697: which show, none while a retranscription
-  or cleanup runs, the same-result notice folding the rest behind "+1", and
+  or cleanup runs, several folding behind "+N" on the leading one, and
   their copy keys), and the calendar match record
   (`CalendarEventMatch` and its attendee, source, title state, and provider),
   which syncs as a note's `calendarMatch` bytes, so keep its keys and raw
@@ -197,7 +197,9 @@ otherwise.
   (`NoteMachineStatus.isTranscriptionPlaceholder`, #720), how a note
   list row reads from that status and the work running for it
   (`NoteListRowState`: its status, which dot it draws, its preview line,
-  its Audio only and Summary badges, and the state VoiceOver reads; #697),
+  its Audio only and Summary badges, and the state VoiceOver reads; #697;
+  a failed retranscription that kept its text reads as done, its banner
+  saying the retry failed, quill-universal-private#432),
   whether it can join the list's selection (`NoteListRowStatus.joinsSelection`),
   how a recording's running time reads (`RecordingElapsedFormat`: `m:ss`,
   then `h:mm:ss`, paused time not counted),

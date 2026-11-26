@@ -23,9 +23,12 @@ func transcriptStatus(
     retrying: Set<UUID>,
     stoppedCloud: Set<UUID> = []
 ) -> TranscriptStatus {
+    // The same content test as the row's preview, so a failed retry that
+    // kept its text reads as done here too.
     NoteListRowStatus(
         machineStatus: item.machineStatus,
         isTranscriptionPlaceholder: item.isTranscriptionPlaceholder,
+        hasContent: !item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
         isRetrying: retrying.contains(item.id),
         isCloudTranscriptionStopped: stoppedCloud.contains(item.id)
     )

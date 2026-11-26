@@ -39,6 +39,9 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
     }
 
     public static let postProcessingWarningPrefix = "postProcessing.warning."
+    /// A failed retranscription above the transcript
+    /// (quill-universal-private#429). A retry ends it like the warnings.
+    public static let retranscriptionFailure = "retranscription.failure"
     /// Every summary notice's key starts with this, so deleting a summary
     /// ends them together.
     public static let summaryPrefix = "summary."
@@ -84,6 +87,9 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
         /// The post-processing warning above the transcript, for the note's
         /// `postProcessingStatus`.
         case postProcessingWarning(code: String, status: String)
+        /// A failed retranscription, for the note's `postProcessingStatus`
+        /// as it syncs (without the provider host).
+        case retranscriptionFailure(status: String)
         /// The saved summary's failed attempt, by when it happened.
         case summaryFailure(attemptAt: Date)
         /// "Transcript changed after this summary was generated.", for the
@@ -104,6 +110,7 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
         public var key: String {
             switch self {
             case .postProcessingWarning(let code, _): NoteNoticeDismissals.postProcessingWarning(code: code)
+            case .retranscriptionFailure: NoteNoticeDismissals.retranscriptionFailure
             case .summaryFailure: NoteNoticeDismissals.summaryFailure
             case .summaryStale: NoteNoticeDismissals.summaryStale
             case .summaryUnverifiedEvidence: NoteNoticeDismissals.summaryUnverifiedEvidence
@@ -115,7 +122,8 @@ public struct NoteNoticeDismissals: Codable, Equatable, Sendable {
 
         public var condition: String {
             switch self {
-            case .postProcessingWarning(_, let status): NoteNoticeDismissals.condition(postProcessingStatus: status)
+            case .postProcessingWarning(_, let status), .retranscriptionFailure(let status):
+                NoteNoticeDismissals.condition(postProcessingStatus: status)
             case .summaryFailure(let date), .summaryUnverifiedEvidence(let date),
                  .summaryFeatureDisabled(let date), .summaryModelUnavailable(let date):
                 NoteNoticeDismissals.condition(date: date)
