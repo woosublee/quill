@@ -8,6 +8,18 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.5.1] - 2026-11-27
+
+### Changed
+
+- **A failed retranscription now says so.** When ↻ Retranscribe fails, the note keeps its transcript and a warning banner above it says "Retranscription failed" with the reason. If the API key, quota, or provider setup is the problem, the banner has Open Provider Settings. Closing it carries over to your other devices, and a retranscription that fails on the iPhone shows on the Mac too. In the note list, the note keeps its transcript preview.
+- **Several notices above a transcript fold behind +N** on the first one, whichever it is.
+
+### Fixed
+
+- **Note titles are one line on the Mac too.** A title pasted or applied with line breaks becomes one line, so it shows, searches, and syncs the same on the Mac and the iPhone.
+
+
 ## [1.5.0] - 2026-11-17
 
 ### Added
