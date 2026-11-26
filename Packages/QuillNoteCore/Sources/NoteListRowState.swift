@@ -114,8 +114,19 @@ public struct NoteListRowState: Equatable, Sendable {
         isCloudTranscriptionStopped: Bool = false,
         isPostProcessing: Bool = false
     ) {
+        // A failed retranscription kept the transcript: the note reads as
+        // done in the list, and its banner says the retry failed
+        // (quill-universal-private#432). A note with no text still fails.
+        let rowMachineStatus: NoteMachineStatus
+        if case .failed(let record) = machineStatus,
+           record.context.operation == .transcriptionRetry,
+           hasContent {
+            rowMachineStatus = .completed
+        } else {
+            rowMachineStatus = machineStatus
+        }
         let status = NoteListRowStatus(
-            machineStatus: machineStatus,
+            machineStatus: rowMachineStatus,
             isTranscriptionPlaceholder: isTranscriptionPlaceholder,
             isRetrying: isRetrying,
             isCloudTranscriptionStopped: isCloudTranscriptionStopped
