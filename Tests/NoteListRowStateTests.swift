@@ -58,6 +58,17 @@ struct NoteListRowStateTests {
 
         let firstFailure = state(QuillUserIssueRecord(code: .authenticationFailed).persistedStatus, hasContent: true)
         precondition(firstFailure.status == .fail, "only a retry failure keeps the row")
+
+        let retryingAgain = state(retryFailure, hasContent: true, isRetrying: true)
+        precondition(retryingAgain.status == .transcribing, "a new retry still shows its spinner")
+        precondition(retryingAgain.workStageKey == "Retranscribing...")
+
+        let status = NoteListRowStatus(
+            machineStatus: NoteMachineStatus(postProcessingStatus: retryFailure),
+            isTranscriptionPlaceholder: false,
+            hasContent: true
+        )
+        precondition(status == .done, "the row status alone agrees with the row")
     }
 
     private static func testSettledStatuses() {
