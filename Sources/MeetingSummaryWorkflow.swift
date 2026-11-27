@@ -339,22 +339,9 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         for item: PipelineHistoryItem,
         languageContext: MeetingSummaryLanguageContext
     ) -> MeetingSummarySource {
-        let calendar = item.calendarMatch.map { match in
-            MeetingSummaryCalendarContext(
-                title: match.title,
-                start: match.start,
-                end: match.end,
-                attendees: match.attendees.compactMap {
-                    MeetingSummaryCalendarContext.attendeeLabel(
-                        displayName: $0.displayName,
-                        email: $0.email
-                    )
-                }
-            )
-        }
-        return MeetingSummarySource(
+        MeetingSummarySource(
             transcript: transcript(for: item),
-            calendar: calendar,
+            calendarMatch: item.calendarMatch,
             languageContext: languageContext
         )
     }
@@ -362,14 +349,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
     static func availabilitySource(
         for item: PipelineHistoryItem
     ) -> MeetingSummarySource {
-        source(
-            for: item,
-            languageContext: MeetingSummaryLanguageContext(
-                requestedOutputLanguage: "",
-                appliedLanguageCode: "",
-                resolutionSource: .unavailable
-            )
-        )
+        .availability(transcript: transcript(for: item), calendarMatch: item.calendarMatch)
     }
 
     static func resolvedLanguage(

@@ -50,7 +50,7 @@ let package = Package(
         ),
         .target(
             name: "QuillSummaryFormatCore",
-            dependencies: ["QuillAITextCore", "QuillUserIssueCore"],
+            dependencies: ["QuillAITextCore", "QuillUserIssueCore", "QuillNoteCore"],
             path: "Packages/QuillSummaryFormatCore/Sources",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
