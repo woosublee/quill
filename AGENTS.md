@@ -93,7 +93,10 @@ otherwise.
 - `Packages/QuillSummaryFormatCore/`: the stored meeting-summary format
   (envelope, content, attempt, calendar context, source fingerprint, Markdown
   rendering, and the text search reads,
-  `MeetingSummaryContent.searchableText`) and summary editing (what counts as an empty row, dropping
+  `MeetingSummaryContent.searchableText`), the summary source both apps build from a
+  note's transcript and matched event
+  (`MeetingSummarySource(transcript:calendarMatch:languageContext:)`, which
+  imports `QuillNoteCore`), and summary editing (what counts as an empty row, dropping
   empty rows, saving an edit, reverting to the original, keeping done
   states, and keeping rows on a same-text regeneration).
   The attempt's on-screen details stay in `Sources/MeetingSummaryModels.swift`.

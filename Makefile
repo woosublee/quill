@@ -315,10 +315,10 @@ $(SHARED_CORE_BUILD_DIR)/%/libQuillAudioFormatCore.a: $(AUDIO_FORMAT_CORE_SOURCE
 # would delete those afterwards as intermediate files.
 .SECONDARY: $(foreach arch,$(SHARED_CORE_ARCHS),$(call shared_core_lib,$(arch)))
 
-# Imports QuillAITextCore and QuillUserIssueCore, so those are built first.
+# Imports QuillAITextCore, QuillUserIssueCore, and QuillNoteCore, so those are built first.
 # Only a module that imports other shared modules gets the search path to
 # their interfaces.
-$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a: $(SUMMARY_FORMAT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
+$(SHARED_CORE_BUILD_DIR)/%/libQuillSummaryFormatCore.a: $(SUMMARY_FORMAT_CORE_SOURCES) $(SHARED_CORE_BUILD_DIR)/%/libQuillAITextCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillUserIssueCore.a $(SHARED_CORE_BUILD_DIR)/%/libQuillNoteCore.a Makefile $(SHARED_CORE_TOOLCHAIN) $(SHARED_CORE_SOURCES_STAMP)
 	@mkdir -p "$(@D)"
 	$(call shared_core_compile,QuillSummaryFormatCore,$(SUMMARY_FORMAT_CORE_SOURCES),-I "$(@D)")
 

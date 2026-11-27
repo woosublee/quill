@@ -1003,6 +1003,33 @@ extension MeetingSummaryWorkflowTests {
                    "a blank name falls back to the email")
         try expect(MeetingSummaryCalendarContext.attendeeLabel(displayName: nil, email: "") == nil,
                    "an attendee with neither is left out")
+
+        let match = CalendarEventMatch(
+            calendarID: "calendar-1",
+            eventID: "event-1",
+            title: "Synthetic sync",
+            start: Date(timeIntervalSince1970: 60),
+            end: Date(timeIntervalSince1970: 1_860),
+            attendees: [
+                CalendarEventAttendee(displayName: " Alex ", email: "alex@example.com"),
+                CalendarEventAttendee(displayName: " ", email: "sam@example.com"),
+                CalendarEventAttendee(),
+            ],
+            matchSource: .overlapSuggestion,
+            titleState: .suggested
+        )
+        let english = MeetingSummaryLanguageContext(
+            requestedOutputLanguage: "English", appliedLanguageCode: "en", resolutionSource: .configured
+        )
+        let source = MeetingSummarySource(transcript: "Decision: ship.", calendarMatch: match, languageContext: english)
+        try expect(source.calendar == MeetingSummaryCalendarContext(
+            title: "Synthetic sync",
+            start: Date(timeIntervalSince1970: 60),
+            end: Date(timeIntervalSince1970: 1_860),
+            attendees: ["Alex", "sam@example.com"]
+        ), "a matched event gives its title, times, and attendee labels")
+        try expect(MeetingSummarySource(transcript: "Decision: ship.", calendarMatch: nil, languageContext: english).calendar == nil,
+                   "no matched event, no calendar context")
     }
 }
 
@@ -1057,6 +1084,14 @@ extension MeetingSummaryWorkflowTests {
                 spokenLanguageCode: spokenLanguageCode,
                 spokenLanguageResolution: resolution
             )
+        }
+        let unresolved = MeetingSummaryLanguageContext(
+            requestedOutputLanguage: "", appliedLanguageCode: "", resolutionSource: .unavailable
+        )
+        for availabilityItem in [item(calendarMatch: calendar), item(edited: "  Decision: ship Monday.\n", calendarMatch: calendar), item()] {
+            try expect(MeetingSummaryWorkflow.availabilitySource(for: availabilityItem).fingerprint
+                       == MeetingSummaryWorkflow.source(for: availabilityItem, languageContext: unresolved).fingerprint,
+                       "the availability source is the note's source without a language")
         }
         func request(
             _ item: PipelineHistoryItem,
