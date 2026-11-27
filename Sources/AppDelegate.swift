@@ -46,7 +46,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Quill always keeps its Dock icon: the Dock icon opens the note
-    /// browser. Info.plist starts the app as an accessory (LSUIElement).
+    /// browser. Info.plist launches it as a regular app (no LSUIElement,
+    /// #881), so the Dock icon bounces while it starts; this only
+    /// re-asserts that launch policy.
     func updateActivationPolicy() {
         NSApp.setActivationPolicy(.regular)
     }

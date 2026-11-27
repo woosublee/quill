@@ -11,6 +11,7 @@ struct BuildMetadataTests {
         try testFullSourceRunnersTakeTurns()
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
+        try testInfoPlistLaunchesAsRegularApp()
         try testMakefileBundlesLocalizationResources()
         try testMakefileBuildsAppBundleForLocalizationValidation()
         try testTranscriptionShardBuildsLocalizationResources()
@@ -162,6 +163,15 @@ struct BuildMetadataTests {
         assertContains(infoPlist, "<key>CFBundleIconFile</key>\n    <string>AppIcon</string>")
         assertContains(makefile, "ICON_ICNS = Resources/AppIcon-Dev.icns")
         assertContains(makefile, "@cp $(ICON_ICNS) \"$(RESOURCES)/AppIcon.icns\"")
+    }
+
+    /// Quill keeps its Dock icon (#524), so macOS must launch it as a
+    /// regular app for the Dock icon to bounce while it starts (#881).
+    private static func testInfoPlistLaunchesAsRegularApp() throws {
+        let infoPlist = try String(contentsOfFile: "Info.plist", encoding: .utf8)
+
+        assertDoesNotContain(infoPlist, "<key>LSUIElement</key>")
+        assertDoesNotContain(infoPlist, "<key>LSBackgroundOnly</key>")
     }
 
     private static func testMakefileBundlesLocalizationResources() throws {
