@@ -142,6 +142,7 @@ FULL_SOURCE_APP_STATE_TESTS = \
 	Tests/AudioImportFileCopyTests.swift \
 	Tests/LatestValueProgressCoalescerTests.swift \
 	Tests/AppStateTestStorage.swift \
+	Tests/AppStateNoteWorkTests.swift \
 	Tests/AppStateDependenciesTests.swift \
 	Tests/NoteAssetStoreTests.swift \
 	Tests/CredentialStoreTests.swift \
@@ -900,9 +901,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NotePayloadTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o $(TEST_BUILD_DIR)/NoteListRowDisplayDataTests
 	@$(TEST_BUILD_DIR)/NoteListRowDisplayDataTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Sources/NoteBrowserWorkStatus.swift Tests/NoteBrowserWorkStatusTests.swift -o $(TEST_BUILD_DIR)/NoteBrowserWorkStatusTests
-	@$(TEST_BUILD_DIR)/NoteBrowserWorkStatusTests
-	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Sources/NoteBrowserWorkStatus.swift Tests/NoteWorkMacFlowReplayTests.swift -o $(TEST_BUILD_DIR)/NoteWorkMacFlowReplayTests
+	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteWorkMacFlowReplayTests.swift -o $(TEST_BUILD_DIR)/NoteWorkMacFlowReplayTests
 	@$(TEST_BUILD_DIR)/NoteWorkMacFlowReplayTests
 	@swiftc -parse-as-library $(call shared_core_flags,$(HOST_ARCH)) $(STANDALONE_TEST_TARGET) Tests/NoteWorkStatusTests.swift -o $(TEST_BUILD_DIR)/NoteWorkStatusTests
 	@$(TEST_BUILD_DIR)/NoteWorkStatusTests

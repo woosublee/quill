@@ -33,7 +33,10 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         precondition(appState.contains("reportsProgressFromStart: capturedLocalAIExecution != nil,"))
         precondition(appState.contains("reportsProgressFromStart: configuration.localAIExecution != nil,"))
         precondition(appState.contains("if reportsProgressFromStart {\n            updateCloudTranscriptionProgress(.preparing, historyID: historyID, session: session)"))
-        precondition(noteBrowser.components(separatedBy: "cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),").count == 3)
+        // Since #768 the cleanup's start says whether it reports (Edit Mode
+        // never does), and the board holds the bar at the boundary.
+        precondition(appState.contains("sendNoteWork(.transcriptionFinished(cleanupFollows: true, cleanupReportsProgress: reportsProgress), noteID: noteID)"))
+        precondition(appState.contains("sendNoteWork(.cleanupStarted(reportsProgress: reportsProgress), noteID: noteID)"))
         try verifiesImportPlaceholderPrecedesCloudExecution(appState)
         try verifiesRecordingPlaceholderPrecedesCloudExecution(appState)
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)

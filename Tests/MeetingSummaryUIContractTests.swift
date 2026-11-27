@@ -278,13 +278,14 @@ struct MeetingSummaryUIContractTests {
         // same ✕ the iPhone shows, each keeping what's saved.
         precondition(noteBrowser.contains("canCancelWork: canCancelToolbarWork,"))
         precondition(noteBrowser.contains("return appState.canCancelPostProcessing(noteID: item.id)"), "a cleanup offers ✕ only while it can stop")
-        precondition(noteBrowser.contains(": appState.canCancelFirstTranscription(noteID: item.id)"))
+        precondition(noteBrowser.contains("return canCancelRetry || appState.canCancelFirstTranscription(noteID: item.id)"))
         precondition(noteBrowser.contains("appState.cancelFirstTranscription(noteID: item.id)"))
         precondition(noteBrowser.contains("appState.cancelPostProcessing(noteID: item.id)"))
         // A press meant for the last button (or a quick second press) isn't a Cancel.
         precondition(noteBrowser.contains("&& now.timeIntervalSince(firstSlotChangedAt) > 0.6"))
         precondition(noteBrowser.contains(".onChange(of: state.firstSlot) { _ in\n            firstSlotChangedAt = Date()"))
-        precondition(noteBrowser.contains("return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none"), "the first transcription shows the toolbar")
+        // #768: the toolbar reads the note's work from the board.
+        precondition(noteBrowser.contains("noteWork.toolbarWork"), "the first transcription shows the toolbar")
         // #689: while a transcription runs, the same slot cancels it, like
         // the iPhone. Nothing is saved, so the current transcript stays.
         precondition(noteBrowser.contains("appState.cancelTranscriptionRetry(item: item)"))
@@ -334,7 +335,7 @@ struct MeetingSummaryUIContractTests {
         // NoteTranscriptNoticeGroup (NoteTranscriptNoticesTests); none show
         // while a retranscription or cleanup runs (#697 n2).
         precondition(noteBrowser.contains("showsSameAsCurrent: appState.unchangedRetranscriptions[item.id]?\n                .matches(item.displayedTranscript) == true"), "the notice ends once the transcript changes")
-        precondition(noteBrowser.contains("let isWorkRunning = isRetrying\n            || isDownloadingToRetry\n            || isRecoveringRecording\n            || appState.postProcessingNoteIDs.contains(item.id)"))
+        precondition(noteBrowser.contains("let isWorkRunning = showsWorkOverText\n            || isDownloadingToRetry\n            || isRecoveringRecording\n            || appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(noteBrowser.contains("ForEach(notices.shown(isExpanded: areTranscriptNoticesExpanded), id: \\.self)"))
         // #730: "Nothing to clean up" is dismissed for good on every device;
         // an earlier dismissal on this Mac still hides it. It draws as the

@@ -1275,6 +1275,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var disablePostProcessing: Bool {
         didSet {
             UserDefaults.standard.set(disablePostProcessing, forKey: disablePostProcessingStorageKey)
+            noteWorkSettingChanged()
         }
     }
 
@@ -2967,7 +2968,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// later launch can still resume them.
     @Published private(set) var stoppedCloudTranscriptionIDs: Set<UUID> = []
     /// Each running cleanup's chunk progress, for the note's one bar (#697).
-    @Published private(set) var postProcessingProgressByNoteID: [UUID: PostProcessingDisplayProgress] = [:]
+    @Published private(set) var postProcessingProgressByNoteID: [UUID: NoteCleanupProgress] = [:]
 
     /// What cleans up a note's new transcript, for how the one bar is split
     /// (#697). A recording keeps the choice its shortcut made (#347).
@@ -2976,6 +2977,157 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard job?.usesPostProcessing ?? !disablePostProcessing else { return .off }
         return postProcessingBackendChoice.isLocal ? .onDevice : .cloud
     }
+    // MARK: Note work (#768)
+
+    /// Each note's transcription work, as the Note Browser shows it. The
+    /// places below that change a note's work send it what happened
+    /// (`NoteWorkEvent`); the shared rules decide what the note shows. The
+    /// published sets stay for their other readers.
+    @MainActor private(set) lazy var noteWorkBoard = NoteWorkBoard()
+
+    @MainActor
+    private func noteWork(_ noteID: UUID) -> NoteWork {
+        noteWorkBoard.work(for: noteID.uuidString)
+    }
+
+    /// Sends `event` with the note's own cleanup split.
+    @MainActor
+    private func sendNoteWork(_ event: NoteWorkEvent, noteID: UUID) {
+        noteWorkBoard.send(event, for: noteID.uuidString, stage: noteCleanupStage(noteID: noteID))
+    }
+
+    /// The cleanup setting, or a job's own choice, changed: every running
+    /// work takes its note's split again.
+    @MainActor
+    private func refreshNoteWorkStages() {
+        for key in noteWorkBoard.works.keys {
+            guard let noteID = UUID(uuidString: key) else { continue }
+            noteWorkBoard.setStage(noteCleanupStage(noteID: noteID), for: key)
+        }
+    }
+
+    private nonisolated func noteWorkSettingChanged() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { refreshNoteWorkStages() }
+        } else {
+            Task { @MainActor [weak self] in self?.refreshNoteWorkStages() }
+        }
+    }
+
+    /// The bar's transcription share for a published chunk count: 0% while
+    /// a job still plans, nil when it never reports any.
+    static func noteWorkProgress(_ progress: CloudTranscriptionDisplayProgress) -> NoteWorkProgress? {
+        if progress == .preparing { return .starting }
+        return NoteWorkProgress(completed: progress.completedChunkCount, total: progress.totalChunkCount)
+    }
+
+    /// A first cloud transcription with chunks done, none uploading, and
+    /// some left: "Resuming cloud transcription…" (#768 rule 2). Every chunk
+    /// in, or none done yet, is still transcribing.
+    static func isResumingCloudTranscription(_ progress: CloudTranscriptionDisplayProgress) -> Bool {
+        if progress.totalChunkCount > 0, progress.completedChunkCount >= progress.totalChunkCount { return false }
+        if progress.completedChunkCount == 0, noteWorkProgress(progress) != nil { return false }
+        return progress.activeAttempt == nil
+    }
+
+    /// A retry (the Note Browser transcribing a note again, or an
+    /// audio-only note for the first time) starts, unless the note is being
+    /// recovered: "Recovering…" shows first, and the retry starts when it
+    /// ends. Work that will report progress starts at 0% (rule 3). A retry
+    /// never reads as resuming (rule 1).
+    @MainActor
+    func noteRetryStarted(noteID: UUID) {
+        guard noteWork(noteID).transcription != .recovering else { return }
+        let isAudioOnly = pipelineHistory.first { $0.id == noteID }?.machineStatus == .audioOnly
+        let progress = cloudTranscriptionProgressByHistoryID[noteID].flatMap(Self.noteWorkProgress)
+        sendNoteWork(.transcriptionStarted(isAudioOnly ? .first : .retranscription, reportsProgress: progress != nil), noteID: noteID)
+        if let progress { sendNoteWork(.transcriptionProgressed(progress), noteID: noteID) }
+    }
+
+    /// The notes `retryingItemIDs` gained and lost since `before`, and the
+    /// progress of the ones still retrying.
+    @MainActor
+    func noteRetriesChanged(from before: Set<UUID>, progressBefore: [UUID: CloudTranscriptionDisplayProgress]) {
+        for noteID in retryingItemIDs.subtracting(before) {
+            noteRetryStarted(noteID: noteID)
+        }
+        for noteID in before.subtracting(retryingItemIDs) where noteWork(noteID).transcription != .recovering {
+            sendNoteWork(.transcriptionEnded, noteID: noteID)
+            // The retry's own cleanup ended inside it, before the retry
+            // saved; its work stayed until now (`endPostProcessing`).
+            if !postProcessingNoteIDs.contains(noteID) {
+                sendNoteWork(.cleanupEnded, noteID: noteID)
+            }
+        }
+        for noteID in retryingItemIDs.intersection(before) {
+            let progress = cloudTranscriptionProgressByHistoryID[noteID]
+            guard progress != progressBefore[noteID], let progress,
+                  let shown = Self.noteWorkProgress(progress) else { continue }
+            sendNoteWork(.transcriptionProgressed(shown), noteID: noteID)
+        }
+    }
+
+    /// A first transcription's chunk progress (rule 2). A retry's progress
+    /// goes through `noteRetriesChanged`.
+    @MainActor
+    func noteFirstTranscriptionProgressed(noteID: UUID, progress: CloudTranscriptionDisplayProgress) {
+        guard !retryingItemIDs.contains(noteID) else {
+            if let shown = Self.noteWorkProgress(progress) {
+                sendNoteWork(.transcriptionProgressed(shown), noteID: noteID)
+            }
+            return
+        }
+        let work = noteWork(noteID)
+        // A report that arrives after cleanup took over is late.
+        guard work.cleanup == nil else { return }
+        let shown = Self.noteWorkProgress(progress)
+        let isCloud = pipelineHistory.first { $0.id == noteID }?.machineStatus == .cloudTranscribing
+        if isCloud, Self.isResumingCloudTranscription(progress) {
+            sendNoteWork(.cloudTranscriptionResuming(shown), noteID: noteID)
+            return
+        }
+        switch work.transcription {
+        case .running(.first, _)?, .resumingCloud?:
+            break
+        case nil:
+            // Every chunk in on a note without work is the end of a job
+            // whose work already ended; it doesn't start one again.
+            if progress.totalChunkCount > 0, progress.completedChunkCount >= progress.totalChunkCount { return }
+            sendNoteWork(.transcriptionStarted(.first, reportsProgress: shown != nil), noteID: noteID)
+        default:
+            return
+        }
+        if let shown { sendNoteWork(.transcriptionProgressed(shown), noteID: noteID) }
+    }
+
+    /// A first transcription stopped without a job left for the note (a
+    /// cloud job resumed at launch, a stopped one). A cleanup carries on.
+    @MainActor
+    private func noteFirstTranscriptionEnded(noteID: UUID) {
+        guard !retryingItemIDs.contains(noteID) else { return }
+        switch noteWork(noteID).transcription {
+        case .running(.first, _)?, .resumingCloud?:
+            sendNoteWork(.transcriptionEnded, noteID: noteID)
+        default:
+            break
+        }
+    }
+
+    /// The note a transcription job works on, as the toolbar matched it.
+    @MainActor
+    private static func noteWorkKey(of job: TranscriptionJob) -> UUID {
+        job.liveNoteID ?? job.id
+    }
+
+    /// A job's first transcription starts on its note, unless the note
+    /// already shows work.
+    @MainActor
+    private func noteTranscriptionJobStarted(noteID: UUID) {
+        let work = noteWork(noteID)
+        guard work.transcription == nil, work.cleanup == nil else { return }
+        sendNoteWork(.transcriptionStarted(.first, reportsProgress: false), noteID: noteID)
+    }
+
     private var transcriptionRetryWorkflowItemIDs: Set<UUID> = []
     private var transcriptionRetryWorkflowProgressIDs: Set<UUID> = []
     @Published var lastTranscript: String = ""
@@ -3374,6 +3526,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingModel = modelID
                 }
                 reconcileFallbackState(for: .postProcessing)
+                noteWorkSettingChanged()
             }
         }
     }
@@ -6705,6 +6858,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         guard !stopped.isSubset(of: stoppedCloudTranscriptionIDs) else { return }
         stoppedCloudTranscriptionIDs.formUnion(stopped)
+        // No work runs for them: the Note Browser offers Retry instead.
+        for noteID in stopped { noteFirstTranscriptionEnded(noteID: noteID) }
     }
 
     @MainActor
@@ -6714,6 +6869,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // Build each published value first and assign it once. Removing and
         // re-adding in place publishes an intermediate value in which a note
         // that is still retrying looks idle, which made its loading layer blink.
+        let retryingBefore = retryingItemIDs
+        let progressBefore = cloudTranscriptionProgressByHistoryID
         var retryingIDs = retryingItemIDs
         retryingIDs.subtract(transcriptionRetryWorkflowItemIDs)
         retryingIDs.formUnion(state.retryingNoteIDs)
@@ -6736,6 +6893,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         transcriptionRetryWorkflowProgressIDs = Set(
             state.progressByNoteID.keys
         )
+        noteRetriesChanged(from: retryingBefore, progressBefore: progressBefore)
 
         var candidates: [UUID: String] = [:]
         for noteID in state.candidateNoteIDs {
@@ -6805,6 +6963,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             retryingItemIDs = []
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
+            for key in noteWorkBoard.works.keys { noteWorkBoard.forget(key) }
             meetingSummaryWorkflow.forgetAll()
             forgetMeetingSummarySourceFingerprints()
             forgetAllWarningBannerState()
@@ -7153,6 +7312,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             forKey: assets.historyID
         )
         retryingItemIDs.remove(assets.historyID)
+        noteWorkBoard.forget(assets.historyID.uuidString)
         let canDeleteAssets = survivingHistory != nil
             || (
                 pipelineHistoryStore.availability == .ready
@@ -7248,6 +7408,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             isImportedAudio: isImportedAudio,
             calendarSnapshot: calendarSnapshot
         )
+        noteTranscriptionJobStarted(noteID: id)
         foregroundTranscriptionJobID = id
         refreshTranscribingState()
     }
@@ -7255,13 +7416,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func updateTranscriptionJob(_ id: UUID, _ mutate: (inout TranscriptionJob) -> Void) {
         guard var job = activeTranscriptionJobs[id] else { return }
+        let noteBefore = Self.noteWorkKey(of: job)
         mutate(&job)
         activeTranscriptionJobs[id] = job
+        // The job got its note: the work moves to it. A job that lets go of
+        // its note (the note is saved, or the dictation was cancelled)
+        // starts nothing on its own ID, and the note keeps its split.
+        let noteAfter = Self.noteWorkKey(of: job)
+        guard job.liveNoteID != nil else { return }
+        if noteAfter != noteBefore {
+            noteFirstTranscriptionEnded(noteID: noteBefore)
+            noteTranscriptionJobStarted(noteID: noteAfter)
+        }
+        // The job's own cleanup choice can change the note's split.
+        noteWorkBoard.setStage(noteCleanupStage(noteID: noteAfter), for: noteAfter.uuidString)
     }
 
     @MainActor
     private func finishTranscriptionJob(_ id: UUID) {
         textInsertionPlans.removeValue(forKey: id)
+        let workNoteID = activeTranscriptionJobs[id].map(Self.noteWorkKey(of:))
         if let noteID = activeTranscriptionJobs[id]?.liveNoteID {
             removeUnfinishedRecordingNote(id: noteID)
         }
@@ -7272,6 +7446,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 stopSwitch: postProcessingStopSwitchByJobID.removeValue(forKey: id)
             )
         }
+        if let workNoteID { noteFirstTranscriptionEnded(noteID: workNoteID) }
         if foregroundTranscriptionJobID == id {
             foregroundTranscriptionJobID = activeTranscriptionJobs.values.max(by: { $0.startedAt < $1.startedAt })?.id
         }
@@ -7302,6 +7477,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         intent: SessionIntent
     ) -> PostProcessingStopSwitch? {
         postProcessingNoteIDs.insert(noteID)
+        // Cleanup takes over from the note's transcription in one change, or
+        // starts on its own (Retry Post-processing). Edit Mode never reports.
+        let reportsProgress: Bool
+        if case .command = intent { reportsProgress = false } else { reportsProgress = true }
+        switch noteWork(noteID).transcription {
+        case .running?, .resumingCloud?:
+            sendNoteWork(.transcriptionFinished(cleanupFollows: true, cleanupReportsProgress: reportsProgress), noteID: noteID)
+        default:
+            sendNoteWork(.cleanupStarted(reportsProgress: reportsProgress), noteID: noteID)
+        }
         if case .command = intent {
             postProcessingStopSwitches.removeValue(forKey: noteID)
             return nil
@@ -7320,6 +7505,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 // these main-actor hops are ordered.
                 if self.postProcessingProgressByNoteID[noteID] != progress {
                     self.postProcessingProgressByNoteID[noteID] = progress
+                    // The switch keeps the Mac's one attempt forward-only.
+                    self.sendNoteWork(.cleanupProgressed(progress), noteID: noteID)
                 }
             }
         }
@@ -7333,6 +7520,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingNoteIDs.remove(noteID)
         if let stopSwitch, postProcessingStopSwitches[noteID] === stopSwitch {
             postProcessingStopSwitches.removeValue(forKey: noteID)
+        }
+        // A retry's cleanup ends inside the retry, before the new transcript
+        // is saved: its work stays on the board until the retry ends
+        // (`noteRetriesChanged`), as the retry set kept it before.
+        if !retryingItemIDs.contains(noteID) {
+            sendNoteWork(.cleanupEnded, noteID: noteID)
         }
         // A newer cleanup of the same note keeps its own progress.
         if postProcessingStopSwitches[noteID] == nil {
@@ -8968,16 +9161,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         currentRecordingLiveNoteID == noteID || pendingAudioOnlyStopIDs.contains(noteID)
     }
 
-    /// The note's first transcription after its recording stopped, for the
-    /// toolbar (#690): transcribing, or post-processing the new transcript.
-    @MainActor
-    func noteTranscriptionJobWork(noteID: UUID) -> NoteToolbarWork? {
-        guard !isRecordingNote(noteID: noteID),
-              activeTranscriptionJobs.values.contains(where: { $0.id == noteID || $0.liveNoteID == noteID })
-        else { return nil }
-        return postProcessingNoteIDs.contains(noteID) ? .postProcessing : .transcribing
-    }
-
     /// Stops making a summary (#690). The run's result is dropped as stale,
     /// so the previous summary, if any, stays and no failure is recorded.
     @MainActor
@@ -9171,6 +9354,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
               let item = pipelineHistory.first(where: { $0.id == id }),
               canRecoverRecordingAgain(item) else { return }
         recoveringRecordingIDs.insert(id)
+        sendNoteWork(.recoveringStarted, noteID: id)
         let journalStore = recordingJournalStore
         let historyStore = pipelineHistoryStore
         recordingRecoveryAgainQueue.async { [weak self] in
@@ -9192,6 +9376,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     journalStore: journalStore
                 )
                 self.recoveringRecordingIDs.remove(id)
+                if self.noteWork(id).transcription == .recovering {
+                    // A retry that waited for the recovery starts now.
+                    self.sendNoteWork(.transcriptionEnded, noteID: id)
+                    if self.retryingItemIDs.contains(id) { self.noteRetryStarted(noteID: id) }
+                }
                 completion(didRecover)
             }
         }
@@ -14768,6 +14957,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         cloudTranscriptionProgressByHistoryID[historyID] = displayProgress
+        noteFirstTranscriptionProgressed(noteID: historyID, progress: displayProgress)
     }
 
     @MainActor
@@ -14828,7 +15018,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         cloudTranscriptionJobStore.invalidateSession(historyID: historyID)
         cloudTranscriptionProgressByHistoryID.removeValue(forKey: historyID)
-        retryingItemIDs.remove(historyID)
+        if retryingItemIDs.remove(historyID) != nil {
+            sendNoteWork(.transcriptionEnded, noteID: historyID)
+        } else if !activeTranscriptionJobs.values.contains(where: { Self.noteWorkKey(of: $0) == historyID }) {
+            // A job for the note ends its work when it finishes.
+            noteFirstTranscriptionEnded(noteID: historyID)
+        }
     }
 
     // 라이브 전사 시작 시 Note Browser에 즉시 표시될 예비 노트 생성

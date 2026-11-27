@@ -3,13 +3,15 @@ import QuillNoteUI
 
 /// Preparation for #768 step 3 (the Mac onto `NoteWorkBoard`). Each Mac
 /// flow is replayed twice, step by step:
-/// - the published values `AppState` holds at that moment today, read
-///   through `NoteBrowserWorkStatus` (what the Note Browser shows now), and
+/// - the published values `AppState` held at that moment, read through
+///   `RecordedNoteBrowserWorkStatus` (what the Note Browser showed before
+///   the board), and
 /// - the `NoteWorkEvent` the planned event map (#768) sends at that moment,
 ///   read through the shared `NoteWork.status`.
 /// Both columns are written by hand from today's `AppState` and
 /// `TranscriptionRetryWorkflow`; this checks the shared rules and the
-/// planned map, not the wiring. Step 3 must send exactly these events.
+/// planned map, not the wiring; `AppState` sends these events (step 3), and
+/// `AppStateNoteWorkTests` drives it with synthetic notes.
 /// Rules the map needs, found here:
 /// - A retry never sends `.cloudTranscriptionResuming`, even when a saved
 ///   cloud job resumes: the Note Browser reads a retry as
@@ -390,7 +392,7 @@ struct NoteWorkMacFlowReplayTests {
             let today: NoteWorkStatus
             switch flow {
             case .firstTranscription:
-                today = NoteBrowserWorkStatus.firstTranscription(
+                today = RecordedNoteBrowserWorkStatus.firstTranscription(
                     isPostProcessing: step.isPostProcessing,
                     isCloudTranscribing: step.isCloudTranscribing,
                     cloudProgress: step.cloudProgress,
@@ -399,7 +401,7 @@ struct NoteWorkMacFlowReplayTests {
                     cleanup: stage
                 )
             case .retry(let isAudioOnly):
-                today = NoteBrowserWorkStatus.retry(
+                today = RecordedNoteBrowserWorkStatus.retry(
                     isRecovering: step.isRecovering,
                     isPostProcessing: step.isPostProcessing,
                     isAudioOnly: isAudioOnly,
@@ -421,9 +423,105 @@ struct NoteWorkMacFlowReplayTests {
     }
 
     /// The progress the event map sends for a published chunk count. It is
-    /// the Note Browser's reading (`NoteBrowserWorkStatus.workProgress`, which
-    /// is private), written here as the event map's own rule.
+    /// the Note Browser's reading (`AppState.noteWorkProgress`), written here as
+    /// the event map's own rule.
     private static func workProgress(_ progress: CloudTranscriptionDisplayProgress) -> NoteWorkProgress? {
+        if progress == .preparing { return .starting }
+        return NoteWorkProgress(completed: progress.completedChunkCount, total: progress.totalChunkCount)
+    }
+}
+
+/// What the Note Browser showed for each moment before the board (#768),
+/// kept as the record the replayed events are checked against. The app no
+/// longer has it; the board's forward-only bar is the one accepted change,
+/// and no replayed flow moves back.
+private enum RecordedNoteBrowserWorkStatus {
+    /// A note's first transcription, shown alone while the note has no text:
+    /// "Post-processing…" once the transcript is being cleaned up, chunk
+    /// progress, or "Transcribing…". "Resuming cloud transcription…" only
+    /// for a chunked cloud job that already has chunks done. Transcription
+    /// and cleanup share one bar, split by `cleanup` (#697).
+    static func firstTranscription(
+        isPostProcessing: Bool,
+        isCloudTranscribing: Bool,
+        cloudProgress: CloudTranscriptionDisplayProgress?,
+        cleanupProgress: NoteCleanupProgress? = nil,
+        cleanupReportsProgress: Bool = true,
+        cleanup: NoteCleanupStage = .off
+    ) -> NoteWorkStatus {
+        let stage = cleanup
+        if isPostProcessing {
+            return postProcessing(cleanupProgress, reportsProgress: cleanupReportsProgress, stage: stage)
+        }
+        let progress = NoteWorkProgress.combined(transcription: workProgress(cloudProgress), cleanup: stage)
+        // Local AI reports chunks too; only cloud jobs can be resuming.
+        guard isCloudTranscribing else { return .transcribing(progress) }
+        // Every chunk is in and the transcript is being saved: still
+        // transcribing, not resuming.
+        if let cloudProgress, cloudProgress.totalChunkCount > 0,
+           cloudProgress.completedChunkCount >= cloudProgress.totalChunkCount {
+            return .transcribing(progress)
+        }
+        // A job that hasn't finished a chunk yet is starting, not resuming.
+        if let cloudProgress, cloudProgress.completedChunkCount == 0, progress != nil {
+            return .transcribing(progress)
+        }
+        // No chunk progress at all: a file sent in one request (an imported
+        // audio file, or audio under the upload ceiling) never reports any.
+        // That is a new transcription, not a resume: a resume at launch
+        // always starts from its saved chunk counts.
+        guard let cloudProgress else { return .transcribing(nil) }
+        // A planned job with chunks already done, before its next upload.
+        guard cloudProgress.activeAttempt != nil else {
+            return .resumingCloudTranscription(progress)
+        }
+        return .transcribing(progress)
+    }
+
+    /// Transcribing a note again from the Note Browser, over its text:
+    /// "Recovering…" while a recording is recovered again, then
+    /// "Retranscribing…" ("Transcribing…" for an audio-only note that was
+    /// never transcribed), then "Post-processing…" once the new transcript
+    /// is being cleaned up, on the same bar as first transcription.
+    static func retry(
+        isRecovering: Bool,
+        isPostProcessing: Bool,
+        isAudioOnly: Bool,
+        cloudProgress: CloudTranscriptionDisplayProgress?,
+        cleanupProgress: NoteCleanupProgress? = nil,
+        cleanupReportsProgress: Bool = true,
+        cleanup: NoteCleanupStage = .off
+    ) -> NoteWorkStatus {
+        let stage = cleanup
+        if isRecovering { return .recovering }
+        if isPostProcessing {
+            return postProcessing(cleanupProgress, reportsProgress: cleanupReportsProgress, stage: stage)
+        }
+        let progress = NoteWorkProgress.combined(transcription: workProgress(cloudProgress), cleanup: stage)
+        return isAudioOnly ? .transcribing(progress) : .retranscribing(progress)
+    }
+
+    /// Cleanup continues the bar from the transcription's share, held at
+    /// that boundary until its first chunk count arrives; Edit Mode reports
+    /// none and keeps the spinner.
+    private static func postProcessing(
+        _ progress: NoteCleanupProgress?,
+        reportsProgress: Bool,
+        stage: NoteCleanupStage
+    ) -> NoteWorkStatus {
+        let chunks = progress?.workProgress
+        return .postProcessing(.combined(cleanupProgress: chunks, stage: stage, reportsProgress: reportsProgress))
+    }
+
+    static func summary(hasSummary: Bool) -> NoteWorkStatus {
+        hasSummary ? .regeneratingSummary : .creatingSummary
+    }
+
+    /// Nil when the work won't report progress (one cloud request, or a
+    /// local engine without chunks); 0% while a chunked job is still
+    /// planning, so its bar is there from the start.
+    private static func workProgress(_ progress: CloudTranscriptionDisplayProgress?) -> NoteWorkProgress? {
+        guard let progress else { return nil }
         if progress == .preparing { return .starting }
         return NoteWorkProgress(completed: progress.completedChunkCount, total: progress.totalChunkCount)
     }
