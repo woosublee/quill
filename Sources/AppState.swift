@@ -7438,6 +7438,36 @@ final class AppState: ObservableObject, @unchecked Sendable {
         noteWorkBoard.setStage(noteCleanupStage(noteID: noteAfter), for: noteAfter.uuidString)
     }
 
+    /// Test seams for the board's job paths (#886): a dictation import job,
+    /// its live note, its cleanup, and its finish, as the import path runs
+    /// them, without a real transcription.
+    @MainActor
+    func registerImportJobForTesting(id: UUID) {
+        registerTranscriptionJob(
+            id: id,
+            startedAt: Date(),
+            sessionIntent: .dictation,
+            sessionContext: nil,
+            contextTask: nil,
+            isImportedAudio: true
+        )
+    }
+
+    @MainActor
+    func setJobLiveNoteForTesting(_ noteID: UUID?, job: UUID) {
+        updateTranscriptionJob(job) { $0.liveNoteID = noteID }
+    }
+
+    @MainActor
+    func startJobCleanupForTesting(_ job: UUID) {
+        _ = markTranscriptionJobPostProcessing(job)
+    }
+
+    @MainActor
+    func finishTranscriptionJobForTesting(_ id: UUID) {
+        finishTranscriptionJob(id)
+    }
+
     @MainActor
     private func finishTranscriptionJob(_ id: UUID) {
         textInsertionPlans.removeValue(forKey: id)

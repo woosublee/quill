@@ -13,6 +13,7 @@ enum AppStateNoteWorkTests {
         try await verifiesDeleteNowForgetsTheWork()
         try await verifiesFirstTranscriptionProgress()
         try verifiesJobNoteMoves()
+        try await verifiesImportLetsGoOfItsNote()
         print("AppStateNoteWorkTests passed")
     }
 
@@ -38,6 +39,42 @@ enum AppStateNoteWorkTests {
         plain.apply(.transcriptionStarted(.first, reportsProgress: false))
         plain.apply(.transcriptionEnded)
         try expect(!plain.isActive, "a cleanup-off import leaves no work once its note is saved")
+    }
+
+    /// A cleanup-off import whose job ID isn't its note's: saving the note
+    /// clears the job's live note, and the note keeps no work. With cleanup
+    /// running, letting go keeps the cleanup.
+    private static func verifiesImportLetsGoOfItsNote() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try store.append(makeNote(id: noteA, status: "Post-processing succeeded"), maxCount: Int.max)
+            _ = try store.append(makeNote(id: noteB, status: "Post-processing succeeded"), maxCount: Int.max)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            try await MainActor.run {
+                let board = appState.noteWorkBoard
+                let job = UUID(uuidString: "00000000-0000-0000-0000-0000000000D1")!
+                appState.disablePostProcessing = true
+                appState.registerImportJobForTesting(id: job)
+                appState.setJobLiveNoteForTesting(noteA, job: job)
+                try expect(board.work(for: noteA.uuidString).status == .transcribing(nil), "the import works on its note")
+                try expect(board.works[job.uuidString] == nil, "not on the job's own ID")
+                appState.setJobLiveNoteForTesting(nil, job: job)
+                try expect(board.works[noteA.uuidString] == nil, "saving the note ends its first transcription")
+                appState.finishTranscriptionJobForTesting(job)
+                try expect(board.works.isEmpty, "nothing is left once the job finishes")
+
+                let cleanupJob = UUID(uuidString: "00000000-0000-0000-0000-0000000000D2")!
+                appState.disablePostProcessing = false
+                appState.registerImportJobForTesting(id: cleanupJob)
+                appState.setJobLiveNoteForTesting(noteB, job: cleanupJob)
+                appState.startJobCleanupForTesting(cleanupJob)
+                try expect(board.work(for: noteB.uuidString).isPostProcessing, "cleanup took over")
+                appState.setJobLiveNoteForTesting(nil, job: cleanupJob)
+                try expect(board.work(for: noteB.uuidString).isPostProcessing, "letting go of the note keeps its cleanup")
+                appState.finishTranscriptionJobForTesting(cleanupJob)
+                try expect(board.works[noteB.uuidString] == nil, "the job's finish ends its cleanup")
+            }
+        }
     }
 
     private static func verifiesRetryStartsAndEnds() async throws {
