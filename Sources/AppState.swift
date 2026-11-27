@@ -3113,6 +3113,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Where a job's first transcription goes when its note changes. A job
+    /// that gets its note moves the work to it. A job that lets go of its
+    /// note (the note is saved, the dictation was cancelled, or saving
+    /// failed) ends that note's first transcription, keeping any cleanup
+    /// running there, and starts nothing on its own ID.
+    nonisolated static func noteWorkMove(before: UUID, after: UUID, hasLiveNote: Bool) -> (ends: UUID?, starts: UUID?) {
+        guard before != after else { return (nil, nil) }
+        return (before, hasLiveNote ? after : nil)
+    }
+
     /// The note a transcription job works on, as the toolbar matched it.
     @MainActor
     private static func noteWorkKey(of job: TranscriptionJob) -> UUID {
@@ -7419,15 +7429,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let noteBefore = Self.noteWorkKey(of: job)
         mutate(&job)
         activeTranscriptionJobs[id] = job
-        // The job got its note: the work moves to it. A job that lets go of
-        // its note (the note is saved, or the dictation was cancelled)
-        // starts nothing on its own ID, and the note keeps its split.
         let noteAfter = Self.noteWorkKey(of: job)
+        let move = Self.noteWorkMove(before: noteBefore, after: noteAfter, hasLiveNote: job.liveNoteID != nil)
+        if let ended = move.ends { noteFirstTranscriptionEnded(noteID: ended) }
+        if let started = move.starts { noteTranscriptionJobStarted(noteID: started) }
         guard job.liveNoteID != nil else { return }
-        if noteAfter != noteBefore {
-            noteFirstTranscriptionEnded(noteID: noteBefore)
-            noteTranscriptionJobStarted(noteID: noteAfter)
-        }
         // The job's own cleanup choice can change the note's split.
         noteWorkBoard.setStage(noteCleanupStage(noteID: noteAfter), for: noteAfter.uuidString)
     }

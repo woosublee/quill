@@ -12,7 +12,32 @@ enum AppStateNoteWorkTests {
         try await verifiesStageFollowsTheSetting()
         try await verifiesDeleteNowForgetsTheWork()
         try await verifiesFirstTranscriptionProgress()
+        try verifiesJobNoteMoves()
         print("AppStateNoteWorkTests passed")
+    }
+
+    /// A job that lets go of its note ends that note's first transcription
+    /// (a cleanup-off import saving its note), and starts nothing on the
+    /// job's own ID.
+    private static func verifiesJobNoteMoves() throws {
+        let job = UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!
+        let got = AppState.noteWorkMove(before: job, after: noteA, hasLiveNote: true)
+        try expect(got.ends == job && got.starts == noteA, "getting a note moves the work to it")
+        let released = AppState.noteWorkMove(before: noteA, after: job, hasLiveNote: false)
+        try expect(released.ends == noteA && released.starts == nil, "letting go of the note ends its first transcription")
+        let same = AppState.noteWorkMove(before: noteA, after: noteA, hasLiveNote: true)
+        try expect(same.ends == nil && same.starts == nil, "no move, no change")
+
+        // What ending the released note's transcription leaves: its cleanup.
+        var work = NoteWork(stage: .cloud)
+        work.apply(.transcriptionStarted(.first, reportsProgress: false))
+        work.apply(.transcriptionFinished(cleanupFollows: true))
+        work.apply(.transcriptionEnded)
+        try expect(work.isPostProcessing, "a running cleanup stays when the note is let go")
+        var plain = NoteWork(stage: .off)
+        plain.apply(.transcriptionStarted(.first, reportsProgress: false))
+        plain.apply(.transcriptionEnded)
+        try expect(!plain.isActive, "a cleanup-off import leaves no work once its note is saved")
     }
 
     private static func verifiesRetryStartsAndEnds() async throws {
