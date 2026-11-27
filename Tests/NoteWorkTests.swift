@@ -25,6 +25,7 @@ struct NoteWorkTests {
         testANewAttemptIsRecordedFromItsFirstReport()
         testReportWithoutAttemptBelongsToTheCurrentOne()
         MainActor.assumeIsolated { testBoardPublishesOneValuePerNote() }
+        MainActor.assumeIsolated { testBoardKeepsEachNotesOwnStage() }
         print("NoteWorkTests passed")
     }
 
@@ -407,6 +408,31 @@ struct NoteWorkTests {
         board.send(.recoveringStarted, for: "note-b")
         board.forget("note-b")
         precondition(board.works.isEmpty)
+        subscription.cancel()
+    }
+
+    @MainActor
+    private static func testBoardKeepsEachNotesOwnStage() {
+        let board = NoteWorkBoard()
+        var published = 0
+        let subscription = board.$works.dropFirst().sink { _ in published += 1 }
+        board.send(.transcriptionStarted(.first), for: "note-a", stage: .onDevice)
+        precondition(published == 1, "the stage and the event are one published change")
+        board.send(.transcriptionStarted(.retranscription), for: "note-b", stage: .off)
+        precondition(board.work(for: "note-a").stage == .onDevice && board.work(for: "note-b").stage == .off)
+        board.send(.transcriptionProgressed(p(1, 2)), for: "note-a", stage: .onDevice)
+        precondition(board.work(for: "note-a").status?.progress?.percent == 30, "half of the on-device 60%")
+        let before = published
+        board.setStage(.cloud, for: "note-a")
+        precondition(published == before + 1 && board.work(for: "note-a").status?.progress?.percent == 40)
+        precondition(board.work(for: "note-b").stage == .off, "other notes keep theirs")
+        board.setStage(.cloud, for: "note-a")
+        board.setStage(.cloud, for: "note-c")
+        precondition(published == before + 1, "no change, or no work: nothing published")
+        precondition(board.works["note-c"] == nil)
+        // An event that ends the work removes the note, whatever its stage.
+        board.send(.transcriptionEnded, for: "note-b", stage: .cloud)
+        precondition(board.works["note-b"] == nil)
         subscription.cancel()
     }
 

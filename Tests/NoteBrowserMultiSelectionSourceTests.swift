@@ -86,7 +86,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         // off (the shared table turns Delete off during any work). Asking to
         // delete it from elsewhere explains why not.
         precondition(source.contains("isRecording: appState.isRecordingNote(noteID: item.id),"))
-        precondition(source.contains("return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none"))
+        precondition(source.contains("noteWork.toolbarWork"))
         precondition(source.contains("|| appState.isRecordingInProgress(noteID: item.id)"))
         precondition(source.contains("\"Can’t delete while recording\""), "short notices fit on one line in the sidebar")
         precondition(source.contains("\"Can’t delete while recovering\""))

@@ -31,6 +31,7 @@ struct FullSourceAppStateTestRunner {
             try await MeetingSummaryAppStateTests.main()
             try await AppStateNoteSyncTests.main()
             try AppStateCalendarMatchTests.main()
+            try await AppStateNoteWorkTests.main()
         }
     }
 

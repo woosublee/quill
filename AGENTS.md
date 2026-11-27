@@ -255,8 +255,12 @@ otherwise.
   (`QuillRecordingControl`: the floating Record button beside the list,
   the recorder bar otherwise, quill-universal-private#306), and the note column's own width decides its side
   margins and body maximum width; the work-status capsule sits in the
-  middle of the visible note area at every width. The Mac maps its work in
-  `Sources/NoteBrowserWorkStatus.swift` and uses only the layout's list
+  middle of the visible note area at every width. Each note's transcription work is one
+  `NoteWork` on a `NoteWorkBoard` (#768), on both apps: the Mac's
+  `AppState` sends it a `NoteWorkEvent` wherever the work changes, each
+  note with its own cleanup split (`send(_:for:stage:)`,
+  `setStage(_:for:)`), and the Note Browser's empty body, capsule, tab
+  indicator, and toolbar read it. The Mac uses only the layout's list
   column width; its note column keeps its own margins. Each app passes the note's state, its localized
   strings, and the actions; the views hold no app state and run no work.
   Platform differences stay in small `#if os` branches. The Mac's note

@@ -1792,7 +1792,8 @@ struct NoteBrowserView: View {
                 item: item,
                 isSearchActive: isSearchActive,
                 prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText),
-                titleBarExtraHeight: titleBarExtraHeight
+                titleBarExtraHeight: titleBarExtraHeight,
+                noteWorkBoard: appState.noteWorkBoard
             ) {
                 deleteConfirmedNote(id)
             }
@@ -2584,6 +2585,9 @@ private struct NoteDetailView: View {
     /// How far the window's title bar reaches below its designed height;
     /// the header moves down by it (see `TitleBarLayout`).
     let titleBarExtraHeight: CGFloat
+    /// Each note's transcription work (#768): what this note shows while it
+    /// is transcribed, cleaned up, or recovered.
+    @ObservedObject var noteWorkBoard: NoteWorkBoard
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -2597,7 +2601,6 @@ private struct NoteDetailView: View {
     @State private var toastMessage: String?
     @State private var toastID: UUID?
     @State private var titleDraft = ""
-    @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
     /// The title the field took from outside it, such as from another Mac;
     /// the field's change to it isn't saved back as an edit.
@@ -2663,9 +2666,6 @@ private struct NoteDetailView: View {
             recoveryAction: hasAudio ? .retryTranscription : .none,
             severity: .error
         )
-    }
-    private var cloudProgress: CloudTranscriptionDisplayProgress? {
-        appState.cloudTranscriptionProgressByHistoryID[item.id]
     }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
     private var unrecoveredContext: UnrecoveredRecordingContext? {
@@ -2847,7 +2847,7 @@ private struct NoteDetailView: View {
     /// reads only cheap flags; the warning's presentation is built only when
     /// its row draws.
     private var transcriptNoticeGroup: NoteTranscriptNoticeGroup {
-        let isWorkRunning = isRetrying
+        let isWorkRunning = showsWorkOverText
             || isDownloadingToRetry
             || isRecoveringRecording
             || appState.postProcessingNoteIDs.contains(item.id)
@@ -3008,9 +3008,9 @@ private struct NoteDetailView: View {
                     .overlay {
                         // Retranscribing covers only the transcript; the
                         // Summary tab stays usable meanwhile.
-                        if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {
+                        if showsWorkOverText, selectedContentMode == .transcript || !showsSummaryTab {
                             retryingOverlay
-                        } else if isRecoveringRecording {
+                        } else if noteWork.transcription == .recovering {
                             retryingOverlay
                         } else if isGeneratingSummary,
                                   selectedContentMode == .summary,
@@ -3019,6 +3019,9 @@ private struct NoteDetailView: View {
                             NoteWorkStatusOverlay(workStatusPresentation(summaryWorkStatus))
                         }
                     }
+                    // The capsule comes and goes as it did with the retry
+                    // set (0.16 s), now when the note's work moves over its text.
+                    .animation(.easeOut(duration: 0.16), value: showsWorkOverText)
             }
             // The recording's own note has nothing to act on yet, and
             // deleting it mid-recording would bring it back (#437).
@@ -3133,11 +3136,6 @@ private struct NoteDetailView: View {
                 appState.openProviderSettings()
             } onCancel: {
                 retryChoiceRequest = nil
-            }
-        }
-        .onReceive(appState.$retryingItemIDs) { ids in
-            withAnimation(.easeOut(duration: 0.16)) {
-                isRetrying = ids.contains(item.id)
             }
         }
         // The pieces of a recording that could not be recovered go with the
@@ -3441,7 +3439,7 @@ private struct NoteDetailView: View {
     @ViewBuilder
     private var transcriptTabIndicator: some View {
         if isShowingSummaryTab {
-            if isRetrying {
+            if showsWorkOverText {
                 NoteWorkStatusIndicator(workStatusPresentation(retryingWorkStatus))
             } else if transcriptCandidate != nil {
                 Circle()
@@ -4024,33 +4022,42 @@ private struct NoteDetailView: View {
         }
     }
 
-    /// The first transcription, shown alone while the note has no text.
+    /// The note's transcription work, from the board `AppState` keeps
+    /// (#768).
+    private var noteWork: NoteWork {
+        noteWorkBoard.work(for: item.id.uuidString)
+    }
+
+    /// The work shows over the note's text, in the capsule, while the Note
+    /// Browser transcribes the note again (or an audio-only note for the
+    /// first time), and through that retry's cleanup, or while Retry
+    /// Post-processing runs. A first transcription shows alone in the empty
+    /// note instead, and "Recovering…" has its own layer. Read from the
+    /// retry set AppState publishes, so it lasts as long as the retry.
+    private var showsWorkOverText: Bool {
+        noteWork.isActive && noteWork.transcription != .recovering
+            && appState.retryingItemIDs.contains(item.id)
+    }
+
+    /// The first transcription, shown alone while the note has no text:
+    /// "Transcribing…" without a bar while nothing reports progress yet. A
+    /// note without text transcribed again from here reads as its first
+    /// transcription, as before the board.
     private var processingWorkStatus: NoteWorkStatus {
-        NoteBrowserWorkStatus.firstTranscription(
-            isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
-            isCloudTranscribing: isCloudTranscribing,
-            cloudProgress: cloudProgress,
-            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
-            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
-            cleanup: appState.noteCleanupStage(noteID: item.id)
-        )
+        switch noteWork.status {
+        case .retranscribing(let progress)?: return .transcribing(progress)
+        case .recovering?, nil: return .transcribing(nil)
+        case let status?: return status
+        }
     }
 
     /// Transcribing again, or recovering, over the note's text.
     private var retryingWorkStatus: NoteWorkStatus {
-        NoteBrowserWorkStatus.retry(
-            isRecovering: isRecoveringRecording,
-            isPostProcessing: appState.postProcessingNoteIDs.contains(item.id),
-            isAudioOnly: isAudioOnly,
-            cloudProgress: cloudProgress,
-            cleanupProgress: appState.postProcessingProgressByNoteID[item.id],
-            cleanupReportsProgress: appState.postProcessingReportsProgress(noteID: item.id),
-            cleanup: appState.noteCleanupStage(noteID: item.id)
-        )
+        noteWork.status ?? (isAudioOnly ? .transcribing(nil) : .retranscribing(nil))
     }
 
     private var summaryWorkStatus: NoteWorkStatus {
-        NoteBrowserWorkStatus.summary(hasSummary: summaryEnvelope != nil)
+        summaryEnvelope != nil ? .regeneratingSummary : .creatingSummary
     }
 
     private func workStatusPresentation(_ status: NoteWorkStatus) -> NoteWorkStatus.Presentation {
@@ -4131,11 +4138,7 @@ private struct NoteDetailView: View {
     /// The note's transcription work: a retranscription from here (or a
     /// resumed one), or the first transcription after its recording.
     private var toolbarWork: NoteToolbarWork {
-        if isRetrying {
-            if appState.postProcessingNoteIDs.contains(item.id) { return .postProcessing }
-            return isAudioOnly ? .transcribing : .retranscribing
-        }
-        return appState.noteTranscriptionJobWork(noteID: item.id) ?? .none
+        noteWork.toolbarWork
     }
 
     /// Whether this note's running work can stop from here: a cleanup
@@ -4147,9 +4150,8 @@ private struct NoteDetailView: View {
         case .postProcessing, .waitingToPostProcess:
             return appState.canCancelPostProcessing(noteID: item.id)
         case .transcribing, .retranscribing:
-            return isRetrying
-                ? canCancelRetry
-                : appState.canCancelFirstTranscription(noteID: item.id)
+            // Only one of them can run for the note.
+            return canCancelRetry || appState.canCancelFirstTranscription(noteID: item.id)
         case .none, .waitingToTranscribe, .cancelling:
             return false
         }
@@ -4170,7 +4172,7 @@ private struct NoteDetailView: View {
             },
             // While retrying (or recovering) the progress slot says what
             // the overlay says.
-            progress: isRetrying
+            progress: showsWorkOverText
                 ? workStatusPresentation(retryingWorkStatus).title
                 : localizedCatalogString(toolbarWork.progressLabelKey),
             copy: localizedCatalogString("Copy content"),
@@ -4206,7 +4208,7 @@ private struct NoteDetailView: View {
             handleSummaryAction()
         case .cancelTranscription, .cancelRetranscription:
             guard isFirstSlotSettled else { return }
-            if isRetrying {
+            if canCancelRetry {
                 appState.cancelTranscriptionRetry(item: item)
             } else {
                 appState.cancelFirstTranscription(noteID: item.id)

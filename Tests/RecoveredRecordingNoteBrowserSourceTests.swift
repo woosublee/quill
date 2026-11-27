@@ -45,10 +45,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]"))
         // Cloud chunk progress, "Transcribing…", and "Post-processing…" share
         // one stage label in the note detail: the shared work status (#697).
-        let workStatus = (try? String(contentsOfFile: "Sources/NoteBrowserWorkStatus.swift", encoding: .utf8)) ?? ""
+        // Since #768 the note's work comes from AppState's board.
+        let workStatus = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
         precondition(source.contains("NoteWorkStatusView(workStatusPresentation(processingWorkStatus), style: .centered)"))
-        precondition(source.contains("cloudProgress: cloudProgress"))
-        precondition(workStatus.contains("return .resumingCloudTranscription(progress)"))
+        precondition(source.contains("noteWorkBoard.work(for: item.id.uuidString)"))
+        precondition(workStatus.contains("sendNoteWork(.cloudTranscriptionResuming(shown), noteID: noteID)"))
         precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(source.contains("actionState.showsRetryButton"))
         precondition(source.contains("NoteFileExportView("))
@@ -173,7 +174,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(setupBranch.contains("Set up a model in Settings to retry transcription."))
 
         // Retrying covers the body with a loading layer instead of replacing it.
-        precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
+        precondition(source.contains("if showsWorkOverText, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
         let sharedStatusView = (try? String(contentsOfFile: "Packages/QuillNoteUI/Sources/NoteWorkStatusView.swift", encoding: .utf8)) ?? ""
         precondition(sharedStatusView.contains(".fill(QuillColor.surfaceNote(for: colorScheme).opacity(QuillOpacity.statusWash))"))
         // The wash is the note page token, which on the Mac is still the
@@ -191,9 +192,9 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("NoteWorkStatusOverlay(workStatusPresentation(retryingWorkStatus))"))
         // #262: making a summary uses the same layer, not a banner of its own.
         precondition(source.contains("NoteWorkStatusOverlay(workStatusPresentation(summaryWorkStatus))"))
-        let browserWorkStatus = (try? String(contentsOfFile: "Sources/NoteBrowserWorkStatus.swift", encoding: .utf8)) ?? ""
-        precondition(browserWorkStatus.contains("hasSummary ? .regeneratingSummary : .creatingSummary"))
-        precondition(browserWorkStatus.contains("isAudioOnly ? .transcribing(progress) : .retranscribing(progress)"))
+        let browserWorkStatus = (try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)) ?? ""
+        precondition(source.contains("summaryEnvelope != nil ? .regeneratingSummary : .creatingSummary"))
+        precondition(browserWorkStatus.contains(".transcriptionStarted(isAudioOnly ? .first : .retranscription"))
 
         // Retry state is published once per update, so the layer does not blink.
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
@@ -463,8 +464,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // #578: nor does work in progress, which the transcript overlay and
         // the empty body show instead.
         precondition(!indicator.contains("ProgressView"))
-        precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
-        precondition(source.contains("} else if isRecoveringRecording {\n                            retryingOverlay"))
+        precondition(source.contains("if showsWorkOverText, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
+        precondition(source.contains("} else if noteWork.transcription == .recovering {\n                            retryingOverlay"))
         precondition(source.contains("} else if isCloudTranscribing\n"))
         precondition(!source.contains("LiveRecordingBadge"))
 

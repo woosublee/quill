@@ -3688,12 +3688,9 @@ struct TranscriptionRetryWorkflowTests {
         let shown = try XCTUnwrapProgress(workflow.state.progressByNoteID[item.id])
         try expectEqual(shown.totalChunkCount, 100, "percent on the bar")
         try expect(shown.activeAttempt != nil, "a running job, never a cloud job resuming")
-        try expect(
-            NoteBrowserWorkStatus.firstTranscription(
-                isPostProcessing: false, isCloudTranscribing: true, cloudProgress: shown
-            ) == .transcribing(NoteWorkProgress(completed: 40, total: 100)),
-            "note left on a cloud job reads as transcribing"
-        )
+        // The event AppState sends for it: still transcribing, not resuming.
+        try expect(!AppState.isResumingCloudTranscription(shown), "note left on a cloud job reads as transcribing")
+        try expect(AppState.noteWorkProgress(shown) == NoteWorkProgress(completed: 40, total: 100), "40 of 100 on the bar")
         await gate.succeed(transcriptionResult(text: "provider raw"))
         try await waitUntil { events.outcomes.count == 1 }
         try expect(workflow.state.progressByNoteID[item.id] == nil, "progress cleared")

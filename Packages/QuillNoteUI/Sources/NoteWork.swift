@@ -335,13 +335,29 @@ public final class NoteWorkBoard: ObservableObject {
     /// Applies `event` to the note's work and publishes it once, only when it
     /// changed.
     public func send(_ event: NoteWorkEvent, for noteID: String) {
+        send(event, for: noteID, stage: work(for: noteID).stage)
+    }
+
+    /// `send(_:for:)` for an app whose notes split the bar differently (the
+    /// Mac: a recording keeps the cleanup choice its shortcut made). The
+    /// note's work takes `stage` before the event, in the same publish.
+    public func send(_ event: NoteWorkEvent, for noteID: String, stage: NoteCleanupStage) {
         var work = work(for: noteID)
+        work.stage = stage
         work.apply(event)
         if work.isActive {
             if works[noteID] != work { works[noteID] = work }
         } else if works[noteID] != nil {
             works[noteID] = nil
         }
+    }
+
+    /// The cleanup split for one note's running work. A note without work is
+    /// left alone.
+    public func setStage(_ stage: NoteCleanupStage, for noteID: String) {
+        guard var work = works[noteID], work.stage != stage else { return }
+        work.stage = stage
+        works[noteID] = work
     }
 
     public func setStage(_ stage: NoteCleanupStage) {
