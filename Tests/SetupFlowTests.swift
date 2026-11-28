@@ -302,8 +302,39 @@ struct SetupFlowTests {
             from: "func applicationShouldHandleReopen(",
             to: "\n    @MainActor"
         )
-        assert(reopenBody.contains("guard appState.hasCompletedSetup else { return true }"))
+        assert(reopenBody.contains("guard appState.hasCompletedSetup else {"))
         assert(reopenBody.contains("showNoteBrowserWindow()"))
+        // #882: before setup finishes, a Dock click brings back the setup
+        // window: an open one (also minimized or hidden) comes to the front,
+        // and only a closed one opens again, so there is never a second wizard.
+        let unfinishedBranch = sourceBlock(
+            in: reopenBody,
+            from: "guard appState.hasCompletedSetup else {",
+            to: "showNoteBrowserWindow()"
+        )
+        assert(unfinishedBranch.contains("if !frontOpenSetupWindow() { showSetupWindow() }"))
+        assert(unfinishedBranch.contains("return false"))
+        let frontBody = sourceBlock(
+            in: source,
+            from: "private func frontOpenSetupWindow() -> Bool {",
+            to: "\n    }"
+        )
+        assert(frontBody.contains("isSetupWindowOpen"))
+        assert(!frontBody.contains("isVisible"))
+        assert(frontBody.contains("deminiaturize(nil)"))
+        let showSetupBody = sourceBlock(
+            in: source,
+            from: "func showSetupWindow() {",
+            to: "private func frontOpenSetupWindow("
+        )
+        assert(showSetupBody.contains("isSetupWindowOpen = true"))
+        assert(showSetupBody.contains("self.isSetupWindowOpen = false"))
+        let handleShowSetupBody = sourceBlock(
+            in: source,
+            from: "@objc func handleShowSetup() {",
+            to: "showSetupWindow()"
+        )
+        assert(handleShowSetupBody.contains("if frontOpenSetupWindow() { return }"))
         assert(!reopenBody.contains("showSettingsWindow()"))
 
         let completeSetupBody = sourceBlock(
