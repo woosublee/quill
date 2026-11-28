@@ -9,6 +9,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     #endif
     var setupWindow: NSWindow?
+    /// Whether `setupWindow` is still open: on screen, minimized, or hidden
+    /// with the app (`isVisible` is false for the last two). Cleared when it
+    /// closes (#882).
+    private var isSetupWindowOpen = false
+    private var setupWindowCloseObserver: NSObjectProtocol?
     private var settingsWindow: NSWindow?
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
@@ -169,7 +174,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard appState.hasCompletedSetup else { return true }
+        guard appState.hasCompletedSetup else {
+            // Setup isn't finished (#882): bring its window back, or reopen it
+            // if it was closed. Handled here, so AppKit doesn't also restore
+            // another minimized window over it.
+            if !frontOpenSetupWindow() { showSetupWindow() }
+            return false
+        }
         // 독 클릭 = 항상 노트 브라우저 앞으로
         showNoteBrowserWindow()
         return true
@@ -183,11 +194,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         newSettingsWindow?.close()
         // Single wizard at a time — opening a second leaks the first's
         // willClose observer and breaks the bail-restore.
-        if let existing = setupWindow, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
+        if frontOpenSetupWindow() { return }
 
         if let setupWindow {
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: setupWindow)
@@ -390,7 +397,32 @@ private func showNoteBrowserWindow() {
         window.isReleasedWhenClosed = false
 
         self.setupWindow = window
+        isSetupWindowOpen = true
+        if let setupWindowCloseObserver {
+            NotificationCenter.default.removeObserver(setupWindowCloseObserver)
+        }
+        setupWindowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            guard let self, let window, self.setupWindow === window else { return }
+            self.isSetupWindowOpen = false
+        }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Brings back a setup wizard that is still open (on screen, minimized,
+    /// or hidden with the app) and says whether there was one. Only a closed
+    /// wizard is opened again: a second one would break a re-run's close
+    /// observer and its bail-restore (#882).
+    @MainActor
+    private func frontOpenSetupWindow() -> Bool {
+        guard let setupWindow, isSetupWindowOpen else { return false }
+        if setupWindow.isMiniaturized { setupWindow.deminiaturize(nil) }
+        setupWindow.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return true
     }
 
     @MainActor
